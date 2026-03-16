@@ -5,10 +5,10 @@ import { sshKeys } from '../db/schema';
 import { hetznerClient } from '../lib/hetzner';
 import { fingerprintSSHKey } from '../lib/crypto';
 import { config } from '../lib/config';
-import { authMiddleware, type AuthVariables } from '../lib/middleware';
+import { apiGuard, type AuthVariables } from '../lib/api-guard';
 
 export const sshKeysApp = new Hono<{ Variables: AuthVariables }>();
-sshKeysApp.use('*', authMiddleware);
+sshKeysApp.use('*', apiGuard);
 
 sshKeysApp.post('/', async (c) => {
   const body = await c.req.json();

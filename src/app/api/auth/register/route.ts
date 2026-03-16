@@ -10,7 +10,7 @@ import { hashPassword } from '@/server/lib/crypto';
 import { z } from 'zod';
 
 const RegisterSchema = z.object({
-  email: z.string().email('Invalid email address'),
+  email: z.string().email('Invalid email address').transform((e) => e.toLowerCase().trim()),
   password: z
     .string()
     .min(8, 'Password must be at least 8 characters')

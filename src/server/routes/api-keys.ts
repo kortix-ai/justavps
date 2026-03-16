@@ -3,10 +3,10 @@ import { eq, and } from 'drizzle-orm';
 import { db } from '../db';
 import { apiKeys } from '../db/schema';
 import { generateApiKey } from '../lib/crypto';
-import { authMiddleware, type AuthVariables } from '../lib/middleware';
+import { apiGuard, type AuthVariables } from '../lib/api-guard';
 
 export const apiKeysApp = new Hono<{ Variables: AuthVariables }>();
-apiKeysApp.use('*', authMiddleware);
+apiKeysApp.use('*', apiGuard);
 
 apiKeysApp.post('/', async (c) => {
   const body = await c.req.json();

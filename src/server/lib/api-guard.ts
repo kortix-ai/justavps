@@ -1,0 +1,106 @@
+import { createMiddleware } from 'hono/factory';
+import { db } from '../db';
+import { apiKeys, users } from '../db/schema';
+import { validateApiKey } from './crypto';
+import { eq } from 'drizzle-orm';
+import { decode } from 'next-auth/jwt';
+
+export type AuthVariables = {
+  userId: string;
+};
+
+function extractSessionCookie(cookieHeader: string): { value: string; salt: string } | null {
+  const patterns: { name: string; salt: string }[] = [
+    { name: '__Secure-authjs.session-token', salt: '__Secure-authjs.session-token' },
+    { name: 'authjs.session-token', salt: 'authjs.session-token' },
+    { name: 'next-auth.session-token', salt: 'authjs.session-token' },
+  ];
+
+  for (const { name, salt } of patterns) {
+    const regex = new RegExp(`(?:^|;\\s*)${name.replace(/\./g, '\\.')}=([^;]+)`);
+    const match = cookieHeader.match(regex);
+    if (match) {
+      return { value: decodeURIComponent(match[1]), salt };
+    }
+  }
+
+  return null;
+}
+
+export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(
+  async (c, next) => {
+    const authHeader = c.req.header('Authorization');
+
+    if (authHeader?.startsWith('Bearer sk_live_')) {
+      const key = authHeader.slice(7);
+      try {
+        const allKeys = await db.select().from(apiKeys);
+        for (const k of allKeys) {
+          if (await validateApiKey(key, k.keyHash)) {
+            db.update(apiKeys)
+              .set({ lastUsed: new Date() })
+              .where(eq(apiKeys.id, k.id))
+              .catch(() => {});
+            c.set('userId', k.ownerId);
+            return next();
+          }
+        }
+      } catch (err) {
+        console.error('[API_GUARD] API key validation error:', err);
+      }
+      return c.json({ error: true, message: 'Invalid API key', status: 401 }, 401);
+    }
+
+    if (authHeader?.startsWith('Bearer ')) {
+      return c.json({ error: true, message: 'Invalid API key format', status: 401 }, 401);
+    }
+
+    const authSecret = process.env.AUTH_SECRET;
+    if (authSecret) {
+      try {
+        const cookieHeader = c.req.header('Cookie') || '';
+        const session = extractSessionCookie(cookieHeader);
+
+        if (session) {
+          const token = await decode({
+            token: session.value,
+            secret: authSecret,
+            salt: session.salt,
+          });
+
+          if (token?.sub) {
+            const [user] = await db
+              .select({ id: users.id })
+              .from(users)
+              .where(eq(users.id, token.sub));
+
+            if (user) {
+              c.set('userId', user.id);
+              return next();
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[API_GUARD] Session decode error:', err);
+      }
+    }
+
+    if (!authSecret) {
+      console.warn('[API_GUARD] No AUTH_SECRET — using dev fallback');
+      try {
+        const [firstUser] = await db
+          .select({ id: users.id })
+          .from(users)
+          .limit(1);
+        if (firstUser) {
+          c.set('userId', firstUser.id);
+          return next();
+        }
+      } catch {}
+      c.set('userId', 'dev-user-00000000-0000-0000-0000-000000000000');
+      return next();
+    }
+
+    return c.json({ error: true, message: 'Authentication required', status: 401 }, 401);
+  },
+);

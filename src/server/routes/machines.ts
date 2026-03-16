@@ -13,7 +13,7 @@ import { cloudflareClient } from '../lib/cloudflare';
 import { generateMachineToken, generatePassword } from '../lib/crypto';
 import { buildCloudInit } from '../lib/cloud-init';
 import { config } from '../lib/config';
-import { authMiddleware, type AuthVariables } from '../lib/middleware';
+import { apiGuard, type AuthVariables } from '../lib/api-guard';
 import { stripeClient } from '../lib/stripe';
 import { CreateMachineSchema, ResizeMachineSchema } from '@/lib/schemas';
 import { users } from '../db/schema';
@@ -21,7 +21,7 @@ import { users } from '../db/schema';
 export const machinesApp = new Hono<{ Variables: AuthVariables }>();
 
 // All machine routes require auth
-machinesApp.use('*', authMiddleware);
+machinesApp.use('*', apiGuard);
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 

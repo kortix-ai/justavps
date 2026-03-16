@@ -9,10 +9,10 @@ import { streamSSE } from 'hono/streaming';
 import { eq } from 'drizzle-orm';
 import { db } from '../db';
 import { machines } from '../db/schema';
-import { authMiddleware, type AuthVariables } from '../lib/middleware';
+import { apiGuard, type AuthVariables } from '../lib/api-guard';
 
 export const sseApp = new Hono<{ Variables: AuthVariables }>();
-sseApp.use('*', authMiddleware);
+sseApp.use('*', apiGuard);
 
 sseApp.get('/:id/status/stream', async (c) => {
   const id = c.req.param('id');
