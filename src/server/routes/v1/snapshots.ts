@@ -9,9 +9,9 @@
  */
 
 import { Hono } from 'hono';
-import { eq } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../../db';
-import { snapshots } from '../../db/schema';
+import { snapshots, machines } from '../../db/schema';
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 import { getProvider, listProviders } from '../../lib/providers';
 import { requireOwnedResource, requireProvider, errorResponse, handleRouteError } from '../../lib/route-helpers';
@@ -32,7 +32,7 @@ const CreateSnapshotSchema = z.object({
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function serializeSnapshot(s: typeof snapshots.$inferSelect) {
+function serializeSnapshot(s: typeof snapshots.$inferSelect, lastUsedAt?: Date | null) {
   return {
     id: s.id,
     name: s.name,
@@ -42,6 +42,7 @@ function serializeSnapshot(s: typeof snapshots.$inferSelect) {
     providers: s.providerData ?? {},
     created_at: s.createdAt.toISOString(),
     updated_at: s.updatedAt.toISOString(),
+    last_used_at: lastUsedAt?.toISOString() ?? null,
   };
 }
 
@@ -87,7 +88,30 @@ snapshotsApp.get('/', async (c) => {
     .where(eq(snapshots.ownerId, ownerId))
     .then(rows => rows.filter(r => r.status !== 'deleted'));
 
-  return c.json({ snapshots: result.map(serializeSnapshot) });
+  // Compute last_used_at for each snapshot from the machines table
+  const snapshotIds = result.map(s => s.id);
+  const lastUsedMap = new Map<string, Date>();
+
+  if (snapshotIds.length > 0) {
+    const usageRows = await db
+      .select({
+        snapshotId: machines.snapshotId,
+        lastUsed: sql<Date>`max(${machines.createdAt})`.as('last_used'),
+      })
+      .from(machines)
+      .where(inArray(machines.snapshotId, snapshotIds))
+      .groupBy(machines.snapshotId);
+
+    for (const row of usageRows) {
+      if (row.snapshotId && row.lastUsed) {
+        lastUsedMap.set(row.snapshotId, new Date(row.lastUsed));
+      }
+    }
+  }
+
+  return c.json({
+    snapshots: result.map(s => serializeSnapshot(s, lastUsedMap.get(s.id))),
+  });
 });
 
 // ─── GET /:id — Get Snapshot ───────────────────────────────────────────────

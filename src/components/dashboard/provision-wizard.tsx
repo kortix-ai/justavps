@@ -194,7 +194,7 @@ export function ProvisionWizard() {
                 </div>
               </div>
               <Button size="lg" onClick={handleCreate} disabled={createMachine.isPending}>
-                {createMachine.isPending ? <><Loader2 className="size-4 animate-spin mr-2" />Deploying...</> : "Deploy Machine"}
+                {createMachine.isPending ? <><Loader2 className="size-4 animate-spin" />Deploying...</> : "Deploy Machine"}
               </Button>
             </div>
           </div>

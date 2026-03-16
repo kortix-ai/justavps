@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,8 +24,9 @@ import {
 import { toast } from "sonner";
 import { useSnapshots, useCreateSnapshot, useDeleteSnapshot } from "@/hooks/use-snapshots";
 import { useProviders } from "@/hooks/use-server-types";
+import { useConfirm } from "@/hooks/use-confirm";
 import type { Snapshot } from "@/lib/types";
-import { HardDrive, Plus, Trash2 } from "lucide-react";
+import { HardDrive, Plus, Trash2, Container, Loader2 } from "lucide-react";
 
 const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; dotClass: string }> = {
   building: { label: "Building", variant: "secondary", dotClass: "bg-yellow-500 animate-pulse" },
@@ -34,14 +34,35 @@ const statusConfig: Record<string, { label: string; variant: "default" | "second
   failed: { label: "Failed", variant: "destructive", dotClass: "bg-red-500" },
 };
 
+function timeAgo(date: string) {
+  const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(date).toLocaleDateString();
+}
+
 export default function SnapshotsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const { data: snapshots, isLoading, error } = useSnapshots();
   const { data: providers } = useProviders();
   const deleteSnapshot = useDeleteSnapshot();
+  const [confirm, ConfirmDialog] = useConfirm();
 
-  const handleDelete = (id: string, name: string) => {
-    if (!confirm(`Delete snapshot "${name}"? This will remove all provider snapshots.`)) return;
+  const handleDelete = async (id: string, name: string) => {
+    const ok = await confirm({
+      title: "Delete Snapshot",
+      description: `This will permanently delete "${name}" and remove all provider-side snapshots. Machines already using this snapshot will not be affected.`,
+      confirmLabel: "Delete Snapshot",
+      variant: "destructive",
+      icon: <Trash2 className="size-4 text-destructive" />,
+    });
+    if (!ok) return;
+
     deleteSnapshot.mutate(id, {
       onSuccess: () => toast.success("Snapshot deleted"),
       onError: (err) => toast.error(err.message),
@@ -53,8 +74,8 @@ export default function SnapshotsPage() {
       <div className="flex items-center justify-between">
         <h1 className="font-heading text-3xl tracking-tight">Snapshots</h1>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger className={cn(buttonVariants({ size: "sm" }))}>
-            <Plus className="mr-2 size-4" />
+          <DialogTrigger className={cn(buttonVariants())}>
+            <Plus className="size-4" />
             New Snapshot
           </DialogTrigger>
           <CreateSnapshotDialog
@@ -70,35 +91,36 @@ export default function SnapshotsPage() {
       {error && (
         <div className="text-center py-12">
           <p className="text-destructive text-sm">Error: {error.message}</p>
-          <Button variant="outline" size="sm" onClick={() => window.location.reload()} className="mt-4">
+          <Button variant="outline" onClick={() => window.location.reload()} className="mt-4">
             Retry
           </Button>
         </div>
       )}
 
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="p-5 border rounded-lg space-y-3">
+            <div key={i} className="p-4 rounded-xl bg-muted/30 space-y-3">
               <Skeleton className="h-5 w-28" />
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-2/3" />
+              <Skeleton className="h-3 w-40" />
+              <Skeleton className="h-3 w-24" />
             </div>
           ))}
         </div>
       ) : !error && snapshots?.length === 0 ? (
         <div className="text-center py-20">
-          <HardDrive className="mx-auto size-10 text-muted-foreground/50 mb-4" />
-          <h2 className="font-heading text-xl mb-1">No snapshots yet</h2>
-          <p className="text-muted-foreground text-sm mb-6 max-w-md mx-auto">
+          <HardDrive className="mx-auto size-12 text-muted-foreground/40 mb-4" strokeWidth={1} />
+          <h2 className="font-heading text-2xl mb-2">No snapshots yet</h2>
+          <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
             Create a snapshot from a Docker image to start spinning up machines.
           </p>
           <Button onClick={() => setDialogOpen(true)}>
+            <Plus className="mr-2 size-4" />
             Create Your First Snapshot
           </Button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {snapshots?.map((snapshot) => (
             <SnapshotCard
               key={snapshot.id}
@@ -108,6 +130,8 @@ export default function SnapshotsPage() {
           ))}
         </div>
       )}
+
+      <ConfirmDialog />
     </div>
   );
 }
@@ -117,57 +141,65 @@ export default function SnapshotsPage() {
 function SnapshotCard({ snapshot, onDelete }: { snapshot: Snapshot; onDelete: () => void }) {
   const status = statusConfig[snapshot.status] || statusConfig.failed;
   const providerNames = Object.keys(snapshot.providers);
+  const isBuilding = snapshot.status === "building";
 
   return (
-    <Card className="shadow-none">
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
+    <div className="group relative p-4 rounded-xl bg-card transition-colors hover:bg-muted/40">
+      {/* Header */}
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-center gap-2.5">
+          <div className="flex size-9 items-center justify-center rounded-lg bg-muted/60">
+            {isBuilding ? (
+              <Loader2 className="size-4 text-muted-foreground animate-spin" />
+            ) : (
+              <Container className="size-4 text-muted-foreground" />
+            )}
+          </div>
           <div>
-            <CardTitle className="text-sm font-medium">{snapshot.name}</CardTitle>
-            <div className="flex items-center gap-2 mt-1.5">
-              <div className={`size-1.5 rounded-full ${status.dotClass}`} />
-              <Badge variant={status.variant} className="text-[10px] px-1.5 py-0">{status.label}</Badge>
-            </div>
+            <div className="font-medium text-sm">{snapshot.name}</div>
+            <div className="font-mono text-xs text-muted-foreground">{snapshot.docker_image}</div>
           </div>
         </div>
-      </CardHeader>
+        <div className="flex items-center gap-1.5">
+          <div className={`size-1.5 rounded-full ${status.dotClass}`} />
+          <span className="text-xs text-muted-foreground">{status.label}</span>
+        </div>
+      </div>
 
-      <CardContent>
-        <div className="space-y-1.5 text-xs text-muted-foreground">
-          <div className="flex justify-between">
-            <span>Image</span>
-            <span className="font-mono text-foreground truncate ml-2 max-w-[180px]" title={snapshot.docker_image}>
-              {snapshot.docker_image}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span>Architecture</span>
-            <span className="text-foreground">{snapshot.architecture || "x86"}</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span>Providers</span>
-            <div className="flex gap-1">
-              {providerNames.length > 0 ? (
-                providerNames.map((p) => (
-                  <Badge key={p} variant="outline" className="text-[10px] px-1.5 py-0">{p}</Badge>
-                ))
-              ) : (
-                <span className="text-[10px]">{snapshot.status === "building" ? "Building..." : "None"}</span>
-              )}
-            </div>
-          </div>
-        </div>
+      {/* Details */}
+      <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+        <span>{snapshot.architecture || "x86"}</span>
+        <span>&middot;</span>
+        <span>Created {timeAgo(snapshot.created_at)}</span>
+        {snapshot.last_used_at && (
+          <>
+            <span>&middot;</span>
+            <span>Used {timeAgo(snapshot.last_used_at)}</span>
+          </>
+        )}
+      </div>
 
-        <div className="mt-3 pt-3 border-t flex items-center justify-between">
-          <span className="text-[10px] text-muted-foreground">
-            Created {new Date(snapshot.created_at).toLocaleDateString()}
-          </span>
-          <Button variant="ghost" size="sm" className="h-7 text-destructive hover:text-destructive" onClick={onDelete}>
-            <Trash2 className="size-3" />
-          </Button>
+      {/* Providers + Delete */}
+      <div className="flex items-center justify-between mt-3">
+        <div className="flex gap-1">
+          {providerNames.length > 0 ? (
+            providerNames.map((p) => (
+              <Badge key={p} variant="outline" className="text-[10px]">{p}</Badge>
+            ))
+          ) : (
+            <span className="text-xs text-muted-foreground">{isBuilding ? "Building..." : "No providers"}</span>
+          )}
         </div>
-      </CardContent>
-    </Card>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="size-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -212,7 +244,7 @@ function CreateSnapshotDialog({
         <div className="space-y-2">
           <Label htmlFor="docker_image">Docker Image</Label>
           <Input id="docker_image" placeholder="kortix/computer:0.8.6" value={dockerImage} onChange={(e) => setDockerImage(e.target.value)} required />
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             Public Docker Hub image. We'll pull it and create a bootable snapshot.
           </p>
         </div>
@@ -235,12 +267,16 @@ function CreateSnapshotDialog({
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="submit" size="sm" disabled={createSnapshot.isPending || !name || !dockerImage}>
-            {createSnapshot.isPending ? "Creating..." : "Build Snapshot"}
+          <Button type="submit" disabled={createSnapshot.isPending || !name || !dockerImage}>
+            {createSnapshot.isPending ? (
+              <><Loader2 className="size-4 animate-spin mr-2" />Building...</>
+            ) : (
+              "Build Snapshot"
+            )}
           </Button>
         </div>
 
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Building takes ~10-15 minutes. You can close this dialog &mdash; the build continues in the background.
         </p>
       </form>

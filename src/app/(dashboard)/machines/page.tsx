@@ -37,7 +37,7 @@ export default function MachinesPage() {
       <div className="flex items-center justify-between">
         <h1 className="font-heading text-3xl tracking-tight">Machines</h1>
         <Link href="/machines/new" className={cn(buttonVariants())}>
-          <Plus className="mr-2 size-4" />
+          <Plus className="size-4" />
           New Machine
         </Link>
       </div>
@@ -69,7 +69,7 @@ export default function MachinesPage() {
             Get started by creating your first VPS.
           </p>
           <Link href="/machines/new" className={cn(buttonVariants())}>
-            <Plus className="size-4 mr-2" />
+            <Plus className="size-4" />
             New Machine
           </Link>
         </div>

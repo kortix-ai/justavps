@@ -23,6 +23,8 @@ import { useTheme } from "@/hooks/use-theme";
 import {
   Server,
   HardDrive,
+  KeyRound,
+  CreditCard,
   Settings,
   FileText,
   ChevronsUpDown,
@@ -34,7 +36,8 @@ import {
 const navigation = [
   { name: "Machines", href: "/machines", icon: Server },
   { name: "Snapshots", href: "/snapshots", icon: HardDrive },
-  { name: "Settings", href: "/settings", icon: Settings },
+  { name: "Keys", href: "/keys", icon: KeyRound },
+  { name: "Billing", href: "/billing", icon: CreditCard },
   { name: "Docs", href: "/docs", icon: FileText },
 ];
 

@@ -5,6 +5,9 @@
  */
 export const PROTECTED_ROUTES: string[] = [
   '/machines',
+  '/snapshots',
+  '/keys',
+  '/billing',
   '/settings',
   '/docs',
 ];
