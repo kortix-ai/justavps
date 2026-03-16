@@ -5,6 +5,7 @@ import { machines, apiKeys } from '../db/schema';
 import { validateApiKey } from '../lib/crypto';
 import { cloudflareClient } from '../lib/cloudflare';
 import { config } from '../lib/config';
+import { errorResponse } from '../lib/route-helpers';
 import { HeartbeatSchema } from '@/lib/schemas';
 
 export const internalApp = new Hono();
@@ -13,13 +14,13 @@ export const internalApp = new Hono();
 internalApp.post('/heartbeat', async (c) => {
   const body = await c.req.json();
   const parsed = HeartbeatSchema.safeParse(body);
-  if (!parsed.success) return c.json({ error: true, message: 'Invalid heartbeat', status: 400 }, 400);
+  if (!parsed.success) return errorResponse(c, 400, 'Invalid heartbeat');
 
   const { slug, machine_token, uptime, services, load } = parsed.data;
   try {
     const [machine] = await db.select().from(machines).where(eq(machines.slug, slug));
     if (!machine || machine.machineToken !== machine_token) {
-      return c.json({ error: true, message: 'Unauthorized', status: 401 }, 401);
+      return errorResponse(c, 401, 'Unauthorized');
     }
 
     const wasProvisioning = machine.status === 'provisioning';
@@ -42,7 +43,7 @@ internalApp.post('/heartbeat', async (c) => {
     return c.json({ ack: true });
   } catch (err) {
     console.error('[HEARTBEAT] error:', err);
-    return c.json({ error: true, message: 'Failed to process heartbeat', status: 500 }, 500);
+    return errorResponse(c, 500, 'Failed to process heartbeat');
   }
 });
 
@@ -52,7 +53,7 @@ internalApp.get('/validate-key', async (c) => {
   const keyValue = c.req.query('key');
   const machineSlug = c.req.query('machine_slug');
 
-  if (!keyValue) return c.json({ valid: false, message: 'key required' }, 400);
+  if (!keyValue) return errorResponse(c, 400, 'key required');
 
   try {
     const keys = await db.select().from(apiKeys);

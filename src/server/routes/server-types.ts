@@ -1,47 +1,69 @@
-import { OpenAPIHono } from '@hono/zod-openapi';
-import { hetznerClient } from '../lib/hetzner';
-import { ALLOWED_SERVER_TYPES, ALLOWED_REGIONS } from '@/lib/schemas';
+/**
+ * Server types + provider discovery routes.
+ * Provider-agnostic — fetches types/regions from whichever provider is requested.
+ */
 
-export const serverTypesApp = new OpenAPIHono();
+import { Hono } from 'hono';
+import { listProviders } from '../lib/providers';
+import { requireProvider, handleRouteError } from '../lib/route-helpers';
 
-// GET / → List available server types (CPX shared + CCX dedicated) with pricing
+export const serverTypesApp = new Hono();
+
+// ─── GET /providers — List available providers ─────────────────────────────
+
+serverTypesApp.get('/providers', async (c) => {
+  return c.json({ providers: listProviders() });
+});
+
+// ─── GET / — List server types for a provider + region ─────────────────────
+
 serverTypesApp.get('/', async (c) => {
-  const region = c.req.query('region') || 'hel1';
+  const providerName = c.req.query('provider') || 'hetzner';
+  const region = c.req.query('region');
 
-  // Validate region
-  if (!ALLOWED_REGIONS.includes(region as any)) {
-    return c.json({ error: true, message: `Invalid region: ${region}`, status: 400 }, 400);
+  const lookup = requireProvider(c, providerName);
+  if (lookup.response) return lookup.response;
+
+  if (!region) {
+    return c.json({ error: true, message: 'region query param is required', status: 400 }, 400);
   }
 
   try {
-    const allTypes = await hetznerClient.listServerTypes(region);
-
-    // Filter to allowed types (CPX shared + CCX dedicated)
-    const ccxTypes = allTypes
-      .filter((t) => (ALLOWED_SERVER_TYPES as readonly string[]).includes(t.name))
-      .map((t) => {
-        const backupCost = Math.ceil(t.priceMonthlyHetzner * 0.2 * 100) / 100;
-        return {
-          name: t.name,
-          description: t.description,
-          vcpu: t.cores,
-          ram_gb: t.memory,
-          disk_gb: t.disk,
-          cpu_type: t.cpuType,
-          architecture: t.architecture,
-          price_monthly: t.priceMonthlyOurs,
-          hetzner_price_monthly: t.priceMonthlyHetzner,
-          backup_price_monthly: backupCost,
-          available: true,
-        };
-      });
+    const types = await lookup.provider.listServerTypes(region);
 
     return c.json({
+      provider: providerName,
       region,
-      server_types: ccxTypes,
+      server_types: types.map((t) => ({
+        name: t.name,
+        description: t.description,
+        vcpu: t.cores,
+        ram_gb: t.memory,
+        disk_gb: t.disk,
+        cpu_type: t.cpuType,
+        architecture: t.architecture,
+        price_monthly: t.priceMonthly,
+        provider_price_monthly: t.providerPriceMonthly,
+        available: true,
+      })),
     });
   } catch (err) {
-    console.error('[SERVER-TYPES] error:', err);
-    return c.json({ error: true, message: 'Failed to fetch server types', status: 500 }, 500);
+    return handleRouteError(c, err, 'SERVER-TYPES');
+  }
+});
+
+// ─── GET /regions — List regions for a provider ────────────────────────────
+
+serverTypesApp.get('/regions', async (c) => {
+  const providerName = c.req.query('provider') || 'hetzner';
+
+  const lookup = requireProvider(c, providerName);
+  if (lookup.response) return lookup.response;
+
+  try {
+    const regions = await lookup.provider.listRegions();
+    return c.json({ provider: providerName, regions });
+  } catch (err) {
+    return handleRouteError(c, err, 'REGIONS');
   }
 });

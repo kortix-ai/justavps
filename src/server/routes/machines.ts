@@ -1,42 +1,59 @@
 /**
  * Machine routes — CRUD + lifecycle operations.
- * All machines use a single unified image (code-server + Claude Code + OpenCode).
+ * Machines are created from user snapshots on any available provider.
  */
 
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { db } from '../db';
-import { machines } from '../db/schema';
-import { nanoid } from 'nanoid';
-import { hetznerClient } from '../lib/hetzner';
-import { cloudflareClient } from '../lib/cloudflare';
-import { generateMachineToken, generatePassword } from '../lib/crypto';
-import { buildCloudInit } from '../lib/cloud-init';
+import { machines, snapshots } from '../db/schema';
 import { config } from '../lib/config';
+
+type Machine = typeof machines.$inferSelect;
 import { apiGuard, type AuthVariables } from '../lib/api-guard';
 import { stripeClient } from '../lib/stripe';
-import { CreateMachineSchema, ResizeMachineSchema } from '@/lib/schemas';
-import { users } from '../db/schema';
+import { requireOwnedResource, requireProvider, errorResponse, handleRouteError } from '../lib/route-helpers';
+import {
+  generateMachineIdentity,
+  uploadSSHKeyToProvider,
+  buildMachineUserData,
+  setupDNSAndKV,
+  lookupPrice,
+  createMachineRecord,
+  createStripeSubscription,
+  cleanupMachineResources,
+  syncMachineStatus,
+} from '../lib/machine-lifecycle';
+import { z } from 'zod';
 
 export const machinesApp = new Hono<{ Variables: AuthVariables }>();
 
-// All machine routes require auth
 machinesApp.use('*', apiGuard);
+
+// ─── Schemas ────────────────────────────────────────────────────────────────
+
+const CreateMachineSchema = z.object({
+  snapshot_id: z.string().uuid().describe('Snapshot to boot from'),
+  provider: z.string().min(1).describe('Cloud provider (e.g. "hetzner")'),
+  server_type: z.string().min(1).describe('Provider-specific server type (e.g. "cpx22")'),
+  region: z.string().min(1).describe('Provider-specific region (e.g. "nbg1")'),
+  name: z.string().min(1).max(64).optional().describe('Human-readable name'),
+});
+
+const ResizeMachineSchema = z.object({
+  server_type: z.string().min(1).describe('New server type'),
+});
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function serializeMachine(m: typeof machines.$inferSelect, includePrivateKey = false) {
+function serializeMachine(m: typeof machines.$inferSelect) {
   const proxyDomain = config.PROXY_DOMAIN;
-
-  // SSH key path on user's machine
   const sshKeyPath = `~/.ssh/justavps_${m.slug}`;
 
-  // 1-click setup: saves key + connects (handles StrictHostKeyChecking)
   const setupCommand = m.sshPrivateKey && m.ip
     ? `mkdir -p ~/.ssh && echo '${m.sshPrivateKey.replace(/'/g, "'\\''")}' > ${sshKeyPath} && chmod 600 ${sshKeyPath} && ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${m.ip}`
     : null;
 
-  // Quick SSH command (after key already saved)
   const sshCommand = m.ip ? `ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no root@${m.ip}` : null;
 
   return {
@@ -44,6 +61,8 @@ function serializeMachine(m: typeof machines.$inferSelect, includePrivateKey = f
     slug: m.slug,
     name: m.name,
     status: m.status,
+    provider: m.provider,
+    snapshot_id: m.snapshotId,
     server_type: m.serverType,
     region: m.region,
     ip: m.ip,
@@ -67,7 +86,6 @@ function serializeMachine(m: typeof machines.$inferSelect, includePrivateKey = f
       vscode_url: `https://${m.slug}.${proxyDomain}`,
       vscode_password: m.codeServerPassword,
       cursor_ssh: m.ip ? `ssh -i ${sshKeyPath} root@${m.ip}` : null,
-      claude_code: m.ip ? `ssh -i ${sshKeyPath} root@${m.ip}` : null,
     },
     health: m.lastHeartbeat ? {
       ...m.lastHeartbeat,
@@ -83,50 +101,51 @@ machinesApp.post('/', async (c) => {
   const parsed = CreateMachineSchema.safeParse(body);
 
   if (!parsed.success) {
-    return c.json({ error: true, message: parsed.error.message, status: 400 }, 400);
+    return errorResponse(c, 400, parsed.error.message);
   }
 
   const data = parsed.data;
   const ownerId = c.get('userId');
-  const slug = nanoid(8).toLowerCase();
-  const machineToken = generateMachineToken();
-  const codeServerPassword = generatePassword(20);
+
+  // 1. Validate provider
+  const lookup = requireProvider(c, data.provider);
+  if (lookup.response) return lookup.response;
+  const provider = lookup.provider;
+
+  // 2. Validate snapshot exists and belongs to user
+  const [snapshot] = await db.select().from(snapshots).where(eq(snapshots.id, data.snapshot_id));
+  if (!snapshot || snapshot.ownerId !== ownerId) {
+    return errorResponse(c, 404, 'Snapshot not found');
+  }
+  if (snapshot.status !== 'ready') {
+    return errorResponse(c, 400, `Snapshot is not ready (status: ${snapshot.status})`);
+  }
+
+  // 3. Check snapshot is built on this provider
+  const providerSnap = snapshot.providerData?.[data.provider];
+  if (!providerSnap) {
+    const available = Object.keys(snapshot.providerData ?? {}).join(', ') || 'none';
+    return errorResponse(c, 400, `Snapshot not built on '${data.provider}'. Available providers: ${available}. Build it first via POST /snapshots/${snapshot.id}/build`);
+  }
 
   try {
-    // 1. Auto-generate SSH keypair for this machine
-    const { generateSSHKeyPair } = await import('../lib/ssh-keygen');
-    const keyPair = generateSSHKeyPair(`${slug}@justavps`);
+    // 4. Generate identity (slug, token, password, SSH keypair)
+    const { slug, machineToken, codeServerPassword, keyPair } = await generateMachineIdentity();
 
-    // 2. Upload public key to Hetzner
-    let hetznerKeyId: number | undefined;
-    try {
-      const result = await hetznerClient.uploadSSHKey(`justavps-${slug}`, keyPair.publicKey);
-      hetznerKeyId = result.keyId;
-    } catch (err: any) {
-      console.warn('[MACHINES] SSH key upload to Hetzner failed (non-fatal):', err.message?.slice(0, 100));
-    }
+    // 5. Upload SSH key to provider
+    const providerKeyId = await uploadSSHKeyToProvider(provider, slug, keyPair.publicKey);
 
-    // 3. Resolve snapshot
-    const snapshot = await hetznerClient.resolveSnapshot();
+    // 6. Build cloud-init
+    const userdata = buildMachineUserData(slug, codeServerPassword, keyPair.publicKey, machineToken);
 
-    // 4. Build cloud-init (unified: code-server + Claude Code + OpenCode)
-    const userdata = buildCloudInit({
-      slug,
-      codeServerPassword,
-      sshPublicKey: keyPair.publicKey,
-      machineToken,
-      platformCallbackUrl: config.PLATFORM_URL,
-      proxyDomain: config.PROXY_DOMAIN,
-    });
-
-    // 5. Create Hetzner server with SSH key + backups enabled
-    const server = await hetznerClient.createServer({
+    // 7. Create server via provider
+    const server = await provider.createServer({
       name: `justavps-${slug}`,
       serverType: data.server_type,
-      image: snapshot.snapshotId,
-      location: data.region,
+      snapshotId: providerSnap.snapshotId,
+      region: data.region,
       userData: userdata,
-      sshKeyIds: hetznerKeyId ? [hetznerKeyId] : [],
+      sshKeyIds: providerKeyId ? [providerKeyId] : [],
       enableBackups: true,
       labels: {
         'justavps': 'true',
@@ -135,75 +154,36 @@ machinesApp.post('/', async (c) => {
       },
     });
 
-    // 6. Create DNS record + write KV entry for proxy Worker
-    if (config.isCloudflareConfigured()) {
-      await cloudflareClient.createDNSRecord(slug, server.publicIp);
-      await cloudflareClient.writeKVMachine(slug, {
-        owner_id: ownerId,
-        ip: server.publicIp,
-        status: 'provisioning',
-        server_type: data.server_type,
-      }).catch(() => {});
-    }
+    // 8. DNS + KV
+    await setupDNSAndKV(slug, server.publicIp, ownerId, data.server_type);
 
-    // 7. Look up price for this server type (includes backup cost)
-    let priceMonthly = 30; // default for ccx13
-    try {
-      const serverTypes = await hetznerClient.listServerTypes(data.region);
-      const st = serverTypes.find(t => t.name === data.server_type);
-      if (st) {
-        // Our price + 20% backup cost on Hetzner side (already in our markup)
-        priceMonthly = st.priceMonthlyOurs;
-      }
-    } catch {}
+    // 9. Look up price
+    const priceMonthly = await lookupPrice(provider, data.region, data.server_type, providerSnap);
 
-    // 8. Create DB record
-    const [machine] = await db.insert(machines).values({
+    // 10. Create DB record
+    const machine = await createMachineRecord({
       ownerId,
       slug,
       name: data.name || `machine-${slug}`,
-      status: 'provisioning',
+      provider: data.provider,
+      snapshotId: snapshot.id,
       serverType: data.server_type,
       region: data.region,
       ip: server.publicIp,
-      hetznerId: server.serverId,
+      providerServerId: server.serverId,
       machineToken,
       codeServerPassword,
       sshPublicKey: keyPair.publicKey,
       sshPrivateKey: keyPair.privateKey,
       priceMonthly,
-      baseSnapshotId: snapshot.snapshotId,
-    }).returning();
+    });
 
-    // 9. Create Stripe subscription (async, non-blocking)
-    if (stripeClient.isConfigured()) {
-      try {
-        const [user] = await db.select().from(users).where(eq(users.id, ownerId));
-        if (user) {
-          const customerId = await stripeClient.getOrCreateCustomer(ownerId, user.email);
-          // Update user's stripe_customer_id if not set
-          if (!user.stripeCustomerId) {
-            await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, ownerId));
-          }
+    // 11. Create Stripe subscription (async, non-blocking)
+    createStripeSubscription(ownerId, machine.id, slug, priceMonthly, data.server_type);
 
-          const { subscriptionId, subscriptionItemId } = await stripeClient.createMachineSubscription(
-            customerId, machine.id, slug, priceMonthly, data.server_type,
-          );
-          await db.update(machines).set({
-            stripeSubItemId: `${subscriptionId}|${subscriptionItemId}`,
-          }).where(eq(machines.id, machine.id));
-        }
-      } catch (err) {
-        console.error('[MACHINES] Stripe subscription creation failed (non-fatal):', err);
-      }
-    }
-
-    // Include private key on creation response (shown to user ONCE)
-    return c.json(serializeMachine(machine, true), 201);
+    return c.json(serializeMachine(machine), 201);
   } catch (err) {
-    console.error('[MACHINES] create error:', err);
-    const message = err instanceof Error ? err.message : 'Failed to create machine';
-    return c.json({ error: true, message, status: 500 }, 500);
+    return handleRouteError(c, err, 'MACHINES');
   }
 });
 
@@ -215,21 +195,10 @@ machinesApp.get('/', async (c) => {
     eq(machines.ownerId, ownerId),
   ).then(rows => rows.filter(r => r.status !== 'deleted'));
 
-  // Auto-transition provisioning machines to ready if Hetzner says running
-  for (const m of result) {
-    if (m.status === 'provisioning' && m.hetznerId) {
-      try {
-        const hetznerStatus = await hetznerClient.getServerStatus(m.hetznerId);
-        if (hetznerStatus === 'running') {
-          await db.update(machines).set({ status: 'ready', readyAt: new Date() }).where(eq(machines.id, m.id));
-          m.status = 'ready';
-          m.readyAt = new Date();
-        }
-      } catch {}
-    }
-  }
+  // Auto-transition provisioning machines to ready if provider says running
+  const synced = await Promise.all(result.map(syncMachineStatus));
 
-  return c.json({ machines: result.map(m => serializeMachine(m)) });
+  return c.json({ machines: synced.map(m => serializeMachine(m)) });
 });
 
 // ─── GET /:id — Get Machine ────────────────────────────────────────────────
@@ -237,23 +206,11 @@ machinesApp.get('/', async (c) => {
 machinesApp.get('/:id', async (c) => {
   const id = c.req.param('id');
   const ownerId = c.get('userId');
-  let [machine] = await db.select().from(machines).where(eq(machines.id, id));
-  if (!machine || machine.ownerId !== ownerId) {
-    return c.json({ error: true, message: 'Machine not found', status: 404 }, 404);
-  }
 
-  // Auto-transition: if provisioning + Hetzner says running → mark ready
-  if (machine.status === 'provisioning' && machine.hetznerId) {
-    try {
-      const hetznerStatus = await hetznerClient.getServerStatus(machine.hetznerId);
-      if (hetznerStatus === 'running') {
-        await db.update(machines).set({ status: 'ready', readyAt: new Date() }).where(eq(machines.id, id));
-        [machine] = await db.select().from(machines).where(eq(machines.id, id));
-      }
-    } catch {
-      // Hetzner check failed — keep current status
-    }
-  }
+  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  if (owned.response) return owned.response;
+
+  const machine = await syncMachineStatus(owned.resource);
 
   return c.json(serializeMachine(machine));
 });
@@ -263,37 +220,18 @@ machinesApp.get('/:id', async (c) => {
 machinesApp.delete('/:id', async (c) => {
   const id = c.req.param('id');
   const ownerId = c.get('userId');
-  const [machine] = await db.select().from(machines).where(eq(machines.id, id));
-  if (!machine || machine.ownerId !== ownerId) {
-    return c.json({ error: true, message: 'Machine not found', status: 404 }, 404);
-  }
+
+  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  if (owned.response) return owned.response;
 
   try {
-    // Delete Hetzner server
-    if (machine.hetznerId) {
-      await hetznerClient.deleteServer(machine.hetznerId);
-    }
+    const lookup = requireProvider(c, owned.resource.provider);
+    if (lookup.response) return lookup.response;
 
-    // Delete DNS record
-    if (config.isCloudflareConfigured()) {
-      await cloudflareClient.deleteDNSRecord(machine.slug);
-    }
-
-    // Cancel Stripe subscription
-    if (stripeClient.isConfigured() && machine.stripeSubItemId) {
-      const subId = machine.stripeSubItemId.split('|')[0];
-      await stripeClient.cancelMachineSubscription(subId).catch(() => {});
-    }
-
-    // Mark as deleted in DB
-    await db.update(machines)
-      .set({ status: 'deleted', deletedAt: new Date() })
-      .where(eq(machines.id, id));
-
+    await cleanupMachineResources(owned.resource, lookup.provider);
     return c.body(null, 204);
   } catch (err) {
-    console.error('[MACHINES] delete error:', err);
-    return c.json({ error: true, message: 'Failed to delete machine', status: 500 }, 500);
+    return handleRouteError(c, err, 'MACHINES');
   }
 });
 
@@ -302,11 +240,18 @@ machinesApp.delete('/:id', async (c) => {
 machinesApp.post('/:id/reboot', async (c) => {
   const id = c.req.param('id');
   const ownerId = c.get('userId');
-  const [machine] = await db.select().from(machines).where(eq(machines.id, id));
-  if (!machine || machine.ownerId !== ownerId || !machine.hetznerId) {
-    return c.json({ error: true, message: 'Machine not found', status: 404 }, 404);
+
+  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  if (owned.response) return owned.response;
+
+  if (!owned.resource.providerServerId) {
+    return errorResponse(c, 404, 'Machine not found');
   }
-  await hetznerClient.rebootServer(machine.hetznerId);
+
+  const lookup = requireProvider(c, owned.resource.provider);
+  if (lookup.response) return lookup.response;
+
+  await lookup.provider.rebootServer(owned.resource.providerServerId);
   return c.json({ action: 'reboot', status: 'initiated' }, 202);
 });
 
@@ -318,16 +263,22 @@ machinesApp.post('/:id/resize', async (c) => {
   const body = await c.req.json();
   const parsed = ResizeMachineSchema.safeParse(body);
   if (!parsed.success) {
-    return c.json({ error: true, message: 'Invalid request', status: 400 }, 400);
+    return errorResponse(c, 400, 'Invalid request');
   }
 
-  const [machine] = await db.select().from(machines).where(eq(machines.id, id));
-  if (!machine || machine.ownerId !== ownerId || !machine.hetznerId) {
-    return c.json({ error: true, message: 'Machine not found', status: 404 }, 404);
+  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  if (owned.response) return owned.response;
+
+  const machine = owned.resource;
+  if (!machine.providerServerId) {
+    return errorResponse(c, 404, 'Machine not found');
   }
 
   try {
-    await hetznerClient.resizeServer(machine.hetznerId, parsed.data.server_type);
+    const lookup = requireProvider(c, machine.provider);
+    if (lookup.response) return lookup.response;
+
+    await lookup.provider.resizeServer(machine.providerServerId, parsed.data.server_type);
     await db.update(machines)
       .set({ serverType: parsed.data.server_type })
       .where(eq(machines.id, id));
@@ -335,10 +286,10 @@ machinesApp.post('/:id/resize', async (c) => {
     // Update Stripe subscription price
     if (stripeClient.isConfigured() && machine.stripeSubItemId) {
       const subItemId = machine.stripeSubItemId.split('|')[1];
-      const serverTypes = await hetznerClient.listServerTypes(machine.region);
+      const serverTypes = await lookup.provider.listServerTypes(machine.region);
       const st = serverTypes.find(t => t.name === parsed.data.server_type);
       if (st && subItemId) {
-        await stripeClient.updateMachineSubscription(subItemId, st.priceMonthlyOurs, parsed.data.server_type, machine.id)
+        await stripeClient.updateMachineSubscription(subItemId, st.priceMonthly, parsed.data.server_type, machine.id)
           .catch(err => console.error('[MACHINES] Stripe resize failed:', err));
       }
     }
@@ -350,7 +301,6 @@ machinesApp.post('/:id/resize', async (c) => {
       status: 'initiated',
     }, 202);
   } catch (err) {
-    console.error('[MACHINES] resize error:', err);
-    return c.json({ error: true, message: 'Failed to resize machine', status: 500 }, 500);
+    return handleRouteError(c, err, 'MACHINES');
   }
 });

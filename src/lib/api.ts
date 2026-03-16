@@ -1,6 +1,6 @@
 /**
  * Client-side API utility.
- * 
+ *
  * Automatically includes credentials (session cookie) with every request.
  * The NextAuth session cookie is httpOnly so the browser sends it automatically.
  * No manual auth headers needed for browser-initiated requests.
@@ -23,21 +23,27 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
 }
 
 /**
+ * Assert a fetch response is OK, handling 401 redirects.
+ * Throws on non-OK responses.
+ */
+async function assertOk(res: Response): Promise<void> {
+  if (res.ok) return;
+  if (res.status === 401) {
+    if (typeof window !== 'undefined') {
+      window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+    }
+    throw new Error('Authentication required');
+  }
+  const err = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
+  throw new Error(err.message || `Request failed: ${res.status}`);
+}
+
+/**
  * Typed API fetch with error handling.
  */
 export async function apiGet<T>(path: string): Promise<T> {
   const res = await apiFetch(path);
-  if (!res.ok) {
-    if (res.status === 401) {
-      // Redirect to login if we get 401
-      if (typeof window !== 'undefined') {
-        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
-      }
-      throw new Error('Authentication required');
-    }
-    const err = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
-    throw new Error(err.message || `Request failed: ${res.status}`);
-  }
+  await assertOk(res);
   return res.json();
 }
 
@@ -46,30 +52,12 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
     method: 'POST',
     body: JSON.stringify(body),
   });
-  if (!res.ok) {
-    if (res.status === 401) {
-      if (typeof window !== 'undefined') {
-        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
-      }
-      throw new Error('Authentication required');
-    }
-    const err = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
-    throw new Error(err.message || `Request failed: ${res.status}`);
-  }
+  await assertOk(res);
   if (res.status === 204) return {} as T;
   return res.json();
 }
 
 export async function apiDelete(path: string): Promise<void> {
   const res = await apiFetch(path, { method: 'DELETE' });
-  if (!res.ok) {
-    if (res.status === 401) {
-      if (typeof window !== 'undefined') {
-        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
-      }
-      throw new Error('Authentication required');
-    }
-    const err = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
-    throw new Error(err.message || `Request failed: ${res.status}`);
-  }
+  await assertOk(res);
 }

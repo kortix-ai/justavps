@@ -13,6 +13,11 @@ const navigation = [
     icon: "🖥️",
   },
   {
+    name: "Snapshots",
+    href: "/snapshots",
+    icon: "💾",
+  },
+  {
     name: "Settings",
     href: "/settings", 
     icon: "⚙️",
@@ -29,7 +34,6 @@ export function Sidebar() {
 
   return (
     <div className="flex h-full flex-col bg-card border-r">
-      {/* Logo */}
       <div className="flex h-16 items-center px-6">
         <Link href="/" className="flex items-center space-x-2">
           <span className="text-xl font-bold">JustAVPS</span>
@@ -37,8 +41,6 @@ export function Sidebar() {
       </div>
 
       <Separator />
-
-      {/* Navigation */}
       <div className="flex-1 space-y-1 px-3 py-4">
         {navigation.map((item) => (
           <Link
@@ -56,7 +58,6 @@ export function Sidebar() {
         ))}
       </div>
 
-      {/* Bottom section */}
       <div className="p-4">
         <Separator className="mb-4" />
         <div className="space-y-2 text-sm text-muted-foreground">

@@ -7,8 +7,6 @@ export const config = {
   // Hetzner
   HETZNER_API_KEY: process.env.HETZNER_API_KEY || '',
   HETZNER_DEFAULT_LOCATION: process.env.HETZNER_DEFAULT_LOCATION || 'nbg1',
-  HETZNER_DEFAULT_SERVER_TYPE: process.env.HETZNER_DEFAULT_SERVER_TYPE || 'cx22',
-
   // Cloudflare
   CLOUDFLARE_API_KEY: process.env.CLOUDFLARE_GLOBAL_API_KEY || '',
   CLOUDFLARE_ZONE_ID: process.env.CLOUDFLARE_ZONE_ID || '',

@@ -1,42 +1,30 @@
 /**
  * Shared Zod schemas — used by both API routes and frontend.
+ * Provider-agnostic: regions and server types come from the API at runtime.
  */
 
 import { z } from 'zod';
 
-// ─── Allowed Regions ────────────────────────────────────────────────────────
+// ─── Snapshot Schemas ──────────────────────────────────────────────────────
 
-export const ALLOWED_REGIONS = ['hel1', 'nbg1', 'fsn1', 'ash', 'hil'] as const;
-export type Region = typeof ALLOWED_REGIONS[number];
-
-export const REGION_LABELS: Record<Region, string> = {
-  hel1: 'Helsinki, Finland',
-  nbg1: 'Nuremberg, Germany',
-  fsn1: 'Falkenstein, Germany',
-  ash: 'Ashburn, USA (East)',
-  hil: 'Hillsboro, USA (West)',
-};
-
-// ─── Allowed Server Types (CCX dedicated only) ─────────────────────────────
-
-export const ALLOWED_SERVER_TYPES = [
-  // Shared AMD (CPX) — best value
-  'cpx22', 'cpx32', 'cpx42', 'cpx52', 'cpx62',
-  // Dedicated (CCX) — guaranteed performance
-  'ccx13', 'ccx23', 'ccx33', 'ccx43', 'ccx53', 'ccx63',
-] as const;
-export type ServerTypeName = typeof ALLOWED_SERVER_TYPES[number];
+export const CreateSnapshotSchema = z.object({
+  docker_image: z.string().min(1).describe('Docker image (e.g. "nginx:latest")'),
+  name: z.string().min(1).max(128).describe('Human-readable name'),
+  provider: z.string().min(1).describe('Provider to build on (e.g. "hetzner")'),
+});
 
 // ─── Machine Schemas ────────────────────────────────────────────────────────
 
 export const CreateMachineSchema = z.object({
-  server_type: z.enum(ALLOWED_SERVER_TYPES).describe('Server type (cpx22–cpx62, ccx13–ccx63)'),
+  snapshot_id: z.string().uuid().describe('Snapshot to boot from'),
+  provider: z.string().min(1).describe('Cloud provider (e.g. "hetzner")'),
+  server_type: z.string().min(1).describe('Provider-specific server type (e.g. "cpx22", "t3.medium")'),
+  region: z.string().min(1).describe('Provider-specific region (e.g. "nbg1", "us-east-1")'),
   name: z.string().min(1).max(64).optional().describe('Human-readable name'),
-  region: z.enum(ALLOWED_REGIONS).default('hel1').describe('Hetzner datacenter region'),
 });
 
 export const ResizeMachineSchema = z.object({
-  server_type: z.enum(ALLOWED_SERVER_TYPES).describe('New server type'),
+  server_type: z.string().min(1).describe('New server type'),
 });
 
 export const MachineResponseSchema = z.object({
@@ -44,6 +32,8 @@ export const MachineResponseSchema = z.object({
   slug: z.string(),
   name: z.string(),
   status: z.string(),
+  provider: z.string(),
+  snapshot_id: z.string().uuid().nullable(),
   server_type: z.string(),
   region: z.string(),
   ip: z.string().nullable(),
@@ -53,7 +43,6 @@ export const MachineResponseSchema = z.object({
   urls: z.object({
     vscode: z.string(),
     pty: z.string(),
-    opencode: z.string(),
   }).nullable(),
   ssh: z.string().nullable(),
   connect: z.object({
@@ -62,8 +51,6 @@ export const MachineResponseSchema = z.object({
     vscode_url: z.string(),
     vscode_password: z.string(),
     cursor_ssh: z.string().nullable(),
-    claude_code: z.string().nullable(),
-    opencode: z.string(),
   }).nullable(),
   health: z.object({
     cpu: z.number(),
@@ -107,7 +94,7 @@ export const APIKeyResponseSchema = z.object({
   last_used: z.string().nullable(),
 });
 
-// ─── Server Type Schemas ────────────────────────────────────────────────────
+// ─── Server Type Schema (runtime, from provider) ───────────────────────────
 
 export const ServerTypeResponseSchema = z.object({
   name: z.string(),
@@ -117,10 +104,23 @@ export const ServerTypeResponseSchema = z.object({
   disk_gb: z.number(),
   cpu_type: z.enum(['shared', 'dedicated']),
   architecture: z.enum(['x86', 'arm']),
-  price_monthly: z.number().describe('Our price (Hetzner × 2.5, rounded up, +20% backups)'),
-  hetzner_price_monthly: z.number().describe('Raw Hetzner price (EUR)'),
-  backup_price_monthly: z.number().describe('Backup cost (20% of server price)'),
+  price_monthly: z.number().describe('Our price after markup'),
+  provider_price_monthly: z.number().describe('Raw provider price'),
   available: z.boolean(),
+});
+
+// ─── Provider Schemas ──────────────────────────────────────────────────────
+
+export const ProviderSchema = z.object({
+  name: z.string(),
+  displayName: z.string(),
+});
+
+export const RegionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  country: z.string(),
+  city: z.string(),
 });
 
 // ─── Internal Schemas ───────────────────────────────────────────────────────
