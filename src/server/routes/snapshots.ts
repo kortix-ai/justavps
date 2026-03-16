@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
-import { authMiddleware, type AuthVariables } from '../lib/middleware';
+import { apiGuard, type AuthVariables } from '../lib/api-guard';
 
 export const snapshotsApp = new Hono<{ Variables: AuthVariables }>();
-snapshotsApp.use('*', authMiddleware);
+snapshotsApp.use('*', apiGuard);
 
 snapshotsApp.get('/', async (c) => {
   return c.json({ snapshots: [] });

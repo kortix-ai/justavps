@@ -2,11 +2,11 @@ import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { db } from '../db';
 import { users, machines } from '../db/schema';
-import { authMiddleware, type AuthVariables } from '../lib/middleware';
+import { apiGuard, type AuthVariables } from '../lib/api-guard';
 import { stripeClient } from '../lib/stripe';
 
 export const accountApp = new Hono<{ Variables: AuthVariables }>();
-accountApp.use('*', authMiddleware);
+accountApp.use('*', apiGuard);
 
 accountApp.get('/', async (c) => {
   const userId = c.get('userId');
