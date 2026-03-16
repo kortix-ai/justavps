@@ -1,7 +1,35 @@
+# deps
 node_modules/
+.pnpm-store/
+
+# env
 .env
 .env.*
 !.env.example
-*.log
+
+# next.js
+.next/
+out/
+
+# build
 dist/
+build/
+
+# misc
 .DS_Store
+*.log
+*.pem
+.vercel
+
+# testing
+coverage/
+
+# drizzle
+drizzle/meta/
+
+# agent binary
+agent/justavps-agent
+agent/bin/
+
+# cloudflare worker
+workers/proxy/.wrangler/

@@ -1,0 +1,30 @@
+{
+  "name": "kortix-cloud-proxy",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker auth proxy for *.kortix.cloud",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "build": "wrangler deploy --dry-run",
+    "lint": "eslint src/**/*.ts",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": ["cloudflare", "worker", "proxy", "auth"],
+  "author": "JustAVPS",
+  "license": "MIT",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241218.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^2.0.0",
+    "wrangler": "^3.89.0"
+  },
+  "dependencies": {
+    "jose": "^5.9.6"
+  }
+}

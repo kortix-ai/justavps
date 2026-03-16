@@ -1,0 +1,23 @@
+name = "kortix-cloud-proxy"
+main = "src/index.ts"
+compatibility_date = "2024-12-18"
+
+[env.production]
+name = "kortix-cloud-proxy"
+
+[env.staging]
+name = "kortix-cloud-proxy-staging"
+
+[[kv_namespaces]]
+binding = "KV"
+preview_id = "YOUR_PREVIEW_KV_ID"
+id = "YOUR_PRODUCTION_KV_ID"
+
+[vars]
+ENVIRONMENT = "production"
+
+[triggers]
+crons = []
+
+[placement]
+mode = "smart"
