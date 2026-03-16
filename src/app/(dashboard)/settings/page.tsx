@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,270 +12,309 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { apiFetch } from "@/lib/api";
+import { useSSHKeys, useCreateSSHKey, useDeleteSSHKey } from "@/hooks/use-ssh-keys";
+import { useAPIKeys, useCreateAPIKey, useDeleteAPIKey } from "@/hooks/use-api-keys";
+import { useUsage, useBillingPortal } from "@/hooks/use-account";
+import { Plus, Trash2, Copy, ExternalLink, Key, KeyRound } from "lucide-react";
 
-interface SSHKey {
-  id: string;
-  name: string;
-  fingerprint: string;
-  created_at: string;
-}
-
-interface APIKey {
-  id: string;
-  name: string;
-  key?: string;
-  key_prefix: string;
-  created_at: string;
-  last_used: string | null;
-}
+// ─── Billing Tab ─────────────────────────────────────────────────────────────
 
 function BillingTab() {
-  const [usage, setUsage] = useState<any>(null);
-  const [billingUrl, setBillingUrl] = useState<string | null>(null);
-  const [billingLoading, setBillingLoading] = useState(true);
-
-  useEffect(() => {
-    async function fetchBilling() {
-      try {
-        const [usageRes, billingRes] = await Promise.all([
-          apiFetch('/account/usage'),
-          apiFetch('/account/billing'),
-        ]);
-        if (usageRes.ok) setUsage(await usageRes.json());
-        if (billingRes.ok) {
-          const data = await billingRes.json();
-          setBillingUrl(data.portal_url);
-        }
-      } catch {} finally {
-        setBillingLoading(false);
-      }
-    }
-    fetchBilling();
-  }, []);
+  const { data: usage } = useUsage();
+  const { data: billing, isLoading: billingLoading } = useBillingPortal();
 
   const totalMachines = usage?.current_period?.total_machines ?? 0;
   const estimatedCost = usage?.current_period?.estimated_cost ?? 0;
 
   return (
-    <Card>
+    <Card className="shadow-none">
       <CardHeader>
-        <CardTitle>Billing & Usage</CardTitle>
-        <CardDescription>Manage your subscription and billing</CardDescription>
+        <CardTitle className="text-sm font-medium">Billing & Usage</CardTitle>
+        <CardDescription className="text-xs">Manage your subscription and billing</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex justify-between items-center p-4 border rounded-lg">
+      <CardContent className="space-y-3">
+        <div className="flex justify-between items-center p-3 border rounded-lg">
           <div>
-            <h3 className="font-medium">Active Machines</h3>
-            <p className="text-sm text-muted-foreground">
-              {totalMachines} machine{totalMachines !== 1 ? 's' : ''} running
-            </p>
+            <h3 className="text-sm font-medium">Active Machines</h3>
+            <p className="text-xs text-muted-foreground">{totalMachines} machine{totalMachines !== 1 ? "s" : ""} running</p>
           </div>
-          <Badge variant="secondary">{totalMachines > 0 ? 'Active' : 'No Machines'}</Badge>
+          <Badge variant="secondary" className="text-[10px]">{totalMachines > 0 ? "Active" : "None"}</Badge>
         </div>
 
-        <div className="flex justify-between items-center p-4 border rounded-lg">
+        <div className="flex justify-between items-center p-3 border rounded-lg">
           <div>
-            <h3 className="font-medium">Estimated Monthly Cost</h3>
-            <p className="text-sm text-muted-foreground">Based on current machines</p>
+            <h3 className="text-sm font-medium">Estimated Monthly Cost</h3>
+            <p className="text-xs text-muted-foreground">Based on current machines</p>
           </div>
           <div className="text-right">
-            <div className="font-mono text-2xl font-bold">${estimatedCost}</div>
-            <div className="text-xs text-muted-foreground">/month</div>
+            <div className="font-mono text-lg font-semibold">${estimatedCost}</div>
+            <div className="text-[10px] text-muted-foreground">/month</div>
           </div>
         </div>
 
-        {usage?.current_period?.machines?.length > 0 && (
-          <div className="p-4 border rounded-lg">
-            <h3 className="font-medium mb-3">Machine Breakdown</h3>
-            <div className="space-y-2">
-              {usage.current_period.machines.map((m: any) => (
-                <div key={m.id} className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">{m.slug} ({m.server_type})</span>
-                  <Badge variant={m.status === 'ready' ? 'default' : 'secondary'}>{m.status}</Badge>
+        {usage?.current_period?.machines?.length ? (
+          <div className="p-3 border rounded-lg">
+            <h3 className="text-sm font-medium mb-2">Breakdown</h3>
+            <div className="space-y-1.5">
+              {usage.current_period.machines.map((m) => (
+                <div key={m.id} className="flex justify-between text-xs">
+                  <span className="text-muted-foreground font-mono">{m.slug} ({m.server_type})</span>
+                  <Badge variant={m.status === "ready" ? "default" : "secondary"} className="text-[10px] px-1.5 py-0">{m.status}</Badge>
                 </div>
               ))}
             </div>
           </div>
-        )}
+        ) : null}
 
-        <div className="pt-4">
-          {billingUrl ? (
-            <a href={billingUrl} target="_blank" rel="noopener noreferrer">
-              <Button className="w-full">Manage Billing in Stripe</Button>
+        <div className="pt-2">
+          {billing?.portal_url ? (
+            <a href={billing.portal_url} target="_blank" rel="noopener noreferrer">
+              <Button size="sm" className="w-full">
+                <ExternalLink className="mr-2 size-3.5" />
+                Manage Billing in Stripe
+              </Button>
             </a>
           ) : (
-            <Button className="w-full" disabled={billingLoading}>
-              {billingLoading ? 'Loading...' : 'Create a machine to start billing'}
+            <Button size="sm" className="w-full" disabled={billingLoading}>
+              {billingLoading ? "Loading..." : "Create a machine to start billing"}
             </Button>
           )}
-          <p className="text-sm text-muted-foreground mt-2 text-center">
-            View invoices, update payment methods, and manage subscriptions
-          </p>
         </div>
       </CardContent>
     </Card>
   );
 }
 
-export default function SettingsPage() {
-  const [sshKeys, setSSHKeys] = useState<SSHKey[]>([]);
-  const [apiKeys, setAPIKeys] = useState<APIKey[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
-  
-  // SSH Key form
+// ─── SSH Keys Tab ────────────────────────────────────────────────────────────
+
+function SSHKeysTab() {
+  const { data: sshKeys, isLoading } = useSSHKeys();
+  const createSSHKey = useCreateSSHKey();
+  const deleteSSHKey = useDeleteSSHKey();
   const [sshKeyName, setSSHKeyName] = useState("");
   const [sshKeyContent, setSSHKeyContent] = useState("");
-  
-  // API Key form  
-  const [apiKeyName, setAPIKeyName] = useState("");
-  const [newAPIKey, setNewAPIKey] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
-    try {
-      const [sshResponse, apiResponse] = await Promise.all([
-        apiFetch('/ssh-keys'),
-        apiFetch('/api-keys'),
-      ]);
-
-      if (sshResponse.ok) {
-        const sshData = await sshResponse.json();
-        setSSHKeys(sshData.ssh_keys || []);
-      }
-
-      if (apiResponse.ok) {
-        const apiData = await apiResponse.json();
-        setAPIKeys(apiData.api_keys || []);
-      }
-    } catch (err) {
-      toast.error('Failed to load settings');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCreateSSHKey = async () => {
-    if (!sshKeyName || !sshKeyContent) {
-      toast.error('Please provide both name and public key');
-      return;
-    }
-
-    setActionLoading('create-ssh');
-    try {
-      const response = await apiFetch('/ssh-keys', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: sshKeyName,
-          public_key: sshKeyContent,
-        }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to create SSH key');
-      }
-
-      const newKey = await response.json();
-      setSSHKeys([...sshKeys, newKey]);
-      setSSHKeyName("");
-      setSSHKeyContent("");
-      toast.success('SSH key created successfully');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create SSH key');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleDeleteSSHKey = async (keyId: string) => {
-    setActionLoading(`delete-ssh-${keyId}`);
-    try {
-      const response = await apiFetch(`/ssh-keys/${keyId}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.message || 'Failed to delete SSH key');
-      }
-
-      setSSHKeys(sshKeys.filter(key => key.id !== keyId));
-      toast.success('SSH key deleted successfully');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete SSH key');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleCreateAPIKey = async () => {
-    if (!apiKeyName) {
-      toast.error('Please provide a name for the API key');
-      return;
-    }
-
-    setActionLoading('create-api');
-    try {
-      const response = await apiFetch('/api-keys', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: apiKeyName,
-        }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to create API key');
-      }
-
-      const newKey = await response.json();
-      setAPIKeys([...apiKeys, newKey]);
-      setNewAPIKey(newKey.key);
-      setAPIKeyName("");
-      toast.success('API key created successfully');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create API key');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleDeleteAPIKey = async (keyId: string) => {
-    setActionLoading(`delete-api-${keyId}`);
-    try {
-      const response = await apiFetch(`/api-keys/${keyId}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.message || 'Failed to delete API key');
-      }
-
-      setAPIKeys(apiKeys.filter(key => key.id !== keyId));
-      toast.success('API key deleted successfully');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete API key');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const copyAPIKey = () => {
-    if (newAPIKey) {
-      navigator.clipboard.writeText(newAPIKey);
-      toast.success('API key copied to clipboard');
-    }
+  const handleCreate = () => {
+    if (!sshKeyName || !sshKeyContent) { toast.error("Provide both name and public key"); return; }
+    createSSHKey.mutate(
+      { name: sshKeyName, public_key: sshKeyContent },
+      {
+        onSuccess: () => { setSSHKeyName(""); setSSHKeyContent(""); toast.success("SSH key added"); },
+        onError: (err) => toast.error(err.message),
+      },
+    );
   };
 
   return (
+    <Card className="shadow-none">
+      <CardHeader>
+        <CardTitle className="text-sm font-medium">SSH Keys</CardTitle>
+        <CardDescription className="text-xs">Manage SSH keys for secure access to your machines</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2">
+          {isLoading ? (
+            Array.from({ length: 2 }).map((_, i) => (
+              <div key={i} className="flex justify-between items-center p-3 border rounded-lg">
+                <div className="space-y-1"><Skeleton className="h-4 w-28" /><Skeleton className="h-3 w-40" /></div>
+                <Skeleton className="h-7 w-7" />
+              </div>
+            ))
+          ) : sshKeys?.length === 0 ? (
+            <div className="text-center py-6">
+              <KeyRound className="mx-auto size-8 text-muted-foreground/50 mb-2" />
+              <p className="text-sm text-muted-foreground">No SSH keys configured</p>
+            </div>
+          ) : (
+            sshKeys?.map((key) => (
+              <div key={key.id} className="flex justify-between items-center p-3 border rounded-lg">
+                <div>
+                  <h3 className="text-sm font-medium">{key.name}</h3>
+                  <p className="text-xs text-muted-foreground font-mono">
+                    {key.fingerprint}
+                    <span className="font-sans"> &middot; {new Date(key.created_at).toLocaleDateString()}</span>
+                  </p>
+                </div>
+                <Dialog>
+                  <DialogTrigger render={<Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive hover:text-destructive" />}>
+                    <Trash2 className="size-3.5" />
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Delete SSH Key</DialogTitle>
+                      <DialogDescription>Delete &quot;{key.name}&quot;? This cannot be undone.</DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                      <Button variant="outline" size="sm">Cancel</Button>
+                      <Button variant="destructive" size="sm" onClick={() => deleteSSHKey.mutate(key.id, { onSuccess: () => toast.success("Deleted"), onError: (err) => toast.error(err.message) })} disabled={deleteSSHKey.isPending}>
+                        Delete
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            ))
+          )}
+
+          <div className="pt-3 border-t">
+            <Dialog>
+              <DialogTrigger render={<Button variant="outline" size="sm" />}>
+                <Plus className="mr-2 size-3.5" />
+                Add SSH Key
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Add SSH Key</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="ssh-name" className="text-xs">Name</Label>
+                    <Input id="ssh-name" placeholder="My Laptop" value={sshKeyName} onChange={(e) => setSSHKeyName(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="ssh-key" className="text-xs">Public Key</Label>
+                    <Textarea id="ssh-key" placeholder="ssh-ed25519 AAAA..." value={sshKeyContent} onChange={(e) => setSSHKeyContent(e.target.value)} rows={3} className="font-mono text-xs" />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button size="sm" onClick={handleCreate} disabled={createSSHKey.isPending}>
+                    {createSSHKey.isPending ? "Adding..." : "Add Key"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── API Keys Tab ────────────────────────────────────────────────────────────
+
+function APIKeysTab() {
+  const { data: apiKeys, isLoading } = useAPIKeys();
+  const createAPIKey = useCreateAPIKey();
+  const deleteAPIKey = useDeleteAPIKey();
+  const [apiKeyName, setAPIKeyName] = useState("");
+  const [newAPIKey, setNewAPIKey] = useState<string | null>(null);
+
+  const handleCreate = () => {
+    if (!apiKeyName) { toast.error("Provide a name"); return; }
+    createAPIKey.mutate(apiKeyName, {
+      onSuccess: (key) => { setNewAPIKey(key.key ?? null); setAPIKeyName(""); toast.success("API key created"); },
+      onError: (err) => toast.error(err.message),
+    });
+  };
+
+  return (
+    <>
+      <Card className="shadow-none">
+        <CardHeader>
+          <CardTitle className="text-sm font-medium">API Keys</CardTitle>
+          <CardDescription className="text-xs">Create and manage API keys for programmatic access</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {isLoading ? (
+              Array.from({ length: 2 }).map((_, i) => (
+                <div key={i} className="flex justify-between items-center p-3 border rounded-lg">
+                  <div className="space-y-1"><Skeleton className="h-4 w-28" /><Skeleton className="h-3 w-40" /></div>
+                  <Skeleton className="h-7 w-7" />
+                </div>
+              ))
+            ) : apiKeys?.length === 0 ? (
+              <div className="text-center py-6">
+                <Key className="mx-auto size-8 text-muted-foreground/50 mb-2" />
+                <p className="text-sm text-muted-foreground">No API keys created</p>
+              </div>
+            ) : (
+              apiKeys?.map((key) => (
+                <div key={key.id} className="flex justify-between items-center p-3 border rounded-lg">
+                  <div>
+                    <h3 className="text-sm font-medium">{key.name}</h3>
+                    <p className="text-xs text-muted-foreground">
+                      <span className="font-mono">{key.key_prefix}...</span>
+                      <span> &middot; {new Date(key.created_at).toLocaleDateString()}</span>
+                      {key.last_used && (<span> &middot; Used {new Date(key.last_used).toLocaleDateString()}</span>)}
+                    </p>
+                  </div>
+                  <Dialog>
+                    <DialogTrigger render={<Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive hover:text-destructive" />}>
+                      <Trash2 className="size-3.5" />
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Delete API Key</DialogTitle>
+                        <DialogDescription>Delete &quot;{key.name}&quot;? This will break any integrations using this key.</DialogDescription>
+                      </DialogHeader>
+                      <DialogFooter>
+                        <Button variant="outline" size="sm">Cancel</Button>
+                        <Button variant="destructive" size="sm" onClick={() => deleteAPIKey.mutate(key.id, { onSuccess: () => toast.success("Deleted"), onError: (err) => toast.error(err.message) })} disabled={deleteAPIKey.isPending}>
+                          Delete
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              ))
+            )}
+
+            <div className="pt-3 border-t">
+              <Dialog>
+                <DialogTrigger render={<Button variant="outline" size="sm" />}>
+                  <Plus className="mr-2 size-3.5" />
+                  Create API Key
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Create API Key</DialogTitle>
+                  </DialogHeader>
+                  <div>
+                    <Label htmlFor="api-name" className="text-xs">Name</Label>
+                    <Input id="api-name" placeholder="CI/CD Pipeline" value={apiKeyName} onChange={(e) => setAPIKeyName(e.target.value)} />
+                  </div>
+                  <DialogFooter>
+                    <Button size="sm" onClick={handleCreate} disabled={createAPIKey.isPending}>
+                      {createAPIKey.isPending ? "Creating..." : "Create Key"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {newAPIKey && (
+        <Card className="border-green-500/30 shadow-none">
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-green-500">API Key Created</CardTitle>
+            <CardDescription className="text-xs">Save this key now &mdash; you won&apos;t see it again</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <Input value={newAPIKey} readOnly className="font-mono text-xs" />
+              <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(newAPIKey); toast.success("Copied"); }}>
+                <Copy className="size-3.5" />
+              </Button>
+            </div>
+            <Button variant="outline" size="sm" className="mt-3 w-full" onClick={() => setNewAPIKey(null)}>
+              I&apos;ve saved this key
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+    </>
+  );
+}
+
+// ─── Main Page ───────────────────────────────────────────────────────────────
+
+export default function SettingsPage() {
+  return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold">Settings</h1>
+      <h1 className="font-heading text-3xl tracking-tight">Settings</h1>
 
       <Tabs defaultValue="ssh-keys" className="space-y-4">
         <TabsList>
@@ -284,238 +323,15 @@ export default function SettingsPage() {
           <TabsTrigger value="billing">Billing</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="ssh-keys" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>SSH Keys</CardTitle>
-              <CardDescription>
-                Manage SSH keys for secure access to your machines
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {loading ? (
-                  Array.from({ length: 3 }).map((_, i) => (
-                    <div key={i} className="flex justify-between items-center p-4 border rounded">
-                      <div className="space-y-1">
-                        <Skeleton className="h-4 w-32" />
-                        <Skeleton className="h-3 w-48" />
-                      </div>
-                      <Skeleton className="h-8 w-16" />
-                    </div>
-                  ))
-                ) : sshKeys.length === 0 ? (
-                  <div className="text-center py-8">
-                    <p className="text-muted-foreground mb-4">No SSH keys configured yet</p>
-                  </div>
-                ) : (
-                  sshKeys.map((key) => (
-                    <div key={key.id} className="flex justify-between items-center p-4 border rounded">
-                      <div>
-                        <h3 className="font-medium">{key.name}</h3>
-                        <p className="text-sm text-muted-foreground">
-                          {key.fingerprint} • Created {new Date(key.created_at).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <Dialog>
-                        <DialogTrigger className={cn(buttonVariants({variant:"destructive",size:"sm"}))}>Delete</DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>Delete SSH Key</DialogTitle>
-                            <DialogDescription>
-                               Are you sure you want to delete &quot;{key.name}&quot;? This action cannot be undone.
-                            </DialogDescription>
-                          </DialogHeader>
-                          <DialogFooter>
-                            <Button variant="outline">Cancel</Button>
-                            <Button 
-                              variant="destructive" 
-                              onClick={() => handleDeleteSSHKey(key.id)}
-                              disabled={actionLoading === `delete-ssh-${key.id}`}
-                            >
-                              {actionLoading === `delete-ssh-${key.id}` ? 'Deleting...' : 'Delete'}
-                            </Button>
-                          </DialogFooter>
-                        </DialogContent>
-                      </Dialog>
-                    </div>
-                  ))
-                )}
-
-                <div className="pt-4 border-t">
-                  <Dialog>
-                    <DialogTrigger className={cn(buttonVariants())}>Add SSH Key</DialogTrigger>
-                    <DialogContent className="sm:max-w-md">
-                      <DialogHeader>
-                        <DialogTitle>Add SSH Key</DialogTitle>
-                        <DialogDescription>
-                          Add a new SSH key to access your machines
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        <div>
-                          <Label htmlFor="ssh-name">Name</Label>
-                          <Input
-                            id="ssh-name"
-                            placeholder="e.g., My Laptop"
-                            value={sshKeyName}
-                            onChange={(e) => setSSHKeyName(e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="ssh-key">Public Key</Label>
-                          <Textarea
-                            id="ssh-key"
-                            placeholder="ssh-ed25519 AAAA... user@host"
-                            value={sshKeyContent}
-                            onChange={(e) => setSSHKeyContent(e.target.value)}
-                            rows={3}
-                          />
-                        </div>
-                      </div>
-                      <DialogFooter>
-                        <Button variant="outline">Cancel</Button>
-                        <Button 
-                          onClick={handleCreateSSHKey}
-                          disabled={actionLoading === 'create-ssh'}
-                        >
-                          {actionLoading === 'create-ssh' ? 'Adding...' : 'Add Key'}
-                        </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        <TabsContent value="ssh-keys" className="space-y-4">
+          <SSHKeysTab />
         </TabsContent>
 
-        <TabsContent value="api-keys" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>API Keys</CardTitle>
-              <CardDescription>
-                Create and manage API keys for programmatic access
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {loading ? (
-                  Array.from({ length: 3 }).map((_, i) => (
-                    <div key={i} className="flex justify-between items-center p-4 border rounded">
-                      <div className="space-y-1">
-                        <Skeleton className="h-4 w-32" />
-                        <Skeleton className="h-3 w-48" />
-                      </div>
-                      <Skeleton className="h-8 w-16" />
-                    </div>
-                  ))
-                ) : apiKeys.length === 0 ? (
-                  <div className="text-center py-8">
-                    <p className="text-muted-foreground mb-4">No API keys created yet</p>
-                  </div>
-                ) : (
-                  apiKeys.map((key) => (
-                    <div key={key.id} className="flex justify-between items-center p-4 border rounded">
-                      <div>
-                        <h3 className="font-medium">{key.name}</h3>
-                        <p className="text-sm text-muted-foreground">
-                          {key.key_prefix}... • Created {new Date(key.created_at).toLocaleDateString()}
-                          {key.last_used && (
-                            <> • Last used {new Date(key.last_used).toLocaleDateString()}</>
-                          )}
-                        </p>
-                      </div>
-                      <Dialog>
-                        <DialogTrigger className={cn(buttonVariants({variant:"destructive",size:"sm"}))}>Delete</DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>Delete API Key</DialogTitle>
-                            <DialogDescription>
-                               Are you sure you want to delete &quot;{key.name}&quot;? This action cannot be undone
-                              and will break any integrations using this key.
-                            </DialogDescription>
-                          </DialogHeader>
-                          <DialogFooter>
-                            <Button variant="outline">Cancel</Button>
-                            <Button 
-                              variant="destructive" 
-                              onClick={() => handleDeleteAPIKey(key.id)}
-                              disabled={actionLoading === `delete-api-${key.id}`}
-                            >
-                              {actionLoading === `delete-api-${key.id}` ? 'Deleting...' : 'Delete'}
-                            </Button>
-                          </DialogFooter>
-                        </DialogContent>
-                      </Dialog>
-                    </div>
-                  ))
-                )}
-
-                <div className="pt-4 border-t">
-                  <Dialog>
-                    <DialogTrigger className={cn(buttonVariants())}>Create API Key</DialogTrigger>
-                    <DialogContent className="sm:max-w-md">
-                      <DialogHeader>
-                        <DialogTitle>Create API Key</DialogTitle>
-                        <DialogDescription>
-                          Create a new API key for programmatic access to JustAVPS
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        <div>
-                          <Label htmlFor="api-name">Name</Label>
-                          <Input
-                            id="api-name"
-                            placeholder="e.g., CI/CD Pipeline"
-                            value={apiKeyName}
-                            onChange={(e) => setAPIKeyName(e.target.value)}
-                          />
-                        </div>
-                      </div>
-                      <DialogFooter>
-                        <Button variant="outline">Cancel</Button>
-                        <Button 
-                          onClick={handleCreateAPIKey}
-                          disabled={actionLoading === 'create-api'}
-                        >
-                          {actionLoading === 'create-api' ? 'Creating...' : 'Create Key'}
-                        </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* New API Key Display */}
-          {newAPIKey && (
-            <Card className="border-green-500">
-              <CardHeader>
-                <CardTitle className="text-green-600">API Key Created!</CardTitle>
-                <CardDescription>
-                   Save this key now - you won&apos;t be able to see it again
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center space-x-2">
-                  <Input value={newAPIKey} readOnly />
-                  <Button onClick={copyAPIKey}>Copy</Button>
-                </div>
-                <Button 
-                  variant="outline" 
-                  className="mt-4 w-full" 
-                  onClick={() => setNewAPIKey(null)}
-                >
-                   I&apos;ve saved this key
-                </Button>
-              </CardContent>
-            </Card>
-          )}
+        <TabsContent value="api-keys" className="space-y-4">
+          <APIKeysTab />
         </TabsContent>
 
-        <TabsContent value="billing" className="space-y-6">
+        <TabsContent value="billing" className="space-y-4">
           <BillingTab />
         </TabsContent>
       </Tabs>

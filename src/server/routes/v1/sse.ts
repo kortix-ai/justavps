@@ -7,9 +7,9 @@
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { eq } from 'drizzle-orm';
-import { db } from '../db';
-import { machines } from '../db/schema';
-import { apiGuard, type AuthVariables } from '../lib/api-guard';
+import { db } from '../../db';
+import { machines } from '../../db/schema';
+import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 
 export const sseApp = new Hono<{ Variables: AuthVariables }>();
 sseApp.use('*', apiGuard);

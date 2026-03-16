@@ -1,11 +1,11 @@
 import { Hono } from 'hono';
 import { eq, and } from 'drizzle-orm';
-import { db } from '../db';
-import { sshKeys } from '../db/schema';
-import { fingerprintSSHKey } from '../lib/crypto';
-import { apiGuard, type AuthVariables } from '../lib/api-guard';
-import { broadcastToProviders } from '../lib/provider-sync';
-import { handleRouteError } from '../lib/route-helpers';
+import { db } from '../../db';
+import { sshKeys } from '../../db/schema';
+import { fingerprintSSHKey } from '../../lib/crypto';
+import { apiGuard, type AuthVariables } from '../../lib/api-guard';
+import { broadcastToProviders } from '../../lib/provider-sync';
+import { handleRouteError } from '../../lib/route-helpers';
 
 export const sshKeysApp = new Hono<{ Variables: AuthVariables }>();
 sshKeysApp.use('*', apiGuard);

@@ -1,38 +1,37 @@
 "use client";
 
 import { useSession } from "next-auth/react";
-import { Sidebar } from "@/components/dashboard/sidebar";
-import { Header } from "@/components/dashboard/header";
+import { AppSidebar } from "@/components/dashboard/sidebar";
+import {
+  SidebarInset,
+  SidebarProvider,
+  SidebarTrigger,
+} from "@/components/ui/sidebar";
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // Middleware already handles redirect for unauthenticated users.
-  // useSession here is only for loading state + passing session data to children.
   const { status } = useSession();
 
   if (status === "loading") {
     return (
       <div className="flex h-screen items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-          <p className="text-muted-foreground text-sm">Loading...</p>
-        </div>
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-foreground border-t-transparent" />
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen">
-      <div className="w-64 flex-shrink-0">
-        <Sidebar />
-      </div>
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <Header />
-        <main className="flex-1 overflow-auto p-6">{children}</main>
-      </div>
-    </div>
+    <SidebarProvider>
+      <AppSidebar />
+      <SidebarInset>
+        <header className="flex h-14 shrink-0 items-center px-6">
+          <SidebarTrigger className="-ml-2" />
+        </header>
+        <main className="flex-1 overflow-auto p-8">{children}</main>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }

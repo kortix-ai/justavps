@@ -5,14 +5,14 @@
 
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
-import { db } from '../db';
-import { machines, snapshots } from '../db/schema';
-import { config } from '../lib/config';
+import { db } from '../../db';
+import { machines, snapshots } from '../../db/schema';
+import { config } from '../../lib/config';
 
 type Machine = typeof machines.$inferSelect;
-import { apiGuard, type AuthVariables } from '../lib/api-guard';
-import { stripeClient } from '../lib/stripe';
-import { requireOwnedResource, requireProvider, errorResponse, handleRouteError } from '../lib/route-helpers';
+import { apiGuard, type AuthVariables } from '../../lib/api-guard';
+import { stripeClient } from '../../lib/stripe';
+import { requireOwnedResource, requireProvider, errorResponse, handleRouteError } from '../../lib/route-helpers';
 import {
   generateMachineIdentity,
   uploadSSHKeyToProvider,
@@ -23,7 +23,7 @@ import {
   createStripeSubscription,
   cleanupMachineResources,
   syncMachineStatus,
-} from '../lib/machine-lifecycle';
+} from '../../lib/machine-lifecycle';
 import { z } from 'zod';
 
 export const machinesApp = new Hono<{ Variables: AuthVariables }>();

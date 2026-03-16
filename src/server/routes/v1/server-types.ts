@@ -4,8 +4,8 @@
  */
 
 import { Hono } from 'hono';
-import { listProviders } from '../lib/providers';
-import { requireProvider, handleRouteError } from '../lib/route-helpers';
+import { listProviders } from '../../lib/providers';
+import { requireProvider, handleRouteError } from '../../lib/route-helpers';
 
 export const serverTypesApp = new Hono();
 

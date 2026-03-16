@@ -1,28 +1,12 @@
-/**
- * Hono app — the API layer.
- * Mounted at /api/[[...route]] in Next.js.
- */
-
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { prettyJSON } from 'hono/pretty-json';
 
-import { machinesApp } from './routes/machines';
-import { snapshotsApp } from './routes/snapshots';
-
-import { sshKeysApp } from './routes/ssh-keys';
-import { apiKeysApp } from './routes/api-keys';
-import { serverTypesApp } from './routes/server-types';
-import { accountApp } from './routes/account';
-import { internalApp } from './routes/internal';
-import { sseApp } from './routes/sse';
-
-// ─── App Setup ──────────────────────────────────────────────────────────────
+import { v1 } from './routes/v1';
 
 export const app = new Hono().basePath('/api');
 
-// Global middleware
 app.use('*', cors({
   origin: [
     'https://justavps.com',
@@ -40,8 +24,6 @@ app.use('*', cors({
 app.use('*', logger());
 app.use('*', prettyJSON());
 
-// ─── Health Check ───────────────────────────────────────────────────────────
-
 app.get('/health', (c) => {
   return c.json({
     status: 'ok',
@@ -50,19 +32,7 @@ app.get('/health', (c) => {
   });
 });
 
-// ─── Mount Routes ───────────────────────────────────────────────────────────
-
-app.route('/v1/machines', machinesApp);
-app.route('/v1/snapshots', snapshotsApp);
-
-app.route('/v1/ssh-keys', sshKeysApp);
-app.route('/v1/api-keys', apiKeysApp);
-app.route('/v1/server-types', serverTypesApp);
-app.route('/v1/account', accountApp);
-app.route('/v1/internal', internalApp);
-app.route('/v1/machines', sseApp);
-
-// ─── Error Handling ─────────────────────────────────────────────────────────
+app.route('/v1', v1);
 
 app.onError((err, c) => {
   console.error(`[API ERROR] ${c.req.method} ${c.req.path}:`, err);

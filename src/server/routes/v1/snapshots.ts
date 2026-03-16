@@ -10,11 +10,11 @@
 
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
-import { db } from '../db';
-import { snapshots } from '../db/schema';
-import { apiGuard, type AuthVariables } from '../lib/api-guard';
-import { getProvider, listProviders } from '../lib/providers';
-import { requireOwnedResource, requireProvider, errorResponse, handleRouteError } from '../lib/route-helpers';
+import { db } from '../../db';
+import { snapshots } from '../../db/schema';
+import { apiGuard, type AuthVariables } from '../../lib/api-guard';
+import { getProvider, listProviders } from '../../lib/providers';
+import { requireOwnedResource, requireProvider, errorResponse, handleRouteError } from '../../lib/route-helpers';
 import { z } from 'zod';
 
 type Snapshot = typeof snapshots.$inferSelect;

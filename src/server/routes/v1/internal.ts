@@ -1,11 +1,11 @@
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
-import { db } from '../db';
-import { machines, apiKeys } from '../db/schema';
-import { validateApiKey } from '../lib/crypto';
-import { cloudflareClient } from '../lib/cloudflare';
-import { config } from '../lib/config';
-import { errorResponse } from '../lib/route-helpers';
+import { db } from '../../db';
+import { machines, apiKeys } from '../../db/schema';
+import { validateApiKey } from '../../lib/crypto';
+import { cloudflareClient } from '../../lib/cloudflare';
+import { config } from '../../lib/config';
+import { errorResponse } from '../../lib/route-helpers';
 import { HeartbeatSchema } from '@/lib/schemas';
 
 export const internalApp = new Hono();
