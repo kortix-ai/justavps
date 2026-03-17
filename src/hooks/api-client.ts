@@ -17,7 +17,22 @@ async function handleResponse<T>(res: Response): Promise<T> {
   }
 
   if (res.status === 401 && typeof window !== "undefined") {
-    window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+    // Sign out first to clear the stale session cookie, otherwise the
+    // middleware will redirect authenticated users away from /login
+    // back to /machines, creating an infinite redirect loop.
+    const next = encodeURIComponent(window.location.pathname);
+    try {
+      const csrf = await fetch("/api/auth/csrf").then((r) => r.json());
+      await fetch("/api/auth/signout", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `csrfToken=${csrf.csrfToken}`,
+        credentials: "include",
+      });
+    } catch {
+      // Best-effort — continue to redirect regardless
+    }
+    window.location.href = `/login?next=${next}`;
     throw new ApiError(401, "Authentication required");
   }
 
