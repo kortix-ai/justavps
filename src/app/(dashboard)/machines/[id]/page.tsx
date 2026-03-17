@@ -16,11 +16,11 @@ import {
   ArrowLeft, RotateCw, Trash2, Copy, ExternalLink,
   Cpu, MemoryStick, HardDrive, Activity, Clock,
   Globe, Server, ChevronDown, ChevronRight, Loader2,
-  Terminal as TerminalIcon, Link2, KeyRound,
-  Power,
+  Terminal as TerminalIcon, Link2,
   AlertTriangle
 } from "lucide-react";
 import Link from "next/link";
+import { timeAgo } from "@/lib/utils";
 
 const Terminal = dynamic(() => import("@/components/dashboard/terminal"), {
   ssr: false,
@@ -33,17 +33,6 @@ const statusMap: Record<string, { label: string; dotClass: string; color: string
   error: { label: "Error", dotClass: "bg-red-500", color: "text-red-500" },
   stopped: { label: "Stopped", dotClass: "bg-muted-foreground", color: "text-muted-foreground" },
 };
-
-function timeAgo(date: string) {
-  const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
 
 export default function MachineDetailPage() {
   const params = useParams();
@@ -195,7 +184,7 @@ export default function MachineDetailPage() {
               </div>
 
               <TabsContent value="terminal" className="mt-0">
-                <Terminal machineId={machine.id} machineIp={machine.ip} machineSlug={machine.slug} machineStatus={machine.status} />
+                <Terminal machineId={machine.id} machineIp={machine.ip} machineSlug={machine.slug} machineStatus={machine.status} ptyUrl={machine.urls?.pty ?? null} />
               </TabsContent>
 
               <TabsContent value="connect" className="space-y-4 mt-0">

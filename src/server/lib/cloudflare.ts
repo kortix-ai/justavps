@@ -10,7 +10,7 @@ async function cfFetch<T = unknown>(
   path: string,
   options: { method?: string; body?: unknown } = {},
 ): Promise<T> {
-  const cfEmail = process.env.CLOUDFLARE_EMAIL || '';
+  const cfEmail = config.CLOUDFLARE_EMAIL;
   const res = await fetch(`${CF_API}${path}`, {
     method: options.method || 'GET',
     headers: {
@@ -30,19 +30,16 @@ async function cfFetch<T = unknown>(
   return res.json() as Promise<T>;
 }
 
-// DNS record ID cache: slug → record_id
-const dnsRecordCache = new Map<string, string>();
-
 export const cloudflareClient = {
   /**
    * Create a DNS A record for a machine: {slug}.kortix.cloud → VPS IP
-   * Proxied through Cloudflare (orange cloud).
+   * Direct A record (no CF proxy) for v1.
    */
   async createDNSRecord(slug: string, ip: string): Promise<void> {
     const zoneId = config.CLOUDFLARE_ZONE_ID;
     const domain = config.PROXY_DOMAIN;
 
-    const result = await cfFetch<{ result: { id: string } }>(
+    await cfFetch<{ result: { id: string } }>(
       `/zones/${zoneId}/dns_records`,
       {
         method: 'POST',
@@ -50,13 +47,12 @@ export const cloudflareClient = {
           type: 'A',
           name: `${slug}.${domain}`,
           content: ip,
-          proxied: false, // direct A record — no CF proxy for v1
+          proxied: false,
           ttl: 1, // auto
         },
       },
     );
 
-    dnsRecordCache.set(slug, result.result.id);
     console.log(`[CF] Created DNS: ${slug}.${domain} → ${ip}`);
   },
 
@@ -108,7 +104,6 @@ export const cloudflareClient = {
       console.log(`[CF] Deleted wildcard DNS: ${record.name}`);
     }
 
-    dnsRecordCache.delete(slug);
   },
 
   /**
@@ -145,7 +140,7 @@ export const cloudflareClient = {
 
     await cfFetch(
       `/accounts/${config.CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${kvNamespaceId}/values/machine:${slug}`,
-      { method: 'PUT', body: JSON.stringify(data) },
+      { method: 'PUT', body: data },
     );
     console.log(`[CF KV] Wrote machine:${slug}`);
   },

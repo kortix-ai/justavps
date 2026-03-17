@@ -3,7 +3,7 @@
  * This is the source of truth for the database structure.
  */
 
-import { pgTable, uuid, text, timestamp, bigint, integer, jsonb, decimal, boolean } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, integer, jsonb, decimal, boolean } from 'drizzle-orm/pg-core';
 
 // ─── Users ──────────────────────────────────────────────────────────────────
 

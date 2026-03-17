@@ -1,4 +1,11 @@
-import { EventEmitter } from 'events';
+/**
+ * Machine Event Bus — Vercel-compatible (no in-memory state).
+ *
+ * All state changes are persisted to DB (machines + machine_events tables).
+ * SSE consumers poll the DB. The "emit" methods here only write to DB and
+ * trigger webhook delivery — no in-memory pub/sub.
+ */
+
 import { eq } from 'drizzle-orm';
 import { db } from '../db';
 import { machines, machineEvents } from '../db/schema';
@@ -17,36 +24,11 @@ export interface MachineEvent {
   timestamp: string;
 }
 
-export type MachineEventListener = (event: MachineEvent) => void;
-
 class MachineEventBus {
-  private emitter = new EventEmitter();
-
-  constructor() {
-    this.emitter.setMaxListeners(1000);
-  }
-
-  emit(event: MachineEvent): void {
-    this.emitter.emit('machine_event', event);
-    this.emitter.emit(`machine:${event.machineId}`, event);
-  }
-
-  on(listener: MachineEventListener): void {
-    this.emitter.on('machine_event', listener);
-  }
-
-  off(listener: MachineEventListener): void {
-    this.emitter.off('machine_event', listener);
-  }
-
-  onMachine(machineId: string, listener: MachineEventListener): void {
-    this.emitter.on(`machine:${machineId}`, listener);
-  }
-
-  offMachine(machineId: string, listener: MachineEventListener): void {
-    this.emitter.off(`machine:${machineId}`, listener);
-  }
-
+  /**
+   * Emit a stage change — persists to DB + delivers webhooks.
+   * No in-memory pub/sub; SSE consumers poll machine_events.
+   */
   async emitStageChange(
     machineId: string,
     ownerId: string,
@@ -86,13 +68,14 @@ class MachineEventBus {
       console.error(`[EVENT-BUS] Failed to insert event:`, err);
     }
 
-    this.emit(event);
-
     deliverWebhooks(ownerId, event).catch((err) => {
       console.error(`[EVENT-BUS] Webhook delivery failed:`, err);
     });
   }
 
+  /**
+   * Emit a status change — persists to DB + delivers webhooks.
+   */
   async emitStatusChange(
     machineId: string,
     ownerId: string,
@@ -121,9 +104,18 @@ class MachineEventBus {
       console.error(`[EVENT-BUS] Failed to insert status event:`, err);
     }
 
-    this.emit(event);
-
     deliverWebhooks(ownerId, event).catch((err) => {
+      console.error(`[EVENT-BUS] Webhook delivery failed:`, err);
+    });
+  }
+
+  /**
+   * Fire-and-forget event (e.g. heartbeat) — just deliver webhooks.
+   * Used for events that don't need DB persistence (heartbeat data
+   * is already stored on the machines row by the caller).
+   */
+  async emitTransient(event: MachineEvent): Promise<void> {
+    deliverWebhooks(event.ownerId, event).catch((err) => {
       console.error(`[EVENT-BUS] Webhook delivery failed:`, err);
     });
   }

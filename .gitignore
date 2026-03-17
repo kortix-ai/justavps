@@ -33,3 +33,4 @@ agent/bin/
 
 # cloudflare worker
 workers/proxy/.wrangler/
+.env*.local

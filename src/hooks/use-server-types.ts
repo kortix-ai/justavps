@@ -19,7 +19,7 @@ export function useProviders() {
 
 export function useRegions(provider: string | undefined) {
   return useQuery({
-    queryKey: serverTypeKeys.regions(provider!),
+    queryKey: serverTypeKeys.regions(provider ?? ""),
     queryFn: () =>
       api.get<{ regions: Region[] }>(`/server-types/regions?provider=${provider}`).then((d) => d.regions),
     enabled: !!provider,
@@ -29,7 +29,7 @@ export function useRegions(provider: string | undefined) {
 
 export function useServerTypes(provider: string | undefined, region: string | undefined) {
   return useQuery({
-    queryKey: serverTypeKeys.types(provider!, region!),
+    queryKey: serverTypeKeys.types(provider ?? "", region ?? ""),
     queryFn: () =>
       api
         .get<{ server_types: ServerType[] }>(`/server-types?provider=${provider}&region=${region}`)

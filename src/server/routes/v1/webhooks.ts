@@ -17,9 +17,11 @@ const VALID_EVENTS = [
   'machine.heartbeat',
 ] as const;
 
+type ValidEvent = typeof VALID_EVENTS[number];
+
 const CreateWebhookSchema = z.object({
   url: z.string().url().describe('HTTPS URL to receive webhook POSTs'),
-  events: z.array(z.string()).min(1).describe('Event types to subscribe to (e.g. ["machine.stage_changed", "*"])'),
+  events: z.array(z.enum(VALID_EVENTS)).min(1).describe('Event types to subscribe to (e.g. ["machine.stage_changed", "*"])'),
   secret: z.string().min(16).optional().describe('HMAC secret for signature verification (auto-generated if omitted)'),
 });
 

@@ -9,16 +9,16 @@ import {
   CreateSSHKeySchema,
   CreateAPIKeySchema,
   HeartbeatSchema,
-  ALLOWED_SERVER_TYPES,
-  ALLOWED_REGIONS,
 } from '@/lib/schemas';
 
 describe('validation schemas', () => {
   describe('CreateMachineSchema', () => {
     const validData = {
-      server_type: 'ccx13' as const,
+      snapshot_id: '00000000-0000-0000-0000-000000000001',
+      provider: 'hetzner',
+      server_type: 'ccx13',
+      region: 'hel1',
       name: 'my-test-machine',
-      region: 'hel1' as const,
     };
 
     it('should validate correct machine creation data', () => {
@@ -34,38 +34,18 @@ describe('validation schemas', () => {
 
     it('should use default values for optional fields', () => {
       const minimalData = {
-        server_type: 'ccx23' as const,
+        snapshot_id: '00000000-0000-0000-0000-000000000001',
+        provider: 'hetzner',
+        server_type: 'ccx23',
+        region: 'nbg1',
       };
       
       const result = CreateMachineSchema.safeParse(minimalData);
       
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.region).toBe('hel1'); // default
         expect(result.data.name).toBeUndefined(); // optional
       }
-    });
-
-    it('should accept all valid CCX server types', () => {
-      for (const serverType of ALLOWED_SERVER_TYPES) {
-        const data = { ...validData, server_type: serverType };
-        const result = CreateMachineSchema.safeParse(data);
-        expect(result.success).toBe(true);
-      }
-    });
-
-    it('should accept all valid regions', () => {
-      for (const region of ALLOWED_REGIONS) {
-        const data = { ...validData, region };
-        const result = CreateMachineSchema.safeParse(data);
-        expect(result.success).toBe(true);
-      }
-    });
-
-    it('should reject non-CCX server types', () => {
-      const invalidData = { ...validData, server_type: 'cx22' };
-      const result = CreateMachineSchema.safeParse(invalidData);
-      expect(result.success).toBe(false);
     });
 
     it('should reject invalid server_type', () => {
@@ -75,7 +55,7 @@ describe('validation schemas', () => {
     });
 
     it('should reject invalid region', () => {
-      const invalidData = { ...validData, region: 'invalid-region' };
+      const invalidData = { ...validData, region: '' };
       const result = CreateMachineSchema.safeParse(invalidData);
       expect(result.success).toBe(false);
     });
@@ -91,11 +71,16 @@ describe('validation schemas', () => {
       const result = CreateMachineSchema.safeParse(invalidData);
       expect(result.success).toBe(false);
     });
+
+    it('should reject missing required fields', () => {
+      const result = CreateMachineSchema.safeParse({});
+      expect(result.success).toBe(false);
+    });
   });
 
   describe('ResizeMachineSchema', () => {
     it('should validate correct resize data', () => {
-      const validData = { server_type: 'ccx33' as const };
+      const validData = { server_type: 'ccx33' };
       const result = ResizeMachineSchema.safeParse(validData);
       
       expect(result.success).toBe(true);
@@ -104,8 +89,8 @@ describe('validation schemas', () => {
       }
     });
 
-    it('should reject non-CCX server_type', () => {
-      const invalidData = { server_type: 'cx32' };
+    it('should reject empty server_type', () => {
+      const invalidData = { server_type: '' };
       const result = ResizeMachineSchema.safeParse(invalidData);
       expect(result.success).toBe(false);
     });

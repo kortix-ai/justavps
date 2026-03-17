@@ -12,7 +12,7 @@ export class ApiError extends Error {
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (res.ok) {
-    if (res.status === 204) return {} as T;
+    if (res.status === 204) return undefined as T;
     return res.json();
   }
 
@@ -26,10 +26,17 @@ async function handleResponse<T>(res: Response): Promise<T> {
 }
 
 function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers: Record<string, string> = { ...options.headers as Record<string, string> };
+
+  // Only set Content-Type for requests with a body
+  if (options.body) {
+    headers["Content-Type"] = "application/json";
+  }
+
   return fetch(`${API_BASE}${path}`, {
     ...options,
     credentials: "include",
-    headers: { "Content-Type": "application/json", ...options.headers },
+    headers,
   }).then((res) => handleResponse<T>(res));
 }
 
@@ -37,5 +44,9 @@ export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined }),
+  put: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: "PUT", body: body ? JSON.stringify(body) : undefined }),
+  patch: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }),
   delete: <T = void>(path: string) => request<T>(path, { method: "DELETE" }),
 };

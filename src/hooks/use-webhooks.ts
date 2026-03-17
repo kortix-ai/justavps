@@ -1,23 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api-client";
-
-export interface Webhook {
-  id: string;
-  url: string;
-  events: string[];
-  active: boolean;
-  created_at: string;
-}
-
-export interface CreateWebhookInput {
-  url: string;
-  events: string[];
-  secret?: string;
-}
-
-export interface CreateWebhookResponse extends Webhook {
-  secret: string;
-}
+import type { Webhook, CreateWebhookInput, CreateWebhookResponse } from "@/lib/types";
 
 export const webhookKeys = {
   all: ["webhooks"] as const,

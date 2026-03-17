@@ -14,6 +14,7 @@ import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 import { stripeClient } from '../../lib/stripe';
 import { requireOwnedResource, requireProvider, errorResponse, handleRouteError } from '../../lib/route-helpers';
 import { eventBus } from '../../lib/event-bus';
+import { after } from 'next/server';
 import {
   generateMachineIdentity,
   uploadSSHKeyToProvider,
@@ -165,7 +166,9 @@ machinesApp.post('/', async (c) => {
     await eventBus.emitStageChange(machine.id, ownerId, 'server_creating', 'Creating server on provider...');
 
     // 8. Run provider creation + setup in background (non-blocking)
-    (async () => {
+    // Uses Next.js `after()` which maps to Vercel's `waitUntil()` in production,
+    // ensuring the serverless function stays alive until provisioning completes.
+    after(async () => {
       try {
         const server = await provider.createServer({
           name: `justavps-${slug}`,
@@ -214,7 +217,7 @@ machinesApp.post('/', async (c) => {
         }).where(eq(machines.id, machine.id));
         await eventBus.emitStatusChange(machine.id, ownerId, 'error', `Provisioning failed: ${err instanceof Error ? err.message : String(err)}`);
       }
-    })();
+    });
 
     // Return immediately with 202 Accepted
     return c.json(serializeMachine(machine), 202);

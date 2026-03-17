@@ -13,7 +13,7 @@ import { eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../../db';
 import { snapshots, machines } from '../../db/schema';
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
-import { getProvider, listProviders } from '../../lib/providers';
+import { getProvider } from '../../lib/providers';
 import { requireOwnedResource, requireProvider, errorResponse, handleRouteError } from '../../lib/route-helpers';
 import { z } from 'zod';
 

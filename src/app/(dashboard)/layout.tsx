@@ -1,6 +1,8 @@
 "use client";
 
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { AppSidebar } from "@/components/dashboard/sidebar";
 import {
   SidebarInset,
@@ -14,8 +16,15 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { status } = useSession();
+  const router = useRouter();
 
-  if (status === "loading") {
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      router.replace("/login");
+    }
+  }, [status, router]);
+
+  if (status === "loading" || status === "unauthenticated") {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="h-6 w-6 animate-spin rounded-full border-2 border-foreground border-t-transparent" />

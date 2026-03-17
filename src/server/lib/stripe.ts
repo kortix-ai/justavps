@@ -88,9 +88,7 @@ export const stripeClient = {
   async cancelMachineSubscription(subscriptionId: string): Promise<void> {
     if (!subscriptionId) return;
     try {
-      await stripe.subscriptions.cancel(subscriptionId, {
-        prorate: true,
-      });
+      await stripe.subscriptions.cancel(subscriptionId);
       console.log(`[STRIPE] Cancelled subscription ${subscriptionId}`);
     } catch (err) {
       console.error(`[STRIPE] Failed to cancel subscription ${subscriptionId}:`, err);
@@ -163,8 +161,8 @@ export const stripeClient = {
       machineId: sub.metadata.machine_id || null,
       machineSlug: sub.metadata.machine_slug || null,
       priceMonthly: (sub.items.data[0]?.price?.unit_amount || 0) / 100,
-      currentPeriodStart: new Date((sub as any).current_period_start * 1000),
-      currentPeriodEnd: new Date((sub as any).current_period_end * 1000),
+      currentPeriodStart: new Date((sub as unknown as { current_period_start: number }).current_period_start * 1000),
+      currentPeriodEnd: new Date((sub as unknown as { current_period_end: number }).current_period_end * 1000),
     }));
   },
 

@@ -3,13 +3,18 @@
  * Used by both React Query hooks and page components.
  */
 
+// ─── Status Unions ───────────────────────────────────────────────────────────
+
+export type MachineStatus = 'provisioning' | 'ready' | 'error' | 'stopped' | 'deleted';
+export type SnapshotStatus = 'building' | 'ready' | 'failed' | 'deleted';
+
 // ─── Machine ─────────────────────────────────────────────────────────────────
 
 export interface Machine {
   id: string;
   slug: string;
   name: string;
-  status: string;
+  status: MachineStatus;
   provider: string;
   snapshot_id: string | null;
   server_type: string;
@@ -54,7 +59,7 @@ export interface Snapshot {
   id: string;
   name: string;
   docker_image: string;
-  status: string;
+  status: SnapshotStatus;
   architecture: string | null;
   providers: Record<string, ProviderArtifact>;
   created_at: string;
@@ -82,7 +87,7 @@ export interface ServerType {
   vcpu: number;
   ram_gb: number;
   disk_gb: number;
-  cpu_type: string;
+  cpu_type: 'shared' | 'dedicated';
   architecture: string;
   price_monthly: number;
   provider_price_monthly: number;
@@ -107,6 +112,26 @@ export interface APIKey {
   key_prefix: string;
   created_at: string;
   last_used: string | null;
+}
+
+// ─── Webhooks ────────────────────────────────────────────────────────────────
+
+export interface Webhook {
+  id: string;
+  url: string;
+  events: string[];
+  active: boolean;
+  created_at: string;
+}
+
+export interface CreateWebhookInput {
+  url: string;
+  events: string[];
+  secret?: string;
+}
+
+export interface CreateWebhookResponse extends Webhook {
+  secret: string;
 }
 
 // ─── Account ─────────────────────────────────────────────────────────────────

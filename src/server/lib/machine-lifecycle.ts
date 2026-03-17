@@ -169,7 +169,9 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
       await db.update(machines).set({ status: 'ready', readyAt: now }).where(eq(machines.id, machine.id));
       return { ...machine, status: 'ready' as const, readyAt: now };
     }
-  } catch {}
+  } catch (err) {
+    console.error(`[MACHINES] syncMachineStatus error for ${machine.id}:`, err);
+  }
 
   return machine;
 }

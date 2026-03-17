@@ -52,7 +52,7 @@ internalApp.post('/heartbeat', async (c) => {
     if (wasProvisioning) {
       await eventBus.emitStatusChange(machine.id, machine.ownerId, 'ready', 'Machine is ready');
     }
-    eventBus.emit({
+    eventBus.emitTransient({
       machineId: machine.id,
       ownerId: machine.ownerId,
       event: 'heartbeat',

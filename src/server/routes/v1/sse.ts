@@ -1,10 +1,17 @@
+/**
+ * SSE endpoint — streams machine provisioning status.
+ *
+ * Vercel-compatible: polls the DB (machine_events table) instead of
+ * relying on in-memory EventEmitter. The frontend also polls via
+ * React Query, so this SSE endpoint is a progressive enhancement.
+ */
+
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { eq } from 'drizzle-orm';
+import { eq, gt, and } from 'drizzle-orm';
 import { db } from '../../db';
-import { machines } from '../../db/schema';
+import { machines, machineEvents } from '../../db/schema';
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
-import { eventBus, type MachineEvent } from '../../lib/event-bus';
 
 export const sseApp = new Hono<{ Variables: AuthVariables }>();
 sseApp.use('*', apiGuard);
@@ -27,6 +34,7 @@ sseApp.get('/:id/status/stream', async (c) => {
       return;
     }
 
+    // Send current status
     await stream.writeSSE({
       data: JSON.stringify({
         id: machine.id,
@@ -39,78 +47,92 @@ sseApp.get('/:id/status/stream', async (c) => {
       event: 'status',
     });
 
+    // If already terminal, we're done
     if (machine.status === 'ready' || machine.status === 'error' || machine.status === 'deleted') {
       await stream.writeSSE({ data: JSON.stringify({ done: true }), event: 'done' });
       return;
     }
 
+    // Poll DB for new events instead of in-memory listener
     let resolved = false;
-
-    const listener = async (event: MachineEvent) => {
-      if (resolved) return;
-      try {
-        await stream.writeSSE({
-          data: JSON.stringify({
-            id: machine!.id,
-            slug: machine!.slug,
-            event: event.event,
-            status: event.status,
-            provisioning_stage: event.stage,
-            message: event.message,
-            ip: machine!.ip,
-            timestamp: event.timestamp,
-          }),
-          event: event.event === 'stage_changed' ? 'stage' : 'status',
-        });
-
-        if (event.event === 'status_changed' && (event.status === 'ready' || event.status === 'error' || event.status === 'deleted')) {
-          resolved = true;
-          await stream.writeSSE({ data: JSON.stringify({ done: true }), event: 'done' });
-          cleanup();
-        }
-      } catch {
-        resolved = true;
-        cleanup();
-      }
-    };
-
-    const cleanup = () => {
-      eventBus.offMachine(id, listener);
-    };
-
-    eventBus.onMachine(id, listener);
-
-    const timeout = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        stream.writeSSE({ data: JSON.stringify({ done: true, reason: 'timeout' }), event: 'done' }).catch(() => {});
-        cleanup();
-      }
-    }, 10 * 60 * 1000);
-
-    const keepalive = setInterval(() => {
-      if (resolved) {
-        clearInterval(keepalive);
-        return;
-      }
-      stream.writeSSE({ data: '', event: 'ping' }).catch(() => {
-        resolved = true;
-        cleanup();
-      });
-    }, 30_000);
+    let lastEventTime = new Date();
+    const POLL_INTERVAL_MS = 2_000;
+    const MAX_DURATION_MS = 10 * 60 * 1000; // 10 minutes
+    const startTime = Date.now();
 
     stream.onAbort(() => {
       resolved = true;
-      clearTimeout(timeout);
-      clearInterval(keepalive);
-      cleanup();
     });
 
     while (!resolved) {
-      await new Promise((r) => setTimeout(r, 1000));
-    }
+      // Timeout guard
+      if (Date.now() - startTime > MAX_DURATION_MS) {
+        await stream.writeSSE({ data: JSON.stringify({ done: true, reason: 'timeout' }), event: 'done' }).catch(() => {});
+        break;
+      }
 
-    clearTimeout(timeout);
-    clearInterval(keepalive);
+      // Poll for new events since last check
+      try {
+        const newEvents = await db.select()
+          .from(machineEvents)
+          .where(
+            and(
+              eq(machineEvents.machineId, id),
+              gt(machineEvents.createdAt, lastEventTime),
+            )
+          )
+          .orderBy(machineEvents.createdAt);
+
+        for (const evt of newEvents) {
+          if (resolved) break;
+
+          const sseEvent = evt.event === 'stage_changed' ? 'stage' : 'status';
+          await stream.writeSSE({
+            data: JSON.stringify({
+              id: machine!.id,
+              slug: machine!.slug,
+              event: evt.event,
+              status: evt.stage,
+              provisioning_stage: evt.stage,
+              message: evt.message,
+              timestamp: evt.createdAt.toISOString(),
+            }),
+            event: sseEvent,
+          });
+
+          lastEventTime = evt.createdAt;
+
+          // Check for terminal status
+          if (evt.event === 'status_changed' && (evt.stage === 'ready' || evt.stage === 'error' || evt.stage === 'deleted')) {
+            resolved = true;
+            await stream.writeSSE({ data: JSON.stringify({ done: true }), event: 'done' });
+          }
+        }
+
+        // Also check current machine status (may have been updated by heartbeat)
+        if (!resolved) {
+          const [current] = await db.select({ status: machines.status, ip: machines.ip })
+            .from(machines)
+            .where(eq(machines.id, id));
+          if (current && (current.status === 'ready' || current.status === 'error' || current.status === 'deleted')) {
+            resolved = true;
+            await stream.writeSSE({ data: JSON.stringify({ done: true, status: current.status }), event: 'done' });
+          }
+        }
+      } catch (err) {
+        // DB error during poll — send ping and continue
+        await stream.writeSSE({ data: '', event: 'ping' }).catch(() => {
+          resolved = true;
+        });
+      }
+
+      if (!resolved) {
+        // Send keepalive ping
+        await stream.writeSSE({ data: '', event: 'ping' }).catch(() => {
+          resolved = true;
+        });
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+      }
+    }
   });
 });

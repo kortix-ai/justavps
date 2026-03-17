@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,18 +33,6 @@ const statusConfig: Record<string, { label: string; variant: "default" | "second
   ready: { label: "Ready", variant: "default", dotClass: "bg-green-500" },
   failed: { label: "Failed", variant: "destructive", dotClass: "bg-red-500" },
 };
-
-function timeAgo(date: string) {
-  const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(date).toLocaleDateString();
-}
 
 export default function SnapshotsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);

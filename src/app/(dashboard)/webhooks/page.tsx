@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -21,8 +21,8 @@ import {
   useWebhooks,
   useCreateWebhook,
   useDeleteWebhook,
-  type CreateWebhookResponse,
 } from "@/hooks/use-webhooks";
+import type { CreateWebhookResponse } from "@/lib/types";
 import { useConfirm } from "@/hooks/use-confirm";
 import {
   Plus,
@@ -32,7 +32,6 @@ import {
   Loader2,
   Globe,
   CheckCircle2,
-  XCircle,
 } from "lucide-react";
 
 const AVAILABLE_EVENTS = [
@@ -41,18 +40,6 @@ const AVAILABLE_EVENTS = [
   { value: "machine.status_changed", label: "Status changed", description: "Machine status transitions (ready, error, etc.)" },
   { value: "machine.heartbeat", label: "Heartbeat", description: "Periodic health reports from machines" },
 ];
-
-function timeAgo(date: string) {
-  const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(date).toLocaleDateString();
-}
 
 export default function WebhooksPage() {
   const { data: webhooks, isLoading } = useWebhooks();

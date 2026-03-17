@@ -3,11 +3,6 @@
  * Import this once in app.ts to register all v1 endpoints.
  */
 
-/**
- * V1 API router — mounts all v1 route modules.
- * Import this once in app.ts to register all v1 endpoints.
- */
-
 import { Hono } from 'hono';
 import { machinesApp } from './machines';
 import { snapshotsApp } from './snapshots';
@@ -28,5 +23,5 @@ v1.route('/api-keys', apiKeysApp);
 v1.route('/server-types', serverTypesApp);
 v1.route('/account', accountApp);
 v1.route('/internal', internalApp);
-v1.route('/machines', sseApp);
+v1.route('/machines', sseApp); // SSE status stream mounted under /machines/:id/status/stream
 v1.route('/webhooks', webhooksApp);

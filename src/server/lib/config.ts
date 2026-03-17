@@ -9,6 +9,7 @@ export const config = {
   HETZNER_DEFAULT_LOCATION: process.env.HETZNER_DEFAULT_LOCATION || 'nbg1',
   // Cloudflare
   CLOUDFLARE_API_KEY: process.env.CLOUDFLARE_GLOBAL_API_KEY || '',
+  CLOUDFLARE_EMAIL: process.env.CLOUDFLARE_EMAIL || '',
   CLOUDFLARE_ZONE_ID: process.env.CLOUDFLARE_ZONE_ID || '',
   CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID || '',
 

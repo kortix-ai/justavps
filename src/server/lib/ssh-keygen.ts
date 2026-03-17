@@ -3,7 +3,7 @@
  * Each machine gets its own unique keypair.
  */
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { readFileSync, unlinkSync, existsSync } from 'fs';
 import { randomBytes } from 'crypto';
 
@@ -21,8 +21,8 @@ export function generateSSHKeyPair(comment: string = 'machine@justavps'): Genera
   const tmpPath = `/tmp/justavps_keygen_${randomBytes(8).toString('hex')}`;
 
   try {
-    // Generate key with ssh-keygen
-    execSync(`ssh-keygen -t ed25519 -f ${tmpPath} -N "" -C "${comment}" -q`, {
+    // Generate key with ssh-keygen (using execFileSync to avoid shell injection)
+    execFileSync('ssh-keygen', ['-t', 'ed25519', '-f', tmpPath, '-N', '', '-C', comment, '-q'], {
       stdio: 'pipe',
     });
 
@@ -30,7 +30,7 @@ export function generateSSHKeyPair(comment: string = 'machine@justavps'): Genera
     const publicKey = readFileSync(`${tmpPath}.pub`, 'utf-8').trim();
 
     // Extract fingerprint
-    const fpOutput = execSync(`ssh-keygen -lf ${tmpPath}.pub`, { encoding: 'utf-8' });
+    const fpOutput = execFileSync('ssh-keygen', ['-lf', `${tmpPath}.pub`], { encoding: 'utf-8' });
     const fingerprint = fpOutput.split(' ')[1] || 'unknown';
 
     return { publicKey, privateKey, fingerprint };

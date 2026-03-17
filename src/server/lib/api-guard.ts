@@ -13,7 +13,7 @@ function extractSessionCookie(cookieHeader: string): { value: string; salt: stri
   const patterns: { name: string; salt: string }[] = [
     { name: '__Secure-authjs.session-token', salt: '__Secure-authjs.session-token' },
     { name: 'authjs.session-token', salt: 'authjs.session-token' },
-    { name: 'next-auth.session-token', salt: 'authjs.session-token' },
+    { name: 'next-auth.session-token', salt: 'next-auth.session-token' },
   ];
 
   for (const { name, salt } of patterns) {
@@ -40,7 +40,7 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(
             db.update(apiKeys)
               .set({ lastUsed: new Date() })
               .where(eq(apiKeys.id, k.id))
-              .catch(() => {});
+              .catch((err) => console.error('[API_GUARD] Failed to update lastUsed:', err));
             c.set('userId', k.ownerId);
             return next();
           }
@@ -85,8 +85,8 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(
       }
     }
 
-    if (!authSecret) {
-      console.warn('[API_GUARD] No AUTH_SECRET — using dev fallback');
+    if (!authSecret && process.env.NODE_ENV !== 'production') {
+      console.warn('[API_GUARD] No AUTH_SECRET — using dev fallback (non-production only)');
       try {
         const [firstUser] = await db
           .select({ id: users.id })
@@ -96,7 +96,9 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(
           c.set('userId', firstUser.id);
           return next();
         }
-      } catch {}
+      } catch (err) {
+        console.error('[API_GUARD] Dev fallback DB error:', err);
+      }
       c.set('userId', 'dev-user-00000000-0000-0000-0000-000000000000');
       return next();
     }
