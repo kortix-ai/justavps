@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: justavps-postgres
+    ports:
+      - "54330:5432"
+    environment:
+      POSTGRES_USER: justavps
+      POSTGRES_PASSWORD: justavps123
+      POSTGRES_DB: justavps
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

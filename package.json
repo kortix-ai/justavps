@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 4100",
+    "dev:all": "docker rm -f justavps-postgres 2>/dev/null; docker compose up -d postgres && pnpm run db:push && next dev -p 4100",
+    "db:push": "drizzle-kit push",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
