@@ -46,16 +46,23 @@ function LoginForm() {
     setLoading(true);
     setError("");
 
-    const result = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-    });
+    try {
+      const result = await signIn("credentials", {
+        email,
+        password,
+        redirect: false,
+      });
 
-    setLoading(false);
-    if (result?.ok) {
-      router.push(next);
-    } else {
+      setLoading(false);
+      if (result?.error) {
+        setError("Invalid email or password.");
+      } else if (result?.ok) {
+        router.push(next);
+      } else {
+        setError("Invalid email or password.");
+      }
+    } catch {
+      setLoading(false);
       setError("Invalid email or password.");
     }
   }
@@ -171,7 +178,6 @@ function LoginForm() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   autoComplete="current-password"
-                  minLength={8}
                 />
               </div>
               {error && <p className="text-sm text-destructive">{error}</p>}
@@ -224,7 +230,6 @@ function LoginForm() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   autoComplete="new-password"
-                  minLength={8}
                 />
               </div>
               {error && <p className="text-sm text-destructive">{error}</p>}

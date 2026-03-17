@@ -7,10 +7,10 @@ test.describe('Landing Page', () => {
   test('renders hero with title and dual CTAs', async ({ page }) => {
     await page.goto('/');
     // Hero title
-    await expect(page.locator('h1:has-text("Just a VPS")')).toBeVisible();
+    await expect(page.locator('h1:has-text("Your Machine")')).toBeVisible();
     // Two CTA buttons
-    await expect(page.locator('a:has-text("Get Started")')).toBeVisible();
-    await expect(page.locator('a:has-text("Documentation")')).toBeVisible();
+    await expect(page.locator('a:has-text("Deploy a Machine")')).toBeVisible();
+    await expect(page.locator('a:has-text("Read the Docs")')).toBeVisible();
   });
 
   test('renders pricing section with real Hetzner data', async ({ page }) => {
@@ -19,8 +19,8 @@ test.describe('Landing Page', () => {
       () => document.body.textContent?.includes('/mo'),
       { timeout: 15_000 }
     );
-    const startButtons = page.locator('a:has-text("Start Now")');
-    const count = await startButtons.count();
+    const deployButtons = page.locator('a:has-text("Deploy Now")');
+    const count = await deployButtons.count();
     expect(count).toBeGreaterThanOrEqual(1);
   });
 
@@ -31,15 +31,15 @@ test.describe('Landing Page', () => {
 
   test('feature grid shows 6 features', async ({ page }) => {
     await page.goto('/');
-    for (const feature of ['1-Click Deploy', 'Browser IDE', 'SSH Ready', 'Port Proxy', 'AI Agent Ready', 'Fair Pricing']) {
+    for (const feature of ['Claude Code', 'OpenCode', 'Browser IDE', 'Full SSH Access', 'Docker Ready', 'Daily Backups']) {
       const body = await page.locator('body').textContent();
       expect(body).toContain(feature);
     }
   });
 
-  test('Get Started links to provision wizard', async ({ page }) => {
+  test('Deploy a Machine links to provision wizard', async ({ page }) => {
     await page.goto('/');
-    const link = page.locator('a:has-text("Get Started")');
+    const link = page.locator('a:has-text("Deploy a Machine")');
     await expect(link).toHaveAttribute('href', '/machines/new');
   });
 });

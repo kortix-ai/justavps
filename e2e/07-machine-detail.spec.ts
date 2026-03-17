@@ -7,7 +7,7 @@ import { login } from './helpers';
 import postgres from 'postgres';
 
 let testMachineId: string | null = null;
-const DB_URL = 'postgresql://justavps:justavps123@localhost:5433/justavps';
+const DB_URL = process.env.DATABASE_URL || 'postgresql://justavps:justavps123@localhost:54330/justavps';
 
 test.describe('Machine Detail Page', () => {
   test.beforeAll(async () => {
@@ -19,8 +19,8 @@ test.describe('Machine Detail Page', () => {
     await sql`DELETE FROM machines WHERE slug = 'pw-test1'`;
 
     const [machine] = await sql`
-      INSERT INTO machines (owner_id, slug, name, status, server_type, template, region, ip, machine_token, code_server_password, hetzner_id, ready_at, last_heartbeat_at, last_heartbeat)
-      VALUES (${user.id}, 'pw-test1', 'Playwright Test Machine', 'ready', 'cx23', 'blank', 'nbg1', '10.0.0.99', 'mt_test123', 'testpassword12345678', 99999, NOW(), NOW(),
+      INSERT INTO machines (owner_id, slug, name, status, provider, server_type, region, ip, machine_token, code_server_password, provider_server_id, ready_at, last_heartbeat_at, last_heartbeat)
+      VALUES (${user.id}, 'pw-test1', 'Playwright Test Machine', 'ready', 'hetzner', 'cx23', 'nbg1', '10.0.0.99', 'mt_test123', 'testpassword12345678', '99999', NOW(), NOW(),
         '{"cpu": 15, "memory": 42, "disk": 18, "services": {"code_server": true, "caddy": true, "justavps_agent": true}}'::jsonb)
       RETURNING id
     `;
@@ -70,34 +70,38 @@ test.describe('Machine Detail Page', () => {
       { timeout: 10_000 }
     );
     const body = await page.locator('body').textContent();
-    expect(body).toContain('ssh user@10.0.0.99');
+    // IP address shown in Machine Details card
+    expect(body).toContain('10.0.0.99');
+    expect(body).toContain('IP Address');
   });
 
-  test('machine detail shows overview card with IP and template', async ({ page }) => {
+  test('machine detail shows machine details card with IP and region', async ({ page }) => {
     await login(page);
     await page.goto(`/machines/${testMachineId}`);
     await page.waitForFunction(
-      () => document.body.textContent?.includes('Overview'),
+      () => document.body.textContent?.includes('Machine Details'),
       { timeout: 10_000 }
     );
     const body = await page.locator('body').textContent();
     expect(body).toContain('10.0.0.99');
-    expect(body).toContain('blank');
+    expect(body).toContain('NBG1');
+    expect(body).toContain('cx23');
   });
 
   test('machine detail shows resource usage from heartbeat', async ({ page }) => {
     await login(page);
     await page.goto(`/machines/${testMachineId}`);
     await page.waitForFunction(
-      () => document.body.textContent?.includes('Resource Usage'),
+      () => document.body.textContent?.includes('Resources'),
       { timeout: 10_000 }
     );
     const body = await page.locator('body').textContent();
     expect(body).toContain('CPU');
     expect(body).toContain('Memory');
     expect(body).toContain('Disk');
+    // Services status section
+    expect(body).toContain('Services Status');
     expect(body).toContain('code_server');
-    expect(body).toContain('Running');
   });
 
   test('machine detail has reboot button enabled', async ({ page }) => {

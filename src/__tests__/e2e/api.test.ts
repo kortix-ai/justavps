@@ -1,7 +1,7 @@
 /**
  * E2E API tests — hit the live dev server on port 4100 with real DB.
  * These tests require:
- *   1. Docker Postgres running on port 5433
+ *   1. Docker Postgres running on port 54330
  *   2. Dev server running on port 4100
  *   3. Seeded test user with API key
  *
