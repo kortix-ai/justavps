@@ -5,7 +5,6 @@ import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { REGION_LABELS, type Region, ALLOWED_REGIONS } from "@/lib/schemas";
 
 interface ServerType {
   name: string;
@@ -13,18 +12,36 @@ interface ServerType {
   ram_gb: number;
   disk_gb: number;
   price_monthly: number;
-  hetzner_price_monthly: number;
-  backup_price_monthly: number;
+  provider_price_monthly: number;
+}
+
+interface Region {
+  id: string;
+  name: string;
+  country: string;
+  city: string;
 }
 
 export function Pricing() {
   const [serverTypes, setServerTypes] = useState<ServerType[]>([]);
+  const [regions, setRegions] = useState<Region[]>([]);
   const [loading, setLoading] = useState(true);
-  const [region, setRegion] = useState<Region>("hel1");
+  const [region, setRegion] = useState("hel1");
 
+  // Fetch regions on mount
+  useEffect(() => {
+    fetch("/api/v1/server-types/regions?provider=hetzner")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.regions?.length) setRegions(d.regions);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Fetch server types when region changes
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/v1/server-types?region=${region}`)
+    fetch(`/api/v1/server-types?provider=hetzner&region=${region}`)
       .then((r) => r.json())
       .then((d) => setServerTypes(d.server_types || []))
       .catch(() => {})
@@ -46,17 +63,17 @@ export function Pricing() {
 
         {/* Region picker */}
         <div className="flex flex-wrap justify-center gap-2 mb-10">
-          {ALLOWED_REGIONS.map((r) => (
+          {regions.map((r) => (
             <button
-              key={r}
-              onClick={() => setRegion(r)}
+              key={r.id}
+              onClick={() => setRegion(r.id)}
               className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
-                region === r
+                region === r.id
                   ? "border-primary bg-primary/10 text-foreground"
                   : "border-border/40 text-muted-foreground hover:border-border hover:text-foreground"
               }`}
             >
-              {REGION_LABELS[r]}
+              {r.name}
             </button>
           ))}
         </div>
@@ -144,7 +161,7 @@ export function Pricing() {
           </Link>
           <p className="text-xs text-muted-foreground">
             Prices shown include daily backups (+20%). All plans include
-            Claude Code, OpenCode, code-server, Docker, and full root access.
+            full root access and Docker.
           </p>
         </div>
       </div>

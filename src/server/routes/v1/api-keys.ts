@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { eq, and } from 'drizzle-orm';
-import { db } from '../db';
-import { apiKeys } from '../db/schema';
-import { generateApiKey } from '../lib/crypto';
-import { apiGuard, type AuthVariables } from '../lib/api-guard';
+import { db } from '../../db';
+import { apiKeys } from '../../db/schema';
+import { generateApiKey } from '../../lib/crypto';
+import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 
 export const apiKeysApp = new Hono<{ Variables: AuthVariables }>();
 apiKeysApp.use('*', apiGuard);

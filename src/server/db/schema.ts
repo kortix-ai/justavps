@@ -25,8 +25,36 @@ export const sshKeys = pgTable('ssh_keys', {
   name: text('name').notNull(),
   publicKey: text('public_key').notNull(),
   fingerprint: text('fingerprint').notNull(),
-  hetznerKeyId: bigint('hetzner_key_id', { mode: 'number' }),
+  providerKeyId: text('provider_key_id'), // provider-specific SSH key ID (string for portability)
   createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ─── Snapshots ──────────────────────────────────────────────────────────────
+
+/**
+ * User-owned snapshots built from Docker images.
+ * Each snapshot can be materialized into provider-specific artifacts on demand.
+ *
+ * providerData stores per-provider snapshot metadata:
+ * {
+ *   "hetzner": { "snapshotId": "12345678", "diskSize": 40, "architecture": "x86" },
+ *   "aws":     { "amiId": "ami-abc123", "diskSize": 40, "architecture": "x86" },
+ * }
+ */
+export const snapshots = pgTable('snapshots', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ownerId: uuid('owner_id').references(() => users.id).notNull(),
+  name: text('name').notNull(),
+  dockerImage: text('docker_image').notNull(), // e.g. "kortix/computer:0.8.6"
+  status: text('status').notNull().default('building'),
+  // building | ready | failed | deleted
+  architecture: text('architecture').default('x86'), // x86 | arm
+  providerData: jsonb('provider_data').$type<
+    Record<string, { snapshotId: string; diskSize: number; architecture: string; [key: string]: unknown }>
+  >().default({}),
+  buildLogs: text('build_logs'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
 // ─── Machines ───────────────────────────────────────────────────────────────
@@ -38,20 +66,36 @@ export const machines = pgTable('machines', {
   name: text('name').notNull(),
   status: text('status').notNull().default('provisioning'),
   // provisioning | ready | error | stopped | deleted
+
+  // Provider-agnostic fields
+  provider: text('provider').notNull(), // "hetzner" | "aws" | "azure" | ...
+  snapshotId: uuid('snapshot_id').references(() => snapshots.id),
   serverType: text('server_type').notNull(),
-  template: text('template').notNull().default('blank'),
-  region: text('region').notNull().default('nbg1'),
+  region: text('region').notNull(),
   ip: text('ip'),
-  hetznerId: bigint('hetzner_id', { mode: 'number' }),
-  hetznerFwId: bigint('hetzner_fw_id', { mode: 'number' }),
+
+  // Provider-specific (generic storage)
+  providerServerId: text('provider_server_id'), // Hetzner server ID, AWS instance ID, etc.
+  providerMeta: jsonb('provider_meta').$type<Record<string, unknown>>().default({}),
+
+  // Machine credentials
   machineToken: text('machine_token').notNull(),
   codeServerPassword: text('code_server_password').notNull(),
-  sshPublicKey: text('ssh_public_key'),    // auto-generated, injected into VPS
-  sshPrivateKey: text('ssh_private_key'),  // shown to user ONCE for download
-  priceMonthly: integer('price_monthly'),  // USD/mo as integer (e.g., 8 = $8/mo)
-  baseSnapshotId: text('base_snapshot_id'), // hetzner base image ID used at provision
+  sshPublicKey: text('ssh_public_key'),
+  sshPrivateKey: text('ssh_private_key'),
+
+  // Billing
+  priceMonthly: integer('price_monthly'),
   stripeSubItemId: text('stripe_sub_item_id'),
+
+  // Networking
   domains: jsonb('domains').$type<string[]>().default([]),
+
+  // Provisioning progress
+  provisioningStage: text('provisioning_stage'), // server_creating | server_created | cloud_init_running | cloud_init_done | docker_pulling | docker_running | services_starting | services_ready
+  provisioningStageUpdatedAt: timestamp('provisioning_stage_updated_at'),
+
+  // Health
   lastHeartbeatAt: timestamp('last_heartbeat_at'),
   lastHeartbeat: jsonb('last_heartbeat').$type<{
     cpu: number;
@@ -59,6 +103,8 @@ export const machines = pgTable('machines', {
     disk: number;
     services: Record<string, boolean>;
   }>(),
+
+  // Timestamps
   createdAt: timestamp('created_at').defaultNow().notNull(),
   readyAt: timestamp('ready_at'),
   deletedAt: timestamp('deleted_at'),
@@ -70,8 +116,8 @@ export const apiKeys = pgTable('api_keys', {
   id: uuid('id').primaryKey().defaultRandom(),
   ownerId: uuid('owner_id').references(() => users.id).notNull(),
   name: text('name').notNull(),
-  keyPrefix: text('key_prefix').notNull(), // "sk_live_abc..." (first 12 chars for display)
-  keyHash: text('key_hash').notNull(), // bcrypt hash
+  keyPrefix: text('key_prefix').notNull(),
+  keyHash: text('key_hash').notNull(),
   lastUsed: timestamp('last_used'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
@@ -100,11 +146,39 @@ export const machineBilling = pgTable('machine_billing', {
   hours: decimal('hours'),
 });
 
+// ─── Machine Events (append-only log) ──────────────────────────────────────
+
+export const machineEvents = pgTable('machine_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  machineId: uuid('machine_id').references(() => machines.id).notNull(),
+  event: text('event').notNull(), // stage_changed | status_changed | heartbeat
+  stage: text('stage'), // provisioning stage name
+  message: text('message'),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ─── Webhooks ──────────────────────────────────────────────────────────────
+
+export const webhooks = pgTable('webhooks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ownerId: uuid('owner_id').references(() => users.id).notNull(),
+  url: text('url').notNull(),
+  secret: text('secret').notNull(),
+  events: jsonb('events').$type<string[]>().notNull().default(['*']),
+  active: boolean('active').notNull().default(true),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // ─── Type Exports ───────────────────────────────────────────────────────────
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
+export type Snapshot = typeof snapshots.$inferSelect;
+export type NewSnapshot = typeof snapshots.$inferInsert;
 export type Machine = typeof machines.$inferSelect;
 export type NewMachine = typeof machines.$inferInsert;
 export type SSHKey = typeof sshKeys.$inferSelect;
 export type ApiKey = typeof apiKeys.$inferSelect;
+export type MachineEventRow = typeof machineEvents.$inferSelect;
+export type WebhookRow = typeof webhooks.$inferSelect;

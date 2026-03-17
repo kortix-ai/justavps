@@ -1,86 +1,87 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import Link from "next/link";
-import { buttonVariants } from "@/components/ui/button";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MachineCard } from "@/components/dashboard/machine-card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { apiGet } from "@/lib/api";
-
-interface Machine {
-  id: string;
-  slug: string;
-  name: string;
-  status: string;
-  server_type: string;
-  region: string;
-  ip: string | null;
-  specs: { vcpu: number; ram_gb: number; disk_gb: number; cpu_type: string; architecture: string } | null;
-  price_monthly: number | null;
-  created_at: string;
-  ready_at: string | null;
-}
+import { useMachines, useDeleteMachine } from "@/hooks/use-machines";
+import { useConfirm } from "@/hooks/use-confirm";
+import { toast } from "sonner";
+import { Server, Plus, Trash2 } from "lucide-react";
 
 export default function MachinesPage() {
-  const [machines, setMachines] = useState<Machine[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: machines, isLoading, error } = useMachines();
+  const deleteMachine = useDeleteMachine();
+  const [confirm, ConfirmDialog] = useConfirm();
 
-  useEffect(() => {
-    apiGet<{ machines: Machine[] }>('/machines')
-      .then(data => setMachines(data.machines || []))
-      .catch(err => setError(err.message))
-      .finally(() => setLoading(false));
-  }, []);
+  const handleDelete = async (id: string) => {
+    const machine = machines?.find((m) => m.id === id);
+    const ok = await confirm({
+      title: "Delete Machine",
+      description: `This will permanently destroy ${machine?.slug || "this machine"} and all data on it. This action cannot be undone.`,
+      confirmLabel: "Delete Forever",
+      variant: "destructive",
+      icon: <Trash2 className="size-4 text-destructive" />,
+    });
+    if (!ok) return;
+
+    deleteMachine.mutate(id, {
+      onSuccess: () => toast.success("Machine deleted"),
+      onError: (err) => toast.error(err.message),
+    });
+  };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Machines</h1>
+        <h1 className="font-heading text-3xl tracking-tight">Machines</h1>
         <Link href="/machines/new" className={cn(buttonVariants())}>
+          <Plus className="size-4" />
           New Machine
         </Link>
       </div>
 
       {error && (
         <div className="text-center py-12">
-          <p className="text-destructive">Error: {error}</p>
-          <Button variant="outline" onClick={() => window.location.reload()} className="mt-4">
+          <p className="text-destructive text-sm">Error: {error.message}</p>
+          <Button variant="outline" size="sm" onClick={() => window.location.reload()} className="mt-4">
             Retry
           </Button>
         </div>
       )}
 
-      {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="p-6 border rounded-lg space-y-4">
-              <Skeleton className="h-6 w-32" />
+            <div key={i} className="p-5 border rounded-lg space-y-3">
+              <Skeleton className="h-5 w-28" />
               <Skeleton className="h-4 w-full" />
               <Skeleton className="h-4 w-2/3" />
             </div>
           ))}
         </div>
-      ) : !error && machines.length === 0 ? (
-        <div className="text-center py-16">
-          <div className="text-6xl mb-4">🖥️</div>
-          <h2 className="text-2xl font-semibold mb-2">No machines yet</h2>
-          <p className="text-muted-foreground mb-6 max-w-md mx-auto">
+      ) : !error && machines?.length === 0 ? (
+        <div className="text-center py-20">
+          <Server className="mx-auto size-12 text-muted-foreground/40 mb-4" strokeWidth={1} />
+          <h2 className="font-heading text-2xl mb-2">No machines yet</h2>
+          <p className="text-muted-foreground mb-6">
             Get started by creating your first VPS.
           </p>
-          <Link href="/machines/new" className={cn(buttonVariants({ size: "lg" }))}>
-            Create Your First Machine
+          <Link href="/machines/new" className={cn(buttonVariants())}>
+            <Plus className="size-4" />
+            New Machine
           </Link>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {machines.map((machine) => (
-            <MachineCard key={machine.id} machine={machine} />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {machines?.map((machine) => (
+            <MachineCard key={machine.id} machine={machine} onDelete={handleDelete} />
           ))}
         </div>
       )}
+
+      <ConfirmDialog />
     </div>
   );
 }

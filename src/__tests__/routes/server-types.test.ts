@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { serverTypesApp } from '@/server/routes/server-types';
+import { serverTypesApp } from '@/server/routes/v1/server-types';
 import { hetznerClient } from '@/server/lib/hetzner';
 
 // Mock the hetzner client

@@ -3,179 +3,236 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { apiFetch } from "@/lib/api";
-
-interface ServerType {
-  name: string;
-  vcpu: number;
-  ram_gb: number;
-  disk_gb: number;
-  cpu_type: string;
-  price_monthly: number;
-}
-
-const REGIONS = [
-  { value: "nbg1", label: "Nuremberg", flag: "🇩🇪" },
-  { value: "fsn1", label: "Falkenstein", flag: "🇩🇪" },
-  { value: "hel1", label: "Helsinki", flag: "🇫🇮" },
-];
+import { useSnapshots } from "@/hooks/use-snapshots";
+import { useProviders, useRegions, useServerTypes } from "@/hooks/use-server-types";
+import { useCreateMachine } from "@/hooks/use-machines";
+import { cn } from "@/lib/utils";
+import { ArrowLeft, Check, Loader2, Cpu, MemoryStick, HardDrive } from "lucide-react";
+import Link from "next/link";
 
 export function ProvisionWizard() {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
-  const [serverTypes, setServerTypes] = useState<ServerType[]>([]);
+
+  const { data: allSnapshots } = useSnapshots();
+  const snapshots = allSnapshots?.filter((s) => s.status === "ready") ?? [];
+  const [selectedSnapshot, setSelectedSnapshot] = useState("");
+
+  const { data: allProviders } = useProviders();
+  const providers = allProviders ?? [];
+  const [selectedProvider, setSelectedProvider] = useState("");
+
+  const { data: regions } = useRegions(selectedProvider || undefined);
+  const [selectedRegion, setSelectedRegion] = useState("");
+
+  const { data: serverTypes } = useServerTypes(selectedProvider || undefined, selectedRegion || undefined);
   const [selectedServerType, setSelectedServerType] = useState("");
-  const [selectedRegion, setSelectedRegion] = useState("nbg1");
+  const [showAllSizes, setShowAllSizes] = useState(false);
   const [machineName, setMachineName] = useState("");
-  const [showMore, setShowMore] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  const createMachine = useCreateMachine();
+
+  // Auto-selects
+  useEffect(() => { if (snapshots.length === 1 && !selectedSnapshot) setSelectedSnapshot(snapshots[0].id); }, [allSnapshots]);
+  useEffect(() => { if (providers.length === 1 && !selectedProvider) setSelectedProvider(providers[0].name); }, [allProviders]);
+
+  const snapshot = snapshots.find((s) => s.id === selectedSnapshot);
+  const availableProviders = providers.filter((p) => snapshot?.providers?.[p.name]);
 
   useEffect(() => {
-    apiFetch(`/server-types?region=${selectedRegion}`)
-      .then(r => r.json())
-      .then(d => {
-        const all = d.server_types || [...(d.featured || []), ...(d.more || [])];
-        setServerTypes(all);
-        if (!selectedServerType && all.length > 0) setSelectedServerType(all[0].name);
-      })
-      .catch(() => {});
-  }, [selectedRegion]);
+    if (!snapshot) return;
+    const available = providers.filter((p) => snapshot.providers?.[p.name]);
+    if (available.length === 1) setSelectedProvider(available[0].name);
+    else if (selectedProvider && !snapshot.providers?.[selectedProvider]) setSelectedProvider("");
+  }, [selectedSnapshot, allProviders]);
 
-  const handleCreate = async () => {
-    if (!selectedServerType) { toast.error('Select a server size'); return; }
-    setLoading(true);
-    try {
-      const res = await apiFetch('/machines', {
-        method: 'POST',
-        body: JSON.stringify({
-          server_type: selectedServerType,
-          region: selectedRegion,
-          name: machineName || undefined,
-        }),
-      });
-      if (!res.ok) { const err = await res.json(); throw new Error(err.message || 'Failed'); }
-      const machine = await res.json();
-      toast.success('Machine created!');
-      router.push(`/machines/${machine.id}`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed');
-    } finally { setLoading(false); }
+  useEffect(() => { if (regions?.length && !selectedRegion) setSelectedRegion(regions[0].id); }, [regions]);
+  useEffect(() => { if (serverTypes?.length && !selectedServerType) setSelectedServerType(serverTypes[0].name); }, [serverTypes]);
+
+  const selectedST = serverTypes?.find((s) => s.name === selectedServerType);
+  const displayed = showAllSizes ? serverTypes : serverTypes?.slice(0, 6);
+  const canCreate = selectedSnapshot && selectedProvider && selectedRegion && selectedServerType;
+
+  const handleCreate = () => {
+    if (!canCreate) return;
+    createMachine.mutate(
+      { snapshot_id: selectedSnapshot, provider: selectedProvider, server_type: selectedServerType, region: selectedRegion, name: machineName || undefined },
+      {
+        onSuccess: (machine) => { toast.success("Machine created!"); router.push(`/machines/${machine.id}`); },
+        onError: (err) => toast.error(err.message),
+      },
+    );
   };
 
-  const displayed = showMore ? serverTypes : serverTypes.slice(0, 3);
-  const selectedST = serverTypes.find(s => s.name === selectedServerType);
-
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">New Machine</h1>
-        <p className="text-sm text-muted-foreground">
-          Pick a size. SSH key auto-generated. Ready in ~60s.
-        </p>
+    <div className="max-w-xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-8">
+        <Link href="/machines" className="text-muted-foreground hover:text-foreground transition-colors">
+          <ArrowLeft className="size-4" />
+        </Link>
+        <h1 className="font-heading text-2xl tracking-tight">New Machine</h1>
       </div>
 
-      {/* Server Size */}
-      <div className="space-y-3">
-        <Label className="text-sm font-medium">Size</Label>
-        <div className="space-y-2">
-          {displayed.length === 0 && (
-            <div className="space-y-2">
-              {[1,2,3].map(i => <div key={i} className="h-14 rounded-lg bg-muted/30 animate-pulse" />)}
+      <div className="space-y-6">
+        {/* Snapshot */}
+        <Field label="Snapshot">
+          {snapshots.length === 0 ? (
+            <div className="text-sm text-muted-foreground py-6 border border-dashed rounded-lg text-center">
+              No snapshots available.{" "}
+              <Link href="/snapshots" className="text-primary hover:underline">Create one</Link>
             </div>
-          )}
-          {displayed.map((s) => (
-            <div
-              key={s.name}
-              onClick={() => setSelectedServerType(s.name)}
-              className={`cursor-pointer flex items-center justify-between p-3 rounded-lg border transition-all
-                ${selectedServerType === s.name
-                  ? 'border-primary bg-primary/5 ring-1 ring-primary/50'
-                  : 'border-border/50 hover:border-border hover:bg-muted/20'}`}
-            >
-              <div className="flex items-center gap-4">
-                <span className="font-mono text-sm text-muted-foreground w-12">{s.name}</span>
-                <div className="flex gap-3 text-sm">
-                  <span>{s.vcpu} vCPU</span>
-                  <span className="text-muted-foreground">·</span>
-                  <span>{s.ram_gb} GB</span>
-                  <span className="text-muted-foreground">·</span>
-                  <span>{s.disk_gb} GB</span>
-                </div>
-              </div>
-              <span className="font-semibold text-sm">${s.price_monthly}/mo</span>
-            </div>
-          ))}
-        </div>
-        {!showMore && serverTypes.length > 3 && (
-          <button onClick={() => setShowMore(true)} className="text-sm text-muted-foreground hover:text-foreground">
-            Show {serverTypes.length - 3} more →
-          </button>
-        )}
-      </div>
-
-      {/* Advanced */}
-      <button onClick={() => setShowAdvanced(!showAdvanced)} className="text-sm text-muted-foreground hover:text-foreground">
-        {showAdvanced ? '▾ Hide' : '▸'} Region & name
-      </button>
-
-      {showAdvanced && (
-        <div className="space-y-4 pl-4 border-l-2 border-border/30">
-          <div>
-            <Label className="text-sm">Region</Label>
-            <div className="flex gap-2 mt-1">
-              {REGIONS.map(r => (
+          ) : (
+            <div className="space-y-1.5">
+              {snapshots.map((s) => (
                 <button
-                  key={r.value}
-                  onClick={() => setSelectedRegion(r.value)}
-                  className={`px-3 py-1.5 rounded-md text-sm border transition-all
-                    ${selectedRegion === r.value
-                      ? 'border-primary bg-primary/10'
-                      : 'border-border/50 text-muted-foreground hover:border-border'}`}
+                  key={s.id}
+                  onClick={() => setSelectedSnapshot(s.id)}
+                  className={cn(
+                    "w-full flex items-center gap-3 p-3 rounded-lg border text-left transition-colors",
+                    selectedSnapshot === s.id ? "border-primary/50 bg-primary/5" : "hover:bg-muted/40"
+                  )}
                 >
-                  {r.flag} {r.label}
+                  <Radio checked={selectedSnapshot === s.id} />
+                  <div className="min-w-0 flex-1">
+                    <span className="text-sm font-medium">{s.name}</span>
+                    <span className="text-xs text-muted-foreground font-mono ml-2">{s.docker_image}</span>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    {Object.keys(s.providers).map((p) => (
+                      <Badge key={p} variant="outline" className="text-[10px]">{p}</Badge>
+                    ))}
+                  </div>
                 </button>
               ))}
             </div>
-          </div>
-          <div>
-            <Label className="text-sm">Name</Label>
-            <Input placeholder="my-machine" value={machineName} onChange={e => setMachineName(e.target.value)} className="mt-1 max-w-xs" />
-          </div>
-        </div>
-      )}
+          )}
+        </Field>
 
-      {/* Create */}
-      <Card className="bg-muted/20">
-        <CardContent className="pt-4 pb-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              {selectedST && (
-                <div className="text-sm">
-                  <span className="font-mono">{selectedST.name}</span>
-                  <span className="text-muted-foreground"> · </span>
-                  <span className="text-xs">{selectedST.vcpu} vCPU / {selectedST.ram_gb}GB / {selectedST.disk_gb}GB</span>
+        {/* Provider + Region inline */}
+        {selectedSnapshot && (
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Provider">
+              <div className="flex flex-wrap gap-1.5">
+                {availableProviders.map((p) => (
+                  <Chip key={p.name} selected={selectedProvider === p.name} onClick={() => setSelectedProvider(p.name)}>
+                    {p.displayName}
+                  </Chip>
+                ))}
+                {availableProviders.length === 0 && (
+                  <span className="text-sm text-muted-foreground">Not available</span>
+                )}
+              </div>
+            </Field>
+
+            {selectedProvider && regions && (
+              <Field label="Region">
+                <div className="flex flex-wrap gap-1.5">
+                  {regions.map((r) => (
+                    <Chip key={r.id} selected={selectedRegion === r.id} onClick={() => setSelectedRegion(r.id)}>
+                      {r.city}
+                    </Chip>
+                  ))}
                 </div>
-              )}
-              <div className="text-xs text-muted-foreground">
-                {REGIONS.find(r => r.value === selectedRegion)?.label} · SSH key auto-generated · code-server + claude + opencode pre-installed
-              </div>
+              </Field>
+            )}
+          </div>
+        )}
+
+        {/* Size */}
+        {selectedRegion && displayed && displayed.length > 0 && (
+          <Field label="Size">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {displayed.map((s) => {
+                const active = selectedServerType === s.name;
+                return (
+                  <button
+                    key={s.name}
+                    onClick={() => setSelectedServerType(s.name)}
+                    className={cn(
+                      "relative p-3 rounded-lg border text-left transition-colors",
+                      active ? "border-primary/50 bg-primary/5" : "hover:bg-muted/40"
+                    )}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={cn("font-mono text-sm", active && "text-primary font-medium")}>{s.name}</span>
+                      <span className="text-sm font-semibold">${s.price_monthly}</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1"><Cpu className="size-3" />{s.vcpu}</span>
+                      <span className="flex items-center gap-1"><MemoryStick className="size-3" />{s.ram_gb}G</span>
+                      <span className="flex items-center gap-1"><HardDrive className="size-3" />{s.disk_gb}G</span>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
-            <div className="flex items-center gap-4">
-              <div className="text-right">
-                <div className="text-lg font-bold">${selectedST?.price_monthly ?? '—'}</div>
-                <div className="text-xs text-muted-foreground">/month</div>
+            {!showAllSizes && serverTypes && serverTypes.length > 6 && (
+              <button onClick={() => setShowAllSizes(true)} className="text-xs text-muted-foreground hover:text-foreground transition-colors mt-1">
+                Show all {serverTypes.length} sizes
+              </button>
+            )}
+          </Field>
+        )}
+
+        {/* Name + Deploy */}
+        {canCreate && (
+          <div className="rounded-lg border p-4 space-y-4">
+            <Input
+              placeholder="Machine name (optional)"
+              value={machineName}
+              onChange={(e) => setMachineName(e.target.value)}
+            />
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-2xl font-semibold tracking-tight">${selectedST?.price_monthly}</span>
+                <span className="text-sm text-muted-foreground">/mo</span>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  {selectedST?.name} &middot; {selectedST?.vcpu} vCPU &middot; {selectedST?.ram_gb} GB &middot; {regions?.find((r) => r.id === selectedRegion)?.city}
+                </div>
               </div>
-              <Button onClick={handleCreate} disabled={loading || !selectedServerType} size="lg">
-                {loading ? 'Creating...' : 'Create'}
+              <Button size="lg" onClick={handleCreate} disabled={createMachine.isPending}>
+                {createMachine.isPending ? <><Loader2 className="size-4 animate-spin" />Deploying...</> : "Deploy Machine"}
               </Button>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        )}
+      </div>
     </div>
+  );
+}
+
+// ─── Primitives ──────────────────────────────────────────────────────────────
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function Radio({ checked }: { checked: boolean }) {
+  return (
+    <div className={cn("size-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors", checked ? "border-primary bg-primary" : "border-muted-foreground/30")}>
+      {checked && <Check className="size-2.5 text-primary-foreground" />}
+    </div>
+  );
+}
+
+function Chip({ selected, onClick, children }: { selected: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "px-3 py-1.5 rounded-md text-sm border transition-colors",
+        selected ? "border-primary/50 bg-primary/5 font-medium" : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+      )}
+    >
+      {children}
+    </button>
   );
 }

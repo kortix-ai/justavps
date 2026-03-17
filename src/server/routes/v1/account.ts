@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
-import { db } from '../db';
-import { users, machines } from '../db/schema';
-import { apiGuard, type AuthVariables } from '../lib/api-guard';
-import { stripeClient } from '../lib/stripe';
+import { db } from '../../db';
+import { users, machines } from '../../db/schema';
+import { apiGuard, type AuthVariables } from '../../lib/api-guard';
+import { stripeClient } from '../../lib/stripe';
 
 export const accountApp = new Hono<{ Variables: AuthVariables }>();
 accountApp.use('*', apiGuard);
@@ -37,10 +37,8 @@ accountApp.get('/usage', async (c) => {
     .then(rows => rows.filter(r => r.status !== 'deleted'))
     .catch(() => [] as any[]);
 
-  // Calculate estimated cost from machine count
   const estimatedCost = userMachines.reduce((sum, m) => {
-    // Rough estimate — real cost comes from Stripe
-    return sum + 9; // Minimum cost per machine
+    return sum + 9;
   }, 0);
 
   return c.json({
