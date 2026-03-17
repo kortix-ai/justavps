@@ -3,6 +3,10 @@
  *
  * Single unified image: every machine gets code-server + Claude Code + OpenCode.
  * No template selection — one snapshot to rule them all.
+ *
+ * Optional: callers can pass `envVars` (written to /etc/justavps/env) and
+ * `dockerImage` (started on boot with --env-file /etc/justavps/env) for
+ * custom workloads (e.g. running a containerized app instead of code-server).
  */
 
 interface CloudInitOpts {
@@ -12,6 +16,10 @@ interface CloudInitOpts {
   machineToken: string;
   platformCallbackUrl: string;
   proxyDomain: string;
+  /** Extra env vars written to /etc/justavps/env on the machine. */
+  envVars?: Record<string, string>;
+  /** Docker image to run on boot. Started with --env-file /etc/justavps/env. */
+  dockerImage?: string;
 }
 
 /**
@@ -19,8 +27,74 @@ interface CloudInitOpts {
  * Installs everything: code-server, Claude Code, OpenCode, dev tools.
  */
 export function buildCloudInit(opts: CloudInitOpts): string {
+  // Build env file lines (base64-encoded to avoid shell injection)
+  const envEntries: Record<string, string> = {
+    JUSTAVPS_SLUG: opts.slug,
+    JUSTAVPS_MACHINE_TOKEN: opts.machineToken,
+    ...opts.envVars,
+  };
+  const envLines = Object.entries(envEntries)
+    .map(([k, v]) => `${k}=${v}`)
+    .join('\n');
+  const envLinesBase64 = Buffer.from(envLines).toString('base64');
+
+  // If a docker image is specified, generate a systemd service for it
+  const dockerServiceBlock = opts.dockerImage ? `
+# ── Docker workload ──────────────────────────────────────────────────────
+cat > /usr/local/bin/justavps-docker-start.sh <<'DOCKERSTARTEOF'
+#!/bin/bash
+set -e
+
+ENV_FILE="/etc/justavps/env"
+for i in $(seq 1 60); do
+  [ -s "$ENV_FILE" ] && break
+  sleep 1
+done
+if [ ! -s "$ENV_FILE" ]; then
+  touch "$ENV_FILE"
+fi
+
+docker rm -f justavps-workload 2>/dev/null || true
+exec docker run --rm --name justavps-workload \\
+  --env-file "$ENV_FILE" \\
+  --cap-add SYS_ADMIN \\
+  --security-opt seccomp=unconfined \\
+  --shm-size 2g \\
+  -p 8000:8000 \\
+  -p 6080:6080 \\
+  -p 6081:6081 \\
+  -p 3456:3456 \\
+  -p 3111:3111 \\
+  -p 3210:3210 \\
+  -p 9223:9223 \\
+  -p 9224:9224 \\
+  -p 22222:22 \\
+  -v justavps-data:/workspace \\
+  ${opts.dockerImage}
+DOCKERSTARTEOF
+chmod +x /usr/local/bin/justavps-docker-start.sh
+
+cat > /etc/systemd/system/justavps-docker.service << 'DSVEOF'
+[Unit]
+Description=JustAVPS Docker Workload
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/justavps-docker-start.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+DSVEOF
+` : '';
+
   return `#!/bin/bash
 set -e
+export HOME=/root
+export DEBIAN_FRONTEND=noninteractive
 
 echo "[justavps] Configuring machine ${opts.slug}..."
 
@@ -53,7 +127,11 @@ cat > /etc/justavps/config.json << 'CONFIGEOF'
 }
 CONFIGEOF
 
+# ── Write env vars ─────────────────────────────────────────────────────────
+echo '${envLinesBase64}' | base64 -d > /etc/justavps/env
+
 # ── Configure Caddy (HTTPS with auto Let's Encrypt) ───────────────────────
+mkdir -p /etc/caddy
 cat > /etc/caddy/Caddyfile << CADDYEOF
 ${opts.slug}.${opts.proxyDomain} {
     reverse_proxy localhost:8080
@@ -99,7 +177,7 @@ if ! command -v code-server >/dev/null 2>&1; then
   apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
-  apt-get update && apt-get install -y caddy
+  apt-get update && apt-get install -y -o Dpkg::Options::="--force-confold" caddy
 
   # Dev tools
   apt-get install -y git curl wget build-essential unzip tmux vim htop nano python3 python3-pip
@@ -160,13 +238,14 @@ RestartSec=3
 [Install]
 WantedBy=multi-user.target
 OCEOF
-
+${dockerServiceBlock}
 # ── Start services ──────────────────────────────────────────────────────────
 systemctl daemon-reload
 systemctl enable --now code-server
 systemctl enable --now caddy
 systemctl enable --now justavps-agent
 systemctl enable --now opencode-web
+${opts.dockerImage ? 'systemctl enable --now justavps-docker' : ''}
 
 echo "[justavps] Machine ${opts.slug} ready!"
 `;

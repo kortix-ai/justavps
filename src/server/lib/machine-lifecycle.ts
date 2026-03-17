@@ -50,6 +50,8 @@ export function buildMachineUserData(
   codeServerPassword: string,
   sshPublicKey: string,
   machineToken: string,
+  envVars?: Record<string, string>,
+  dockerImage?: string,
 ) {
   return buildCloudInit({
     slug,
@@ -58,6 +60,8 @@ export function buildMachineUserData(
     machineToken,
     platformCallbackUrl: config.PLATFORM_URL,
     proxyDomain: config.PROXY_DOMAIN,
+    envVars,
+    dockerImage,
   });
 }
 

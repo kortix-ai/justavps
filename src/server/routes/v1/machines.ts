@@ -38,6 +38,8 @@ const CreateMachineSchema = z.object({
   server_type: z.string().min(1).describe('Provider-specific server type (e.g. "cpx22")'),
   region: z.string().min(1).describe('Provider-specific region (e.g. "nbg1")'),
   name: z.string().min(1).max(64).optional().describe('Human-readable name'),
+  env_vars: z.record(z.string()).optional().describe('Extra environment variables written to /etc/justavps/env on the machine'),
+  docker_image: z.string().optional().describe('Docker image to run on boot (e.g. "myapp:latest"). Starts with --env-file /etc/justavps/env'),
 });
 
 const ResizeMachineSchema = z.object({
@@ -136,7 +138,7 @@ machinesApp.post('/', async (c) => {
     const providerKeyId = await uploadSSHKeyToProvider(provider, slug, keyPair.publicKey);
 
     // 6. Build cloud-init
-    const userdata = buildMachineUserData(slug, codeServerPassword, keyPair.publicKey, machineToken);
+    const userdata = buildMachineUserData(slug, codeServerPassword, keyPair.publicKey, machineToken, data.env_vars, data.docker_image);
 
     // 7. Create server via provider
     const server = await provider.createServer({
