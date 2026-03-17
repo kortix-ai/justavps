@@ -1,14 +1,3 @@
-/**
- * Cloud-init template generator.
- *
- * Single unified image: every machine gets code-server + Claude Code + OpenCode.
- * No template selection — one snapshot to rule them all.
- *
- * Optional: callers can pass `envVars` (written to /etc/justavps/env) and
- * `dockerImage` (started on boot with --env-file /etc/justavps/env) for
- * custom workloads (e.g. running a containerized app instead of code-server).
- */
-
 interface CloudInitOpts {
   slug: string;
   codeServerPassword: string;
@@ -16,18 +5,11 @@ interface CloudInitOpts {
   machineToken: string;
   platformCallbackUrl: string;
   proxyDomain: string;
-  /** Extra env vars written to /etc/justavps/env on the machine. */
   envVars?: Record<string, string>;
-  /** Docker image to run on boot. Started with --env-file /etc/justavps/env. */
   dockerImage?: string;
 }
 
-/**
- * Build the full cloud-init user_data script.
- * Installs everything: code-server, Claude Code, OpenCode, dev tools.
- */
 export function buildCloudInit(opts: CloudInitOpts): string {
-  // Build env file lines (base64-encoded to avoid shell injection)
   const envEntries: Record<string, string> = {
     JUSTAVPS_SLUG: opts.slug,
     JUSTAVPS_MACHINE_TOKEN: opts.machineToken,
@@ -38,7 +20,6 @@ export function buildCloudInit(opts: CloudInitOpts): string {
     .join('\n');
   const envLinesBase64 = Buffer.from(envLines).toString('base64');
 
-  // If a docker image is specified, generate a systemd service for it
   const dockerServiceBlock = opts.dockerImage ? `
 # ── Docker workload ──────────────────────────────────────────────────────
 cat > /usr/local/bin/justavps-docker-start.sh <<'DOCKERSTARTEOF'
@@ -91,12 +72,20 @@ WantedBy=multi-user.target
 DSVEOF
 ` : '';
 
+  // Stage callback helper — reports provisioning progress to JustAVPS API
+  const stageCallback = (stage: string, message: string) =>
+    `curl -sf -X POST "${opts.platformCallbackUrl}/api/v1/internal/stage" ` +
+    `-H "Content-Type: application/json" ` +
+    `-d '{"slug":"${opts.slug}","machine_token":"${opts.machineToken}","stage":"${stage}","message":"${message}"}' ` +
+    `>/dev/null 2>&1 || true`;
+
   return `#!/bin/bash
 set -e
 export HOME=/root
 export DEBIAN_FRONTEND=noninteractive
 
 echo "[justavps] Configuring machine ${opts.slug}..."
+${stageCallback('cloud_init_running', 'Cloud-init started')}
 
 # ── Create user with SSH key ────────────────────────────────────────────────
 if ! id user >/dev/null 2>&1; then
@@ -239,13 +228,37 @@ RestartSec=3
 WantedBy=multi-user.target
 OCEOF
 ${dockerServiceBlock}
+# ── Report cloud-init complete ──────────────────────────────────────────────
+${stageCallback('cloud_init_done', 'Cloud-init finished, starting services')}
+
 # ── Start services ──────────────────────────────────────────────────────────
 systemctl daemon-reload
 systemctl enable --now code-server
 systemctl enable --now caddy
 systemctl enable --now justavps-agent
 systemctl enable --now opencode-web
-${opts.dockerImage ? 'systemctl enable --now justavps-docker' : ''}
+${opts.dockerImage ? `${stageCallback('docker_pulling', 'Starting Docker workload...')}
+systemctl enable --now justavps-docker` : ''}
+
+${opts.dockerImage ? `# ── Wait for Docker workload to be ready ──────────────────────────────────
+echo "[justavps] Waiting for Docker workload to start..."
+for i in $(seq 1 120); do
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q justavps-workload; then
+    ${stageCallback('docker_running', 'Docker container started')}
+    break
+  fi
+  sleep 2
+done
+
+# Wait for port 8000 (or first exposed port) to be ready
+echo "[justavps] Waiting for services to be ready..."
+for i in $(seq 1 120); do
+  if curl -sf http://localhost:8000/ >/dev/null 2>&1 || curl -sf http://localhost:8000/health >/dev/null 2>&1; then
+    ${stageCallback('services_ready', 'All services are up')}
+    break
+  fi
+  sleep 2
+done` : ''}
 
 echo "[justavps] Machine ${opts.slug} ready!"
 `;

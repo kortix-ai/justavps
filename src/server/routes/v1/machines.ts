@@ -13,6 +13,7 @@ type Machine = typeof machines.$inferSelect;
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 import { stripeClient } from '../../lib/stripe';
 import { requireOwnedResource, requireProvider, errorResponse, handleRouteError } from '../../lib/route-helpers';
+import { eventBus } from '../../lib/event-bus';
 import {
   generateMachineIdentity,
   uploadSSHKeyToProvider,
@@ -63,6 +64,8 @@ function serializeMachine(m: typeof machines.$inferSelect) {
     slug: m.slug,
     name: m.name,
     status: m.status,
+    provisioning_stage: m.provisioningStage ?? null,
+    provisioning_stage_updated_at: m.provisioningStageUpdatedAt?.toISOString() ?? null,
     provider: m.provider,
     snapshot_id: m.snapshotId,
     server_type: m.serverType,
@@ -140,29 +143,7 @@ machinesApp.post('/', async (c) => {
     // 6. Build cloud-init
     const userdata = buildMachineUserData(slug, codeServerPassword, keyPair.publicKey, machineToken, data.env_vars, data.docker_image);
 
-    // 7. Create server via provider
-    const server = await provider.createServer({
-      name: `justavps-${slug}`,
-      serverType: data.server_type,
-      snapshotId: providerSnap.snapshotId,
-      region: data.region,
-      userData: userdata,
-      sshKeyIds: providerKeyId ? [providerKeyId] : [],
-      enableBackups: true,
-      labels: {
-        'justavps': 'true',
-        'slug': slug,
-        'owner': ownerId.slice(0, 63),
-      },
-    });
-
-    // 8. DNS + KV
-    await setupDNSAndKV(slug, server.publicIp, ownerId, data.server_type);
-
-    // 9. Look up price
-    const priceMonthly = await lookupPrice(provider, data.region, data.server_type, providerSnap);
-
-    // 10. Create DB record
+    // 7. Create DB record immediately (provisioning state)
     const machine = await createMachineRecord({
       ownerId,
       slug,
@@ -171,19 +152,72 @@ machinesApp.post('/', async (c) => {
       snapshotId: snapshot.id,
       serverType: data.server_type,
       region: data.region,
-      ip: server.publicIp,
-      providerServerId: server.serverId,
+      ip: null,
+      providerServerId: null,
       machineToken,
       codeServerPassword,
       sshPublicKey: keyPair.publicKey,
       sshPrivateKey: keyPair.privateKey,
-      priceMonthly,
+      priceMonthly: null,
     });
 
-    // 11. Create Stripe subscription (async, non-blocking)
-    createStripeSubscription(ownerId, machine.id, slug, priceMonthly, data.server_type);
+    // Emit initial stage
+    await eventBus.emitStageChange(machine.id, ownerId, 'server_creating', 'Creating server on provider...');
 
-    return c.json(serializeMachine(machine), 201);
+    // 8. Run provider creation + setup in background (non-blocking)
+    (async () => {
+      try {
+        const server = await provider.createServer({
+          name: `justavps-${slug}`,
+          serverType: data.server_type,
+          snapshotId: providerSnap.snapshotId,
+          region: data.region,
+          userData: userdata,
+          sshKeyIds: providerKeyId ? [providerKeyId] : [],
+          enableBackups: true,
+          labels: {
+            'justavps': 'true',
+            'slug': slug,
+            'owner': ownerId.slice(0, 63),
+          },
+        });
+
+        // Update machine with IP and provider ID
+        await db.update(machines).set({
+          ip: server.publicIp,
+          providerServerId: server.serverId,
+        }).where(eq(machines.id, machine.id));
+
+        await eventBus.emitStageChange(machine.id, ownerId, 'server_created', `Server created (IP: ${server.publicIp})`, { ip: server.publicIp });
+
+        // DNS + KV (non-critical)
+        try {
+          await setupDNSAndKV(slug, server.publicIp, ownerId, data.server_type);
+        } catch (err) {
+          console.warn(`[MACHINES] DNS/KV setup failed for ${slug}:`, err);
+        }
+
+        // Price lookup + Stripe subscription
+        try {
+          const priceMonthly = await lookupPrice(provider, data.region, data.server_type, providerSnap);
+          await db.update(machines).set({ priceMonthly }).where(eq(machines.id, machine.id));
+          createStripeSubscription(ownerId, machine.id, slug, priceMonthly, data.server_type);
+        } catch (err) {
+          console.warn(`[MACHINES] Billing setup failed for ${slug}:`, err);
+        }
+
+      } catch (err) {
+        console.error(`[MACHINES] Background provisioning failed for ${slug}:`, err);
+        await db.update(machines).set({
+          status: 'error',
+          providerMeta: { error: err instanceof Error ? err.message : String(err) },
+        }).where(eq(machines.id, machine.id));
+        await eventBus.emitStatusChange(machine.id, ownerId, 'error', `Provisioning failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    })();
+
+    // Return immediately with 202 Accepted
+    return c.json(serializeMachine(machine), 202);
   } catch (err) {
     return handleRouteError(c, err, 'MACHINES');
   }

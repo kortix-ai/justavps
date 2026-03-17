@@ -91,6 +91,10 @@ export const machines = pgTable('machines', {
   // Networking
   domains: jsonb('domains').$type<string[]>().default([]),
 
+  // Provisioning progress
+  provisioningStage: text('provisioning_stage'), // server_creating | server_created | cloud_init_running | cloud_init_done | docker_pulling | docker_running | services_starting | services_ready
+  provisioningStageUpdatedAt: timestamp('provisioning_stage_updated_at'),
+
   // Health
   lastHeartbeatAt: timestamp('last_heartbeat_at'),
   lastHeartbeat: jsonb('last_heartbeat').$type<{
@@ -142,6 +146,30 @@ export const machineBilling = pgTable('machine_billing', {
   hours: decimal('hours'),
 });
 
+// ─── Machine Events (append-only log) ──────────────────────────────────────
+
+export const machineEvents = pgTable('machine_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  machineId: uuid('machine_id').references(() => machines.id).notNull(),
+  event: text('event').notNull(), // stage_changed | status_changed | heartbeat
+  stage: text('stage'), // provisioning stage name
+  message: text('message'),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ─── Webhooks ──────────────────────────────────────────────────────────────
+
+export const webhooks = pgTable('webhooks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ownerId: uuid('owner_id').references(() => users.id).notNull(),
+  url: text('url').notNull(),
+  secret: text('secret').notNull(),
+  events: jsonb('events').$type<string[]>().notNull().default(['*']),
+  active: boolean('active').notNull().default(true),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // ─── Type Exports ───────────────────────────────────────────────────────────
 
 export type User = typeof users.$inferSelect;
@@ -152,3 +180,5 @@ export type Machine = typeof machines.$inferSelect;
 export type NewMachine = typeof machines.$inferInsert;
 export type SSHKey = typeof sshKeys.$inferSelect;
 export type ApiKey = typeof apiKeys.$inferSelect;
+export type MachineEventRow = typeof machineEvents.$inferSelect;
+export type WebhookRow = typeof webhooks.$inferSelect;

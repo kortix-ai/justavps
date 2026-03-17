@@ -31,12 +31,14 @@ import {
   LogOut,
   Sun,
   Moon,
+  Globe,
 } from "lucide-react";
 
 const navigation = [
   { name: "Machines", href: "/machines", icon: Server },
   { name: "Snapshots", href: "/snapshots", icon: HardDrive },
   { name: "Keys", href: "/keys", icon: KeyRound },
+  { name: "Webhooks", href: "/webhooks", icon: Globe },
   { name: "Billing", href: "/billing", icon: CreditCard },
   { name: "Docs", href: "/docs", icon: FileText },
 ];

@@ -1,8 +1,3 @@
-/**
- * Machine lifecycle — step functions extracted from the machines POST handler.
- * Each function handles one discrete step of machine creation/teardown.
- */
-
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db';
@@ -14,8 +9,6 @@ import { cloudflareClient } from './cloudflare';
 import { stripeClient } from './stripe';
 import type { ComputeProvider, ProviderSnapshot } from './providers';
 
-// ─── Identity ────────────────────────────────────────────────────────────────
-
 export async function generateMachineIdentity() {
   const slug = nanoid(8).toLowerCase().replace(/[^a-z0-9]/g, 'x');
   const machineToken = generateMachineToken();
@@ -26,8 +19,6 @@ export async function generateMachineIdentity() {
 
   return { slug, machineToken, codeServerPassword, keyPair };
 }
-
-// ─── SSH Key Upload ──────────────────────────────────────────────────────────
 
 export async function uploadSSHKeyToProvider(
   provider: ComputeProvider,
@@ -42,8 +33,6 @@ export async function uploadSSHKeyToProvider(
     return undefined;
   }
 }
-
-// ─── Cloud-Init ──────────────────────────────────────────────────────────────
 
 export function buildMachineUserData(
   slug: string,
@@ -65,8 +54,6 @@ export function buildMachineUserData(
   });
 }
 
-// ─── DNS + KV ────────────────────────────────────────────────────────────────
-
 export async function setupDNSAndKV(
   slug: string,
   ip: string,
@@ -83,8 +70,6 @@ export async function setupDNSAndKV(
   }).catch(() => {});
 }
 
-// ─── Price Lookup ────────────────────────────────────────────────────────────
-
 export async function lookupPrice(
   provider: ComputeProvider,
   region: string,
@@ -100,8 +85,6 @@ export async function lookupPrice(
   }
 }
 
-// ─── DB Record ───────────────────────────────────────────────────────────────
-
 interface CreateMachineInput {
   ownerId: string;
   slug: string;
@@ -110,21 +93,19 @@ interface CreateMachineInput {
   snapshotId: string;
   serverType: string;
   region: string;
-  ip: string;
-  providerServerId: string;
+  ip: string | null;
+  providerServerId: string | null;
   machineToken: string;
   codeServerPassword: string;
   sshPublicKey: string;
   sshPrivateKey: string;
-  priceMonthly: number;
+  priceMonthly: number | null;
 }
 
 export async function createMachineRecord(input: CreateMachineInput) {
   const [machine] = await db.insert(machines).values(input).returning();
   return machine;
 }
-
-// ─── Stripe Subscription ────────────────────────────────────────────────────
 
 export async function createStripeSubscription(
   ownerId: string,
@@ -154,8 +135,6 @@ export async function createStripeSubscription(
   }
 }
 
-// ─── Cleanup ─────────────────────────────────────────────────────────────────
-
 export async function cleanupMachineResources(
   machine: typeof machines.$inferSelect,
   provider: ComputeProvider,
@@ -177,8 +156,6 @@ export async function cleanupMachineResources(
     .set({ status: 'deleted', deletedAt: new Date() })
     .where(eq(machines.id, machine.id));
 }
-
-// ─── Status Sync ─────────────────────────────────────────────────────────────
 
 export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
   if (machine.status !== 'provisioning' || !machine.providerServerId) return machine;
