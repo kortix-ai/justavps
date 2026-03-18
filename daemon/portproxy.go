@@ -21,8 +21,12 @@ import (
 )
 
 func handlePortProxy(w http.ResponseWriter, r *http.Request) {
-	// Path is /PORT/rest/of/path (Caddy stripped /_caddy_port)
-	path := strings.TrimPrefix(r.URL.Path, "/")
+	// Path could be:
+	//   /_caddy_port/PORT/path  (Caddy with handle — preserves prefix)
+	//   /PORT/path              (Caddy with handle_path — strips prefix)
+	path := r.URL.Path
+	path = strings.TrimPrefix(path, "/_caddy_port")
+	path = strings.TrimPrefix(path, "/")
 	parts := strings.SplitN(path, "/", 2)
 	if len(parts) == 0 {
 		http.Error(w, `{"error":"Missing port"}`, http.StatusBadRequest)

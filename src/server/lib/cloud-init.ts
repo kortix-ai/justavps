@@ -377,7 +377,7 @@ cat > /etc/caddy/Caddyfile << CADDYEOF
     # Port forwarding: /_caddy_port/* → daemon port proxy handler
     # CF Worker routes all port requests through Caddy → daemon
     # Daemon proxies to localhost:PORT (handles 127.0.0.1-bound services)
-    handle_path /_caddy_port/* {
+    handle /_caddy_port/* {
         reverse_proxy localhost:7777
     }
 

@@ -23,6 +23,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -64,7 +66,20 @@ func main() {
 	mux.HandleFunc("POST /services/{name}/restart", apiServer.handleServiceRestart)
 	mux.HandleFunc("GET /info", apiServer.handleInfo)
 	mux.HandleFunc("GET /_pty", handlePTY)           // WebSocket PTY for dashboard terminal
-	mux.HandleFunc("/_caddy_port/", handlePortProxy) // Port forwarding: /PORT/path → localhost:PORT
+	mux.HandleFunc("/_caddy_port/", handlePortProxy) // Port forwarding (prefix preserved)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Catch paths like /PORT/path when Caddy strips /_caddy_port prefix
+		// Check if the first path segment is a number (port)
+		p := strings.TrimPrefix(r.URL.Path, "/")
+		if idx := strings.Index(p, "/"); idx > 0 {
+			p = p[:idx]
+		}
+		if _, err := strconv.Atoi(p); err == nil {
+			handlePortProxy(w, r)
+			return
+		}
+		http.NotFound(w, r)
+	})
 
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", *port),
