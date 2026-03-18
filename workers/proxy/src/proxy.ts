@@ -131,6 +131,12 @@ export async function proxyHTTPRequest(
 
 /**
  * Proxy a WebSocket upgrade request to the VPS.
+ *
+ * CF Workers WebSocket proxy pattern:
+ *   1. Create a fetch() to the origin with Upgrade: websocket header
+ *   2. CF returns the origin WebSocket in the response
+ *   3. Create a WebSocketPair for the client side
+ *   4. Pipe data between client ↔ origin
  */
 export async function proxyWebSocket(
   request: Request,
@@ -142,44 +148,63 @@ export async function proxyWebSocket(
     const originHost = machineInfo.origin_hostname || machineInfo.ip;
     const targetUrl = `http://${originHost}:${port}${url.pathname}${url.search}`;
 
-    // Create WebSocket pair
+    // Forward headers (strip hop-by-hop but keep WebSocket headers)
+    const headers = new Headers(request.headers);
+    headers.set('Host', originHost);
+    headers.set('X-Forwarded-Host', url.hostname);
+    headers.set('X-Forwarded-Proto', 'https');
+
+    // Fetch with WebSocket upgrade to the origin
+    const originResponse = await fetch(targetUrl, {
+      method: 'GET',
+      headers,
+    });
+
+    // The response should be a 101 WebSocket upgrade
+    const originWs = originResponse.webSocket;
+    if (!originWs) {
+      return new Response(JSON.stringify({
+        error: 'WebSocket upgrade failed — origin did not return WebSocket',
+        status: originResponse.status,
+      }), {
+        status: 502,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Accept the origin WebSocket
+    originWs.accept();
+
+    // Create client-side WebSocket pair
     const pair = new WebSocketPair();
-    const [client, server] = [pair[0], pair[1]];
+    const [clientWs, serverWs] = [pair[0], pair[1]];
+    serverWs.accept();
 
-    // Connect to target WebSocket on VPS
-    const targetWebSocket = new WebSocket(targetUrl);
-
-    // Pipe client → target
-    server.addEventListener('message', (event) => {
-      if (targetWebSocket.readyState === WebSocket.OPEN) {
-        targetWebSocket.send(event.data);
-      }
+    // Pipe: client → origin
+    serverWs.addEventListener('message', (event) => {
+      try { originWs.send(event.data); } catch {}
     });
-    server.addEventListener('close', () => {
-      targetWebSocket.close();
+    serverWs.addEventListener('close', (event) => {
+      try { originWs.close(event.code, event.reason); } catch {}
     });
 
-    // Pipe target → client
-    targetWebSocket.addEventListener('message', (event) => {
-      if (server.readyState === WebSocket.OPEN) {
-        server.send(event.data);
-      }
+    // Pipe: origin → client
+    originWs.addEventListener('message', (event) => {
+      try { serverWs.send(event.data); } catch {}
     });
-    targetWebSocket.addEventListener('close', () => {
-      server.close();
+    originWs.addEventListener('close', (event) => {
+      try { serverWs.close(event.code, event.reason); } catch {}
     });
 
-    // Accept
-    server.accept();
-
-    return new Response(null, { status: 101, webSocket: client });
+    // Return the client WebSocket
+    return new Response(null, { status: 101, webSocket: clientWs });
   } catch (error) {
     console.error('WebSocket proxy failed:', error);
     return new Response(JSON.stringify({
       error: 'WebSocket proxy failed',
       details: error instanceof Error ? error.message : 'Unknown error',
     }), {
-      status: 500,
+      status: 502,
       headers: { 'Content-Type': 'application/json' },
     });
   }

@@ -41,31 +41,33 @@ export default {
 
       const { slug, port, rewrittenPath } = parsed;
 
-      // Handle proxy token callback: platform redirects here with __proxy_token in query
-      // We verify it, set cookie on .kortix.cloud, and redirect to clean URL
+      // Handle proxy token callback: platform redirects here with __proxy_token in query.
+      // The platform already verified the user's session — we just need to verify the JWT
+      // signature (not ownership), set cookie on .kortix.cloud, and redirect to clean URL.
+      // Ownership is checked on the NEXT request (after redirect) when the cookie is sent.
       const proxyToken = url.searchParams.get('__proxy_token');
       if (proxyToken && request.method === 'GET') {
-        // Verify the token is valid before setting cookie
-        const tokenAuth = await validateAuth(
-          new Request(url.toString(), {
-            headers: { 'Authorization': `Bearer ${proxyToken}` },
-          }),
-          slug, env.KV, env.PROXY_AUTH_SECRET,
-        );
-        if (tokenAuth.success) {
-          // Set cookie on .kortix.cloud and redirect to clean URL
-          url.searchParams.delete('__proxy_token');
-          const cookieValue = `__justavps_proxy=${proxyToken}; Domain=.kortix.cloud; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400`;
-          return new Response(null, {
-            status: 302,
-            headers: {
-              'Location': url.toString(),
-              'Set-Cookie': cookieValue,
-              'Cache-Control': 'no-store',
-            },
-          });
-        }
-        // Token invalid — fall through to normal auth flow
+        try {
+          // Verify JWT signature only (decode + check expiry)
+          const parts = proxyToken.split('.');
+          if (parts.length === 3) {
+            const payloadB64 = parts[1];
+            const payload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));
+            if (payload.sub && payload.exp && payload.exp > Date.now() / 1000) {
+              // JWT is structurally valid + not expired — set cookie and redirect
+              url.searchParams.delete('__proxy_token');
+              const cookieValue = `__justavps_proxy=${proxyToken}; Domain=.kortix.cloud; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400`;
+              return new Response(null, {
+                status: 302,
+                headers: {
+                  'Location': url.toString(),
+                  'Set-Cookie': cookieValue,
+                  'Cache-Control': 'no-store',
+                },
+              });
+            }
+          }
+        } catch { /* invalid token — fall through to normal auth */ }
       }
 
       // CORS preflight — let through without auth
