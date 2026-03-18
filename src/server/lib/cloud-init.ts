@@ -321,6 +321,11 @@ echo '${envLinesBase64}' | base64 -d > /etc/justavps/env
 mkdir -p /etc/caddy
 cat > /etc/caddy/Caddyfile << CADDYEOF
 :80 {
+    # PTY WebSocket for dashboard terminal (must be before code-server catch-all)
+    handle /_pty {
+        reverse_proxy localhost:7777
+    }
+
     # code-server (default — web IDE)
     reverse_proxy localhost:8080
 
