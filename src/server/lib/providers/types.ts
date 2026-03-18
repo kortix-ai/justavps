@@ -18,15 +18,9 @@ export interface RegionInfo {
   city: string;
 }
 
-export interface ProviderSnapshot {
-  snapshotId: string;
-  diskSize: number;
-  architecture: string;
-}
-
 export interface CreateServerOpts {
   name: string;
-  snapshotId: string;
+  image: string; // Hetzner image ID or "ubuntu-24.04"
   serverType: string;
   region: string;
   userData: string;
@@ -48,8 +42,8 @@ export interface ComputeProvider {
   readonly name: string;
   readonly displayName: string;
 
-  buildSnapshot(dockerImage: string, opts?: { description?: string }): Promise<ProviderSnapshot>;
-  deleteSnapshot(snapshotId: string): Promise<void>;
+  createImage(serverId: number, description: string): Promise<{ imageId: string; diskSize: number; architecture: string }>;
+  deleteImage(imageId: string): Promise<void>;
 
   createServer(opts: CreateServerOpts): Promise<ServerResult>;
   deleteServer(serverId: string): Promise<void>;
@@ -62,6 +56,6 @@ export interface ComputeProvider {
   uploadSSHKey(name: string, publicKey: string): Promise<SSHKeyResult>;
   deleteSSHKey(keyId: string): Promise<void>;
 
-  listServerTypes(region: string, snapshot?: ProviderSnapshot): Promise<ServerTypeInfo[]>;
+  listServerTypes(region: string): Promise<ServerTypeInfo[]>;
   listRegions(): Promise<RegionInfo[]>;
 }

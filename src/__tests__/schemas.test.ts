@@ -14,7 +14,7 @@ import {
 describe('validation schemas', () => {
   describe('CreateMachineSchema', () => {
     const validData = {
-      snapshot_id: '00000000-0000-0000-0000-000000000001',
+      image_id: '00000000-0000-0000-0000-000000000001',
       provider: 'hetzner',
       server_type: 'ccx13',
       region: 'hel1',
@@ -34,7 +34,6 @@ describe('validation schemas', () => {
 
     it('should use default values for optional fields', () => {
       const minimalData = {
-        snapshot_id: '00000000-0000-0000-0000-000000000001',
         provider: 'hetzner',
         server_type: 'ccx23',
         region: 'nbg1',
@@ -45,6 +44,51 @@ describe('validation schemas', () => {
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.name).toBeUndefined(); // optional
+        expect(result.data.image_id).toBeUndefined(); // optional
+      }
+    });
+
+    it('should accept null image_id for Ubuntu default', () => {
+      const data = {
+        image_id: null,
+        provider: 'hetzner',
+        server_type: 'ccx23',
+        region: 'nbg1',
+      };
+      
+      const result = CreateMachineSchema.safeParse(data);
+      
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.image_id).toBeNull();
+      }
+    });
+
+    it('should accept docker_image field', () => {
+      const data = {
+        ...validData,
+        docker_image: 'nginx:latest',
+      };
+      
+      const result = CreateMachineSchema.safeParse(data);
+      
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.docker_image).toBe('nginx:latest');
+      }
+    });
+
+    it('should accept entrypoint field', () => {
+      const data = {
+        ...validData,
+        entrypoint: 'sleep infinity',
+      };
+      
+      const result = CreateMachineSchema.safeParse(data);
+      
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.entrypoint).toBe('sleep infinity');
       }
     });
 

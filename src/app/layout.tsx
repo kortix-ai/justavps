@@ -8,9 +8,12 @@ import { Providers } from "@/hooks/query-client";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 export const metadata: Metadata = {
-  title: "justavps.com — 24/7 Always-On Sandbox for AI",
+  title: "justavps.com — AI Sandbox",
   description: "24/7 always-on sandbox for AI agents. Dedicated VPS with Claude Code, OpenCode, and browser IDE pre-installed. Ready in 60 seconds.",
 };
+
+// Runs before React hydration — reads localStorage, applies class, zero flash
+const themeScript = `(function(){try{var t=localStorage.getItem("theme");if(!t)t=window.matchMedia("(prefers-color-scheme:light)").matches?"light":"dark";document.documentElement.classList.add(t)}catch(e){document.documentElement.classList.add("dark")}})()`;
 
 export default function RootLayout({
   children,
@@ -18,7 +21,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`dark ${roobert.variable} ${roobertMono.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`${roobert.variable} ${roobertMono.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body className="font-sans antialiased">
         <SessionProvider>
           <Providers>

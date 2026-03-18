@@ -7,7 +7,7 @@ import { buildCloudInit } from './cloud-init';
 import { config } from './config';
 import { cloudflareClient } from './cloudflare';
 import { stripeClient } from './stripe';
-import type { ComputeProvider, ProviderSnapshot } from './providers';
+import type { ComputeProvider } from './providers';
 
 export async function generateMachineIdentity() {
   const slug = nanoid(8).toLowerCase().replace(/[^a-z0-9]/g, 'x');
@@ -41,6 +41,7 @@ export function buildMachineUserData(
   machineToken: string,
   envVars?: Record<string, string>,
   dockerImage?: string,
+  entrypoint?: string,
 ) {
   return buildCloudInit({
     slug,
@@ -51,6 +52,7 @@ export function buildMachineUserData(
     proxyDomain: config.PROXY_DOMAIN,
     envVars,
     dockerImage,
+    entrypoint,
   });
 }
 
@@ -74,10 +76,9 @@ export async function lookupPrice(
   provider: ComputeProvider,
   region: string,
   serverType: string,
-  snapshot?: ProviderSnapshot,
 ): Promise<number> {
   try {
-    const serverTypes = await provider.listServerTypes(region, snapshot);
+    const serverTypes = await provider.listServerTypes(region);
     const st = serverTypes.find(t => t.name === serverType);
     return st?.priceMonthly ?? 30;
   } catch {
@@ -90,7 +91,7 @@ interface CreateMachineInput {
   slug: string;
   name: string;
   provider: string;
-  snapshotId: string;
+  imageId: string | null;
   serverType: string;
   region: string;
   ip: string | null;

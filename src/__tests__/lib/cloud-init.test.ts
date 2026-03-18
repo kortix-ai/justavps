@@ -1,5 +1,5 @@
 /**
- * Tests for cloud-init generator (unified image — no templates).
+ * Tests for cloud-init generator (smart install — installs on fresh Ubuntu, skips on images).
  */
 
 import { describe, it, expect } from 'vitest';
@@ -25,11 +25,11 @@ describe('cloud-init', () => {
       
       // Should contain expected sections
       expect(script).toContain('echo "[justavps] Configuring machine');
-      expect(script).toContain('Create user with SSH key');
-      expect(script).toContain('Write platform config');
-      expect(script).toContain('Configure Caddy');
-      expect(script).toContain('Configure code-server');
-      expect(script).toContain('Start services');
+      expect(script).toContain('SSH keys for root + user');
+      expect(script).toContain('Platform config');
+      expect(script).toContain('Caddy config');
+      expect(script).toContain('code-server config');
+      expect(script).toContain('Start pre-installed services');
       expect(script).toContain('echo "[justavps] Machine test-machine ready!"');
     });
     
@@ -78,27 +78,25 @@ describe('cloud-init', () => {
       expect(script).toContain('reverse_proxy localhost:8080');
     });
     
-    it('should include snapshot detection logic', () => {
+    it('should include smart install detection logic', () => {
       const script = buildCloudInit(defaultOpts);
       
-      expect(script).toContain('if ! command -v code-server >/dev/null 2>&1; then');
-      expect(script).toContain('No snapshot — installing from scratch');
+      expect(script).toContain('if ! command -v code-server &>/dev/null; then');
+      expect(script).toContain('Fresh Ubuntu detected');
     });
   });
 
-  describe('unified image — always installs Claude Code + OpenCode', () => {
-    it('should always install Claude Code', () => {
+  describe('smart install — installs platform on fresh Ubuntu', () => {
+    it('should install Claude Code inside the if block', () => {
       const script = buildCloudInit(defaultOpts);
       
-      expect(script).toContain('[justavps] Installing Claude Code...');
-      expect(script).toContain('curl -fsSL https://claude.ai/install.sh | bash');
+      expect(script).toContain('npm install -g @anthropic-ai/claude-code');
     });
     
-    it('should always install OpenCode with auto-serve', () => {
+    it('should install OpenCode and create systemd service', () => {
       const script = buildCloudInit(defaultOpts);
       
-      expect(script).toContain('[justavps] Installing OpenCode...');
-      expect(script).toContain('curl -fsSL https://opencode.ai/install | bash');
+      expect(script).toContain('opencode');
       expect(script).toContain('opencode-web.service');
       expect(script).toContain('ExecStart=/usr/local/bin/opencode serve --port 3456');
       expect(script).toContain('systemctl enable --now opencode-web');
@@ -118,12 +116,12 @@ describe('cloud-init', () => {
       expect(script).toContain('WantedBy=multi-user.target');
     });
     
-    it('should create justavps-agent systemd service', () => {
+    it('should create Docker workload systemd service', () => {
       const script = buildCloudInit(defaultOpts);
       
-      expect(script).toContain('justavps-agent.service');
-      expect(script).toContain('Description=JustAVPS Agent');
-      expect(script).toContain('ExecStart=/usr/local/bin/justavps-agent --port 7777 --config /etc/justavps/config.json');
+      expect(script).toContain('justavps-docker.service');
+      expect(script).toContain('Description=JustAVPS Docker Workload');
+      expect(script).toContain('ExecStart=/usr/local/bin/justavps-docker-start.sh');
     });
     
     it('should enable and start all services including opencode-web', () => {
@@ -132,7 +130,6 @@ describe('cloud-init', () => {
       expect(script).toContain('systemctl daemon-reload');
       expect(script).toContain('systemctl enable --now code-server');
       expect(script).toContain('systemctl enable --now caddy');
-      expect(script).toContain('systemctl enable --now justavps-agent');
       expect(script).toContain('systemctl enable --now opencode-web');
     });
   });
@@ -141,7 +138,6 @@ describe('cloud-init', () => {
     it('should create user with proper permissions', () => {
       const script = buildCloudInit(defaultOpts);
       
-      expect(script).toContain('if ! id user >/dev/null 2>&1; then');
       expect(script).toContain('useradd -m -s /bin/bash -G sudo,docker user');
       expect(script).toContain('echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/user');
     });

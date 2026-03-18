@@ -5,7 +5,7 @@
 
 import { Hono } from 'hono';
 import { machinesApp } from './machines';
-import { snapshotsApp } from './snapshots';
+import { imagesApp } from './images';
 import { sshKeysApp } from './ssh-keys';
 import { apiKeysApp } from './api-keys';
 import { serverTypesApp } from './server-types';
@@ -17,7 +17,7 @@ import { webhooksApp } from './webhooks';
 export const v1 = new Hono();
 
 v1.route('/machines', machinesApp);
-v1.route('/snapshots', snapshotsApp);
+v1.route('/images', imagesApp);
 v1.route('/ssh-keys', sshKeysApp);
 v1.route('/api-keys', apiKeysApp);
 v1.route('/server-types', serverTypesApp);

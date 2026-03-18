@@ -6,7 +6,7 @@
 // ─── Status Unions ───────────────────────────────────────────────────────────
 
 export type MachineStatus = 'provisioning' | 'ready' | 'error' | 'stopped' | 'deleted';
-export type SnapshotStatus = 'building' | 'ready' | 'failed' | 'deleted';
+export type ImageStatus = 'creating' | 'ready' | 'failed' | 'deleted';
 
 // ─── Machine ─────────────────────────────────────────────────────────────────
 
@@ -16,7 +16,7 @@ export interface Machine {
   name: string;
   status: MachineStatus;
   provider: string;
-  snapshot_id: string | null;
+  image_id: string | null;
   server_type: string;
   region: string;
   ip: string | null;
@@ -47,24 +47,19 @@ export interface Machine {
   } | null;
 }
 
-// ─── Snapshot ────────────────────────────────────────────────────────────────
+// ─── Image ──────────────────────────────────────────────────────────────────
 
-export interface ProviderArtifact {
-  snapshotId: string;
-  diskSize: number;
-  architecture: string;
-}
-
-export interface Snapshot {
+export interface Image {
   id: string;
   name: string;
-  docker_image: string;
-  status: SnapshotStatus;
+  status: ImageStatus;
+  source_machine_id: string | null;
+  provider: string;
+  provider_image_id: string | null;
+  disk_size_gb: number | null;
   architecture: string | null;
-  providers: Record<string, ProviderArtifact>;
   created_at: string;
   updated_at: string;
-  last_used_at: string | null;
 }
 
 // ─── Provider / Region / ServerType ──────────────────────────────────────────

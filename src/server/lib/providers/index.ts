@@ -34,4 +34,4 @@ export function isProviderAvailable(name: string): boolean {
   return providers.has(name);
 }
 
-export type { ComputeProvider, ServerTypeInfo, RegionInfo, ProviderSnapshot, CreateServerOpts, ServerResult, SSHKeyResult } from './types';
+export type { ComputeProvider, ServerTypeInfo, RegionInfo, CreateServerOpts, ServerResult, SSHKeyResult } from './types';

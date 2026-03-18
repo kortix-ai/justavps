@@ -5,22 +5,16 @@
 
 import { z } from 'zod';
 
-// ─── Snapshot Schemas ──────────────────────────────────────────────────────
-
-export const CreateSnapshotSchema = z.object({
-  docker_image: z.string().min(1).describe('Docker image (e.g. "nginx:latest")'),
-  name: z.string().min(1).max(128).describe('Human-readable name'),
-  provider: z.string().min(1).describe('Provider to build on (e.g. "hetzner")'),
-});
-
 // ─── Machine Schemas ────────────────────────────────────────────────────────
 
 export const CreateMachineSchema = z.object({
-  snapshot_id: z.string().uuid().describe('Snapshot to boot from'),
+  image_id: z.string().uuid().optional().nullable().describe('Image to boot from. Null = Ubuntu 24.04'),
   provider: z.string().min(1).describe('Cloud provider (e.g. "hetzner")'),
   server_type: z.string().min(1).describe('Provider-specific server type (e.g. "cpx22", "t3.medium")'),
   region: z.string().min(1).describe('Provider-specific region (e.g. "nbg1", "us-east-1")'),
   name: z.string().min(1).max(64).optional().describe('Human-readable name'),
+  docker_image: z.string().optional(),
+  entrypoint: z.string().optional(),
 });
 
 export const ResizeMachineSchema = z.object({
@@ -33,7 +27,7 @@ export const MachineResponseSchema = z.object({
   name: z.string(),
   status: z.string(),
   provider: z.string(),
-  snapshot_id: z.string().uuid().nullable(),
+  image_id: z.string().uuid().nullable(),
   server_type: z.string(),
   region: z.string(),
   ip: z.string().nullable(),

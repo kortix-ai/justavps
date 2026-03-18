@@ -1,12 +1,12 @@
 /**
  * Machine routes — CRUD + lifecycle operations.
- * Machines are created from user snapshots on any available provider.
+ * Machines are created from user images or default Ubuntu 24.04.
  */
 
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db';
-import { machines, snapshots } from '../../db/schema';
+import { machines, images } from '../../db/schema';
 import { config } from '../../lib/config';
 
 type Machine = typeof machines.$inferSelect;
@@ -35,13 +35,14 @@ machinesApp.use('*', apiGuard);
 // ─── Schemas ────────────────────────────────────────────────────────────────
 
 const CreateMachineSchema = z.object({
-  snapshot_id: z.string().uuid().describe('Snapshot to boot from'),
+  image_id: z.string().uuid().optional().nullable(),
   provider: z.string().min(1).describe('Cloud provider (e.g. "hetzner")'),
   server_type: z.string().min(1).describe('Provider-specific server type (e.g. "cpx22")'),
   region: z.string().min(1).describe('Provider-specific region (e.g. "nbg1")'),
   name: z.string().min(1).max(64).optional().describe('Human-readable name'),
   env_vars: z.record(z.string()).optional().describe('Extra environment variables written to /etc/justavps/env on the machine'),
   docker_image: z.string().optional().describe('Docker image to run on boot (e.g. "myapp:latest"). Starts with --env-file /etc/justavps/env'),
+  entrypoint: z.string().optional().describe('Entrypoint for the Docker container'),
 });
 
 const ResizeMachineSchema = z.object({
@@ -68,7 +69,7 @@ function serializeMachine(m: typeof machines.$inferSelect) {
     provisioning_stage: m.provisioningStage ?? null,
     provisioning_stage_updated_at: m.provisioningStageUpdatedAt?.toISOString() ?? null,
     provider: m.provider,
-    snapshot_id: m.snapshotId,
+    image_id: m.imageId,
     server_type: m.serverType,
     region: m.region,
     ip: m.ip,
@@ -118,39 +119,39 @@ machinesApp.post('/', async (c) => {
   if (lookup.response) return lookup.response;
   const provider = lookup.provider;
 
-  // 2. Validate snapshot exists and belongs to user
-  const [snapshot] = await db.select().from(snapshots).where(eq(snapshots.id, data.snapshot_id));
-  if (!snapshot || snapshot.ownerId !== ownerId) {
-    return errorResponse(c, 404, 'Snapshot not found');
-  }
-  if (snapshot.status !== 'ready') {
-    return errorResponse(c, 400, `Snapshot is not ready (status: ${snapshot.status})`);
-  }
-
-  // 3. Check snapshot is built on this provider
-  const providerSnap = snapshot.providerData?.[data.provider];
-  if (!providerSnap) {
-    const available = Object.keys(snapshot.providerData ?? {}).join(', ') || 'none';
-    return errorResponse(c, 400, `Snapshot not built on '${data.provider}'. Available providers: ${available}. Build it first via POST /snapshots/${snapshot.id}/build`);
+  // 2. Resolve image — either user image or default Ubuntu 24.04
+  let resolvedImage = 'ubuntu-24.04';
+  if (data.image_id) {
+    const [img] = await db.select().from(images).where(eq(images.id, data.image_id));
+    if (!img || img.ownerId !== ownerId) {
+      return errorResponse(c, 404, 'Image not found');
+    }
+    if (img.status !== 'ready') {
+      return errorResponse(c, 400, `Image is not ready (status: ${img.status})`);
+    }
+    if (!img.providerImageId) {
+      return errorResponse(c, 400, 'Image has no provider image ID');
+    }
+    resolvedImage = img.providerImageId;
   }
 
   try {
-    // 4. Generate identity (slug, token, password, SSH keypair)
+    // 3. Generate identity (slug, token, password, SSH keypair)
     const { slug, machineToken, codeServerPassword, keyPair } = await generateMachineIdentity();
 
-    // 5. Upload SSH key to provider
+    // 4. Upload SSH key to provider
     const providerKeyId = await uploadSSHKeyToProvider(provider, slug, keyPair.publicKey);
 
-    // 6. Build cloud-init
-    const userdata = buildMachineUserData(slug, codeServerPassword, keyPair.publicKey, machineToken, data.env_vars, data.docker_image);
+    // 5. Build cloud-init
+    const userdata = buildMachineUserData(slug, codeServerPassword, keyPair.publicKey, machineToken, data.env_vars, data.docker_image, data.entrypoint);
 
-    // 7. Create DB record immediately (provisioning state)
+    // 6. Create DB record immediately (provisioning state)
     const machine = await createMachineRecord({
       ownerId,
       slug,
       name: data.name || `machine-${slug}`,
       provider: data.provider,
-      snapshotId: snapshot.id,
+      imageId: data.image_id || null,
       serverType: data.server_type,
       region: data.region,
       ip: null,
@@ -165,7 +166,7 @@ machinesApp.post('/', async (c) => {
     // Emit initial stage
     await eventBus.emitStageChange(machine.id, ownerId, 'server_creating', 'Creating server on provider...');
 
-    // 8. Run provider creation + setup in background (non-blocking)
+    // 7. Run provider creation + setup in background (non-blocking)
     // Uses Next.js `after()` which maps to Vercel's `waitUntil()` in production,
     // ensuring the serverless function stays alive until provisioning completes.
     after(async () => {
@@ -173,7 +174,7 @@ machinesApp.post('/', async (c) => {
         const server = await provider.createServer({
           name: `justavps-${slug}`,
           serverType: data.server_type,
-          snapshotId: providerSnap.snapshotId,
+          image: resolvedImage,
           region: data.region,
           userData: userdata,
           sshKeyIds: providerKeyId ? [providerKeyId] : [],
@@ -202,7 +203,7 @@ machinesApp.post('/', async (c) => {
 
         // Price lookup + Stripe subscription
         try {
-          const priceMonthly = await lookupPrice(provider, data.region, data.server_type, providerSnap);
+          const priceMonthly = await lookupPrice(provider, data.region, data.server_type);
           await db.update(machines).set({ priceMonthly }).where(eq(machines.id, machine.id));
           createStripeSubscription(ownerId, machine.id, slug, priceMonthly, data.server_type);
         } catch (err) {
@@ -342,4 +343,69 @@ machinesApp.post('/:id/resize', async (c) => {
   } catch (err) {
     return handleRouteError(c, err, 'MACHINES');
   }
+});
+
+// ─── POST /:id/image — Create image from running machine ────────────────────
+
+const CreateImageSchema = z.object({
+  name: z.string().min(1).max(128).describe('Name for the image'),
+});
+
+machinesApp.post('/:id/image', async (c) => {
+  const id = c.req.param('id');
+  const ownerId = c.get('userId');
+  const body = await c.req.json();
+  const parsed = CreateImageSchema.safeParse(body);
+  if (!parsed.success) return errorResponse(c, 400, parsed.error.message);
+
+  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  if (owned.response) return owned.response;
+
+  const machine = owned.resource;
+  if (machine.status !== 'ready') return errorResponse(c, 400, `Machine must be ready (current: ${machine.status})`);
+  if (!machine.providerServerId) return errorResponse(c, 400, 'Machine has no provider server');
+
+  const lookup = requireProvider(c, machine.provider);
+  if (lookup.response) return lookup.response;
+
+  // Insert image record
+  const [image] = await db.insert(images).values({
+    ownerId,
+    name: parsed.data.name,
+    status: 'creating',
+    sourceMachineId: machine.id,
+    provider: machine.provider,
+  }).returning();
+
+  // Async: create image on provider
+  (async () => {
+    try {
+      const result = await lookup.provider.createImage(
+        Number(machine.providerServerId),
+        `justavps-img-${parsed.data.name.replace(/[^a-z0-9-]/gi, '-').slice(0, 50)}`,
+      );
+      await db.update(images).set({
+        status: 'ready',
+        providerImageId: result.imageId,
+        diskSizeGb: result.diskSize,
+        architecture: result.architecture,
+        updatedAt: new Date(),
+      }).where(eq(images.id, image.id));
+    } catch (err) {
+      console.error(`[IMAGES] Failed to create image from machine ${machine.slug}:`, err);
+      await db.update(images).set({
+        status: 'failed',
+        updatedAt: new Date(),
+      }).where(eq(images.id, image.id));
+    }
+  })();
+
+  return c.json({
+    id: image.id,
+    name: image.name,
+    status: image.status,
+    source_machine_id: image.sourceMachineId,
+    provider: image.provider,
+    created_at: image.createdAt.toISOString(),
+  }, 202);
 });

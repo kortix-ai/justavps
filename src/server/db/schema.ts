@@ -29,30 +29,23 @@ export const sshKeys = pgTable('ssh_keys', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
-// ─── Snapshots ──────────────────────────────────────────────────────────────
+// ─── Images ─────────────────────────────────────────────────────────────────
 
 /**
- * User-owned snapshots built from Docker images.
- * Each snapshot can be materialized into provider-specific artifacts on demand.
- *
- * providerData stores per-provider snapshot metadata:
- * {
- *   "hetzner": { "snapshotId": "12345678", "diskSize": 40, "architecture": "x86" },
- *   "aws":     { "amiId": "ami-abc123", "diskSize": 40, "architecture": "x86" },
- * }
+ * User-owned images — point-in-time captures of running machines.
+ * Users can boot new machines from their images. Default = ubuntu-24.04 (no image record needed).
  */
-export const snapshots = pgTable('snapshots', {
+export const images = pgTable('images', {
   id: uuid('id').primaryKey().defaultRandom(),
   ownerId: uuid('owner_id').references(() => users.id).notNull(),
   name: text('name').notNull(),
-  dockerImage: text('docker_image').notNull(), // e.g. "kortix/computer:0.8.6"
-  status: text('status').notNull().default('building'),
-  // building | ready | failed | deleted
-  architecture: text('architecture').default('x86'), // x86 | arm
-  providerData: jsonb('provider_data').$type<
-    Record<string, { snapshotId: string; diskSize: number; architecture: string; [key: string]: unknown }>
-  >().default({}),
-  buildLogs: text('build_logs'),
+  status: text('status').notNull().default('creating'),
+  // creating | ready | failed | deleted
+  sourceMachineId: uuid('source_machine_id'), // which machine was captured (no FK — machine may be deleted)
+  provider: text('provider').notNull().default('hetzner'),
+  providerImageId: text('provider_image_id'), // Hetzner snapshot ID
+  diskSizeGb: integer('disk_size_gb'),
+  architecture: text('architecture').default('x86'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -69,7 +62,9 @@ export const machines = pgTable('machines', {
 
   // Provider-agnostic fields
   provider: text('provider').notNull(), // "hetzner" | "aws" | "azure" | ...
-  snapshotId: uuid('snapshot_id').references(() => snapshots.id),
+  imageId: uuid('image_id'), // nullable, no FK
+  dockerImage: text('docker_image'),
+  entrypoint: text('entrypoint'),
   serverType: text('server_type').notNull(),
   region: text('region').notNull(),
   ip: text('ip'),
@@ -174,8 +169,8 @@ export const webhooks = pgTable('webhooks', {
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
-export type Snapshot = typeof snapshots.$inferSelect;
-export type NewSnapshot = typeof snapshots.$inferInsert;
+export type ImageRow = typeof images.$inferSelect;
+export type NewImage = typeof images.$inferInsert;
 export type Machine = typeof machines.$inferSelect;
 export type NewMachine = typeof machines.$inferInsert;
 export type SSHKey = typeof sshKeys.$inferSelect;

@@ -1,3 +1,21 @@
+/**
+ * Cloud-init generator for machine boot.
+ *
+ * This script runs when a machine boots. It has smart install detection:
+ * - If booting from a pre-built image (code-server already installed), it skips
+ *   all package installs and only does machine-specific configuration.
+ * - If booting from fresh Ubuntu 24.04, it installs everything first.
+ *
+ * Machine-specific configuration (always runs):
+ *   - SSH keys
+ *   - Machine token, slug, callback URL
+ *   - Environment variables
+ *   - Caddy config (subdomain)
+ *   - code-server password
+ *   - Docker workload startup (if configured)
+ *   - Service enablement
+ */
+
 interface CloudInitOpts {
   slug: string;
   codeServerPassword: string;
@@ -7,6 +25,7 @@ interface CloudInitOpts {
   proxyDomain: string;
   envVars?: Record<string, string>;
   dockerImage?: string;
+  entrypoint?: string;
 }
 
 export function buildCloudInit(opts: CloudInitOpts): string {
@@ -20,9 +39,22 @@ export function buildCloudInit(opts: CloudInitOpts): string {
     .join('\n');
   const envLinesBase64 = Buffer.from(envLines).toString('base64');
 
-  const dockerServiceBlock = opts.dockerImage ? `
-# ── Docker workload ──────────────────────────────────────────────────────
-cat > /usr/local/bin/justavps-docker-start.sh <<'DOCKERSTARTEOF'
+  // Stage callback helper — reports provisioning progress to JustAVPS API
+  const stageCallback = (stage: string, message: string) =>
+    `curl -sf -X POST "${opts.platformCallbackUrl}/api/v1/internal/stage" ` +
+    `-H "Content-Type: application/json" ` +
+    `-d '{"slug":"${opts.slug}","machine_token":"${opts.machineToken}","stage":"${stage}","message":"${message}"}' ` +
+    `>/dev/null 2>&1 || true`;
+
+  // Resolve Docker entrypoint — null means use image default CMD
+  const resolvedEntrypoint = opts.entrypoint ?? '';
+
+  // Docker workload block — only if a Docker image is specified
+  const dockerBlock = opts.dockerImage ? `
+# ── Configure Docker workload ─────────────────────────────────────────────
+${stageCallback('docker_pulling', 'Configuring Docker workload...')}
+
+cat > /usr/local/bin/justavps-docker-start.sh << 'DOCKERSTARTEOF'
 #!/bin/bash
 set -e
 
@@ -51,33 +83,38 @@ exec docker run --rm --name justavps-workload \\
   -p 9224:9224 \\
   -p 22222:22 \\
   -v justavps-data:/workspace \\
-  ${opts.dockerImage}
+  ${opts.dockerImage}${resolvedEntrypoint ? ` ${resolvedEntrypoint}` : ''}
 DOCKERSTARTEOF
 chmod +x /usr/local/bin/justavps-docker-start.sh
 
-cat > /etc/systemd/system/justavps-docker.service << 'DSVEOF'
-[Unit]
-Description=JustAVPS Docker Workload
-After=network.target docker.service
-Requires=docker.service
+# Pull image if not already cached in snapshot
+if ! docker image inspect ${opts.dockerImage} >/dev/null 2>&1; then
+  echo "[justavps] Docker image not cached — pulling ${opts.dockerImage}..."
+  docker pull ${opts.dockerImage}
+fi
 
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/justavps-docker-start.sh
-Restart=always
-RestartSec=5
+systemctl enable --now justavps-docker
 
-[Install]
-WantedBy=multi-user.target
-DSVEOF
+# Wait for Docker workload to start
+echo "[justavps] Waiting for Docker workload..."
+for i in $(seq 1 120); do
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q justavps-workload; then
+    ${stageCallback('docker_running', 'Docker container started')}
+    break
+  fi
+  sleep 2
+done
+
+# Wait for port 8000 to be ready
+echo "[justavps] Waiting for services to be ready..."
+for i in $(seq 1 120); do
+  if curl -sf http://localhost:8000/ >/dev/null 2>&1 || curl -sf http://localhost:8000/health >/dev/null 2>&1; then
+    ${stageCallback('services_ready', 'All services are up')}
+    break
+  fi
+  sleep 2
+done
 ` : '';
-
-  // Stage callback helper — reports provisioning progress to JustAVPS API
-  const stageCallback = (stage: string, message: string) =>
-    `curl -sf -X POST "${opts.platformCallbackUrl}/api/v1/internal/stage" ` +
-    `-H "Content-Type: application/json" ` +
-    `-d '{"slug":"${opts.slug}","machine_token":"${opts.machineToken}","stage":"${stage}","message":"${message}"}' ` +
-    `>/dev/null 2>&1 || true`;
 
   return `#!/bin/bash
 set -e
@@ -87,91 +124,54 @@ export DEBIAN_FRONTEND=noninteractive
 echo "[justavps] Configuring machine ${opts.slug}..."
 ${stageCallback('cloud_init_running', 'Cloud-init started')}
 
-# ── Create user with SSH key ────────────────────────────────────────────────
-if ! id user >/dev/null 2>&1; then
-  useradd -m -s /bin/bash -G sudo,docker user
-  echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/user
-fi
+# ── Smart install: only install platform software on fresh Ubuntu ─────────
+if ! command -v code-server &>/dev/null; then
+  echo "[justavps] Fresh Ubuntu detected — installing platform software..."
 
-# Add SSH key for both root and user
-mkdir -p /root/.ssh
-echo '${opts.sshPublicKey}' >> /root/.ssh/authorized_keys
-chmod 700 /root/.ssh
-chmod 600 /root/.ssh/authorized_keys
+  # ── Disable forced root password change ─────────────────────────────────
+  chage -d 99999 root 2>/dev/null || true
+  sed -i 's/^root:.*$/root:*:19000:0:99999:7:::/' /etc/shadow 2>/dev/null || true
 
-mkdir -p /home/user/.ssh
-echo '${opts.sshPublicKey}' > /home/user/.ssh/authorized_keys
-chmod 700 /home/user/.ssh
-chmod 600 /home/user/.ssh/authorized_keys
-chown -R user:user /home/user/.ssh
+  # ── System packages ─────────────────────────────────────────────────────
+  apt-get update -qq
+  apt-get install -y -qq \\
+    ca-certificates curl wget git build-essential unzip \\
+    tmux vim htop nano \\
+    python3 python3-pip \\
+    debian-keyring debian-archive-keyring apt-transport-https \\
+    jq
 
-# ── Write platform config ──────────────────────────────────────────────────
-mkdir -p /etc/justavps
-cat > /etc/justavps/config.json << 'CONFIGEOF'
-{
-  "slug": "${opts.slug}",
-  "callback_url": "${opts.platformCallbackUrl}",
-  "machine_token": "${opts.machineToken}",
-  "proxy_domain": "${opts.proxyDomain}"
-}
-CONFIGEOF
+  # ── Docker CE ───────────────────────────────────────────────────────────
+  install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  chmod a+r /etc/apt/keyrings/docker.asc
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+  apt-get update -qq
+  apt-get install -y -qq docker-ce docker-ce-cli containerd.io
 
-# ── Write env vars ─────────────────────────────────────────────────────────
-echo '${envLinesBase64}' | base64 -d > /etc/justavps/env
-
-# ── Configure Caddy (HTTPS with auto Let's Encrypt) ───────────────────────
-mkdir -p /etc/caddy
-cat > /etc/caddy/Caddyfile << CADDYEOF
-${opts.slug}.${opts.proxyDomain} {
-    reverse_proxy localhost:8080
-}
-CADDYEOF
-
-# ── Configure code-server (for root — binds to all interfaces) ─────────────
-mkdir -p /root/.config/code-server
-cat > /root/.config/code-server/config.yaml << CSEOF
-bind-addr: 0.0.0.0:8080
-auth: password
-password: ${opts.codeServerPassword}
-cert: false
-CSEOF
-
-# Also for user
-mkdir -p /home/user/.config/code-server
-cp /root/.config/code-server/config.yaml /home/user/.config/code-server/config.yaml
-chown -R user:user /home/user/.config
-
-# ── Install software if not in snapshot ─────────────────────────────────────
-if ! command -v code-server >/dev/null 2>&1; then
-  echo "[justavps] No snapshot — installing from scratch..."
-
-  # Docker
-  curl -fsSL https://get.docker.com | sh
-  usermod -aG docker user
-
-  # Node.js 22 LTS
+  # ── Node.js 22 LTS ─────────────────────────────────────────────────────
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-  apt-get install -y nodejs
+  apt-get install -y -qq nodejs
 
-  # code-server
+  # ── code-server ─────────────────────────────────────────────────────────
   curl -fsSL https://code-server.dev/install.sh | sh
 
-  # Claude Code
-  npm install -g @anthropic-ai/claude-code || true
-
-  # OpenCode
-  curl -fsSL -o /tmp/opencode.deb https://github.com/opencode-ai/opencode/releases/download/v0.0.55/opencode-linux-amd64.deb && dpkg -i /tmp/opencode.deb && rm /tmp/opencode.deb || true
-
-  # Caddy (reverse proxy + auto SSL)
-  apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
+  # ── Caddy (reverse proxy + auto HTTPS) ─────────────────────────────────
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
-  apt-get update && apt-get install -y -o Dpkg::Options::="--force-confold" caddy
+  apt-get update -qq && apt-get install -y -qq -o Dpkg::Options::="--force-confold" caddy
 
-  # Dev tools
-  apt-get install -y git curl wget build-essential unzip tmux vim htop nano python3 python3-pip
+  # ── Claude Code ─────────────────────────────────────────────────────────
+  npm install -g @anthropic-ai/claude-code 2>/dev/null || true
 
-  # Create systemd services
+  # ── OpenCode ────────────────────────────────────────────────────────────
+  curl -fsSL -o /tmp/opencode.deb https://github.com/opencode-ai/opencode/releases/download/v0.0.55/opencode-linux-amd64.deb && dpkg -i /tmp/opencode.deb && rm /tmp/opencode.deb || true
+
+  # ── Create 'user' account ──────────────────────────────────────────────
+  id -u user &>/dev/null || useradd -m -s /bin/bash -G sudo,docker user
+  echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/user
+
+  # ── Systemd service: code-server ───────────────────────────────────────
   cat > /etc/systemd/system/code-server.service << 'SVCEOF'
 [Unit]
 Description=code-server
@@ -188,31 +188,8 @@ RestartSec=3
 WantedBy=multi-user.target
 SVCEOF
 
-  cat > /etc/systemd/system/justavps-agent.service << 'AGENTEOF'
-[Unit]
-Description=JustAVPS Agent
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/justavps-agent --port 7777 --config /etc/justavps/config.json
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-AGENTEOF
-fi
-
-# ── Install Claude Code ─────────────────────────────────────────────────────
-echo "[justavps] Installing Claude Code..."
-curl -fsSL https://claude.ai/install.sh | bash || true
-
-# ── Install OpenCode + auto-serve ────────────────────────────────────────────
-echo "[justavps] Installing OpenCode..."
-curl -fsSL https://opencode.ai/install | bash || true
-
-cat > /etc/systemd/system/opencode-web.service << 'OCEOF'
+  # ── Systemd service: OpenCode Web UI ──────────────────────────────────
+  cat > /etc/systemd/system/opencode-web.service << 'OCEOF'
 [Unit]
 Description=OpenCode Web UI
 After=network.target
@@ -227,39 +204,92 @@ RestartSec=3
 [Install]
 WantedBy=multi-user.target
 OCEOF
-${dockerServiceBlock}
-# ── Report cloud-init complete ──────────────────────────────────────────────
-${stageCallback('cloud_init_done', 'Cloud-init finished, starting services')}
 
-# ── Start services ──────────────────────────────────────────────────────────
+  # ── Systemd service: Docker workload (template — configured at boot) ──
+  cat > /etc/systemd/system/justavps-docker.service << 'DSVEOF'
+[Unit]
+Description=JustAVPS Docker Workload
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/justavps-docker-start.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+DSVEOF
+
+  # ── Docker start script placeholder ────────────────────────────────────
+  cat > /usr/local/bin/justavps-docker-start.sh << 'DSEOF'
+#!/bin/bash
+echo "[justavps] No Docker workload configured. Exiting."
+exit 0
+DSEOF
+  chmod +x /usr/local/bin/justavps-docker-start.sh
+
+  # ── Cleanup ─────────────────────────────────────────────────────────────
+  apt-get clean
+  rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+  echo "[justavps] Platform software installed."
+fi
+
+# ── SSH keys for root + user ──────────────────────────────────────────────
+mkdir -p /root/.ssh
+echo '${opts.sshPublicKey}' >> /root/.ssh/authorized_keys
+chmod 700 /root/.ssh
+chmod 600 /root/.ssh/authorized_keys
+
+mkdir -p /home/user/.ssh
+echo '${opts.sshPublicKey}' > /home/user/.ssh/authorized_keys
+chmod 700 /home/user/.ssh
+chmod 600 /home/user/.ssh/authorized_keys
+chown -R user:user /home/user/.ssh
+
+# ── Platform config ───────────────────────────────────────────────────────
+mkdir -p /etc/justavps
+cat > /etc/justavps/config.json << 'CONFIGEOF'
+{
+  "slug": "${opts.slug}",
+  "callback_url": "${opts.platformCallbackUrl}",
+  "machine_token": "${opts.machineToken}",
+  "proxy_domain": "${opts.proxyDomain}"
+}
+CONFIGEOF
+
+# ── Environment variables ─────────────────────────────────────────────────
+echo '${envLinesBase64}' | base64 -d > /etc/justavps/env
+
+# ── Caddy config (HTTPS reverse proxy) ────────────────────────────────────
+mkdir -p /etc/caddy
+cat > /etc/caddy/Caddyfile << CADDYEOF
+${opts.slug}.${opts.proxyDomain} {
+    reverse_proxy localhost:8080
+}
+CADDYEOF
+
+# ── code-server config ────────────────────────────────────────────────────
+mkdir -p /root/.config/code-server /home/user/.config/code-server
+cat > /home/user/.config/code-server/config.yaml << CSEOF
+bind-addr: 0.0.0.0:8080
+auth: password
+password: ${opts.codeServerPassword}
+cert: false
+CSEOF
+cp /home/user/.config/code-server/config.yaml /root/.config/code-server/config.yaml
+chown -R user:user /home/user/.config
+
+${stageCallback('cloud_init_done', 'Configuration complete, starting services')}
+
+# ── Start pre-installed services ──────────────────────────────────────────
 systemctl daemon-reload
 systemctl enable --now code-server
 systemctl enable --now caddy
-systemctl enable --now justavps-agent
 systemctl enable --now opencode-web
-${opts.dockerImage ? `${stageCallback('docker_pulling', 'Starting Docker workload...')}
-systemctl enable --now justavps-docker` : ''}
-
-${opts.dockerImage ? `# ── Wait for Docker workload to be ready ──────────────────────────────────
-echo "[justavps] Waiting for Docker workload to start..."
-for i in $(seq 1 120); do
-  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q justavps-workload; then
-    ${stageCallback('docker_running', 'Docker container started')}
-    break
-  fi
-  sleep 2
-done
-
-# Wait for port 8000 (or first exposed port) to be ready
-echo "[justavps] Waiting for services to be ready..."
-for i in $(seq 1 120); do
-  if curl -sf http://localhost:8000/ >/dev/null 2>&1 || curl -sf http://localhost:8000/health >/dev/null 2>&1; then
-    ${stageCallback('services_ready', 'All services are up')}
-    break
-  fi
-  sleep 2
-done` : ''}
-
+${dockerBlock}
 echo "[justavps] Machine ${opts.slug} ready!"
 `;
 }

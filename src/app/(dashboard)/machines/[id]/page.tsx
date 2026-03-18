@@ -8,16 +8,26 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
 import { useMachine, useDeleteMachine, useRebootMachine } from "@/hooks/use-machines";
+import { useCreateImage } from "@/hooks/use-images";
 import { useConfirm } from "@/hooks/use-confirm";
 import {
   ArrowLeft, RotateCw, Trash2, Copy, ExternalLink,
   Cpu, MemoryStick, HardDrive, Activity, Clock,
   Globe, Server, ChevronDown, ChevronRight, Loader2,
   Terminal as TerminalIcon, Link2,
-  AlertTriangle
+  AlertTriangle, Camera
 } from "lucide-react";
 import Link from "next/link";
 import { timeAgo } from "@/lib/utils";
@@ -39,10 +49,13 @@ export default function MachineDetailPage() {
   const router = useRouter();
   const machineId = params.id as string;
   const [showKey, setShowKey] = useState(false);
+  const [createImageOpen, setCreateImageOpen] = useState(false);
+  const [imageName, setImageName] = useState("");
 
   const { data: machine, isLoading, error } = useMachine(machineId);
   const deleteMachine = useDeleteMachine();
   const rebootMachine = useRebootMachine();
+  const createImage = useCreateImage();
   const [confirm, ConfirmDialog] = useConfirm();
 
   const copy = (text: string, label: string) => {
@@ -55,6 +68,21 @@ export default function MachineDetailPage() {
       onSuccess: () => toast.success("Reboot initiated"),
       onError: (err) => toast.error(err.message),
     });
+  };
+
+  const handleCreateImage = () => {
+    if (!imageName.trim()) return;
+    createImage.mutate(
+      { machine_id: machineId, name: imageName.trim() },
+      {
+        onSuccess: () => {
+          toast.success("Image creation started");
+          setCreateImageOpen(false);
+          setImageName("");
+        },
+        onError: (err) => toast.error(err.message),
+      },
+    );
   };
 
   const handleDelete = async () => {
@@ -139,6 +167,12 @@ export default function MachineDetailPage() {
             <Button variant="outline" onClick={() => window.open(machine.connect!.vscode_url, "_blank")} className="hidden sm:flex">
               <ExternalLink className="mr-2 size-4" />
               Open IDE
+            </Button>
+          )}
+          {isReady && (
+            <Button variant="outline" onClick={() => setCreateImageOpen(true)} title="Create Image">
+              <Camera className="size-4" />
+              <span className="sr-only sm:not-sr-only sm:ml-2">Create Image</span>
             </Button>
           )}
           <Button variant="outline" onClick={handleReboot} disabled={!isReady || rebootMachine.isPending} title="Reboot Machine">
@@ -441,6 +475,40 @@ export default function MachineDetailPage() {
       </div>
 
       <ConfirmDialog />
+
+      {/* Create Image Dialog */}
+      <Dialog open={createImageOpen} onOpenChange={setCreateImageOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Image</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="image-name">Image Name</Label>
+              <Input
+                id="image-name"
+                placeholder="my-dev-environment"
+                value={imageName}
+                onChange={(e) => setImageName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleCreateImage(); }}
+              />
+              <p className="text-xs text-muted-foreground">
+                Creates a snapshot of this machine&apos;s current state. You can use it to create new machines later.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateImageOpen(false)}>Cancel</Button>
+            <Button onClick={handleCreateImage} disabled={createImage.isPending || !imageName.trim()}>
+              {createImage.isPending ? (
+                <><Loader2 className="size-4 animate-spin mr-2" />Creating...</>
+              ) : (
+                "Create Image"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -28,11 +28,13 @@ export function useMachine(id: string) {
 }
 
 interface CreateMachineInput {
-  snapshot_id: string;
+  image_id?: string | null;
   provider: string;
   server_type: string;
   region: string;
   name?: string;
+  docker_image?: string;
+  entrypoint?: string;
 }
 
 export function useCreateMachine() {
