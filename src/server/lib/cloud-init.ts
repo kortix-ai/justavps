@@ -289,6 +289,50 @@ Environment=JUSTAVPS_PORT=7777
 WantedBy=multi-user.target
 DAEMONEOF
 
+# ── Systemd service files (idempotent — always write, safe for snapshot + fresh) ─
+cat > /etc/systemd/system/code-server.service << 'SVCEOF'
+[Unit]
+Description=code-server
+After=network.target
+[Service]
+Type=simple
+User=user
+ExecStart=/usr/bin/code-server --config /home/user/.config/code-server/config.yaml
+Restart=always
+RestartSec=3
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+cat > /etc/systemd/system/opencode-web.service << 'OCEOF'
+[Unit]
+Description=OpenCode Web UI
+After=network.target
+[Service]
+Type=simple
+User=user
+ExecStart=/usr/local/bin/opencode serve --port 3456
+Restart=always
+RestartSec=3
+[Install]
+WantedBy=multi-user.target
+OCEOF
+
+cat > /etc/systemd/system/sandbox-agent.service << 'SAEOF'
+[Unit]
+Description=Sandbox Agent
+After=network.target
+[Service]
+Type=simple
+User=user
+ExecStart=/usr/local/bin/sandbox-agent server --no-token --host 0.0.0.0 --port 2468
+Restart=always
+RestartSec=3
+Environment=HOME=/home/user
+[Install]
+WantedBy=multi-user.target
+SAEOF
+
 # ── Ensure 'user' account exists (may already exist from snapshot) ─────────
 id -u user &>/dev/null || useradd -m -s /bin/bash -G sudo,docker user
 echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/user
