@@ -139,7 +139,7 @@ export default {
         }
       }
       if (response.status === 502 && port === 80) {
-        // 502 on default port = Caddy/code-server still starting
+        // 502 on default port = Caddy/OpenCode still starting
         if (isBrowserRequest(request)) {
           return new Response(MACHINE_STARTING_HTML, {
             status: 503,

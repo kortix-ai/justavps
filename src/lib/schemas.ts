@@ -61,7 +61,6 @@ export const MachineResponseSchema = z.object({
     ssh_command: z.string().nullable(),
     setup_command: z.string().nullable(),
     vscode_url: z.string(),
-    vscode_password: z.string(),
     cursor_ssh: z.string().nullable(),
   }).nullable(),
   health: z.object({

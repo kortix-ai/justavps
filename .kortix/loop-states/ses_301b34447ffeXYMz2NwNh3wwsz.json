@@ -1,0 +1,21 @@
+{
+  "active": false,
+  "taskPrompt": "can u fundamentally refactor everything and have true e2e test fully. like u have to actually load the kortix.cloud PROXIED request e2e. DO understand? U have to e2e tet everything. I t has to work with HTTPS, be reachable on the actual web. Proxy & Auth has to work flawlessly. YOU CAN NOT STOP UNTIL IT WORKS FLAWLESSLY. ENTIRELY REFACTOR IF NECESSARY, REWRITE, U HAVE EVERYTHING. DO NOT STOP UNTIL IT WORKS 100% VERIFIED, but actually in depth and properly verified NO BULLSHIT. \n\n[User message at iteration 0]: <pty_exited>\nID: pty_9b7fac24\nDescription: Final comprehensive e2e test\nExit Code: 0\nOutput Lines: 19\nLast Line: \r  [0s] provisioning   \r  [11s] provisioning   \n</pty_exited>\n\nUse pty_read to check the full output.\n\n[User message at iteration 1]: go on\n\n[User message at iteration 1]: go on\n\n[User message at iteration 1]: DO NOT STOP\n\n[User message at iteration 1]: This page isn’t working\nwhelbchm.kortix.cloud redirected you too many times.\n\nTry deleting your cookies.\nERR_TOO_MANY_REDIRECTS  btw\n\n[User message at iteration 1]: also ensure that U CAN JUST AUTH when u get to the URL without any auth token, do u understand / login or give API KEY\n\n[User message at iteration 1]: This site can’t be reached\nCheck if there is a typo in lt957ucx.kortix.cloud.\nDNS_PROBE_FINISHED_NXDOMAIN  https://lt957ucx.kortix.cloud/ I THINK U ARE A FUCKING RETARD. Everuto,e O create O ge ttjos sjot I FICKING REATRdKortix\n/\njustavps\nMachines\nSnapshots\nKeys\nWebhooks\nBilling\nDocs\n\nMarko Krameer\nmarko@kortix.ai\nmachine-lt957ucx\nRunning\nlt957ucx\n•\nHEL1\nTerminal\nConnect\nTerminal\nDisconnected\nuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu\nConnecting to machine...\nConnection failed. Check that the machine agen\n\n[User added context at iteration 1]: AND FINISH EVERYTHING\n\n[User message at iteration 1]: butt u keep fixing it manually, then it doesnt matter. I thas to work automatically perfectly.\n\n[User message at iteration 1]:  go\n\n[User message at iteration 2]:  go\n\n[User message at iteration 2]: go on\n\n[User message at iteration 2]: <pty_exited>\nID: pty_1d4d1ca6\nDescription: Dev server for final e2e\nExit Code: 0\nOutput Lines: 484\nLast Line: \u001b[1G\u001b[0K⠙\u001b[1G\u001b[0K\n</pty_exited>\n\nUse pty_read to check the full output.\n\n[User message at iteration 2]: <pty_exited>\nID: pty_4e2977d2\nDescription: Full e2e - DNS verify + login page\nExit Code: 0\nOutput Lines: 93\nLast Line: \u001b[1G\u001b[0K⠙\u001b[1G\u001b[0K\n</pty_exited>\n\nUse pty_read to check the full output.",
+  "iteration": 2,
+  "sessionId": "ses_301b34447ffeXYMz2NwNh3wwsz",
+  "startedAt": 1773819309006,
+  "inVerification": false,
+  "messageCountAtStart": 1112,
+  "consecutiveFailures": 0,
+  "lastFailureAt": 0,
+  "lastInjectedAt": 1773820371439,
+  "stopped": false,
+  "lastAbortAt": 1773820433465,
+  "algorithm": "kraemer",
+  "kubetValidatorLevel": 3,
+  "kubetCriticCount": 0,
+  "kubetLastCriticAt": 0,
+  "inoCurrentStage": null,
+  "saumyaPhase": "expand",
+  "saumyaPhaseStartedAt": 0
+}

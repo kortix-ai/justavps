@@ -2,7 +2,7 @@
  * Cloud-init generator for machine boot.
  *
  * This script runs when a machine boots. It has smart install detection:
- * - If booting from a pre-built image (code-server already installed), it skips
+ * - If booting from a pre-built image (opencode already installed), it skips
  *   all package installs and only does machine-specific configuration.
  * - If booting from fresh Ubuntu 24.04, it installs everything first.
  *
@@ -11,7 +11,6 @@
  *   - Machine token, slug, callback URL
  *   - Environment variables
  *   - Caddy config (subdomain)
- *   - code-server password
  *   - Docker workload startup (if configured)
  *   - Service enablement
  *
@@ -20,11 +19,13 @@
  *   - Provider firewall (external, tamper-proof) allows only CF IPs on port 80 + user ports
  *   - ufw on VPS is defense-in-depth (same rules)
  *   - No cloudflared needed — CF Worker proxies to VPS IP directly
+ *
+ * Default web IDE: OpenCode (via `opencode serve`) on port 3456.
+ * Caddy reverse-proxies the root path to OpenCode.
  */
 
 interface CloudInitOpts {
   slug: string;
-  codeServerPassword: string;
   sshPublicKey: string;
   machineToken: string;
   platformCallbackUrl: string;
@@ -131,7 +132,7 @@ echo "[justavps] Configuring machine ${opts.slug}..."
 ${stageCallback('cloud_init_running', 'Cloud-init started')}
 
 # ── Smart install: only install platform software on fresh Ubuntu ─────────
-if ! command -v code-server &>/dev/null; then
+if ! command -v opencode &>/dev/null; then
   echo "[justavps] Fresh Ubuntu detected — installing platform software..."
 
   # ── Disable forced root password change ─────────────────────────────────
@@ -159,9 +160,6 @@ if ! command -v code-server &>/dev/null; then
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
   apt-get install -y -qq nodejs
 
-  # ── code-server ─────────────────────────────────────────────────────────
-  curl -fsSL https://code-server.dev/install.sh | sh
-
   # ── Caddy (reverse proxy) ──────────────────────────────────────────────
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
@@ -170,7 +168,7 @@ if ! command -v code-server &>/dev/null; then
   # ── Claude Code ─────────────────────────────────────────────────────────
   curl -fsSL https://claude.ai/install.sh | bash 2>/dev/null || true
 
-  # ── OpenCode ────────────────────────────────────────────────────────────
+  # ── OpenCode (default web IDE — runs via 'opencode serve') ─────────────
   curl -fsSL https://opencode.ai/install | bash 2>/dev/null || true
 
   # ── Sandbox Agent (universal coding agent API by Rivet) ────────────────
@@ -181,24 +179,7 @@ if ! command -v code-server &>/dev/null; then
   id -u user &>/dev/null || useradd -m -s /bin/bash -G sudo,docker user
   echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/user
 
-  # ── Systemd service: code-server ───────────────────────────────────────
-  cat > /etc/systemd/system/code-server.service << 'SVCEOF'
-[Unit]
-Description=code-server
-After=network.target
-
-[Service]
-Type=simple
-User=user
-ExecStart=/usr/bin/code-server --config /home/user/.config/code-server/config.yaml
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-SVCEOF
-
-  # ── Systemd service: OpenCode Web UI ──────────────────────────────────
+  # ── Systemd service: OpenCode Web UI (default IDE) ─────────────────────
   cat > /etc/systemd/system/opencode-web.service << 'OCEOF'
 [Unit]
 Description=OpenCode Web UI
@@ -207,6 +188,7 @@ After=network.target
 [Service]
 Type=simple
 User=user
+WorkingDirectory=/home/user
 ExecStart=/usr/local/bin/opencode serve --port 3456
 Restart=always
 RestartSec=3
@@ -290,20 +272,6 @@ WantedBy=multi-user.target
 DAEMONEOF
 
 # ── Systemd service files (idempotent — always write, safe for snapshot + fresh) ─
-cat > /etc/systemd/system/code-server.service << 'SVCEOF'
-[Unit]
-Description=code-server
-After=network.target
-[Service]
-Type=simple
-User=user
-ExecStart=/usr/bin/code-server --config /home/user/.config/code-server/config.yaml
-Restart=always
-RestartSec=3
-[Install]
-WantedBy=multi-user.target
-SVCEOF
-
 cat > /etc/systemd/system/opencode-web.service << 'OCEOF'
 [Unit]
 Description=OpenCode Web UI
@@ -311,6 +279,7 @@ After=network.target
 [Service]
 Type=simple
 User=user
+WorkingDirectory=/home/user
 ExecStart=/usr/local/bin/opencode serve --port 3456
 Restart=always
 RestartSec=3
@@ -365,7 +334,7 @@ echo '${envLinesBase64}' | base64 -d > /etc/justavps/env
 # ── Caddy config (HTTP reverse proxy — Cloudflare Worker handles TLS) ──────
 # CF Worker authenticates all requests, then proxies to VPS_IP:port.
 # For the default route (slug.kortix.cloud), Worker hits VPS_IP:80 → Caddy.
-# For port subdomains (3000.slug.kortix.cloud), Worker hits VPS_IP:3000 directly.
+# For port subdomains (PORT--slug.kortix.cloud), Worker hits VPS_IP:80 → Caddy → daemon port proxy.
 mkdir -p /etc/caddy
 cat > /etc/caddy/Caddyfile << CADDYEOF
 :80 {
@@ -381,35 +350,20 @@ cat > /etc/caddy/Caddyfile << CADDYEOF
         reverse_proxy localhost:7777
     }
 
-    # code-server (default — web IDE)
-    reverse_proxy localhost:8080
-
     # Sandbox Agent API + Inspector UI
     handle_path /agent/* {
         reverse_proxy localhost:2468
-    }
-
-    # OpenCode Web UI
-    handle_path /opencode/* {
-        reverse_proxy localhost:3456
     }
 
     # justavps-daemon local API
     handle_path /daemon/* {
         reverse_proxy localhost:7777
     }
+
+    # OpenCode Web UI (default — web IDE on root path)
+    reverse_proxy localhost:3456
 }
 CADDYEOF
-
-# ── code-server config (no auth — CF Worker handles authentication) ────────
-mkdir -p /root/.config/code-server /home/user/.config/code-server
-cat > /home/user/.config/code-server/config.yaml << CSEOF
-bind-addr: 127.0.0.1:8080
-auth: none
-cert: false
-CSEOF
-cp /home/user/.config/code-server/config.yaml /root/.config/code-server/config.yaml
-chown -R user:user /home/user/.config
 
 # ── Firewall: allow SSH + Cloudflare IPs ───────────────────────────────────
 # Security model:
@@ -434,14 +388,12 @@ ${stageCallback('cloud_init_done', 'Configuration complete, starting services')}
 # ── Start pre-installed services ──────────────────────────────────────────
 systemctl daemon-reload
 systemctl enable --now justavps-daemon 2>/dev/null || true
-systemctl enable --now code-server
 systemctl enable --now sandbox-agent 2>/dev/null || true
+systemctl enable --now opencode-web
 
 # Caddy: restart to pick up our Caddyfile (apt-get install auto-starts with default)
 systemctl enable caddy
 systemctl restart caddy
-
-systemctl enable --now opencode-web
 ${dockerBlock}
 echo "[justavps] Machine ${opts.slug} ready!"
 `;

@@ -42,6 +42,7 @@ export type GetApiV1MachinesResponses = {
             region: string;
             ip: string;
             price_monthly: number;
+            backups_enabled: boolean;
             created_at: string;
             ready_at: string;
             urls: {
@@ -92,7 +93,7 @@ export type PostApiV1MachinesData = {
          */
         server_type: string;
         /**
-         * Provider-specific region (e.g. "nbg1", "us-east-1")
+         * Region (e.g. "hel1", "hil")
          */
         region: string;
         /**
@@ -173,6 +174,7 @@ export type PostApiV1MachinesResponses = {
         region: string;
         ip: string;
         price_monthly: number;
+        backups_enabled: boolean;
         created_at: string;
         ready_at: string;
         urls: {
@@ -299,6 +301,7 @@ export type GetApiV1MachinesByIdResponses = {
         region: string;
         ip: string;
         price_monthly: number;
+        backups_enabled: boolean;
         created_at: string;
         ready_at: string;
         urls: {
@@ -929,7 +932,7 @@ export type GetApiV1ServerTypesData = {
          */
         provider?: string;
         /**
-         * Region ID (e.g. nbg1)
+         * Region ID (e.g. hel1)
          */
         region: string;
     };
@@ -965,13 +968,17 @@ export type GetApiV1ServerTypesResponses = {
             cpu_type: 'shared' | 'dedicated';
             architecture: 'x86' | 'arm';
             /**
-             * Our price after markup
+             * Our price after markup (includes backups)
              */
             price_monthly: number;
             /**
              * Raw provider price
              */
             provider_price_monthly: number;
+            /**
+             * Provider backup cost (20% of provider price)
+             */
+            backup_price_monthly: number;
             available: boolean;
         }>;
     };

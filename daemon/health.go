@@ -30,7 +30,6 @@ type HealthSnapshot struct {
 
 // ManagedServices are the systemd services we monitor.
 var ManagedServices = []string{
-	"code-server",
 	"caddy",
 	"docker",
 	"opencode-web",

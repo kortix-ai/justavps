@@ -330,7 +330,7 @@ export default function DocsPage() {
 
         {/* ── GETTING STARTED ── */}
         <H2 id="getting-started">Getting Started</H2>
-        <P>Get a fully-configured VPS running in under 60 seconds. Every machine includes Ubuntu 24.04, a browser IDE (code-server), Docker, Node.js, Python, and SSH access out of the box.</P>
+        <P>Get a fully-configured VPS running in under 60 seconds. Every machine includes Ubuntu 24.04, a browser IDE (OpenCode), Docker, Node.js, Python, and SSH access out of the box.</P>
 
         <H3 id="create-machine">Create a Machine</H3>
         <P>Navigate to <Strong>Machines → New Machine</Strong> in the dashboard. Pick a snapshot, choose your plan, and deploy.</P>
@@ -358,9 +358,9 @@ export default function DocsPage() {
         <P>Port forwarding works natively through VS Code&apos;s SSH tunnel. Any service running on your VPS is accessible locally.</P>
 
         <H3 id="browser-ide">Browser IDE</H3>
-        <P>Every machine comes with code-server — VS Code in your browser:</P>
+        <P>Every machine comes with OpenCode — a full-featured AI coding IDE in your browser:</P>
         <CodeBlock lang="text">{`https://{slug}.kortix.cloud`}</CodeBlock>
-        <P>The browser IDE is password-protected. Your code-server password is shown on the machine&apos;s detail page in the dashboard under <Strong>Connect</Strong>.</P>
+        <P>Authentication is handled by the Cloudflare Worker proxy — no separate password needed. Just log in to your JustAVPS account and access the IDE directly.</P>
 
         <DocSeparator />
 
@@ -398,8 +398,8 @@ opencode`}</CodeBlock>
         <P>Every machine gets a dedicated subdomain on <InlineCode>kortix.cloud</InlineCode> with automatic DNS and TLS. Caddy runs on each VPS as a reverse proxy.</P>
 
         <H3 id="how-proxy-works">How the Proxy Works</H3>
-        <P>When a machine is provisioned, a Cloudflare DNS A record is created pointing <InlineCode>&#123;slug&#125;.kortix.cloud</InlineCode> to the machine&apos;s IP. Caddy on the VPS handles TLS via ACME and reverse-proxies to code-server on port 8080.</P>
-        <CodeBlock lang="text" title="Your machine URL">{`https://{slug}.kortix.cloud → code-server (port 8080)`}</CodeBlock>
+        <P>When a machine is provisioned, a Cloudflare DNS A record is created pointing <InlineCode>&#123;slug&#125;.kortix.cloud</InlineCode> to the machine&apos;s IP. Caddy on the VPS handles TLS via ACME and reverse-proxies to OpenCode on port 3456.</P>
+        <CodeBlock lang="text" title="Your machine URL">{`https://{slug}.kortix.cloud → OpenCode (port 3456)`}</CodeBlock>
 
         <H3 id="port-forwarding">Port Forwarding</H3>
         <P>To access other services running on your VPS (APIs, web apps, databases), use SSH port forwarding or VS Code&apos;s built-in tunnel:</P>
@@ -408,18 +408,18 @@ ssh -i ~/.ssh/justavps_{slug} -L 3000:localhost:3000 root@{ip}`}</CodeBlock>
         <P>In VS Code Remote-SSH, port forwarding is automatic — any service you start on the VPS is available on your local machine through the tunnel.</P>
 
         <H3 id="proxy-auth">Authentication</H3>
-        <P>The browser IDE (code-server) at <InlineCode>&#123;slug&#125;.kortix.cloud</InlineCode> is protected by a password:</P>
+        <P>The browser IDE (OpenCode) at <InlineCode>&#123;slug&#125;.kortix.cloud</InlineCode> is protected by the Cloudflare Worker proxy:</P>
         <Ul>
-          <Li><Strong>code-server password</Strong> — shown on the machine detail page under Connect</Li>
+          <Li><Strong>Browser IDE</Strong> — authentication is handled by the Cloudflare Worker proxy (no separate password needed)</Li>
           <Li><Strong>SSH</Strong> — key-based authentication only (password auth disabled)</Li>
         </Ul>
-        <Callout type="info">Each machine has its own unique code-server password, auto-generated at provision time.</Callout>
+        <Callout type="info">Auth for the browser IDE is handled at the proxy layer by the Cloudflare Worker — only authenticated users can reach your machine&apos;s IDE.</Callout>
 
         <H3 id="websocket-sse">WebSocket &amp; SSE</H3>
         <P>The proxy supports WebSocket connections, used by:</P>
         <Ul>
           <Li><Strong>Browser terminal</Strong> — the dashboard embeds an xterm.js terminal via WebSocket PTY</Li>
-          <Li><Strong>code-server</Strong> — the browser IDE uses WebSocket for its editor protocol</Li>
+          <Li><Strong>OpenCode</Strong> — the browser IDE uses WebSocket for its editor protocol</Li>
         </Ul>
 
         <DocSeparator />
@@ -522,7 +522,7 @@ ssh -i ~/.ssh/justavps_{slug} -L 3000:localhost:3000 root@{ip}`}</CodeBlock>
         <P>Snapshots are bootable machine images. Every machine is provisioned from a snapshot. You get a default snapshot out of the box, and you can create custom ones from any Docker image.</P>
 
         <H3 id="default-snapshot">Default Snapshot</H3>
-        <P>Every account comes with a <Strong>default snapshot</Strong> that includes the full JustAVPS platform: Ubuntu 24.04, code-server (browser IDE), Docker, Node.js, Python, Claude Code, OpenCode, and all dev tools. This is what most users provision from.</P>
+        <P>Every account comes with a <Strong>default snapshot</Strong> that includes the full JustAVPS platform: Ubuntu 24.04, OpenCode (browser IDE), Docker, Node.js, Python, Claude Code, and all dev tools. This is what most users provision from.</P>
         <Callout type="tip">The default snapshot is ready to use immediately — no setup needed. Just deploy a machine and start working.</Callout>
 
         <H3 id="custom-snapshots">Custom Snapshots</H3>
@@ -565,7 +565,7 @@ ssh -i ~/.ssh/justavps_{slug} -L 3000:localhost:3000 root@{ip}`}</CodeBlock>
         <H3 id="base-software">Base Software</H3>
         <Table headers={["Software", "Description"]} rows={[
           ["Ubuntu 24.04 LTS", "Base operating system"],
-          ["code-server", "VS Code in the browser (port 8080)"],
+          ["opencode-web", "OpenCode IDE in the browser (port 3456)"],
           ["Caddy", "Reverse proxy with automatic HTTPS"],
           ["Docker CE", "Container runtime"],
           ["Node.js 22 LTS", "Via nodesource, system-wide"],
@@ -589,7 +589,7 @@ ssh -i ~/.ssh/justavps_{slug} -L 3000:localhost:3000 root@{ip}`}</CodeBlock>
         <H3 id="services">Services</H3>
         <P>The following run as systemd services:</P>
         <Table headers={["Service", "Port", "Purpose"]} rows={[
-          ["code-server", "8080", "Browser IDE"],
+          ["opencode-web", "3456", "OpenCode Browser IDE"],
           ["Caddy", "80 / 443", "Reverse proxy + TLS"],
           ["opencode-web", "3456", "OpenCode Web UI"],
         ]} />
@@ -610,7 +610,7 @@ ssh -i ~/.ssh/justavps_{slug} -L 3000:localhost:3000 root@{ip}`}</CodeBlock>
 
         <H3 id="proxy-auth-model">Auth Model</H3>
         <Ul>
-          <Li><Strong>Browser IDE</Strong> — password-protected (unique per machine, shown in dashboard)</Li>
+          <Li><Strong>Browser IDE</Strong> — protected by Cloudflare Worker proxy authentication</Li>
           <Li><Strong>SSH</Strong> — key-based auth only, password login disabled</Li>
           <Li><Strong>API</Strong> — all API endpoints require a <InlineCode>Bearer sk_live_*</InlineCode> token</Li>
         </Ul>

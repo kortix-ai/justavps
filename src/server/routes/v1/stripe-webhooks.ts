@@ -124,11 +124,10 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       if (baseImage?.providerImageId) resolvedImage = baseImage.providerImageId;
     }
 
-    const { slug, machineToken, codeServerPassword, keyPair } = await generateMachineIdentity();
+    const { slug, machineToken, keyPair } = await generateMachineIdentity();
     const providerKeyId = await uploadSSHKeyToProvider(provider, slug, keyPair.publicKey);
     const userdata = buildMachineUserData(
       slug,
-      codeServerPassword,
       keyPair.publicKey,
       machineToken,
       machineConfig.env_vars,
@@ -147,7 +146,6 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       ip: null,
       providerServerId: null,
       machineToken,
-      codeServerPassword,
       sshPublicKey: keyPair.publicKey,
       sshPrivateKey: keyPair.privateKey,
       priceMonthly: priceMonthly || null,

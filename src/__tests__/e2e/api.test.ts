@@ -352,7 +352,7 @@ describe('Internal', () => {
         slug: 'nonexistent',
         machine_token: 'mt_wrong',
         uptime: 100,
-        services: { code_server: true, caddy: true },
+        services: { caddy: true, docker: true, opencode_web: true, sandbox_agent: true, justavps_docker: true },
         load: { cpu: 0.1, memory: 0.5, disk: 0.3 },
       }),
     });

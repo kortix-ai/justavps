@@ -1,0 +1,8 @@
+- If using PTY spawn background handelling, there IS NO REASON TO USE SLEEP bash cmds to wait, it will auto RETURN the result into the thread! DO not sleep if u are waiting
+- USE WORKTREE`S WITH CONFIRMATION / IF I WANT TO, ASK ME>  create THEM IN WORKTREES/ FOLDER IN ROOT DIR. ALSO MAKE SURE TO COPY ANY .ENVs.
+- When developing Frontend ONLY USE THE LINTER! DO NOT BUILD UNLESS I APPROVE OF THE BUILD AS A FINAL TEST.
+- KEEP comitting to git after u have finished a batch of bigger work, but ask me for permission ALWAYS, nudge me and I will grant you permission. When I tell you to git & commit YOU SHOULD only git & add commit files modified in the current active session / thread, not files u havent touched. DO NOT GIT ADD -A unless I explicitly tell u to.
+- DO NOT GIT ADD COMMIT WITHOUT PERMISSION.
+- DO NOT GIT PUSH WITHOUT PERMISSION.
+- If there are any MERGE CONFLICTS, RESOLVE THEM, if they are non trivial or there are clearly 2 conflciting things, ask me before accepting one or the other!! Very important to discuss the changes, if they are non trivial, you can resolve without any approval.
+- If requested to work E2E you have to follow the flow of a autonomous software engineer, loop(plan/implement/validate/debug/verify). Use the CLI to test API routes e2e, authenticate yourself, document how u did for future reproducibility and go ahead and test it e2e ensuring it truly works. Also use the. Use Agent Browser Skill to TEST e2e in the Web browser if applicable. VERIFICATION IS KEY HERE! E2E means full autonomy, not stopping until you are done & have tested everything thoroughly. I am AFK, u are in charge.

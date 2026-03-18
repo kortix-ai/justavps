@@ -296,10 +296,10 @@ export default function MachineDetailPage() {
                           </div>
                         )}
 
-                        {/* Browser IDE */}
+                        {/* OpenCode Web IDE */}
                         {machine.connect && (
                           <div className="space-y-2">
-                            <label className="text-sm font-medium">Browser IDE</label>
+                            <label className="text-sm font-medium">OpenCode Web IDE</label>
                             <div className="flex gap-2">
                               <div className="relative group flex-1">
                                 <div className="text-xs font-mono text-muted-foreground bg-muted/50 p-3 rounded-lg truncate pr-10">
@@ -318,7 +318,7 @@ export default function MachineDetailPage() {
                                 <ExternalLink className="size-4" />
                               </Button>
                             </div>
-                            <div className="text-xs text-muted-foreground">Password: <span className="font-mono">{machine.connect.vscode_password}</span></div>
+                            <div className="text-xs text-muted-foreground">No password needed — auth handled by proxy</div>
                           </div>
                         )}
                       </div>

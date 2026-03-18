@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db';
 import { machines, users } from '../db/schema';
-import { generateMachineToken, generatePassword } from './crypto';
+import { generateMachineToken } from './crypto';
 import { buildCloudInit } from './cloud-init';
 import { config } from './config';
 import { cloudflareClient } from './cloudflare';
@@ -12,12 +12,11 @@ import type { ComputeProvider } from './providers';
 export async function generateMachineIdentity() {
   const slug = nanoid(8).toLowerCase().replace(/[^a-z0-9]/g, 'x');
   const machineToken = generateMachineToken();
-  const codeServerPassword = generatePassword(20);
 
   const { generateSSHKeyPair } = await import('./ssh-keygen');
   const keyPair = generateSSHKeyPair(`${slug}@justavps`);
 
-  return { slug, machineToken, codeServerPassword, keyPair };
+  return { slug, machineToken, keyPair };
 }
 
 export async function uploadSSHKeyToProvider(
@@ -36,7 +35,6 @@ export async function uploadSSHKeyToProvider(
 
 export function buildMachineUserData(
   slug: string,
-  codeServerPassword: string,
   sshPublicKey: string,
   machineToken: string,
   envVars?: Record<string, string>,
@@ -45,7 +43,6 @@ export function buildMachineUserData(
 ) {
   return buildCloudInit({
     slug,
-    codeServerPassword,
     sshPublicKey,
     machineToken,
     platformCallbackUrl: config.PLATFORM_URL,
@@ -116,7 +113,6 @@ interface CreateMachineInput {
   ip: string | null;
   providerServerId: string | null;
   machineToken: string;
-  codeServerPassword: string;
   sshPublicKey: string;
   sshPrivateKey: string;
   priceMonthly: number | null;

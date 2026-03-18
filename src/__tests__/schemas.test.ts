@@ -234,7 +234,7 @@ describe('validation schemas', () => {
       machine_token: 'mt_abcd1234567890',
       uptime: 86400,
       services: {
-        'code-server': true,
+        'opencode-web': true,
         'caddy': true,
         'docker': false
       },
@@ -253,7 +253,7 @@ describe('validation schemas', () => {
         expect(result.data.slug).toBe('my-machine');
         expect(result.data.machine_token).toBe('mt_abcd1234567890');
         expect(result.data.uptime).toBe(86400);
-        expect(result.data.services['code-server']).toBe(true);
+        expect(result.data.services['opencode-web']).toBe(true);
         expect(result.data.load.cpu).toBe(0.45);
       }
     });

@@ -96,7 +96,7 @@ describe('Worker integration — direct IP proxy', () => {
 
       // Mock the outgoing fetch (Worker → VPS_IP)
       globalThis.fetch = vi.fn().mockResolvedValue(
-        new Response('code-server response', { status: 200 }),
+        new Response('OpenCode response', { status: 200 }),
       );
 
       const request = new Request('https://abc123.kortix.cloud/api/test', {

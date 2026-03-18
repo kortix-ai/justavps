@@ -88,7 +88,6 @@ function serializeMachine(m: typeof machines.$inferSelect) {
       ssh_command: sshCommand,
       setup_command: setupCommand,
       vscode_url: `https://${m.slug}.${proxyDomain}`,
-      vscode_password: m.codeServerPassword,
       cursor_ssh: m.ip ? `ssh -i ${sshKeyPath} root@${m.ip}` : null,
     },
     health: m.lastHeartbeat ? {
@@ -225,9 +224,9 @@ machinesApp.openapi(createMachineRoute, async (c) => {
 
   // 5. Provision immediately
   try {
-    const { slug, machineToken, codeServerPassword, keyPair } = await generateMachineIdentity();
+    const { slug, machineToken, keyPair } = await generateMachineIdentity();
     const providerKeyId = await uploadSSHKeyToProvider(provider, slug, keyPair.publicKey);
-    const userdata = buildMachineUserData(slug, codeServerPassword, keyPair.publicKey, machineToken, data.env_vars, data.docker_image, data.entrypoint);
+    const userdata = buildMachineUserData(slug, keyPair.publicKey, machineToken, data.env_vars, data.docker_image, data.entrypoint);
 
     const machine = await createMachineRecord({
       ownerId,
@@ -240,7 +239,6 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       ip: null,
       providerServerId: null,
       machineToken,
-      codeServerPassword,
       sshPublicKey: keyPair.publicKey,
       sshPrivateKey: keyPair.privateKey,
       priceMonthly,

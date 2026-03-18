@@ -6,7 +6,7 @@
  *
  * Handles:
  *   - HTTP/HTTPS requests (transparent proxy)
- *   - WebSocket upgrades (code-server, PTY, OpenCode Web UI)
+ *   - WebSocket upgrades (OpenCode, PTY)
  *   - SSE streams (no buffering)
  *   - CORS preflight (before auth)
  *   - Hop-by-hop header stripping

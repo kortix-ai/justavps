@@ -1,0 +1,21 @@
+{
+  "active": false,
+  "taskPrompt": " GO AHEAD & REFACTOR so we can 100% deploy to vercel without problem. \n\n[User message at iteration 0]: in package jso nput it on a unique port pls overall for Dev \\",
+  "iteration": 0,
+  "sessionId": "ses_303704cf1ffe6fyp85GYOa8zxz",
+  "startedAt": 1773764305044,
+  "inVerification": false,
+  "messageCountAtStart": 6,
+  "consecutiveFailures": 0,
+  "lastFailureAt": 0,
+  "lastInjectedAt": 0,
+  "stopped": false,
+  "lastAbortAt": 0,
+  "algorithm": "kraemer",
+  "kubetValidatorLevel": 3,
+  "kubetCriticCount": 0,
+  "kubetLastCriticAt": 0,
+  "inoCurrentStage": null,
+  "saumyaPhase": "expand",
+  "saumyaPhaseStartedAt": 0
+}

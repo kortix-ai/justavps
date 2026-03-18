@@ -8,7 +8,6 @@ import { buildCloudInit } from '@/server/lib/cloud-init';
 describe('cloud-init', () => {
   const defaultOpts = {
     slug: 'test-machine',
-    codeServerPassword: 'test-password-123',
     sshPublicKey: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKqP7Q6J8k8k8k8k8k8k8k8k8k8k8k8k8k8k8k8k8k8k test@example.com',
     machineToken: 'mt_abcd1234',
     platformCallbackUrl: 'https://api.example.com/callback',
@@ -28,7 +27,7 @@ describe('cloud-init', () => {
       expect(script).toContain('SSH keys for root + user');
       expect(script).toContain('Platform config');
       expect(script).toContain('Caddy config');
-      expect(script).toContain('code-server config');
+      expect(script).toContain('OpenCode Web UI');
       expect(script).toContain('Start pre-installed services');
       expect(script).toContain('echo "[justavps] Machine test-machine ready!"');
     });
@@ -59,29 +58,32 @@ describe('cloud-init', () => {
       expect(script).toContain('"callback_url": "https://platform.example.com/webhook"');
     });
     
-    it('should configure code-server with no auth (CF Worker handles auth)', () => {
+    it('should configure OpenCode as the default web IDE via Caddy', () => {
       const script = buildCloudInit({
         ...defaultOpts,
         slug: 'my-machine',
         proxyDomain: 'mycloud.com',
       });
       
-      expect(script).toContain('auth: none');
-      expect(script).toContain('bind-addr: 127.0.0.1:8080');
-      expect(script).not.toContain('auth: password');
+      // OpenCode served on root path via Caddy — no code-server
+      expect(script).toContain('opencode serve --port 3456');
+      expect(script).toContain('opencode-web.service');
+      expect(script).not.toContain('code-server');
+      expect(script).not.toContain('auth: none');
+      expect(script).not.toContain('bind-addr: 127.0.0.1:8080');
     });
     
     it('should configure Caddy reverse proxy', () => {
       const script = buildCloudInit(defaultOpts);
       
       expect(script).toContain(':80 {');
-      expect(script).toContain('reverse_proxy localhost:8080');
+      expect(script).toContain('reverse_proxy localhost:3456');
     });
     
     it('should include smart install detection logic', () => {
       const script = buildCloudInit(defaultOpts);
       
-      expect(script).toContain('if ! command -v code-server &>/dev/null; then');
+      expect(script).toContain('if ! command -v opencode &>/dev/null; then');
       expect(script).toContain('Fresh Ubuntu detected');
     });
   });
@@ -104,14 +106,14 @@ describe('cloud-init', () => {
   });
   
   describe('service configuration', () => {
-    it('should create code-server systemd service', () => {
+    it('should create OpenCode web systemd service', () => {
       const script = buildCloudInit(defaultOpts);
       
-      expect(script).toContain('code-server.service');
+      expect(script).toContain('opencode-web.service');
       expect(script).toContain('[Unit]');
-      expect(script).toContain('Description=code-server');
+      expect(script).toContain('Description=OpenCode Web UI');
       expect(script).toContain('User=user');
-      expect(script).toContain('ExecStart=/usr/bin/code-server --config /home/user/.config/code-server/config.yaml');
+      expect(script).toContain('ExecStart=/usr/local/bin/opencode serve --port 3456');
       expect(script).toContain('[Install]');
       expect(script).toContain('WantedBy=multi-user.target');
     });
@@ -128,9 +130,9 @@ describe('cloud-init', () => {
       const script = buildCloudInit(defaultOpts);
       
       expect(script).toContain('systemctl daemon-reload');
-      expect(script).toContain('systemctl enable --now code-server');
       expect(script).toContain('systemctl restart caddy');
       expect(script).toContain('systemctl enable --now opencode-web');
+      expect(script).not.toContain('systemctl enable --now code-server');
     });
   });
   

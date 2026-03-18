@@ -1,1 +1,4109 @@
-{"openapi":"3.1.0","info":{"title":"JustAVPS API","version":"1.0.0","description":"The JustAVPS API lets you programmatically manage VPS machines, images, SSH keys, API keys, webhooks, and billing.\n\n## Authentication\n\nAll authenticated endpoints accept either:\n- **Bearer token**: `Authorization: Bearer sk_live_xxx` — your API key\n- **Session cookie**: `authjs.session-token` — set by the dashboard login\n\n## Base URL\n```\nhttps://justavps.com/api/v1\n```\n\n## SDKs\n- **TypeScript**: `npm install @justavps/sdk`\n- **Python**: `pip install justavps`\n","contact":{"name":"JustAVPS","url":"https://justavps.com","email":"support@justavps.com"}},"servers":[{"url":"/api/v1","description":"API v1"},{"url":"https://justavps.com/api/v1","description":"Production"}],"tags":[{"name":"Machines","description":"Create, manage, and destroy VPS machines"},{"name":"Images","description":"Point-in-time captures of running machines"},{"name":"SSH Keys","description":"Manage SSH public keys for machine access"},{"name":"API Keys","description":"Create and manage API keys for programmatic access"},{"name":"Webhooks","description":"Subscribe to machine lifecycle events via webhooks"},{"name":"Server Types","description":"Discover available providers, regions, and server types"},{"name":"Account","description":"Account info, usage stats, and billing"},{"name":"Events","description":"Real-time machine status via Server-Sent Events"},{"name":"Internal","description":"Internal endpoints used by machine agents and infrastructure"}],"components":{"securitySchemes":{"bearerAuth":{"type":"http","scheme":"bearer","description":"API key (e.g. `sk_live_abc123...`). Create at justavps.com/settings."},"cookieAuth":{"type":"apiKey","in":"cookie","name":"authjs.session-token","description":"Session cookie set by the dashboard login flow."}},"schemas":{},"parameters":{}},"paths":{"/api/v1/machines":{"post":{"tags":["Machines"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"Create a machine","description":"Provisions a new VPS machine. If `image_id` is provided, boots from that image. If omitted, boots from Ubuntu 24.04.\n\nReturns 202 if provisioning starts immediately (user has payment method), or 402 with a `checkout_url` if payment is required first.","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"image_id":{"type":"string","nullable":true,"format":"uuid","description":"Image to boot from. Null = Ubuntu 24.04"},"provider":{"type":"string","minLength":1,"description":"Cloud provider (e.g. \"hetzner\")"},"server_type":{"type":"string","minLength":1,"description":"Provider-specific server type (e.g. \"cpx22\", \"t3.medium\")"},"region":{"type":"string","minLength":1,"description":"Provider-specific region (e.g. \"nbg1\", \"us-east-1\")"},"name":{"type":"string","minLength":1,"maxLength":64,"description":"Human-readable name"},"env_vars":{"type":"object","additionalProperties":{"type":"string"},"description":"Extra environment variables written to /etc/justavps/env on the machine"},"docker_image":{"type":"string","description":"Docker image to run on boot (e.g. \"myapp:latest\")"},"entrypoint":{"type":"string","description":"Entrypoint for the Docker container"}},"required":["provider","server_type","region"]}}}},"responses":{"202":{"description":"Machine provisioning started","content":{"application/json":{"schema":{"type":"object","properties":{"id":{"type":"string","format":"uuid"},"slug":{"type":"string"},"name":{"type":"string"},"status":{"type":"string","enum":["provisioning","ready","error","stopped","deleted"]},"provisioning_stage":{"type":"string","nullable":true},"provisioning_stage_updated_at":{"type":"string","nullable":true},"provider":{"type":"string"},"image_id":{"type":"string","nullable":true,"format":"uuid"},"server_type":{"type":"string"},"region":{"type":"string"},"ip":{"type":"string","nullable":true},"price_monthly":{"type":"number","nullable":true},"created_at":{"type":"string"},"ready_at":{"type":"string","nullable":true},"urls":{"type":"object","nullable":true,"properties":{"vscode":{"type":"string"},"pty":{"type":"string"}},"required":["vscode","pty"]},"ssh":{"type":"string","nullable":true},"ssh_key":{"type":"object","nullable":true,"properties":{"private_key":{"type":"string","nullable":true},"public_key":{"type":"string","nullable":true},"setup_command":{"type":"string","nullable":true},"key_path":{"type":"string"}},"required":["private_key","public_key","setup_command","key_path"]},"connect":{"type":"object","nullable":true,"properties":{"ssh_command":{"type":"string","nullable":true},"setup_command":{"type":"string","nullable":true},"vscode_url":{"type":"string"},"vscode_password":{"type":"string"},"cursor_ssh":{"type":"string","nullable":true}},"required":["ssh_command","setup_command","vscode_url","vscode_password","cursor_ssh"]},"health":{"type":"object","nullable":true,"properties":{"cpu":{"type":"number"},"memory":{"type":"number"},"disk":{"type":"number"},"services":{"type":"object","additionalProperties":{"type":"boolean"}},"last_heartbeat_at":{"type":"string","nullable":true}},"required":["cpu","memory","disk","services","last_heartbeat_at"]}},"required":["id","slug","name","status","provisioning_stage","provisioning_stage_updated_at","provider","image_id","server_type","region","ip","price_monthly","created_at","ready_at","urls","ssh","ssh_key","connect","health"]}}}},"400":{"description":"Bad Request","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"402":{"description":"Payment required — redirect to checkout","content":{"application/json":{"schema":{"type":"object","properties":{"requires_checkout":{"type":"boolean","enum":[true]},"checkout_url":{"type":"string"},"message":{"type":"string"}},"required":["requires_checkout","checkout_url","message"]}}}},"404":{"description":"Not Found","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}},"get":{"tags":["Machines"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"List machines","description":"Returns all non-deleted machines owned by the authenticated user.","responses":{"200":{"description":"List of machines","content":{"application/json":{"schema":{"type":"object","properties":{"machines":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","format":"uuid"},"slug":{"type":"string"},"name":{"type":"string"},"status":{"type":"string","enum":["provisioning","ready","error","stopped","deleted"]},"provisioning_stage":{"type":"string","nullable":true},"provisioning_stage_updated_at":{"type":"string","nullable":true},"provider":{"type":"string"},"image_id":{"type":"string","nullable":true,"format":"uuid"},"server_type":{"type":"string"},"region":{"type":"string"},"ip":{"type":"string","nullable":true},"price_monthly":{"type":"number","nullable":true},"created_at":{"type":"string"},"ready_at":{"type":"string","nullable":true},"urls":{"type":"object","nullable":true,"properties":{"vscode":{"type":"string"},"pty":{"type":"string"}},"required":["vscode","pty"]},"ssh":{"type":"string","nullable":true},"ssh_key":{"type":"object","nullable":true,"properties":{"private_key":{"type":"string","nullable":true},"public_key":{"type":"string","nullable":true},"setup_command":{"type":"string","nullable":true},"key_path":{"type":"string"}},"required":["private_key","public_key","setup_command","key_path"]},"connect":{"type":"object","nullable":true,"properties":{"ssh_command":{"type":"string","nullable":true},"setup_command":{"type":"string","nullable":true},"vscode_url":{"type":"string"},"vscode_password":{"type":"string"},"cursor_ssh":{"type":"string","nullable":true}},"required":["ssh_command","setup_command","vscode_url","vscode_password","cursor_ssh"]},"health":{"type":"object","nullable":true,"properties":{"cpu":{"type":"number"},"memory":{"type":"number"},"disk":{"type":"number"},"services":{"type":"object","additionalProperties":{"type":"boolean"}},"last_heartbeat_at":{"type":"string","nullable":true}},"required":["cpu","memory","disk","services","last_heartbeat_at"]}},"required":["id","slug","name","status","provisioning_stage","provisioning_stage_updated_at","provider","image_id","server_type","region","ip","price_monthly","created_at","ready_at","urls","ssh","ssh_key","connect","health"]}}},"required":["machines"]}}}},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}},"/api/v1/machines/{id}":{"get":{"tags":["Machines"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"Get a machine","description":"Returns full details of a machine including connection info, health metrics, and SSH keys.","parameters":[{"schema":{"type":"string","format":"uuid","description":"Machine ID"},"required":true,"description":"Machine ID","name":"id","in":"path"}],"responses":{"200":{"description":"Machine details","content":{"application/json":{"schema":{"type":"object","properties":{"id":{"type":"string","format":"uuid"},"slug":{"type":"string"},"name":{"type":"string"},"status":{"type":"string","enum":["provisioning","ready","error","stopped","deleted"]},"provisioning_stage":{"type":"string","nullable":true},"provisioning_stage_updated_at":{"type":"string","nullable":true},"provider":{"type":"string"},"image_id":{"type":"string","nullable":true,"format":"uuid"},"server_type":{"type":"string"},"region":{"type":"string"},"ip":{"type":"string","nullable":true},"price_monthly":{"type":"number","nullable":true},"created_at":{"type":"string"},"ready_at":{"type":"string","nullable":true},"urls":{"type":"object","nullable":true,"properties":{"vscode":{"type":"string"},"pty":{"type":"string"}},"required":["vscode","pty"]},"ssh":{"type":"string","nullable":true},"ssh_key":{"type":"object","nullable":true,"properties":{"private_key":{"type":"string","nullable":true},"public_key":{"type":"string","nullable":true},"setup_command":{"type":"string","nullable":true},"key_path":{"type":"string"}},"required":["private_key","public_key","setup_command","key_path"]},"connect":{"type":"object","nullable":true,"properties":{"ssh_command":{"type":"string","nullable":true},"setup_command":{"type":"string","nullable":true},"vscode_url":{"type":"string"},"vscode_password":{"type":"string"},"cursor_ssh":{"type":"string","nullable":true}},"required":["ssh_command","setup_command","vscode_url","vscode_password","cursor_ssh"]},"health":{"type":"object","nullable":true,"properties":{"cpu":{"type":"number"},"memory":{"type":"number"},"disk":{"type":"number"},"services":{"type":"object","additionalProperties":{"type":"boolean"}},"last_heartbeat_at":{"type":"string","nullable":true}},"required":["cpu","memory","disk","services","last_heartbeat_at"]}},"required":["id","slug","name","status","provisioning_stage","provisioning_stage_updated_at","provider","image_id","server_type","region","ip","price_monthly","created_at","ready_at","urls","ssh","ssh_key","connect","health"]}}}},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"404":{"description":"Not Found","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}},"delete":{"tags":["Machines"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"Delete a machine","description":"Permanently destroys the machine, removes DNS records, cancels billing, and deletes the provider server. **Irreversible.**","parameters":[{"schema":{"type":"string","format":"uuid","description":"Machine ID"},"required":true,"description":"Machine ID","name":"id","in":"path"}],"responses":{"204":{"description":"Machine deleted"},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"404":{"description":"Not Found","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}},"/api/v1/machines/{id}/reboot":{"post":{"tags":["Machines"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"Reboot a machine","description":"Initiates a hard reboot via the provider API (~30s downtime).","parameters":[{"schema":{"type":"string","format":"uuid","description":"Machine ID"},"required":true,"description":"Machine ID","name":"id","in":"path"}],"responses":{"202":{"description":"Reboot initiated","content":{"application/json":{"schema":{"type":"object","properties":{"action":{"type":"string"},"status":{"type":"string"}},"required":["action","status"]}}}},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"404":{"description":"Not Found","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}},"/api/v1/machines/{id}/resize":{"post":{"tags":["Machines"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"Resize a machine","description":"Changes the machine to a different server type. Requires reboot (~30s downtime). Billing is prorated.","parameters":[{"schema":{"type":"string","format":"uuid","description":"Machine ID"},"required":true,"description":"Machine ID","name":"id","in":"path"}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"server_type":{"type":"string","minLength":1,"description":"New server type"}},"required":["server_type"]}}}},"responses":{"202":{"description":"Resize initiated","content":{"application/json":{"schema":{"type":"object","properties":{"action":{"type":"string","enum":["resize"]},"old_type":{"type":"string"},"new_type":{"type":"string"},"status":{"type":"string"}},"required":["action","old_type","new_type","status"]}}}},"400":{"description":"Bad Request","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"404":{"description":"Not Found","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}},"/api/v1/machines/{id}/image":{"post":{"tags":["Machines","Images"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"Create image from machine","description":"Creates a point-in-time image (snapshot) from a running machine. Machine must be in `ready` status. Returns 202 — poll `GET /images/{id}` until status is `ready`.","parameters":[{"schema":{"type":"string","format":"uuid","description":"Machine ID"},"required":true,"description":"Machine ID","name":"id","in":"path"}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":128,"description":"Name for the image"}},"required":["name"]}}}},"responses":{"202":{"description":"Image creation started","content":{"application/json":{"schema":{"type":"object","properties":{"id":{"type":"string","format":"uuid"},"name":{"type":"string"},"status":{"type":"string","enum":["creating","ready","failed","deleted"]},"source_machine_id":{"type":"string","nullable":true,"format":"uuid"},"provider":{"type":"string"},"provider_image_id":{"type":"string","nullable":true},"disk_size_gb":{"type":"number","nullable":true},"architecture":{"type":"string","nullable":true},"created_at":{"type":"string"},"updated_at":{"type":"string"}},"required":["id","name","status","source_machine_id","provider","provider_image_id","disk_size_gb","architecture","created_at","updated_at"]}}}},"400":{"description":"Bad Request","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"404":{"description":"Not Found","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}},"/api/v1/images":{"get":{"tags":["Images"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"List images","description":"Returns all non-deleted images owned by the authenticated user.","responses":{"200":{"description":"List of images","content":{"application/json":{"schema":{"type":"object","properties":{"images":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","format":"uuid"},"name":{"type":"string"},"status":{"type":"string","enum":["creating","ready","failed","deleted"]},"source_machine_id":{"type":"string","nullable":true,"format":"uuid"},"provider":{"type":"string"},"provider_image_id":{"type":"string","nullable":true},"disk_size_gb":{"type":"number","nullable":true},"architecture":{"type":"string","nullable":true},"created_at":{"type":"string"},"updated_at":{"type":"string"}},"required":["id","name","status","source_machine_id","provider","provider_image_id","disk_size_gb","architecture","created_at","updated_at"]}}},"required":["images"]}}}},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}},"/api/v1/images/{id}":{"get":{"tags":["Images"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"Get an image","description":"Returns image details including status and provider artifact info.","parameters":[{"schema":{"type":"string","format":"uuid","description":"Image ID"},"required":true,"description":"Image ID","name":"id","in":"path"}],"responses":{"200":{"description":"Image details","content":{"application/json":{"schema":{"type":"object","properties":{"id":{"type":"string","format":"uuid"},"name":{"type":"string"},"status":{"type":"string","enum":["creating","ready","failed","deleted"]},"source_machine_id":{"type":"string","nullable":true,"format":"uuid"},"provider":{"type":"string"},"provider_image_id":{"type":"string","nullable":true},"disk_size_gb":{"type":"number","nullable":true},"architecture":{"type":"string","nullable":true},"created_at":{"type":"string"},"updated_at":{"type":"string"}},"required":["id","name","status","source_machine_id","provider","provider_image_id","disk_size_gb","architecture","created_at","updated_at"]}}}},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"404":{"description":"Not Found","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}},"delete":{"tags":["Images"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"Delete an image","description":"Deletes the image and its provider-side artifact.","parameters":[{"schema":{"type":"string","format":"uuid","description":"Image ID"},"required":true,"description":"Image ID","name":"id","in":"path"}],"responses":{"204":{"description":"Image deleted"},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"404":{"description":"Not Found","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}},"/api/v1/ssh-keys":{"post":{"tags":["SSH Keys"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"Add an SSH key","description":"Registers a new SSH public key. Automatically uploaded to all providers.","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":128},"public_key":{"type":"string","minLength":1,"description":"SSH public key (e.g. ssh-ed25519 AAAA...)"}},"required":["name","public_key"]}}}},"responses":{"201":{"description":"SSH key added","content":{"application/json":{"schema":{"type":"object","properties":{"id":{"type":"string","format":"uuid"},"name":{"type":"string"},"fingerprint":{"type":"string"},"created_at":{"type":"string"}},"required":["id","name","fingerprint","created_at"]}}}},"400":{"description":"Bad Request","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}},"get":{"tags":["SSH Keys"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"List SSH keys","description":"Returns all SSH public keys registered by the authenticated user.","responses":{"200":{"description":"List of SSH keys","content":{"application/json":{"schema":{"type":"object","properties":{"ssh_keys":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","format":"uuid"},"name":{"type":"string"},"fingerprint":{"type":"string"},"created_at":{"type":"string"}},"required":["id","name","fingerprint","created_at"]}}},"required":["ssh_keys"]}}}},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}},"/api/v1/ssh-keys/{id}":{"delete":{"tags":["SSH Keys"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"Delete an SSH key","parameters":[{"schema":{"type":"string","format":"uuid","description":"SSH Key ID"},"required":true,"description":"SSH Key ID","name":"id","in":"path"}],"responses":{"204":{"description":"SSH key deleted"},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"404":{"description":"Not Found","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}},"/api/v1/api-keys":{"post":{"tags":["API Keys"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"Create an API key","description":"**The full key is only returned once in this response.** Store it securely.","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":128}},"required":["name"]}}}},"responses":{"201":{"description":"API key created","content":{"application/json":{"schema":{"type":"object","properties":{"id":{"type":"string","format":"uuid"},"name":{"type":"string"},"key":{"type":"string","description":"Only returned on creation"},"key_prefix":{"type":"string"},"created_at":{"type":"string"},"last_used":{"type":"string","nullable":true}},"required":["id","name","key_prefix","created_at","last_used"]}}}},"400":{"description":"Bad Request","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}},"get":{"tags":["API Keys"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"List API keys","description":"Returns all API keys. Full key value is never returned after creation.","responses":{"200":{"description":"List of API keys","content":{"application/json":{"schema":{"type":"object","properties":{"api_keys":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","format":"uuid"},"name":{"type":"string"},"key":{"type":"string","description":"Only returned on creation"},"key_prefix":{"type":"string"},"created_at":{"type":"string"},"last_used":{"type":"string","nullable":true}},"required":["id","name","key_prefix","created_at","last_used"]}}},"required":["api_keys"]}}}},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}},"/api/v1/api-keys/{id}":{"delete":{"tags":["API Keys"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"Delete an API key","description":"Permanently revokes the API key. Requests using it will immediately fail.","parameters":[{"schema":{"type":"string","format":"uuid","description":"API Key ID"},"required":true,"description":"API Key ID","name":"id","in":"path"}],"responses":{"204":{"description":"API key deleted"},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"404":{"description":"Not Found","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}},"/api/v1/server-types/providers":{"get":{"tags":["Server Types"],"summary":"List providers","responses":{"200":{"description":"Available providers","content":{"application/json":{"schema":{"type":"object","properties":{"providers":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"displayName":{"type":"string"}},"required":["name","displayName"]}}},"required":["providers"]}}}}}}},"/api/v1/server-types":{"get":{"tags":["Server Types"],"summary":"List server types","description":"Returns available server types for a provider + region, with pricing.","parameters":[{"schema":{"type":"string","default":"hetzner","description":"Cloud provider"},"required":false,"description":"Cloud provider","name":"provider","in":"query"},{"schema":{"type":"string","description":"Region ID (e.g. nbg1)"},"required":true,"description":"Region ID (e.g. nbg1)","name":"region","in":"query"}],"responses":{"200":{"description":"Available server types","content":{"application/json":{"schema":{"type":"object","properties":{"provider":{"type":"string"},"region":{"type":"string"},"server_types":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"description":{"type":"string"},"vcpu":{"type":"number"},"ram_gb":{"type":"number"},"disk_gb":{"type":"number"},"cpu_type":{"type":"string","enum":["shared","dedicated"]},"architecture":{"type":"string","enum":["x86","arm"]},"price_monthly":{"type":"number","description":"Our price after markup"},"provider_price_monthly":{"type":"number","description":"Raw provider price"},"available":{"type":"boolean"}},"required":["name","description","vcpu","ram_gb","disk_gb","cpu_type","architecture","price_monthly","provider_price_monthly","available"]}}},"required":["provider","region","server_types"]}}}},"400":{"description":"Bad Request","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}},"/api/v1/server-types/regions":{"get":{"tags":["Server Types"],"summary":"List regions","parameters":[{"schema":{"type":"string","default":"hetzner","description":"Cloud provider"},"required":false,"description":"Cloud provider","name":"provider","in":"query"}],"responses":{"200":{"description":"Available regions","content":{"application/json":{"schema":{"type":"object","properties":{"provider":{"type":"string"},"regions":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"country":{"type":"string"},"city":{"type":"string"}},"required":["id","name","country","city"]}}},"required":["provider","regions"]}}}},"400":{"description":"Bad Request","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}},"/api/v1/account":{"get":{"tags":["Account"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"Get account info","responses":{"200":{"description":"Account details","content":{"application/json":{"schema":{"type":"object","properties":{"id":{"type":"string","format":"uuid"},"email":{"type":"string"},"name":{"type":"string","nullable":true},"machines_count":{"type":"number"},"stripe_customer_id":{"type":"string","nullable":true},"created_at":{"type":"string"}},"required":["id","email","name","machines_count","stripe_customer_id","created_at"]}}}},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"404":{"description":"Not Found","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}},"/api/v1/account/usage":{"get":{"tags":["Account"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"Get usage stats","description":"Returns current billing period usage including active machines and estimated cost.","responses":{"200":{"description":"Usage statistics","content":{"application/json":{"schema":{"type":"object","properties":{"current_period":{"type":"object","properties":{"machines":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","format":"uuid"},"slug":{"type":"string"},"server_type":{"type":"string"},"status":{"type":"string"}},"required":["id","slug","server_type","status"]}},"total_machines":{"type":"number"},"estimated_cost":{"type":"number"}},"required":["machines","total_machines","estimated_cost"]}},"required":["current_period"]}}}},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}},"/api/v1/account/billing":{"get":{"tags":["Account"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"Get billing info","description":"Returns Stripe billing portal URL and payment method status.","responses":{"200":{"description":"Billing info","content":{"application/json":{"schema":{"type":"object","properties":{"portal_url":{"type":"string","nullable":true},"has_payment_method":{"type":"boolean"},"message":{"type":"string"}},"required":["portal_url","has_payment_method"]}}}},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}},"/api/v1/account/billing/setup":{"post":{"tags":["Account"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"Create billing setup session","description":"Creates a Stripe Checkout Session in setup mode to add a payment method.","responses":{"200":{"description":"Checkout URL","content":{"application/json":{"schema":{"type":"object","properties":{"checkout_url":{"type":"string"}},"required":["checkout_url"]}}}},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"404":{"description":"Not Found","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"503":{"description":"Service Unavailable","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}},"/api/v1/internal/heartbeat":{"post":{"tags":["Internal"],"summary":"Agent heartbeat","description":"Called by the justavps-agent on each machine every 60s. Authenticated via `machine_token` in body.","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"slug":{"type":"string"},"machine_token":{"type":"string"},"uptime":{"type":"number"},"services":{"type":"object","additionalProperties":{"type":"boolean"}},"load":{"type":"object","properties":{"cpu":{"type":"number"},"memory":{"type":"number"},"disk":{"type":"number"}},"required":["cpu","memory","disk"]}},"required":["slug","machine_token","uptime","services","load"]}}}},"responses":{"200":{"description":"Acknowledged","content":{"application/json":{"schema":{"type":"object","properties":{"ack":{"type":"boolean"}},"required":["ack"]}}}},"400":{"description":"Bad Request","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"500":{"description":"Internal Server Error","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}},"/api/v1/internal/stage":{"post":{"tags":["Internal"],"summary":"Report provisioning stage","description":"Called by the machine agent to report provisioning progress.","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"slug":{"type":"string","minLength":1},"machine_token":{"type":"string","minLength":1},"stage":{"type":"string","minLength":1},"message":{"type":"string"},"metadata":{"type":"object","additionalProperties":{"nullable":true}}},"required":["slug","machine_token","stage"]}}}},"responses":{"200":{"description":"Acknowledged","content":{"application/json":{"schema":{"type":"object","properties":{"ack":{"type":"boolean"}},"required":["ack"]}}}},"400":{"description":"Bad Request","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"500":{"description":"Internal Server Error","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}},"/api/v1/internal/validate-key":{"get":{"tags":["Internal"],"summary":"Validate API key","description":"Called by the Cloudflare Worker to validate API keys at the edge.","parameters":[{"schema":{"type":"string","description":"API key to validate"},"required":true,"description":"API key to validate","name":"key","in":"query"},{"schema":{"type":"string","description":"Machine slug to check ownership"},"required":false,"description":"Machine slug to check ownership","name":"machine_slug","in":"query"}],"responses":{"200":{"description":"Valid key","content":{"application/json":{"schema":{"type":"object","properties":{"valid":{"type":"boolean"},"owner_id":{"type":"string","format":"uuid"},"message":{"type":"string"}},"required":["valid"]}}}},"400":{"description":"Bad Request","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"401":{"description":"Invalid key","content":{"application/json":{"schema":{"type":"object","properties":{"valid":{"type":"boolean"},"owner_id":{"type":"string","format":"uuid"},"message":{"type":"string"}},"required":["valid"]}}}},"403":{"description":"Key does not own machine","content":{"application/json":{"schema":{"type":"object","properties":{"valid":{"type":"boolean"},"owner_id":{"type":"string","format":"uuid"},"message":{"type":"string"}},"required":["valid"]}}}},"503":{"description":"Service Unavailable","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}},"/api/v1/machines/{id}/status/stream":{"get":{"tags":["Events"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"Stream machine status (SSE)","description":"Opens a Server-Sent Events stream for real-time provisioning updates.\n\n**Event types:** `status`, `stage`, `done`, `ping`, `error`\n\nAuto-closes on terminal state or after 10 minutes.","parameters":[{"schema":{"type":"string","format":"uuid","description":"Machine ID"},"required":true,"description":"Machine ID","name":"id","in":"path"}],"responses":{"200":{"description":"SSE stream","content":{"text/event-stream":{"schema":{"type":"string"}}}},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean"},"message":{"type":"string"},"status":{"type":"number"}},"required":["error","message","status"]}}}},"404":{"description":"Not Found","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean"},"message":{"type":"string"},"status":{"type":"number"}},"required":["error","message","status"]}}}}}}},"/api/v1/webhooks":{"post":{"tags":["Webhooks"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"Create a webhook","description":"Subscribes a URL to receive POST requests for specified events. Payloads are signed with HMAC-SHA256 (`X-Signature-256` header).\n\n**Events:** `*`, `machine.stage_changed`, `machine.status_changed`, `machine.heartbeat`","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"url":{"type":"string","format":"uri","description":"HTTPS URL to receive webhook POSTs"},"events":{"type":"array","items":{"type":"string","enum":["*","machine.stage_changed","machine.status_changed","machine.heartbeat"]},"minItems":1,"description":"Event types to subscribe to"},"secret":{"type":"string","minLength":16,"description":"HMAC secret (auto-generated if omitted)"}},"required":["url","events"]}}}},"responses":{"201":{"description":"Webhook created (secret shown once)","content":{"application/json":{"schema":{"type":"object","properties":{"id":{"type":"string","format":"uuid"},"url":{"type":"string"},"events":{"type":"array","items":{"type":"string"}},"secret":{"type":"string","description":"Only returned on creation"},"active":{"type":"boolean"},"created_at":{"type":"string"}},"required":["id","url","events","active","created_at"]}}}},"400":{"description":"Bad Request","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}},"get":{"tags":["Webhooks"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"List webhooks","responses":{"200":{"description":"List of webhooks","content":{"application/json":{"schema":{"type":"object","properties":{"webhooks":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","format":"uuid"},"url":{"type":"string"},"events":{"type":"array","items":{"type":"string"}},"active":{"type":"boolean"},"created_at":{"type":"string"}},"required":["id","url","events","active","created_at"]}}},"required":["webhooks"]}}}},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}},"/api/v1/webhooks/{id}":{"delete":{"tags":["Webhooks"],"security":[{"bearerAuth":[]},{"cookieAuth":[]}],"summary":"Delete a webhook","parameters":[{"schema":{"type":"string","format":"uuid","description":"Webhook ID"},"required":true,"description":"Webhook ID","name":"id","in":"path"}],"responses":{"204":{"description":"Webhook deleted"},"401":{"description":"Unauthorized","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}},"404":{"description":"Not Found","content":{"application/json":{"schema":{"type":"object","properties":{"error":{"type":"boolean","default":true},"message":{"type":"string"},"status":{"type":"number"}},"required":["message","status"]}}}}}}}}}
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "JustAVPS API",
+    "version": "1.0.0",
+    "description": "The JustAVPS API lets you programmatically manage VPS machines, images, SSH keys, API keys, webhooks, and billing.\n\n## Authentication\n\nAll authenticated endpoints accept either:\n- **Bearer token**: `Authorization: Bearer sk_live_xxx` — your API key\n- **Session cookie**: `authjs.session-token` — set by the dashboard login\n\n## Base URL\n```\nhttps://justavps.com/api/v1\n```\n\n## SDKs\n- **TypeScript**: `npm install @justavps/sdk`\n- **Python**: `pip install justavps`\n",
+    "contact": {
+      "name": "JustAVPS",
+      "url": "https://justavps.com",
+      "email": "support@justavps.com"
+    }
+  },
+  "servers": [
+    {
+      "url": "/api/v1",
+      "description": "API v1"
+    },
+    {
+      "url": "https://justavps.com/api/v1",
+      "description": "Production"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Machines",
+      "description": "Create, manage, and destroy VPS machines"
+    },
+    {
+      "name": "Images",
+      "description": "Point-in-time captures of running machines"
+    },
+    {
+      "name": "SSH Keys",
+      "description": "Manage SSH public keys for machine access"
+    },
+    {
+      "name": "API Keys",
+      "description": "Create and manage API keys for programmatic access"
+    },
+    {
+      "name": "Webhooks",
+      "description": "Subscribe to machine lifecycle events via webhooks"
+    },
+    {
+      "name": "Server Types",
+      "description": "Discover available providers, regions, and server types"
+    },
+    {
+      "name": "Account",
+      "description": "Account info, usage stats, and billing"
+    },
+    {
+      "name": "Events",
+      "description": "Real-time machine status via Server-Sent Events"
+    },
+    {
+      "name": "Internal",
+      "description": "Internal endpoints used by machine agents and infrastructure"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "API key (e.g. `sk_live_abc123...`). Create at justavps.com/settings."
+      },
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "authjs.session-token",
+        "description": "Session cookie set by the dashboard login flow."
+      }
+    },
+    "schemas": {},
+    "parameters": {}
+  },
+  "paths": {
+    "/api/v1/machines": {
+      "post": {
+        "tags": [
+          "Machines"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Create a machine",
+        "description": "Provisions a new VPS machine. If `image_id` is provided, boots from that image. If omitted, boots from Ubuntu 24.04.\n\nReturns 202 if provisioning starts immediately (user has payment method), or 402 with a `checkout_url` if payment is required first.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "image_id": {
+                    "type": "string",
+                    "nullable": true,
+                    "format": "uuid",
+                    "description": "Image to boot from. Null = Ubuntu 24.04"
+                  },
+                  "provider": {
+                    "type": "string",
+                    "minLength": 1,
+                    "default": "cloud",
+                    "description": "Cloud provider"
+                  },
+                  "server_type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Server type (e.g. \"cpx32\")"
+                  },
+                  "region": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Region (e.g. \"hel1\", \"hil\")"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "description": "Human-readable name"
+                  },
+                  "env_vars": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Extra environment variables written to /etc/justavps/env on the machine"
+                  },
+                  "docker_image": {
+                    "type": "string",
+                    "description": "Docker image to run on boot (e.g. \"myapp:latest\")"
+                  },
+                  "entrypoint": {
+                    "type": "string",
+                    "description": "Entrypoint for the Docker container"
+                  }
+                },
+                "required": [
+                  "server_type",
+                  "region"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Machine provisioning started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "slug": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "provisioning",
+                        "ready",
+                        "error",
+                        "stopped",
+                        "deleted"
+                      ]
+                    },
+                    "provisioning_stage": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "provisioning_stage_updated_at": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "provider": {
+                      "type": "string"
+                    },
+                    "image_id": {
+                      "type": "string",
+                      "nullable": true,
+                      "format": "uuid"
+                    },
+                    "server_type": {
+                      "type": "string"
+                    },
+                    "region": {
+                      "type": "string"
+                    },
+                    "ip": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "price_monthly": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "backups_enabled": {
+                      "type": "boolean"
+                    },
+                    "created_at": {
+                      "type": "string"
+                    },
+                    "ready_at": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "urls": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "vscode": {
+                          "type": "string"
+                        },
+                        "pty": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "vscode",
+                        "pty"
+                      ]
+                    },
+                    "ssh": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "ssh_key": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "private_key": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "public_key": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "setup_command": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "key_path": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "private_key",
+                        "public_key",
+                        "setup_command",
+                        "key_path"
+                      ]
+                    },
+                    "connect": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "ssh_command": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "setup_command": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "vscode_url": {
+                          "type": "string"
+                        },
+                        "vscode_password": {
+                          "type": "string"
+                        },
+                        "cursor_ssh": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "ssh_command",
+                        "setup_command",
+                        "vscode_url",
+                        "vscode_password",
+                        "cursor_ssh"
+                      ]
+                    },
+                    "health": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "cpu": {
+                          "type": "number"
+                        },
+                        "memory": {
+                          "type": "number"
+                        },
+                        "disk": {
+                          "type": "number"
+                        },
+                        "services": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "boolean"
+                          }
+                        },
+                        "last_heartbeat_at": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "cpu",
+                        "memory",
+                        "disk",
+                        "services",
+                        "last_heartbeat_at"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "slug",
+                    "name",
+                    "status",
+                    "provisioning_stage",
+                    "provisioning_stage_updated_at",
+                    "provider",
+                    "image_id",
+                    "server_type",
+                    "region",
+                    "ip",
+                    "price_monthly",
+                    "backups_enabled",
+                    "created_at",
+                    "ready_at",
+                    "urls",
+                    "ssh",
+                    "ssh_key",
+                    "connect",
+                    "health"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Payment required — redirect to checkout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "requires_checkout": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "checkout_url": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "requires_checkout",
+                    "checkout_url",
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Machines"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List machines",
+        "description": "Returns all non-deleted machines owned by the authenticated user.",
+        "responses": {
+          "200": {
+            "description": "List of machines",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "machines": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "slug": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "provisioning",
+                              "ready",
+                              "error",
+                              "stopped",
+                              "deleted"
+                            ]
+                          },
+                          "provisioning_stage": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "provisioning_stage_updated_at": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "provider": {
+                            "type": "string"
+                          },
+                          "image_id": {
+                            "type": "string",
+                            "nullable": true,
+                            "format": "uuid"
+                          },
+                          "server_type": {
+                            "type": "string"
+                          },
+                          "region": {
+                            "type": "string"
+                          },
+                          "ip": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "price_monthly": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "backups_enabled": {
+                            "type": "boolean"
+                          },
+                          "created_at": {
+                            "type": "string"
+                          },
+                          "ready_at": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "urls": {
+                            "type": "object",
+                            "nullable": true,
+                            "properties": {
+                              "vscode": {
+                                "type": "string"
+                              },
+                              "pty": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "vscode",
+                              "pty"
+                            ]
+                          },
+                          "ssh": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "ssh_key": {
+                            "type": "object",
+                            "nullable": true,
+                            "properties": {
+                              "private_key": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "public_key": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "setup_command": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "key_path": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "private_key",
+                              "public_key",
+                              "setup_command",
+                              "key_path"
+                            ]
+                          },
+                          "connect": {
+                            "type": "object",
+                            "nullable": true,
+                            "properties": {
+                              "ssh_command": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "setup_command": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "vscode_url": {
+                                "type": "string"
+                              },
+                              "vscode_password": {
+                                "type": "string"
+                              },
+                              "cursor_ssh": {
+                                "type": "string",
+                                "nullable": true
+                              }
+                            },
+                            "required": [
+                              "ssh_command",
+                              "setup_command",
+                              "vscode_url",
+                              "vscode_password",
+                              "cursor_ssh"
+                            ]
+                          },
+                          "health": {
+                            "type": "object",
+                            "nullable": true,
+                            "properties": {
+                              "cpu": {
+                                "type": "number"
+                              },
+                              "memory": {
+                                "type": "number"
+                              },
+                              "disk": {
+                                "type": "number"
+                              },
+                              "services": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "last_heartbeat_at": {
+                                "type": "string",
+                                "nullable": true
+                              }
+                            },
+                            "required": [
+                              "cpu",
+                              "memory",
+                              "disk",
+                              "services",
+                              "last_heartbeat_at"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "slug",
+                          "name",
+                          "status",
+                          "provisioning_stage",
+                          "provisioning_stage_updated_at",
+                          "provider",
+                          "image_id",
+                          "server_type",
+                          "region",
+                          "ip",
+                          "price_monthly",
+                          "backups_enabled",
+                          "created_at",
+                          "ready_at",
+                          "urls",
+                          "ssh",
+                          "ssh_key",
+                          "connect",
+                          "health"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "machines"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/machines/{id}": {
+      "get": {
+        "tags": [
+          "Machines"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get a machine",
+        "description": "Returns full details of a machine including connection info, health metrics, and SSH keys.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Machine ID"
+            },
+            "required": true,
+            "description": "Machine ID",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Machine details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "slug": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "provisioning",
+                        "ready",
+                        "error",
+                        "stopped",
+                        "deleted"
+                      ]
+                    },
+                    "provisioning_stage": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "provisioning_stage_updated_at": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "provider": {
+                      "type": "string"
+                    },
+                    "image_id": {
+                      "type": "string",
+                      "nullable": true,
+                      "format": "uuid"
+                    },
+                    "server_type": {
+                      "type": "string"
+                    },
+                    "region": {
+                      "type": "string"
+                    },
+                    "ip": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "price_monthly": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "backups_enabled": {
+                      "type": "boolean"
+                    },
+                    "created_at": {
+                      "type": "string"
+                    },
+                    "ready_at": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "urls": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "vscode": {
+                          "type": "string"
+                        },
+                        "pty": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "vscode",
+                        "pty"
+                      ]
+                    },
+                    "ssh": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "ssh_key": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "private_key": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "public_key": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "setup_command": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "key_path": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "private_key",
+                        "public_key",
+                        "setup_command",
+                        "key_path"
+                      ]
+                    },
+                    "connect": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "ssh_command": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "setup_command": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "vscode_url": {
+                          "type": "string"
+                        },
+                        "vscode_password": {
+                          "type": "string"
+                        },
+                        "cursor_ssh": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "ssh_command",
+                        "setup_command",
+                        "vscode_url",
+                        "vscode_password",
+                        "cursor_ssh"
+                      ]
+                    },
+                    "health": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "cpu": {
+                          "type": "number"
+                        },
+                        "memory": {
+                          "type": "number"
+                        },
+                        "disk": {
+                          "type": "number"
+                        },
+                        "services": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "boolean"
+                          }
+                        },
+                        "last_heartbeat_at": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "cpu",
+                        "memory",
+                        "disk",
+                        "services",
+                        "last_heartbeat_at"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "slug",
+                    "name",
+                    "status",
+                    "provisioning_stage",
+                    "provisioning_stage_updated_at",
+                    "provider",
+                    "image_id",
+                    "server_type",
+                    "region",
+                    "ip",
+                    "price_monthly",
+                    "backups_enabled",
+                    "created_at",
+                    "ready_at",
+                    "urls",
+                    "ssh",
+                    "ssh_key",
+                    "connect",
+                    "health"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Machines"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Delete a machine",
+        "description": "Permanently destroys the machine, removes DNS records, cancels billing, and deletes the provider server. **Irreversible.**",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Machine ID"
+            },
+            "required": true,
+            "description": "Machine ID",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Machine deleted"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/machines/{id}/reboot": {
+      "post": {
+        "tags": [
+          "Machines"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Reboot a machine",
+        "description": "Initiates a hard reboot via the provider API (~30s downtime).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Machine ID"
+            },
+            "required": true,
+            "description": "Machine ID",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Reboot initiated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/machines/{id}/resize": {
+      "post": {
+        "tags": [
+          "Machines"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Resize a machine",
+        "description": "Changes the machine to a different server type. Requires reboot (~30s downtime). Billing is prorated.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Machine ID"
+            },
+            "required": true,
+            "description": "Machine ID",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "server_type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "New server type"
+                  }
+                },
+                "required": [
+                  "server_type"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Resize initiated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "resize"
+                      ]
+                    },
+                    "old_type": {
+                      "type": "string"
+                    },
+                    "new_type": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "old_type",
+                    "new_type",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/machines/{id}/image": {
+      "post": {
+        "tags": [
+          "Machines",
+          "Images"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Create image from machine",
+        "description": "Creates a point-in-time image (snapshot) from a running machine. Machine must be in `ready` status. Returns 202 — poll `GET /images/{id}` until status is `ready`.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Machine ID"
+            },
+            "required": true,
+            "description": "Machine ID",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "description": "Name for the image"
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Image creation started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "creating",
+                        "ready",
+                        "failed",
+                        "deleted"
+                      ]
+                    },
+                    "source_machine_id": {
+                      "type": "string",
+                      "nullable": true,
+                      "format": "uuid"
+                    },
+                    "provider": {
+                      "type": "string"
+                    },
+                    "provider_image_id": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "disk_size_gb": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "architecture": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "created_at": {
+                      "type": "string"
+                    },
+                    "updated_at": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "status",
+                    "source_machine_id",
+                    "provider",
+                    "provider_image_id",
+                    "disk_size_gb",
+                    "architecture",
+                    "created_at",
+                    "updated_at"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/images": {
+      "get": {
+        "tags": [
+          "Images"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List images",
+        "description": "Returns all non-deleted images owned by the authenticated user.",
+        "responses": {
+          "200": {
+            "description": "List of images",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "images": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "creating",
+                              "ready",
+                              "failed",
+                              "deleted"
+                            ]
+                          },
+                          "source_machine_id": {
+                            "type": "string",
+                            "nullable": true,
+                            "format": "uuid"
+                          },
+                          "provider": {
+                            "type": "string"
+                          },
+                          "provider_image_id": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "disk_size_gb": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "architecture": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "created_at": {
+                            "type": "string"
+                          },
+                          "updated_at": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "status",
+                          "source_machine_id",
+                          "provider",
+                          "provider_image_id",
+                          "disk_size_gb",
+                          "architecture",
+                          "created_at",
+                          "updated_at"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "images"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/images/{id}": {
+      "get": {
+        "tags": [
+          "Images"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get an image",
+        "description": "Returns image details including status and provider artifact info.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Image ID"
+            },
+            "required": true,
+            "description": "Image ID",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Image details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "creating",
+                        "ready",
+                        "failed",
+                        "deleted"
+                      ]
+                    },
+                    "source_machine_id": {
+                      "type": "string",
+                      "nullable": true,
+                      "format": "uuid"
+                    },
+                    "provider": {
+                      "type": "string"
+                    },
+                    "provider_image_id": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "disk_size_gb": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "architecture": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "created_at": {
+                      "type": "string"
+                    },
+                    "updated_at": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "status",
+                    "source_machine_id",
+                    "provider",
+                    "provider_image_id",
+                    "disk_size_gb",
+                    "architecture",
+                    "created_at",
+                    "updated_at"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Images"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Delete an image",
+        "description": "Deletes the image and its provider-side artifact.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Image ID"
+            },
+            "required": true,
+            "description": "Image ID",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Image deleted"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ssh-keys": {
+      "post": {
+        "tags": [
+          "SSH Keys"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Add an SSH key",
+        "description": "Registers a new SSH public key. Automatically uploaded to all providers.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "public_key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "SSH public key (e.g. ssh-ed25519 AAAA...)"
+                  }
+                },
+                "required": [
+                  "name",
+                  "public_key"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "SSH key added",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "fingerprint": {
+                      "type": "string"
+                    },
+                    "created_at": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "fingerprint",
+                    "created_at"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "SSH Keys"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List SSH keys",
+        "description": "Returns all SSH public keys registered by the authenticated user.",
+        "responses": {
+          "200": {
+            "description": "List of SSH keys",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ssh_keys": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "fingerprint": {
+                            "type": "string"
+                          },
+                          "created_at": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "fingerprint",
+                          "created_at"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "ssh_keys"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ssh-keys/{id}": {
+      "delete": {
+        "tags": [
+          "SSH Keys"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Delete an SSH key",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "SSH Key ID"
+            },
+            "required": true,
+            "description": "SSH Key ID",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "SSH key deleted"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/api-keys": {
+      "post": {
+        "tags": [
+          "API Keys"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Create an API key",
+        "description": "**The full key is only returned once in this response.** Store it securely.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "API key created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string",
+                      "description": "Only returned on creation"
+                    },
+                    "key_prefix": {
+                      "type": "string"
+                    },
+                    "created_at": {
+                      "type": "string"
+                    },
+                    "last_used": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "key_prefix",
+                    "created_at",
+                    "last_used"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "API Keys"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List API keys",
+        "description": "Returns all API keys. Full key value is never returned after creation.",
+        "responses": {
+          "200": {
+            "description": "List of API keys",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "api_keys": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "key": {
+                            "type": "string",
+                            "description": "Only returned on creation"
+                          },
+                          "key_prefix": {
+                            "type": "string"
+                          },
+                          "created_at": {
+                            "type": "string"
+                          },
+                          "last_used": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "key_prefix",
+                          "created_at",
+                          "last_used"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "api_keys"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/api-keys/{id}": {
+      "delete": {
+        "tags": [
+          "API Keys"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Delete an API key",
+        "description": "Permanently revokes the API key. Requests using it will immediately fail.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "API Key ID"
+            },
+            "required": true,
+            "description": "API Key ID",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "API key deleted"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/server-types/providers": {
+      "get": {
+        "tags": [
+          "Server Types"
+        ],
+        "summary": "List providers",
+        "responses": {
+          "200": {
+            "description": "Available providers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "providers": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "displayName": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "displayName"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "providers"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/server-types": {
+      "get": {
+        "tags": [
+          "Server Types"
+        ],
+        "summary": "List server types",
+        "description": "Returns available server types for a provider + region, with pricing.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "default": "cloud",
+              "description": "Cloud provider"
+            },
+            "required": false,
+            "description": "Cloud provider",
+            "name": "provider",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Region ID (e.g. hel1)"
+            },
+            "required": true,
+            "description": "Region ID (e.g. hel1)",
+            "name": "region",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Available server types",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "provider": {
+                      "type": "string"
+                    },
+                    "region": {
+                      "type": "string"
+                    },
+                    "server_types": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "vcpu": {
+                            "type": "number"
+                          },
+                          "ram_gb": {
+                            "type": "number"
+                          },
+                          "disk_gb": {
+                            "type": "number"
+                          },
+                          "cpu_type": {
+                            "type": "string",
+                            "enum": [
+                              "shared",
+                              "dedicated"
+                            ]
+                          },
+                          "architecture": {
+                            "type": "string",
+                            "enum": [
+                              "x86",
+                              "arm"
+                            ]
+                          },
+                          "price_monthly": {
+                            "type": "number",
+                            "description": "Our price after markup (includes backups)"
+                          },
+                          "provider_price_monthly": {
+                            "type": "number",
+                            "description": "Raw provider price"
+                          },
+                          "backup_price_monthly": {
+                            "type": "number",
+                            "description": "Provider backup cost (20% of provider price)"
+                          },
+                          "available": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "description",
+                          "vcpu",
+                          "ram_gb",
+                          "disk_gb",
+                          "cpu_type",
+                          "architecture",
+                          "price_monthly",
+                          "provider_price_monthly",
+                          "backup_price_monthly",
+                          "available"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "region",
+                    "server_types"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/server-types/regions": {
+      "get": {
+        "tags": [
+          "Server Types"
+        ],
+        "summary": "List regions",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "default": "cloud",
+              "description": "Cloud provider"
+            },
+            "required": false,
+            "description": "Cloud provider",
+            "name": "provider",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Available regions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "provider": {
+                      "type": "string"
+                    },
+                    "regions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "country": {
+                            "type": "string"
+                          },
+                          "city": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "country",
+                          "city"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "regions"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/account": {
+      "get": {
+        "tags": [
+          "Account"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get account info",
+        "responses": {
+          "200": {
+            "description": "Account details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "email": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "machines_count": {
+                      "type": "number"
+                    },
+                    "stripe_customer_id": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "created_at": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "email",
+                    "name",
+                    "machines_count",
+                    "stripe_customer_id",
+                    "created_at"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/account/usage": {
+      "get": {
+        "tags": [
+          "Account"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get usage stats",
+        "description": "Returns current billing period usage including active machines and estimated cost.",
+        "responses": {
+          "200": {
+            "description": "Usage statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "current_period": {
+                      "type": "object",
+                      "properties": {
+                        "machines": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "slug": {
+                                "type": "string"
+                              },
+                              "server_type": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "slug",
+                              "server_type",
+                              "status"
+                            ]
+                          }
+                        },
+                        "total_machines": {
+                          "type": "number"
+                        },
+                        "estimated_cost": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "machines",
+                        "total_machines",
+                        "estimated_cost"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "current_period"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/account/billing": {
+      "get": {
+        "tags": [
+          "Account"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get billing info",
+        "description": "Returns Stripe billing portal URL and payment method status.",
+        "responses": {
+          "200": {
+            "description": "Billing info",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "portal_url": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "has_payment_method": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "portal_url",
+                    "has_payment_method"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/account/billing/setup": {
+      "post": {
+        "tags": [
+          "Account"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Create billing setup session",
+        "description": "Creates a Stripe Checkout Session in setup mode to add a payment method.",
+        "responses": {
+          "200": {
+            "description": "Checkout URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "checkout_url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "checkout_url"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/internal/heartbeat": {
+      "post": {
+        "tags": [
+          "Internal"
+        ],
+        "summary": "Agent heartbeat",
+        "description": "Called by the justavps-agent on each machine every 60s. Authenticated via `machine_token` in body.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "slug": {
+                    "type": "string"
+                  },
+                  "machine_token": {
+                    "type": "string"
+                  },
+                  "uptime": {
+                    "type": "number"
+                  },
+                  "services": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "boolean"
+                    }
+                  },
+                  "load": {
+                    "type": "object",
+                    "properties": {
+                      "cpu": {
+                        "type": "number"
+                      },
+                      "memory": {
+                        "type": "number"
+                      },
+                      "disk": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "cpu",
+                      "memory",
+                      "disk"
+                    ]
+                  }
+                },
+                "required": [
+                  "slug",
+                  "machine_token",
+                  "uptime",
+                  "services",
+                  "load"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ack": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ack"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/internal/stage": {
+      "post": {
+        "tags": [
+          "Internal"
+        ],
+        "summary": "Report provisioning stage",
+        "description": "Called by the machine agent to report provisioning progress.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "slug": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "machine_token": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "stage": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "nullable": true
+                    }
+                  }
+                },
+                "required": [
+                  "slug",
+                  "machine_token",
+                  "stage"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ack": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ack"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/internal/validate-key": {
+      "get": {
+        "tags": [
+          "Internal"
+        ],
+        "summary": "Validate API key",
+        "description": "Called by the Cloudflare Worker to validate API keys at the edge.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "API key to validate"
+            },
+            "required": true,
+            "description": "API key to validate",
+            "name": "key",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Machine slug to check ownership"
+            },
+            "required": false,
+            "description": "Machine slug to check ownership",
+            "name": "machine_slug",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Valid key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "valid": {
+                      "type": "boolean"
+                    },
+                    "owner_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "valid"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "valid": {
+                      "type": "boolean"
+                    },
+                    "owner_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "valid"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key does not own machine",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "valid": {
+                      "type": "boolean"
+                    },
+                    "owner_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "valid"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/machines/{id}/status/stream": {
+      "get": {
+        "tags": [
+          "Events"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Stream machine status (SSE)",
+        "description": "Opens a Server-Sent Events stream for real-time provisioning updates.\n\n**Event types:** `status`, `stage`, `done`, `ping`, `error`\n\nAuto-closes on terminal state or after 10 minutes.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Machine ID"
+            },
+            "required": true,
+            "description": "Machine ID",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/webhooks": {
+      "post": {
+        "tags": [
+          "Webhooks"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Create a webhook",
+        "description": "Subscribes a URL to receive POST requests for specified events. Payloads are signed with HMAC-SHA256 (`X-Signature-256` header).\n\n**Events:** `*`, `machine.stage_changed`, `machine.status_changed`, `machine.heartbeat`",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "HTTPS URL to receive webhook POSTs"
+                  },
+                  "events": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "*",
+                        "machine.stage_changed",
+                        "machine.status_changed",
+                        "machine.heartbeat"
+                      ]
+                    },
+                    "minItems": 1,
+                    "description": "Event types to subscribe to"
+                  },
+                  "secret": {
+                    "type": "string",
+                    "minLength": 16,
+                    "description": "HMAC secret (auto-generated if omitted)"
+                  }
+                },
+                "required": [
+                  "url",
+                  "events"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Webhook created (secret shown once)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "url": {
+                      "type": "string"
+                    },
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "secret": {
+                      "type": "string",
+                      "description": "Only returned on creation"
+                    },
+                    "active": {
+                      "type": "boolean"
+                    },
+                    "created_at": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "url",
+                    "events",
+                    "active",
+                    "created_at"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Webhooks"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List webhooks",
+        "responses": {
+          "200": {
+            "description": "List of webhooks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "webhooks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "url": {
+                            "type": "string"
+                          },
+                          "events": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "active": {
+                            "type": "boolean"
+                          },
+                          "created_at": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "url",
+                          "events",
+                          "active",
+                          "created_at"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "webhooks"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/webhooks/{id}": {
+      "delete": {
+        "tags": [
+          "Webhooks"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Delete a webhook",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Webhook ID"
+            },
+            "required": true,
+            "description": "Webhook ID",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Webhook deleted"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

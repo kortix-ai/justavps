@@ -9,7 +9,7 @@ export interface ParsedHostname {
  * Parse hostname and pathname to extract slug and port information.
  *
  * Port forwarding formats (all single-level subdomain = *.kortix.cloud cert):
- *   1. SLUG.kortix.cloud           → default port 80 (Caddy → code-server)
+ *   1. SLUG.kortix.cloud           → default port 80 (Caddy → OpenCode)
  *   2. PORT--SLUG.kortix.cloud     → port PORT (e.g. 4096--abc123.kortix.cloud)
  *   3. SLUG.kortix.cloud/_port/PORT/path → path-based fallback
  *

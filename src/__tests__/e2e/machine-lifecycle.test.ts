@@ -7,10 +7,10 @@
  *   1. Machine creation via API (provisioning → ready)
  *   2. Cloudflare DNS (proxied A record + origin A + wildcard A)
  *   3. SSH connectivity + cloud-init completion
- *   4. Platform services (code-server, Caddy, Docker, daemon, sandbox-agent)
+ *   4. Platform services (OpenCode, Caddy, Docker, daemon, sandbox-agent)
  *   5. Security: no cloudflared, correct firewall, correct config (no tunnel secrets)
  *   6. CF Worker auth: unauthenticated → 302/401, wrong key → 401
- *   7. CF Worker proxy: authenticated → 200 (code-server via Caddy)
+ *   7. CF Worker proxy: authenticated → 200 (OpenCode via Caddy)
  *   8. Port forwarding: start custom server on port 9000, proxy via /_port/9000/ → 200
  *   9. Port forwarding: daemon health via /_port/7777/health → 200 JSON
  *  10. Port forwarding: sandbox-agent via /_port/2468/ → 200
@@ -289,10 +289,10 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
     expect(done).toBe(true);
   });
 
-  it('6. code-server active on port 8080', () => {
+  it('6. opencode-web active on port 3456', () => {
     if (!sshKeyPath) return;
-    expect(ssh('systemctl is-active code-server')).toBe('active');
-    expect(Number(ssh('ss -tlnp | grep 8080 | wc -l'))).toBeGreaterThan(0);
+    expect(ssh('systemctl is-active opencode-web')).toBe('active');
+    expect(Number(ssh('ss -tlnp | grep 3456 | wc -l'))).toBeGreaterThan(0);
   });
 
   it('7. Caddy active on port 80', () => {
@@ -411,7 +411,7 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
   //  PHASE 6: CF WORKER PROXY — authenticated traffic flows through
   // ═══════════════════════════════════════════════════════════════════════════
 
-  it('19. authenticated request → 200 (Caddy → code-server)', async () => {
+  it('19. authenticated request → 200 (Caddy → OpenCode)', async () => {
     let status = '';
     for (let i = 0; i < PROXY_RETRIES; i++) {
       const r = parseCurl(proxyGet('/', { auth: true }));

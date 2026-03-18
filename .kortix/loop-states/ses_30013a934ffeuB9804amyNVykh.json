@@ -1,0 +1,21 @@
+{
+  "active": false,
+  "taskPrompt": "Wait I removed the machine. But can u also have full e2e test in PLAYWRIGHT with everything.",
+  "iteration": 0,
+  "sessionId": "ses_30013a934ffeuB9804amyNVykh",
+  "startedAt": 1773851587096,
+  "inVerification": false,
+  "messageCountAtStart": 430,
+  "consecutiveFailures": 0,
+  "lastFailureAt": 0,
+  "lastInjectedAt": 0,
+  "stopped": false,
+  "lastAbortAt": 0,
+  "algorithm": "kraemer",
+  "kubetValidatorLevel": 3,
+  "kubetCriticCount": 0,
+  "kubetLastCriticAt": 0,
+  "inoCurrentStage": null,
+  "saumyaPhase": "expand",
+  "saumyaPhaseStartedAt": 0
+}

@@ -2,17 +2,15 @@
 
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Copy, Eye, EyeOff } from "lucide-react";
+import { Copy, Eye, EyeOff, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 
 interface ConnectInfo {
   ssh_command: string | null;
   setup_command: string | null;
   vscode_url: string;
-  vscode_password: string;
   cursor_ssh: string | null;
   claude_code: string | null;
 }
@@ -168,52 +166,57 @@ export function ConnectGuide({ connectInfo, machineStatus, machineIp, sshKey }: 
               </span>
             </div>
           )}
-          <div className={`transition-[filter] duration-200 ${!showSecrets ? 'blur-[8px] select-none pointer-events-none' : ''}`}>
-            <Tabs defaultValue="vscode">
-              <TabsList>
-                <TabsTrigger value="vscode">VS Code / Cursor</TabsTrigger>
-                <TabsTrigger value="browser">Browser IDE</TabsTrigger>
-              </TabsList>
+          <div className={`space-y-4 transition-[filter] duration-200 ${!showSecrets ? 'blur-[8px] select-none pointer-events-none' : ''}`}>
+            {/* VS Code / Cursor SSH */}
+            <div className="space-y-2">
+              <p className="text-sm font-medium">VS Code / Cursor (Remote SSH)</p>
+              <p className="text-sm text-muted-foreground">
+                Open Command Palette → <strong>Remote-SSH: Connect to Host</strong>
+              </p>
+              <div className="relative group">
+                <code className="block bg-[#09090b] p-2 rounded text-sm font-mono text-foreground">
+                  {connectInfo.cursor_ssh || `ssh root@${machineIp}`}
+                </code>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="absolute top-1 right-1 h-7 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={() => copy(connectInfo.cursor_ssh || `ssh root@${machineIp}`, 'SSH')}
+                >
+                  <Copy className="size-3.5 mr-1" /> Copy
+                </Button>
+              </div>
+            </div>
 
-              <TabsContent value="vscode" className="mt-4 space-y-2">
-                <p className="text-sm text-muted-foreground">
-                  1. Open VS Code &rarr; Command Palette &rarr; <strong>Remote-SSH: Connect to Host</strong>
-                </p>
-                <div className="relative group">
-                  <code className="block bg-[#09090b] p-2 rounded text-sm font-mono text-foreground">
-                    {connectInfo.cursor_ssh || `ssh root@${machineIp}`}
-                  </code>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="absolute top-1 right-1 h-7 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={() => copy(connectInfo.cursor_ssh || `ssh root@${machineIp}`, 'SSH')}
-                  >
-                    <Copy className="size-3.5 mr-1" /> Copy
-                  </Button>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="browser" className="mt-4 space-y-2">
-                <p className="text-sm text-muted-foreground">Open code-server in your browser:</p>
-                <div className="relative group">
-                  <code className="block bg-[#09090b] p-2 rounded text-sm font-mono text-foreground">
-                    {connectInfo.vscode_url}
-                  </code>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="absolute top-1 right-1 h-7 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={() => copy(connectInfo.vscode_url, 'URL')}
-                  >
-                    <Copy className="size-3.5 mr-1" /> Copy
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Password: <code className="bg-muted px-1 rounded">{connectInfo.vscode_password}</code>
-                </p>
-              </TabsContent>
-            </Tabs>
+            {/* OpenCode Web IDE */}
+            <div className="space-y-2">
+              <p className="text-sm font-medium">OpenCode Web IDE</p>
+              <p className="text-sm text-muted-foreground">
+                Open the browser-based IDE (no password needed — auth handled by proxy):
+              </p>
+              <div className="relative group">
+                <code className="block bg-[#09090b] p-2 rounded text-sm font-mono text-foreground">
+                  {connectInfo.vscode_url}
+                </code>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="absolute top-1 right-1 h-7 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={() => copy(connectInfo.vscode_url, 'URL')}
+                >
+                  <Copy className="size-3.5 mr-1" /> Copy
+                </Button>
+              </div>
+              <a
+                href={connectInfo.vscode_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+              >
+                <ExternalLink className="size-3" />
+                Open in new tab
+              </a>
+            </div>
           </div>
         </CardContent>
       </Card>

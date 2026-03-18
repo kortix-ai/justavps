@@ -76,7 +76,7 @@ export const machines = pgTable('machines', {
 
   // Machine credentials
   machineToken: text('machine_token').notNull(),
-  codeServerPassword: text('code_server_password').notNull(),
+  codeServerPassword: text('code_server_password').default('').notNull(), // Legacy — no longer used (OpenCode replaced code-server)
   sshPublicKey: text('ssh_public_key'),
   sshPrivateKey: text('ssh_private_key'),
 

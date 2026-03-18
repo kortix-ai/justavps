@@ -36,7 +36,6 @@ export interface Machine {
     ssh_command: string | null;
     setup_command: string | null;
     vscode_url: string;
-    vscode_password: string;
     cursor_ssh: string | null;
   } | null;
   health: {
