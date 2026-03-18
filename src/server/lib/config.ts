@@ -32,6 +32,7 @@ export const config = {
 
   // Auth
   AUTH_SECRET: process.env.AUTH_SECRET || '',
+  PROXY_AUTH_SECRET: process.env.PROXY_AUTH_SECRET || process.env.AUTH_SECRET || '',
 
   // Helpers
   isHetznerConfigured(): boolean {

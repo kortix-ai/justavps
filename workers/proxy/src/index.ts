@@ -1,122 +1,98 @@
 /**
- * Cloudflare Worker for *.kortix.cloud auth proxy gateway
- * 
- * Handles authentication and proxying for VPS instances
+ * Cloudflare Worker — *.kortix.cloud proxy gateway.
+ *
+ * All machine access goes through this Worker. It handles:
+ *   - Auth: JWT cookie, API key, query token
+ *   - Routing: slug → VPS IP from KV
+ *   - Proxying: HTTP + WebSocket to VPS
+ *   - Cookie refresh: silently refreshes JWT when < 6h remaining
+ *
+ * Unauthenticated browser requests → redirect to platform /api/proxy-auth
+ * Unauthenticated API requests → 401
  */
 
 import { parseHostname } from './hostname';
-import { validateAuth, createUnauthorizedResponse } from './auth';
+import { validateAuth, createUnauthorizedResponse, createLoginRedirect } from './auth';
 import { handleCORSPreflight, isWebSocketUpgrade, proxyHTTPRequest, proxyWebSocket } from './proxy';
 
 export interface Env {
   KV: KVNamespace;
+  PROXY_AUTH_SECRET: string;
+  PLATFORM_URL: string; // e.g. https://justavps.com
   ENVIRONMENT?: string;
 }
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
-      // Parse the hostname to extract slug and port
       const url = new URL(request.url);
-      const pathname = url.pathname;
-      const hostname = url.hostname;
-      
-      const parsed = parseHostname(hostname, pathname);
-      
+      const parsed = parseHostname(url.hostname, url.pathname);
+
       if (!parsed) {
-        return new Response(JSON.stringify({ 
-          error: 'Invalid hostname format',
-          expected: 'slug.kortix.cloud or port.slug.kortix.cloud' 
+        return new Response(JSON.stringify({
+          error: 'Invalid hostname',
+          expected: 'slug.kortix.cloud or port.slug.kortix.cloud',
         }), {
           status: 400,
-          headers: { 
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
-          }
+          headers: { 'Content-Type': 'application/json' },
         });
       }
 
-      const { slug, port, isPty } = parsed;
+      const { slug, port } = parsed;
 
-      // Handle CORS preflight before authentication
+      // CORS preflight — let through without auth
       if (request.method === 'OPTIONS') {
-        const corsResponse = handleCORSPreflight(request);
-        if (corsResponse) {
-          return corsResponse;
-        }
+        const cors = handleCORSPreflight(request);
+        if (cors) return cors;
       }
 
-      // Validate authentication and authorization
-      const authResult = await validateAuth(request, slug, env.KV);
-      
+      // Authenticate
+      const authResult = await validateAuth(request, slug, env.KV, env.PROXY_AUTH_SECRET);
+
       if (!authResult.success) {
-        // For browser requests, redirect to login page
+        // Browser request → redirect to login
         if (isBrowserRequest(request) && request.method === 'GET') {
-          const loginUrl = `https://justavps.com/login?redirect=${encodeURIComponent(request.url)}`;
-          return Response.redirect(loginUrl, 302);
+          return createLoginRedirect(request, env.PLATFORM_URL);
         }
-        
-        return createUnauthorizedResponse(authResult.error || 'Authentication failed');
+        // API request → 401
+        return createUnauthorizedResponse(authResult.error || 'Authentication required');
       }
 
-      // Log successful authentication
-      console.log(`Authenticated request for machine ${slug} by user ${authResult.ownerId}`);
+      // Proxy the request
+      let response: Response;
 
-      // Handle WebSocket upgrade requests
       if (isWebSocketUpgrade(request)) {
-        return await proxyWebSocket(request, authResult.machineInfo!, port);
+        response = await proxyWebSocket(request, authResult.machineInfo!, port);
+      } else {
+        response = await proxyHTTPRequest(request, authResult.machineInfo!, port);
       }
 
-      // Handle regular HTTP requests
-      return await proxyHTTPRequest(request, authResult.machineInfo!, port);
+      // Silent cookie refresh — if JWT is within 6h of expiry, re-sign and set updated cookie
+      // (Only for non-WebSocket responses where we can add headers)
+      if (authResult.shouldRefresh && !isWebSocketUpgrade(request)) {
+        // We can't sign JWTs in the Worker (no jose), so we inject a refresh hint.
+        // The browser will call /api/proxy-auth to get a fresh cookie.
+        response = new Response(response.body, response);
+        response.headers.set('X-Proxy-Auth-Refresh', 'true');
+      }
+
+      return response;
 
     } catch (error) {
       console.error('Worker error:', error);
-      
-      return new Response(JSON.stringify({ 
+      return new Response(JSON.stringify({
         error: 'Internal server error',
-        details: env.ENVIRONMENT === 'development' && error instanceof Error ? error.message : undefined
+        details: env.ENVIRONMENT === 'development' && error instanceof Error ? error.message : undefined,
       }), {
         status: 500,
-        headers: { 
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        }
+        headers: { 'Content-Type': 'application/json' },
       });
     }
-  }
+  },
 };
 
-/**
- * Determine if this is a browser request vs API request
- */
 function isBrowserRequest(request: Request): boolean {
   const accept = request.headers.get('Accept') || '';
-  const userAgent = request.headers.get('User-Agent') || '';
-  
-  // Check for browser Accept header patterns
-  const browserAcceptPatterns = [
-    'text/html',
-    'application/xhtml+xml',
-    'text/html,application/xhtml+xml'
-  ];
-  
-  const hasBrowserAccept = browserAcceptPatterns.some(pattern => 
-    accept.includes(pattern)
-  );
-  
-  // Check for browser user agents
-  const browserUserAgents = [
-    'Mozilla',
-    'Chrome',
-    'Safari',
-    'Firefox',
-    'Edge'
-  ];
-  
-  const hasBrowserUserAgent = browserUserAgents.some(browser => 
-    userAgent.includes(browser)
-  );
-  
-  return hasBrowserAccept || hasBrowserUserAgent;
+  const ua = request.headers.get('User-Agent') || '';
+  return accept.includes('text/html') || ['Mozilla', 'Chrome', 'Safari', 'Firefox'].some(b => ua.includes(b));
 }

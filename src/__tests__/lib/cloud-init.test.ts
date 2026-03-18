@@ -59,16 +59,16 @@ describe('cloud-init', () => {
       expect(script).toContain('"callback_url": "https://platform.example.com/webhook"');
     });
     
-    it('should configure code-server with correct password and domain', () => {
+    it('should configure code-server with no auth (CF Worker handles auth)', () => {
       const script = buildCloudInit({
         ...defaultOpts,
-        codeServerPassword: 'super-secret-pwd',
         slug: 'my-machine',
         proxyDomain: 'mycloud.com',
       });
       
-      expect(script).toContain('password: super-secret-pwd');
-      expect(script).toContain('bind-addr: 0.0.0.0:8080');
+      expect(script).toContain('auth: none');
+      expect(script).toContain('bind-addr: 127.0.0.1:8080');
+      expect(script).not.toContain('auth: password');
     });
     
     it('should configure Caddy reverse proxy', () => {

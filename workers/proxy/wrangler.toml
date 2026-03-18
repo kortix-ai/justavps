@@ -2,6 +2,9 @@ name = "kortix-cloud-proxy"
 main = "src/index.ts"
 compatibility_date = "2024-12-18"
 
+# Route: all traffic to *.kortix.cloud goes through this Worker
+# Set via Cloudflare dashboard: Workers Routes → *.kortix.cloud/*
+
 [env.production]
 name = "kortix-cloud-proxy"
 
@@ -10,14 +13,15 @@ name = "kortix-cloud-proxy-staging"
 
 [[kv_namespaces]]
 binding = "KV"
-preview_id = "YOUR_PREVIEW_KV_ID"
-id = "YOUR_PRODUCTION_KV_ID"
+preview_id = "YOUR_PREVIEW_KV_ID"   # TODO: replace with real KV namespace ID
+id = "YOUR_PRODUCTION_KV_ID"         # TODO: replace with real KV namespace ID
 
 [vars]
 ENVIRONMENT = "production"
+PLATFORM_URL = "https://justavps.com"
 
-[triggers]
-crons = []
+# Secrets (set via `wrangler secret put`):
+#   PROXY_AUTH_SECRET — same value as the platform's PROXY_AUTH_SECRET env var
 
 [placement]
 mode = "smart"
