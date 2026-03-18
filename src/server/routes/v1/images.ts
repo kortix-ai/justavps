@@ -4,7 +4,7 @@
  */
 
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
-import { eq } from 'drizzle-orm';
+import { eq, or } from 'drizzle-orm';
 import { db } from '../../db';
 import { images } from '../../db/schema';
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
@@ -28,6 +28,7 @@ function serializeImage(img: ImageRow) {
     id: img.id,
     name: img.name,
     status: img.status,
+    is_public: img.isPublic,
     source_machine_id: img.sourceMachineId,
     provider: img.provider,
     provider_image_id: img.providerImageId,
@@ -59,8 +60,9 @@ const listImagesRoute = createRoute({
 // @ts-expect-error — DB returns string status, schema expects enum; runtime values are always valid
 imagesApp.openapi(listImagesRoute, async (c) => {
   const ownerId = c.get('userId');
+  // Show user's own images + public base images (visible to everyone)
   const result = await db.select().from(images)
-    .where(eq(images.ownerId, ownerId))
+    .where(or(eq(images.ownerId, ownerId), eq(images.isPublic, true)))
     .then(rows => rows.filter(r => r.status !== 'deleted'));
   return c.json({ images: result.map(serializeImage) }, 200);
 });

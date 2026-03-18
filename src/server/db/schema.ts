@@ -41,6 +41,7 @@ export const images = pgTable('images', {
   name: text('name').notNull(),
   status: text('status').notNull().default('creating'),
   // creating | ready | failed | deleted
+  isPublic: boolean('is_public').default(false).notNull(), // public = visible to all users (base images)
   sourceMachineId: uuid('source_machine_id'), // which machine was captured (no FK — machine may be deleted)
   provider: text('provider').notNull().default('hetzner'),
   providerImageId: text('provider_image_id'), // Hetzner snapshot ID
