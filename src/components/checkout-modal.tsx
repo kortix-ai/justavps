@@ -100,7 +100,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
       <div className="relative h-full flex items-center justify-center p-4">
-        <div className="w-full max-w-[480px] bg-background rounded-2xl border border-border shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+        <div className="w-full max-w-[560px] bg-background rounded-2xl border border-border shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
 
           {/* ── Header ── */}
           <div className="flex items-center justify-between px-6 pt-6 pb-4">
@@ -153,10 +153,15 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                     key={s.name}
                     onClick={() => setSelectedServerType(s.name)}
                     className={cn(
-                      "w-full relative flex items-center gap-4 p-4 rounded-xl border text-left transition-all",
+                      "w-full flex items-center gap-4 p-4 rounded-xl border text-left transition-all",
                       active ? "border-foreground bg-card" : "border-border hover:border-foreground/50"
                     )}
                   >
+                    {/* Radio */}
+                    <div className={cn("size-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors", active ? "border-foreground bg-foreground" : "border-border")}>
+                      {active && <Check className="size-3 text-background" />}
+                    </div>
+
                     {/* Icon */}
                     <div className={cn("size-10 rounded-xl flex items-center justify-center shrink-0", active ? "bg-foreground text-background" : "bg-muted text-muted-foreground")}>
                       <Icon className="size-4" />
@@ -168,25 +173,22 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                         <span className="text-sm font-medium">{label}</span>
                         {isMid && <span className="px-1.5 py-0.5 rounded bg-foreground text-background text-[9px] font-medium leading-none">POPULAR</span>}
                       </div>
-                      <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1"><Cpu className="size-3" />{s.vcpu} vCPU</span>
-                        <span className="flex items-center gap-1"><MemoryStick className="size-3" />{s.ram_gb} GB</span>
-                        <span className="flex items-center gap-1"><HardDrive className="size-3" />{s.disk_gb} GB</span>
-                        <span className="text-muted-foreground">· {tagline}</span>
+                      <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground whitespace-nowrap">
+                        <span>{s.vcpu} vCPU</span>
+                        <span className="text-border">·</span>
+                        <span>{s.ram_gb} GB RAM</span>
+                        <span className="text-border">·</span>
+                        <span>{s.disk_gb} GB SSD</span>
+                        <span className="text-border">·</span>
+                        <span>{tagline}</span>
                       </div>
                     </div>
 
-                    {/* Price + check */}
+                    {/* Price */}
                     <div className="text-right shrink-0">
-                      <div className="text-lg font-medium">${s.price_monthly}</div>
-                      <div className="text-[10px] text-muted-foreground">/mo</div>
+                      <span className="text-lg font-medium">${s.price_monthly}</span>
+                      <span className="text-xs text-muted-foreground">/mo</span>
                     </div>
-
-                    {active && (
-                      <div className="absolute right-4 top-1/2 -translate-y-1/2 size-5 rounded-full bg-foreground flex items-center justify-center">
-                        <Check className="size-3 text-background" />
-                      </div>
-                    )}
                   </button>
                 );
               })}
