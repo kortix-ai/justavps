@@ -332,20 +332,20 @@ async function main() {
     else if (na === '000') bad('No auth → connection failed');
     else bad(`No auth → ${na} (expected 401/302)`);
 
-    // JWT cookie → code-server
-    assertEq('JWT cookie → 200', '200', curlCode(`${proxyUrl}/login`, `-b "__justavps_proxy=${jwt}"`));
+    // JWT cookie → code-server (hit / not /login — auth:none redirects /login to /)
+    assertEq('JWT cookie → 200', '200', curlCode(`${proxyUrl}/`, `-b "__justavps_proxy=${jwt}"`));
 
     // Page content
     try {
-      const body = execSync(`curl -s --max-time 10 -b "__justavps_proxy=${jwt}" "${proxyUrl}/login"`, { encoding: 'utf8', timeout: 15000 });
-      assertContains('code-server page', body, 'code-server');
+      const body = execSync(`curl -s --max-time 10 -b "__justavps_proxy=${jwt}" "${proxyUrl}/"`, { encoding: 'utf8', timeout: 15000 });
+      assertContains('code-server page', body, 'vscode');
     } catch { bad('code-server page'); }
 
     // Auth header
-    assertEq('Auth header → 200', '200', curlCode(`${proxyUrl}/login`, `-H "Authorization: Bearer ${jwt}"`));
+    assertEq('Auth header → 200', '200', curlCode(`${proxyUrl}/`, `-H "Authorization: Bearer ${jwt}"`));
 
     // Token param
-    assertEq('Token param → 200', '200', curlCode(`${proxyUrl}/login?token=${jwt}`));
+    assertEq('Token param → 200', '200', curlCode(`${proxyUrl}/?token=${jwt}`));
   } else {
     for (const t of ['No auth', 'JWT cookie', 'code-server page', 'Auth header', 'Token param']) {
       skipped(t);

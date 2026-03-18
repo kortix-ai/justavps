@@ -39,6 +39,9 @@ func NewAuthProxy(cfg *Config, proxyAuthSecret string, codeServerPort int) http.
 		// Verify JWT cookie
 		userID, err := verifyJWTCookie(r, proxyAuthSecret)
 		if err != nil {
+			log.Printf("Auth failed: %s (path=%s secret_len=%d cookie=%v header=%v)",
+				err.Error(), r.URL.Path, len(proxyAuthSecret),
+				r.Header.Get("Cookie") != "", r.Header.Get("Authorization") != "")
 			// Browser request → redirect to platform login
 			if isBrowserReq(r) {
 				redirectURL := fmt.Sprintf("https://%s.%s%s", cfg.Slug, cfg.ProxyDomain, r.URL.RequestURI())
