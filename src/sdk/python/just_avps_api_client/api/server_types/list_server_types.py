@@ -6,7 +6,7 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.error import Error
-from ...models.list_server_types_response_200 import ListServerTypesResponse200
+from ...models.server_type_list_response import ServerTypeListResponse
 from ...types import UNSET, Response, Unset
 
 
@@ -34,9 +34,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Error | ListServerTypesResponse200 | None:
+) -> Error | ServerTypeListResponse | None:
     if response.status_code == 200:
-        response_200 = ListServerTypesResponse200.from_dict(response.json())
+        response_200 = ServerTypeListResponse.from_dict(response.json())
 
         return response_200
 
@@ -53,7 +53,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Error | ListServerTypesResponse200]:
+) -> Response[Error | ServerTypeListResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -67,10 +67,10 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     provider: str | Unset = "hetzner",
     region: str,
-) -> Response[Error | ListServerTypesResponse200]:
+) -> Response[Error | ServerTypeListResponse]:
     """List server types
 
-     Returns all available server types for a given provider and region, including pricing with markup.
+     Returns available server types for a provider + region, with pricing.
 
     Args:
         provider (str | Unset):  Default: 'hetzner'.
@@ -81,7 +81,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Error | ListServerTypesResponse200]
+        Response[Error | ServerTypeListResponse]
     """
 
     kwargs = _get_kwargs(
@@ -101,10 +101,10 @@ def sync(
     client: AuthenticatedClient | Client,
     provider: str | Unset = "hetzner",
     region: str,
-) -> Error | ListServerTypesResponse200 | None:
+) -> Error | ServerTypeListResponse | None:
     """List server types
 
-     Returns all available server types for a given provider and region, including pricing with markup.
+     Returns available server types for a provider + region, with pricing.
 
     Args:
         provider (str | Unset):  Default: 'hetzner'.
@@ -115,7 +115,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Error | ListServerTypesResponse200
+        Error | ServerTypeListResponse
     """
 
     return sync_detailed(
@@ -130,10 +130,10 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     provider: str | Unset = "hetzner",
     region: str,
-) -> Response[Error | ListServerTypesResponse200]:
+) -> Response[Error | ServerTypeListResponse]:
     """List server types
 
-     Returns all available server types for a given provider and region, including pricing with markup.
+     Returns available server types for a provider + region, with pricing.
 
     Args:
         provider (str | Unset):  Default: 'hetzner'.
@@ -144,7 +144,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Error | ListServerTypesResponse200]
+        Response[Error | ServerTypeListResponse]
     """
 
     kwargs = _get_kwargs(
@@ -162,10 +162,10 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     provider: str | Unset = "hetzner",
     region: str,
-) -> Error | ListServerTypesResponse200 | None:
+) -> Error | ServerTypeListResponse | None:
     """List server types
 
-     Returns all available server types for a given provider and region, including pricing with markup.
+     Returns available server types for a provider + region, with pricing.
 
     Args:
         provider (str | Unset):  Default: 'hetzner'.
@@ -176,7 +176,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Error | ListServerTypesResponse200
+        Error | ServerTypeListResponse
     """
 
     return (

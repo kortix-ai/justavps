@@ -61,8 +61,6 @@ def sync_detailed(
 ) -> Response[Any | Error]:
     """Delete an SSH key
 
-     Removes the SSH key from JustAVPS and all providers. Existing machines are not affected.
-
     Args:
         id (UUID):
 
@@ -92,8 +90,6 @@ def sync(
 ) -> Any | Error | None:
     """Delete an SSH key
 
-     Removes the SSH key from JustAVPS and all providers. Existing machines are not affected.
-
     Args:
         id (UUID):
 
@@ -117,8 +113,6 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
 ) -> Response[Any | Error]:
     """Delete an SSH key
-
-     Removes the SSH key from JustAVPS and all providers. Existing machines are not affected.
 
     Args:
         id (UUID):
@@ -146,8 +140,6 @@ async def asyncio(
     client: AuthenticatedClient,
 ) -> Any | Error | None:
     """Delete an SSH key
-
-     Removes the SSH key from JustAVPS and all providers. Existing machines are not affected.
 
     Args:
         id (UUID):

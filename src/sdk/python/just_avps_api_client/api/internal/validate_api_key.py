@@ -5,9 +5,8 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.validate_api_key_response_200 import ValidateAPIKeyResponse200
-from ...models.validate_api_key_response_401 import ValidateAPIKeyResponse401
-from ...models.validate_api_key_response_403 import ValidateAPIKeyResponse403
+from ...models.error import Error
+from ...models.validate_key_response import ValidateKeyResponse
 from ...types import UNSET, Response, Unset
 
 
@@ -35,21 +34,31 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ValidateAPIKeyResponse200 | ValidateAPIKeyResponse401 | ValidateAPIKeyResponse403 | None:
+) -> Error | ValidateKeyResponse | None:
     if response.status_code == 200:
-        response_200 = ValidateAPIKeyResponse200.from_dict(response.json())
+        response_200 = ValidateKeyResponse.from_dict(response.json())
 
         return response_200
 
+    if response.status_code == 400:
+        response_400 = Error.from_dict(response.json())
+
+        return response_400
+
     if response.status_code == 401:
-        response_401 = ValidateAPIKeyResponse401.from_dict(response.json())
+        response_401 = ValidateKeyResponse.from_dict(response.json())
 
         return response_401
 
     if response.status_code == 403:
-        response_403 = ValidateAPIKeyResponse403.from_dict(response.json())
+        response_403 = ValidateKeyResponse.from_dict(response.json())
 
         return response_403
+
+    if response.status_code == 503:
+        response_503 = Error.from_dict(response.json())
+
+        return response_503
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -59,7 +68,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ValidateAPIKeyResponse200 | ValidateAPIKeyResponse401 | ValidateAPIKeyResponse403]:
+) -> Response[Error | ValidateKeyResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -73,10 +82,10 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     key: str,
     machine_slug: str | Unset = UNSET,
-) -> Response[ValidateAPIKeyResponse200 | ValidateAPIKeyResponse401 | ValidateAPIKeyResponse403]:
+) -> Response[Error | ValidateKeyResponse]:
     """Validate API key
 
-     Called by the Cloudflare Worker to validate API keys at the edge. IP-restricted.
+     Called by the Cloudflare Worker to validate API keys at the edge.
 
     Args:
         key (str):
@@ -87,7 +96,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ValidateAPIKeyResponse200 | ValidateAPIKeyResponse401 | ValidateAPIKeyResponse403]
+        Response[Error | ValidateKeyResponse]
     """
 
     kwargs = _get_kwargs(
@@ -107,10 +116,10 @@ def sync(
     client: AuthenticatedClient | Client,
     key: str,
     machine_slug: str | Unset = UNSET,
-) -> ValidateAPIKeyResponse200 | ValidateAPIKeyResponse401 | ValidateAPIKeyResponse403 | None:
+) -> Error | ValidateKeyResponse | None:
     """Validate API key
 
-     Called by the Cloudflare Worker to validate API keys at the edge. IP-restricted.
+     Called by the Cloudflare Worker to validate API keys at the edge.
 
     Args:
         key (str):
@@ -121,7 +130,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ValidateAPIKeyResponse200 | ValidateAPIKeyResponse401 | ValidateAPIKeyResponse403
+        Error | ValidateKeyResponse
     """
 
     return sync_detailed(
@@ -136,10 +145,10 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     key: str,
     machine_slug: str | Unset = UNSET,
-) -> Response[ValidateAPIKeyResponse200 | ValidateAPIKeyResponse401 | ValidateAPIKeyResponse403]:
+) -> Response[Error | ValidateKeyResponse]:
     """Validate API key
 
-     Called by the Cloudflare Worker to validate API keys at the edge. IP-restricted.
+     Called by the Cloudflare Worker to validate API keys at the edge.
 
     Args:
         key (str):
@@ -150,7 +159,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ValidateAPIKeyResponse200 | ValidateAPIKeyResponse401 | ValidateAPIKeyResponse403]
+        Response[Error | ValidateKeyResponse]
     """
 
     kwargs = _get_kwargs(
@@ -168,10 +177,10 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     key: str,
     machine_slug: str | Unset = UNSET,
-) -> ValidateAPIKeyResponse200 | ValidateAPIKeyResponse401 | ValidateAPIKeyResponse403 | None:
+) -> Error | ValidateKeyResponse | None:
     """Validate API key
 
-     Called by the Cloudflare Worker to validate API keys at the edge. IP-restricted.
+     Called by the Cloudflare Worker to validate API keys at the edge.
 
     Args:
         key (str):
@@ -182,7 +191,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ValidateAPIKeyResponse200 | ValidateAPIKeyResponse401 | ValidateAPIKeyResponse403
+        Error | ValidateKeyResponse
     """
 
     return (

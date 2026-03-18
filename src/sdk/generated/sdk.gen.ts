@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AgentHeartbeatData, AgentHeartbeatErrors, AgentHeartbeatResponses, AgentStageReportData, AgentStageReportErrors, AgentStageReportResponses, BuildSnapshotOnProviderData, BuildSnapshotOnProviderErrors, BuildSnapshotOnProviderResponses, CreateApiKeyData, CreateApiKeyErrors, CreateApiKeyResponses, CreateMachineData, CreateMachineErrors, CreateMachineResponses, CreateSnapshotData, CreateSnapshotErrors, CreateSnapshotResponses, CreateSshKeyData, CreateSshKeyErrors, CreateSshKeyResponses, CreateWebhookData, CreateWebhookErrors, CreateWebhookResponses, DeleteApiKeyData, DeleteApiKeyErrors, DeleteApiKeyResponses, DeleteMachineData, DeleteMachineErrors, DeleteMachineResponses, DeleteSnapshotData, DeleteSnapshotErrors, DeleteSnapshotResponses, DeleteSshKeyData, DeleteSshKeyErrors, DeleteSshKeyResponses, DeleteWebhookData, DeleteWebhookErrors, DeleteWebhookResponses, GetAccountData, GetAccountErrors, GetAccountResponses, GetAccountUsageData, GetAccountUsageErrors, GetAccountUsageResponses, GetBillingPortalData, GetBillingPortalErrors, GetBillingPortalResponses, GetMachineData, GetMachineErrors, GetMachineResponses, GetSnapshotData, GetSnapshotErrors, GetSnapshotResponses, ListApiKeysData, ListApiKeysErrors, ListApiKeysResponses, ListMachinesData, ListMachinesErrors, ListMachinesResponses, ListProvidersData, ListProvidersResponses, ListRegionsData, ListRegionsErrors, ListRegionsResponses, ListServerTypesData, ListServerTypesErrors, ListServerTypesResponses, ListSnapshotsData, ListSnapshotsErrors, ListSnapshotsResponses, ListSshKeysData, ListSshKeysErrors, ListSshKeysResponses, ListWebhooksData, ListWebhooksErrors, ListWebhooksResponses, RebootMachineData, RebootMachineErrors, RebootMachineResponses, ResizeMachineData, ResizeMachineErrors, ResizeMachineResponses, StreamMachineStatusData, StreamMachineStatusErrors, StreamMachineStatusResponses, ValidateApiKeyData, ValidateApiKeyErrors, ValidateApiKeyResponses } from './types.gen';
+import type { CreateApiKeyData, CreateApiKeyErrors, CreateApiKeyResponses, CreateBillingSetupData, CreateBillingSetupErrors, CreateBillingSetupResponses, CreateImageFromMachineData, CreateImageFromMachineErrors, CreateImageFromMachineResponses, CreateMachineData, CreateMachineErrors, CreateMachineResponses, CreateSshKeyData, CreateSshKeyErrors, CreateSshKeyResponses, CreateWebhookData, CreateWebhookErrors, CreateWebhookResponses, DeleteApiKeyData, DeleteApiKeyErrors, DeleteApiKeyResponses, DeleteImageData, DeleteImageErrors, DeleteImageResponses, DeleteSshKeyData, DeleteSshKeyErrors, DeleteSshKeyResponses, DeleteWebhookData, DeleteWebhookErrors, DeleteWebhookResponses, DestroyMachineData, DestroyMachineErrors, DestroyMachineResponses, GetAccountData, GetAccountErrors, GetAccountResponses, GetAccountUsageData, GetAccountUsageErrors, GetAccountUsageResponses, GetBillingData, GetBillingErrors, GetBillingResponses, GetImageData, GetImageErrors, GetImageResponses, GetMachineData, GetMachineErrors, GetMachineResponses, ListApiKeysData, ListApiKeysErrors, ListApiKeysResponses, ListImagesData, ListImagesErrors, ListImagesResponses, ListMachinesData, ListMachinesErrors, ListMachinesResponses, ListProvidersData, ListProvidersResponses, ListRegionsData, ListRegionsErrors, ListRegionsResponses, ListServerTypesData, ListServerTypesErrors, ListServerTypesResponses, ListSshKeysData, ListSshKeysErrors, ListSshKeysResponses, ListWebhooksData, ListWebhooksErrors, ListWebhooksResponses, MachineHeartbeatData, MachineHeartbeatErrors, MachineHeartbeatResponses, RebootMachineData, RebootMachineErrors, RebootMachineResponses, ReportProvisioningStageData, ReportProvisioningStageErrors, ReportProvisioningStageResponses, ResizeMachineData, ResizeMachineErrors, ResizeMachineResponses, StreamMachineStatusData, StreamMachineStatusErrors, StreamMachineStatusResponses, ValidateApiKeyData, ValidateApiKeyErrors, ValidateApiKeyResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<TData, ThrowOnError> & {
     /**
@@ -36,13 +36,9 @@ export const listMachines = <ThrowOnError extends boolean = false>(options?: Opt
 /**
  * Create a machine
  *
- * Provisions a new VPS machine. Returns immediately with status `provisioning` (HTTP 202).
+ * Provisions a new VPS machine. If `image_id` is provided, boots from that image. If omitted, boots from Ubuntu 24.04.
  *
- * If `image_id` is provided, boots from that image. If omitted or null, boots from a fresh Ubuntu 24.04 install.
- *
- * The machine will transition to `ready` once cloud-init completes and the agent sends its first heartbeat.
- *
- * Use the SSE endpoint `GET /machines/{id}/status/stream` to watch provisioning progress in real-time.
+ * Returns 202 if provisioning starts immediately (user has payment method), or 402 with a `checkout_url` if payment is required first.
  */
 export const createMachine = <ThrowOnError extends boolean = false>(options: Options<CreateMachineData, ThrowOnError>) => (options.client ?? client).post<CreateMachineResponses, CreateMachineErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
@@ -61,9 +57,9 @@ export const createMachine = <ThrowOnError extends boolean = false>(options: Opt
 /**
  * Delete a machine
  *
- * Permanently destroys the machine, removes DNS records, cancels billing, and deletes the provider server. **This action is irreversible.**
+ * Permanently destroys the machine, removes DNS records, cancels billing, and deletes the provider server. **Irreversible.**
  */
-export const deleteMachine = <ThrowOnError extends boolean = false>(options: Options<DeleteMachineData, ThrowOnError>) => (options.client ?? client).delete<DeleteMachineResponses, DeleteMachineErrors, ThrowOnError>({
+export const destroyMachine = <ThrowOnError extends boolean = false>(options: Options<DestroyMachineData, ThrowOnError>) => (options.client ?? client).delete<DestroyMachineResponses, DestroyMachineErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
@@ -91,7 +87,7 @@ export const getMachine = <ThrowOnError extends boolean = false>(options: Option
 /**
  * Reboot a machine
  *
- * Initiates a hard reboot via the provider API. The machine will be briefly unavailable (~30s).
+ * Initiates a hard reboot via the provider API (~30s downtime).
  */
 export const rebootMachine = <ThrowOnError extends boolean = false>(options: Options<RebootMachineData, ThrowOnError>) => (options.client ?? client).post<RebootMachineResponses, RebootMachineErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
@@ -106,12 +102,7 @@ export const rebootMachine = <ThrowOnError extends boolean = false>(options: Opt
 /**
  * Resize a machine
  *
- * Changes the machine to a different server type. The machine will reboot during the resize (~30s downtime).
- *
- * **Constraints:**
- * - Disk can only grow (no downsizing)
- * - Same architecture required (x86 ↔ ARM requires a new machine)
- * - Billing is updated with prorated pricing
+ * Changes the machine to a different server type. Requires reboot (~30s downtime). Billing is prorated.
  */
 export const resizeMachine = <ThrowOnError extends boolean = false>(options: Options<ResizeMachineData, ThrowOnError>) => (options.client ?? client).post<ResizeMachineResponses, ResizeMachineErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
@@ -128,18 +119,32 @@ export const resizeMachine = <ThrowOnError extends boolean = false>(options: Opt
 });
 
 /**
+ * Create image from machine
+ *
+ * Creates a point-in-time image (snapshot) from a running machine. Machine must be in `ready` status. Returns 202 — poll `GET /images/{id}` until status is `ready`.
+ */
+export const createImageFromMachine = <ThrowOnError extends boolean = false>(options: Options<CreateImageFromMachineData, ThrowOnError>) => (options.client ?? client).post<CreateImageFromMachineResponses, CreateImageFromMachineErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/machines/{id}/image',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
  * Stream machine status (SSE)
  *
- * Opens a Server-Sent Events stream that pushes real-time provisioning updates.
+ * Opens a Server-Sent Events stream for real-time provisioning updates.
  *
- * **Event types:**
- * - `status` — Current machine status snapshot
- * - `stage` — Provisioning stage change (e.g. `server_creating`, `cloud_init_running`)
- * - `done` — Terminal event, stream will close
- * - `ping` — Keepalive (every 2s)
- * - `error` — Error event
+ * **Event types:** `status`, `stage`, `done`, `ping`, `error`
  *
- * The stream automatically closes when the machine reaches a terminal state (`ready`, `error`, `deleted`) or after 10 minutes.
+ * Auto-closes on terminal state or after 10 minutes.
  */
 export const streamMachineStatus = <ThrowOnError extends boolean = false>(options: Options<StreamMachineStatusData, ThrowOnError>) => (options.client ?? client).sse.get<StreamMachineStatusResponses, StreamMachineStatusErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
@@ -152,86 +157,48 @@ export const streamMachineStatus = <ThrowOnError extends boolean = false>(option
 });
 
 /**
- * List snapshots
+ * List images
  *
- * Returns all non-deleted snapshots owned by the authenticated user, including the default platform snapshot.
+ * Returns all non-deleted images owned by the authenticated user.
  */
-export const listSnapshots = <ThrowOnError extends boolean = false>(options?: Options<ListSnapshotsData, ThrowOnError>) => (options?.client ?? client).get<ListSnapshotsResponses, ListSnapshotsErrors, ThrowOnError>({
+export const listImages = <ThrowOnError extends boolean = false>(options?: Options<ListImagesData, ThrowOnError>) => (options?.client ?? client).get<ListImagesResponses, ListImagesErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/snapshots',
+    url: '/images',
     ...options
 });
 
 /**
- * Create a snapshot
+ * Delete an image
  *
- * Starts an asynchronous snapshot build from a Docker image. The snapshot will be in `building` status initially. Poll `GET /snapshots/{id}` until status is `ready`.
+ * Deletes the image and its provider-side artifact.
  */
-export const createSnapshot = <ThrowOnError extends boolean = false>(options: Options<CreateSnapshotData, ThrowOnError>) => (options.client ?? client).post<CreateSnapshotResponses, CreateSnapshotErrors, ThrowOnError>({
+export const deleteImage = <ThrowOnError extends boolean = false>(options: Options<DeleteImageData, ThrowOnError>) => (options.client ?? client).delete<DeleteImageResponses, DeleteImageErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/snapshots',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-/**
- * Delete a snapshot
- *
- * Deletes the snapshot and all provider-side artifacts. Cannot delete the default platform snapshot.
- */
-export const deleteSnapshot = <ThrowOnError extends boolean = false>(options: Options<DeleteSnapshotData, ThrowOnError>) => (options.client ?? client).delete<DeleteSnapshotResponses, DeleteSnapshotErrors, ThrowOnError>({
-    security: [{ scheme: 'bearer', type: 'http' }, {
-            in: 'cookie',
-            name: 'authjs.session-token',
-            type: 'apiKey'
-        }],
-    url: '/snapshots/{id}',
+    url: '/images/{id}',
     ...options
 });
 
 /**
- * Get a snapshot
+ * Get an image
  *
- * Returns snapshot details including build status and per-provider artifacts.
+ * Returns image details including status and provider artifact info.
  */
-export const getSnapshot = <ThrowOnError extends boolean = false>(options: Options<GetSnapshotData, ThrowOnError>) => (options.client ?? client).get<GetSnapshotResponses, GetSnapshotErrors, ThrowOnError>({
+export const getImage = <ThrowOnError extends boolean = false>(options: Options<GetImageData, ThrowOnError>) => (options.client ?? client).get<GetImageResponses, GetImageErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/snapshots/{id}',
+    url: '/images/{id}',
     ...options
-});
-
-/**
- * Build snapshot on another provider
- *
- * Triggers an async build of an existing snapshot on a new provider.
- */
-export const buildSnapshotOnProvider = <ThrowOnError extends boolean = false>(options: Options<BuildSnapshotOnProviderData, ThrowOnError>) => (options.client ?? client).post<BuildSnapshotOnProviderResponses, BuildSnapshotOnProviderErrors, ThrowOnError>({
-    security: [{ scheme: 'bearer', type: 'http' }, {
-            in: 'cookie',
-            name: 'authjs.session-token',
-            type: 'apiKey'
-        }],
-    url: '/snapshots/{id}/build',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
 });
 
 /**
@@ -252,7 +219,7 @@ export const listSshKeys = <ThrowOnError extends boolean = false>(options?: Opti
 /**
  * Add an SSH key
  *
- * Registers a new SSH public key. The key is automatically uploaded to all available providers.
+ * Registers a new SSH public key. Automatically uploaded to all providers.
  */
 export const createSshKey = <ThrowOnError extends boolean = false>(options: Options<CreateSshKeyData, ThrowOnError>) => (options.client ?? client).post<CreateSshKeyResponses, CreateSshKeyErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
@@ -270,8 +237,6 @@ export const createSshKey = <ThrowOnError extends boolean = false>(options: Opti
 
 /**
  * Delete an SSH key
- *
- * Removes the SSH key from JustAVPS and all providers. Existing machines are not affected.
  */
 export const deleteSshKey = <ThrowOnError extends boolean = false>(options: Options<DeleteSshKeyData, ThrowOnError>) => (options.client ?? client).delete<DeleteSshKeyResponses, DeleteSshKeyErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
@@ -286,7 +251,7 @@ export const deleteSshKey = <ThrowOnError extends boolean = false>(options: Opti
 /**
  * List API keys
  *
- * Returns all API keys for the authenticated user. The full key value is never returned after creation.
+ * Returns all API keys. Full key value is never returned after creation.
  */
 export const listApiKeys = <ThrowOnError extends boolean = false>(options?: Options<ListApiKeysData, ThrowOnError>) => (options?.client ?? client).get<ListApiKeysResponses, ListApiKeysErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
@@ -301,7 +266,7 @@ export const listApiKeys = <ThrowOnError extends boolean = false>(options?: Opti
 /**
  * Create an API key
  *
- * **The full key is only returned once in this response.** Store it securely — it cannot be retrieved again.
+ * **The full key is only returned once in this response.** Store it securely.
  */
 export const createApiKey = <ThrowOnError extends boolean = false>(options: Options<CreateApiKeyData, ThrowOnError>) => (options.client ?? client).post<CreateApiKeyResponses, CreateApiKeyErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
@@ -320,7 +285,7 @@ export const createApiKey = <ThrowOnError extends boolean = false>(options: Opti
 /**
  * Delete an API key
  *
- * Permanently revokes the API key. Any requests using this key will immediately fail.
+ * Permanently revokes the API key. Requests using it will immediately fail.
  */
 export const deleteApiKey = <ThrowOnError extends boolean = false>(options: Options<DeleteApiKeyData, ThrowOnError>) => (options.client ?? client).delete<DeleteApiKeyResponses, DeleteApiKeyErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
@@ -334,8 +299,6 @@ export const deleteApiKey = <ThrowOnError extends boolean = false>(options: Opti
 
 /**
  * List webhooks
- *
- * Returns all webhook subscriptions for the authenticated user.
  */
 export const listWebhooks = <ThrowOnError extends boolean = false>(options?: Options<ListWebhooksData, ThrowOnError>) => (options?.client ?? client).get<ListWebhooksResponses, ListWebhooksErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
@@ -350,13 +313,9 @@ export const listWebhooks = <ThrowOnError extends boolean = false>(options?: Opt
 /**
  * Create a webhook
  *
- * Subscribes a URL to receive POST requests for specified events. The webhook secret is used to sign payloads with HMAC-SHA256 in the `X-Signature-256` header.
+ * Subscribes a URL to receive POST requests for specified events. Payloads are signed with HMAC-SHA256 (`X-Signature-256` header).
  *
- * **Available events:**
- * - `*` — All events
- * - `machine.stage_changed` — Provisioning stage updates
- * - `machine.status_changed` — Machine status transitions
- * - `machine.heartbeat` — Periodic health updates
+ * **Events:** `*`, `machine.stage_changed`, `machine.status_changed`, `machine.heartbeat`
  */
 export const createWebhook = <ThrowOnError extends boolean = false>(options: Options<CreateWebhookData, ThrowOnError>) => (options.client ?? client).post<CreateWebhookResponses, CreateWebhookErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
@@ -374,8 +333,6 @@ export const createWebhook = <ThrowOnError extends boolean = false>(options: Opt
 
 /**
  * Delete a webhook
- *
- * Removes the webhook subscription. No further events will be delivered.
  */
 export const deleteWebhook = <ThrowOnError extends boolean = false>(options: Options<DeleteWebhookData, ThrowOnError>) => (options.client ?? client).delete<DeleteWebhookResponses, DeleteWebhookErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
@@ -390,28 +347,22 @@ export const deleteWebhook = <ThrowOnError extends boolean = false>(options: Opt
 /**
  * List server types
  *
- * Returns all available server types for a given provider and region, including pricing with markup.
+ * Returns available server types for a provider + region, with pricing.
  */
 export const listServerTypes = <ThrowOnError extends boolean = false>(options: Options<ListServerTypesData, ThrowOnError>) => (options.client ?? client).get<ListServerTypesResponses, ListServerTypesErrors, ThrowOnError>({ url: '/server-types', ...options });
 
 /**
  * List providers
- *
- * Returns all available cloud providers.
  */
 export const listProviders = <ThrowOnError extends boolean = false>(options?: Options<ListProvidersData, ThrowOnError>) => (options?.client ?? client).get<ListProvidersResponses, unknown, ThrowOnError>({ url: '/server-types/providers', ...options });
 
 /**
  * List regions
- *
- * Returns all available regions for a given provider.
  */
 export const listRegions = <ThrowOnError extends boolean = false>(options?: Options<ListRegionsData, ThrowOnError>) => (options?.client ?? client).get<ListRegionsResponses, ListRegionsErrors, ThrowOnError>({ url: '/server-types/regions', ...options });
 
 /**
  * Get account info
- *
- * Returns the authenticated user's account details.
  */
 export const getAccount = <ThrowOnError extends boolean = false>(options?: Options<GetAccountData, ThrowOnError>) => (options?.client ?? client).get<GetAccountResponses, GetAccountErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
@@ -439,11 +390,11 @@ export const getAccountUsage = <ThrowOnError extends boolean = false>(options?: 
 });
 
 /**
- * Get billing portal URL
+ * Get billing info
  *
- * Returns a Stripe Customer Portal URL for self-service billing management.
+ * Returns Stripe billing portal URL and payment method status.
  */
-export const getBillingPortal = <ThrowOnError extends boolean = false>(options?: Options<GetBillingPortalData, ThrowOnError>) => (options?.client ?? client).get<GetBillingPortalResponses, GetBillingPortalErrors, ThrowOnError>({
+export const getBilling = <ThrowOnError extends boolean = false>(options?: Options<GetBillingData, ThrowOnError>) => (options?.client ?? client).get<GetBillingResponses, GetBillingErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
@@ -454,11 +405,26 @@ export const getBillingPortal = <ThrowOnError extends boolean = false>(options?:
 });
 
 /**
+ * Create billing setup session
+ *
+ * Creates a Stripe Checkout Session in setup mode to add a payment method.
+ */
+export const createBillingSetup = <ThrowOnError extends boolean = false>(options?: Options<CreateBillingSetupData, ThrowOnError>) => (options?.client ?? client).post<CreateBillingSetupResponses, CreateBillingSetupErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/account/billing/setup',
+    ...options
+});
+
+/**
  * Agent heartbeat
  *
- * Called by the justavps-agent on each machine every 60s. Updates health metrics and can transition machines from `provisioning` to `ready`.
+ * Called by the justavps-agent on each machine every 60s. Authenticated via `machine_token` in body.
  */
-export const agentHeartbeat = <ThrowOnError extends boolean = false>(options: Options<AgentHeartbeatData, ThrowOnError>) => (options.client ?? client).post<AgentHeartbeatResponses, AgentHeartbeatErrors, ThrowOnError>({
+export const machineHeartbeat = <ThrowOnError extends boolean = false>(options: Options<MachineHeartbeatData, ThrowOnError>) => (options.client ?? client).post<MachineHeartbeatResponses, MachineHeartbeatErrors, ThrowOnError>({
     url: '/internal/heartbeat',
     ...options,
     headers: {
@@ -472,7 +438,7 @@ export const agentHeartbeat = <ThrowOnError extends boolean = false>(options: Op
  *
  * Called by the machine agent to report provisioning progress.
  */
-export const agentStageReport = <ThrowOnError extends boolean = false>(options: Options<AgentStageReportData, ThrowOnError>) => (options.client ?? client).post<AgentStageReportResponses, AgentStageReportErrors, ThrowOnError>({
+export const reportProvisioningStage = <ThrowOnError extends boolean = false>(options: Options<ReportProvisioningStageData, ThrowOnError>) => (options.client ?? client).post<ReportProvisioningStageResponses, ReportProvisioningStageErrors, ThrowOnError>({
     url: '/internal/stage',
     ...options,
     headers: {
@@ -484,6 +450,6 @@ export const agentStageReport = <ThrowOnError extends boolean = false>(options: 
 /**
  * Validate API key
  *
- * Called by the Cloudflare Worker to validate API keys at the edge. IP-restricted.
+ * Called by the Cloudflare Worker to validate API keys at the edge.
  */
 export const validateApiKey = <ThrowOnError extends boolean = false>(options: Options<ValidateApiKeyData, ThrowOnError>) => (options.client ?? client).get<ValidateApiKeyResponses, ValidateApiKeyErrors, ThrowOnError>({ url: '/internal/validate-key', ...options });

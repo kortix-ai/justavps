@@ -1,6 +1,7 @@
 /**
- * Shared Zod schemas — used by both API routes and frontend.
- * Provider-agnostic: regions and server types come from the API at runtime.
+ * Shared Zod schemas — SINGLE SOURCE OF TRUTH.
+ * Used by API routes, OpenAPI spec generation, and SDK codegen.
+ * Every request/response shape must be defined here.
  */
 
 import { z } from 'zod';
@@ -13,19 +14,33 @@ export const CreateMachineSchema = z.object({
   server_type: z.string().min(1).describe('Provider-specific server type (e.g. "cpx22", "t3.medium")'),
   region: z.string().min(1).describe('Provider-specific region (e.g. "nbg1", "us-east-1")'),
   name: z.string().min(1).max(64).optional().describe('Human-readable name'),
-  docker_image: z.string().optional(),
-  entrypoint: z.string().optional(),
+  env_vars: z.record(z.string(), z.string()).optional().describe('Extra environment variables written to /etc/justavps/env on the machine'),
+  docker_image: z.string().optional().describe('Docker image to run on boot (e.g. "myapp:latest")'),
+  entrypoint: z.string().optional().describe('Entrypoint for the Docker container'),
 });
 
 export const ResizeMachineSchema = z.object({
   server_type: z.string().min(1).describe('New server type'),
 });
 
+export const CreateImageSchema = z.object({
+  name: z.string().min(1).max(128).describe('Name for the image'),
+});
+
+export const MachineSSHKeySchema = z.object({
+  private_key: z.string().nullable(),
+  public_key: z.string().nullable(),
+  setup_command: z.string().nullable(),
+  key_path: z.string(),
+}).nullable();
+
 export const MachineResponseSchema = z.object({
   id: z.string().uuid(),
   slug: z.string(),
   name: z.string(),
-  status: z.string(),
+  status: z.enum(['provisioning', 'ready', 'error', 'stopped', 'deleted']),
+  provisioning_stage: z.string().nullable(),
+  provisioning_stage_updated_at: z.string().nullable(),
   provider: z.string(),
   image_id: z.string().uuid().nullable(),
   server_type: z.string(),
@@ -39,6 +54,7 @@ export const MachineResponseSchema = z.object({
     pty: z.string(),
   }).nullable(),
   ssh: z.string().nullable(),
+  ssh_key: MachineSSHKeySchema,
   connect: z.object({
     ssh_command: z.string().nullable(),
     setup_command: z.string().nullable(),
@@ -50,13 +66,50 @@ export const MachineResponseSchema = z.object({
     cpu: z.number(),
     memory: z.number(),
     disk: z.number(),
-    services: z.record(z.boolean()),
+    services: z.record(z.string(), z.boolean()),
     last_heartbeat_at: z.string().nullable(),
   }).nullable(),
 });
 
 export const MachineListResponseSchema = z.object({
   machines: z.array(MachineResponseSchema),
+});
+
+export const CheckoutRequiredSchema = z.object({
+  requires_checkout: z.literal(true),
+  checkout_url: z.string(),
+  message: z.string(),
+});
+
+export const ActionResponseSchema = z.object({
+  action: z.string(),
+  status: z.string(),
+});
+
+export const ResizeResponseSchema = z.object({
+  action: z.literal('resize'),
+  old_type: z.string(),
+  new_type: z.string(),
+  status: z.string(),
+});
+
+// ─── Image Schemas ──────────────────────────────────────────────────────────
+
+export const ImageResponseSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  status: z.enum(['creating', 'ready', 'failed', 'deleted']),
+  source_machine_id: z.string().uuid().nullable(),
+  provider: z.string(),
+  provider_image_id: z.string().nullable(),
+  disk_size_gb: z.number().nullable(),
+  architecture: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export const ImageListResponseSchema = z.object({
+  images: z.array(ImageResponseSchema),
 });
 
 // ─── SSH Key Schemas ────────────────────────────────────────────────────────
@@ -71,6 +124,10 @@ export const SSHKeyResponseSchema = z.object({
   name: z.string(),
   fingerprint: z.string(),
   created_at: z.string(),
+});
+
+export const SSHKeyListResponseSchema = z.object({
+  ssh_keys: z.array(SSHKeyResponseSchema),
 });
 
 // ─── API Key Schemas ────────────────────────────────────────────────────────
@@ -88,7 +145,35 @@ export const APIKeyResponseSchema = z.object({
   last_used: z.string().nullable(),
 });
 
-// ─── Server Type Schema (runtime, from provider) ───────────────────────────
+export const APIKeyListResponseSchema = z.object({
+  api_keys: z.array(APIKeyResponseSchema),
+});
+
+// ─── Webhook Schemas ────────────────────────────────────────────────────────
+
+const VALID_EVENTS = ['*', 'machine.stage_changed', 'machine.status_changed', 'machine.heartbeat'] as const;
+export type ValidWebhookEvent = typeof VALID_EVENTS[number];
+
+export const CreateWebhookSchema = z.object({
+  url: z.string().url().describe('HTTPS URL to receive webhook POSTs'),
+  events: z.array(z.enum(VALID_EVENTS)).min(1).describe('Event types to subscribe to'),
+  secret: z.string().min(16).optional().describe('HMAC secret (auto-generated if omitted)'),
+});
+
+export const WebhookResponseSchema = z.object({
+  id: z.string().uuid(),
+  url: z.string(),
+  events: z.array(z.string()),
+  secret: z.string().optional().describe('Only returned on creation'),
+  active: z.boolean(),
+  created_at: z.string(),
+});
+
+export const WebhookListResponseSchema = z.object({
+  webhooks: z.array(WebhookResponseSchema.omit({ secret: true })),
+});
+
+// ─── Server Type Schemas ───────────────────────────────────────────────────
 
 export const ServerTypeResponseSchema = z.object({
   name: z.string(),
@@ -103,11 +188,19 @@ export const ServerTypeResponseSchema = z.object({
   available: z.boolean(),
 });
 
-// ─── Provider Schemas ──────────────────────────────────────────────────────
+export const ServerTypeListResponseSchema = z.object({
+  provider: z.string(),
+  region: z.string(),
+  server_types: z.array(ServerTypeResponseSchema),
+});
 
 export const ProviderSchema = z.object({
   name: z.string(),
   displayName: z.string(),
+});
+
+export const ProviderListResponseSchema = z.object({
+  providers: z.array(ProviderSchema),
 });
 
 export const RegionSchema = z.object({
@@ -117,18 +210,75 @@ export const RegionSchema = z.object({
   city: z.string(),
 });
 
+export const RegionListResponseSchema = z.object({
+  provider: z.string(),
+  regions: z.array(RegionSchema),
+});
+
+// ─── Account Schemas ────────────────────────────────────────────────────────
+
+export const AccountResponseSchema = z.object({
+  id: z.string().uuid(),
+  email: z.string(),
+  name: z.string().nullable(),
+  machines_count: z.number(),
+  stripe_customer_id: z.string().nullable(),
+  created_at: z.string(),
+});
+
+export const AccountUsageResponseSchema = z.object({
+  current_period: z.object({
+    machines: z.array(z.object({
+      id: z.string().uuid(),
+      slug: z.string(),
+      server_type: z.string(),
+      status: z.string(),
+    })),
+    total_machines: z.number(),
+    estimated_cost: z.number(),
+  }),
+});
+
+export const BillingResponseSchema = z.object({
+  portal_url: z.string().nullable(),
+  has_payment_method: z.boolean(),
+  message: z.string().optional(),
+});
+
+export const BillingSetupResponseSchema = z.object({
+  checkout_url: z.string(),
+});
+
 // ─── Internal Schemas ───────────────────────────────────────────────────────
 
 export const HeartbeatSchema = z.object({
   slug: z.string(),
   machine_token: z.string(),
   uptime: z.number(),
-  services: z.record(z.boolean()),
+  services: z.record(z.string(), z.boolean()),
   load: z.object({
     cpu: z.number(),
     memory: z.number(),
     disk: z.number(),
   }),
+});
+
+export const StageReportSchema = z.object({
+  slug: z.string().min(1),
+  machine_token: z.string().min(1),
+  stage: z.string().min(1),
+  message: z.string().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const AckResponseSchema = z.object({
+  ack: z.boolean(),
+});
+
+export const ValidateKeyResponseSchema = z.object({
+  valid: z.boolean(),
+  owner_id: z.string().uuid().optional(),
+  message: z.string().optional(),
 });
 
 // ─── Error Schema ───────────────────────────────────────────────────────────

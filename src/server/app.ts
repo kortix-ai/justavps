@@ -5,7 +5,10 @@ import { prettyJSON } from 'hono/pretty-json';
 import { Scalar } from '@scalar/hono-api-reference';
 
 import { v1 } from './routes/v1';
-import { generateOpenAPISpec } from './openapi';
+
+// The OpenAPI spec is generated at build time from Zod schemas (pnpm sdk:generate).
+// At runtime we serve the pre-built JSON — no runtime spec generation needed.
+import specJson from '../sdk/openapi.json';
 
 export const app = new Hono().basePath('/api');
 
@@ -38,12 +41,10 @@ app.route('/v1', v1);
 
 // ─── OpenAPI Spec + Scalar API Docs ─────────────────────────────────────────
 
-// OpenAPI JSON spec — always available (needed by SDK consumers & Scalar)
 app.get('/docs/openapi.json', (c) => {
-  return c.json(generateOpenAPISpec('/api/v1'));
+  return c.json(specJson);
 });
 
-// Scalar API Reference — beautiful interactive docs
 app.get(
   '/docs',
   Scalar({

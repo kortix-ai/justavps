@@ -7,8 +7,8 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
+from ...models.action_response import ActionResponse
 from ...models.error import Error
-from ...models.reboot_machine_response_202 import RebootMachineResponse202
 from ...types import Response
 
 
@@ -25,11 +25,9 @@ def _get_kwargs(
     return _kwargs
 
 
-def _parse_response(
-    *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Error | RebootMachineResponse202 | None:
+def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> ActionResponse | Error | None:
     if response.status_code == 202:
-        response_202 = RebootMachineResponse202.from_dict(response.json())
+        response_202 = ActionResponse.from_dict(response.json())
 
         return response_202
 
@@ -51,7 +49,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Error | RebootMachineResponse202]:
+) -> Response[ActionResponse | Error]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -64,10 +62,10 @@ def sync_detailed(
     id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Response[Error | RebootMachineResponse202]:
+) -> Response[ActionResponse | Error]:
     """Reboot a machine
 
-     Initiates a hard reboot via the provider API. The machine will be briefly unavailable (~30s).
+     Initiates a hard reboot via the provider API (~30s downtime).
 
     Args:
         id (UUID):
@@ -77,7 +75,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Error | RebootMachineResponse202]
+        Response[ActionResponse | Error]
     """
 
     kwargs = _get_kwargs(
@@ -95,10 +93,10 @@ def sync(
     id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Error | RebootMachineResponse202 | None:
+) -> ActionResponse | Error | None:
     """Reboot a machine
 
-     Initiates a hard reboot via the provider API. The machine will be briefly unavailable (~30s).
+     Initiates a hard reboot via the provider API (~30s downtime).
 
     Args:
         id (UUID):
@@ -108,7 +106,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Error | RebootMachineResponse202
+        ActionResponse | Error
     """
 
     return sync_detailed(
@@ -121,10 +119,10 @@ async def asyncio_detailed(
     id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Response[Error | RebootMachineResponse202]:
+) -> Response[ActionResponse | Error]:
     """Reboot a machine
 
-     Initiates a hard reboot via the provider API. The machine will be briefly unavailable (~30s).
+     Initiates a hard reboot via the provider API (~30s downtime).
 
     Args:
         id (UUID):
@@ -134,7 +132,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Error | RebootMachineResponse202]
+        Response[ActionResponse | Error]
     """
 
     kwargs = _get_kwargs(
@@ -150,10 +148,10 @@ async def asyncio(
     id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Error | RebootMachineResponse202 | None:
+) -> ActionResponse | Error | None:
     """Reboot a machine
 
-     Initiates a hard reboot via the provider API. The machine will be briefly unavailable (~30s).
+     Initiates a hard reboot via the provider API (~30s downtime).
 
     Args:
         id (UUID):
@@ -163,7 +161,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Error | RebootMachineResponse202
+        ActionResponse | Error
     """
 
     return (

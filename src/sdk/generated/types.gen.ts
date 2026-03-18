@@ -4,116 +4,242 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}/api/v1` | 'https://justavps.com/api/v1' | (string & {});
 };
 
+export type CreateMachine = {
+    /**
+     * Image to boot from. Null = Ubuntu 24.04
+     */
+    image_id?: string | null;
+    /**
+     * Cloud provider (e.g. "hetzner")
+     */
+    provider: string;
+    /**
+     * Provider-specific server type (e.g. "cpx22", "t3.medium")
+     */
+    server_type: string;
+    /**
+     * Provider-specific region (e.g. "nbg1", "us-east-1")
+     */
+    region: string;
+    /**
+     * Human-readable name
+     */
+    name?: string;
+    /**
+     * Extra environment variables written to /etc/justavps/env on the machine
+     */
+    env_vars?: {
+        [key: string]: string;
+    };
+    /**
+     * Docker image to run on boot (e.g. "myapp:latest")
+     */
+    docker_image?: string;
+    /**
+     * Entrypoint for the Docker container
+     */
+    entrypoint?: string;
+};
+
+export type ResizeMachine = {
+    /**
+     * New server type
+     */
+    server_type: string;
+};
+
+export type CreateImage = {
+    /**
+     * Name for the image
+     */
+    name: string;
+};
+
+export type CreateSshKey = {
+    name: string;
+    /**
+     * SSH public key (e.g. ssh-ed25519 AAAA...)
+     */
+    public_key: string;
+};
+
+export type CreateApiKey = {
+    name: string;
+};
+
+export type CreateWebhook = {
+    /**
+     * HTTPS URL to receive webhook POSTs
+     */
+    url: string;
+    /**
+     * Event types to subscribe to
+     */
+    events: Array<'*' | 'machine.stage_changed' | 'machine.status_changed' | 'machine.heartbeat'>;
+    /**
+     * HMAC secret (auto-generated if omitted)
+     */
+    secret?: string;
+};
+
+export type Heartbeat = {
+    slug: string;
+    machine_token: string;
+    uptime: number;
+    services: {
+        [key: string]: boolean;
+    };
+    load: {
+        cpu: number;
+        memory: number;
+        disk: number;
+    };
+};
+
+export type StageReport = {
+    slug: string;
+    machine_token: string;
+    stage: string;
+    message?: string;
+    metadata?: {
+        [key: string]: unknown;
+    };
+};
+
 export type Machine = {
     id: string;
-    /**
-     * Unique 6-char identifier used in URLs
-     */
     slug: string;
     name: string;
     status: 'provisioning' | 'ready' | 'error' | 'stopped' | 'deleted';
-    /**
-     * Current provisioning step
-     */
-    provisioning_stage?: string | null;
-    provisioning_stage_updated_at?: string | null;
+    provisioning_stage: string | null;
+    provisioning_stage_updated_at: string | null;
     provider: string;
-    image_id?: string | null;
+    image_id: string | null;
     server_type: string;
     region: string;
-    ip?: string | null;
-    /**
-     * Monthly price in USD (cents)
-     */
-    price_monthly?: number | null;
+    ip: string | null;
+    price_monthly: number | null;
     created_at: string;
-    ready_at?: string | null;
-    urls?: MachineUrls;
-    ssh?: string | null;
-    ssh_key?: MachineSshKey;
-    connect?: MachineConnect;
-    health?: MachineHealth;
+    ready_at: string | null;
+    urls: {
+        vscode: string;
+        pty: string;
+    } | null;
+    ssh: string | null;
+    ssh_key: {
+        private_key: string | null;
+        public_key: string | null;
+        setup_command: string | null;
+        key_path: string;
+    } | null;
+    connect: {
+        ssh_command: string | null;
+        setup_command: string | null;
+        vscode_url: string;
+        vscode_password: string;
+        cursor_ssh: string | null;
+    } | null;
+    health: {
+        cpu: number;
+        memory: number;
+        disk: number;
+        services: {
+            [key: string]: boolean;
+        };
+        last_heartbeat_at: string | null;
+    } | null;
 };
 
-export type MachineUrls = {
-    vscode?: string;
-    pty?: string;
-} | null;
-
-export type MachineSshKey = {
-    /**
-     * PEM-encoded private key (only returned on creation)
-     */
-    private_key?: string | null;
-    public_key?: string | null;
-    /**
-     * Shell command to save the key and SSH in
-     */
-    setup_command?: string | null;
-    key_path?: string;
-} | null;
-
-export type MachineConnect = {
-    ssh_command?: string | null;
-    /**
-     * One-liner to save SSH key and connect
-     */
-    setup_command?: string | null;
-    vscode_url?: string;
-    vscode_password?: string;
-    cursor_ssh?: string | null;
-} | null;
-
-export type MachineHealth = {
-    /**
-     * CPU usage (0-1)
-     */
-    cpu?: number;
-    /**
-     * Memory usage (0-1)
-     */
-    memory?: number;
-    /**
-     * Disk usage (0-1)
-     */
-    disk?: number;
-    services?: MachineHealthServices;
-    last_heartbeat_at?: string | null;
-} | null;
-
-/**
- * Service status map (e.g. code_server, caddy, docker)
- */
-export type MachineHealthServices = {
-    [key: string]: boolean;
+export type MachineListResponse = {
+    machines: Array<{
+        id: string;
+        slug: string;
+        name: string;
+        status: 'provisioning' | 'ready' | 'error' | 'stopped' | 'deleted';
+        provisioning_stage: string | null;
+        provisioning_stage_updated_at: string | null;
+        provider: string;
+        image_id: string | null;
+        server_type: string;
+        region: string;
+        ip: string | null;
+        price_monthly: number | null;
+        created_at: string;
+        ready_at: string | null;
+        urls: {
+            vscode: string;
+            pty: string;
+        } | null;
+        ssh: string | null;
+        ssh_key: {
+            private_key: string | null;
+            public_key: string | null;
+            setup_command: string | null;
+            key_path: string;
+        } | null;
+        connect: {
+            ssh_command: string | null;
+            setup_command: string | null;
+            vscode_url: string;
+            vscode_password: string;
+            cursor_ssh: string | null;
+        } | null;
+        health: {
+            cpu: number;
+            memory: number;
+            disk: number;
+            services: {
+                [key: string]: boolean;
+            };
+            last_heartbeat_at: string | null;
+        } | null;
+    }>;
 };
 
-export type Snapshot = {
+export type CheckoutRequired = {
+    requires_checkout: true;
+    checkout_url: string;
+    message: string;
+};
+
+export type ActionResponse = {
+    action: string;
+    status: string;
+};
+
+export type ResizeResponse = {
+    action: 'resize';
+    old_type: string;
+    new_type: string;
+    status: string;
+};
+
+export type Image = {
     id: string;
     name: string;
-    docker_image?: string | null;
-    entrypoint?: string | null;
-    /**
-     * True for the platform base snapshot
-     */
-    is_default: boolean;
-    status: 'building' | 'ready' | 'failed' | 'deleted';
-    architecture?: 'x86' | 'arm' | null;
-    /**
-     * Per-provider snapshot artifacts
-     */
-    providers?: {
-        [key: string]: ProviderArtifact;
-    };
+    status: 'creating' | 'ready' | 'failed' | 'deleted';
+    source_machine_id: string | null;
+    provider: string;
+    provider_image_id: string | null;
+    disk_size_gb: number | null;
+    architecture: string | null;
     created_at: string;
     updated_at: string;
-    last_used_at?: string | null;
 };
 
-export type ProviderArtifact = {
-    snapshotId?: string;
-    diskSize?: number;
-    architecture?: 'x86' | 'arm';
+export type ImageListResponse = {
+    images: Array<{
+        id: string;
+        name: string;
+        status: 'creating' | 'ready' | 'failed' | 'deleted';
+        source_machine_id: string | null;
+        provider: string;
+        provider_image_id: string | null;
+        disk_size_gb: number | null;
+        architecture: string | null;
+        created_at: string;
+        updated_at: string;
+    }>;
 };
 
 export type SshKey = {
@@ -123,16 +249,61 @@ export type SshKey = {
     created_at: string;
 };
 
+export type SshKeyListResponse = {
+    ssh_keys: Array<{
+        id: string;
+        name: string;
+        fingerprint: string;
+        created_at: string;
+    }>;
+};
+
 export type ApiKey = {
     id: string;
     name: string;
     /**
-     * Full API key — only returned on creation
+     * Only returned on creation
      */
     key?: string;
     key_prefix: string;
     created_at: string;
-    last_used?: string | null;
+    last_used: string | null;
+};
+
+export type ApiKeyListResponse = {
+    api_keys: Array<{
+        id: string;
+        name: string;
+        /**
+         * Only returned on creation
+         */
+        key?: string;
+        key_prefix: string;
+        created_at: string;
+        last_used: string | null;
+    }>;
+};
+
+export type Webhook = {
+    id: string;
+    url: string;
+    events: Array<string>;
+    /**
+     * Only returned on creation
+     */
+    secret?: string;
+    active: boolean;
+    created_at: string;
+};
+
+export type WebhookListResponse = {
+    webhooks: Array<{
+        id: string;
+        url: string;
+        events: Array<string>;
+        active: boolean;
+        created_at: string;
+    }>;
 };
 
 export type ServerType = {
@@ -144,7 +315,7 @@ export type ServerType = {
     cpu_type: 'shared' | 'dedicated';
     architecture: 'x86' | 'arm';
     /**
-     * Our price after markup (USD)
+     * Our price after markup
      */
     price_monthly: number;
     /**
@@ -154,9 +325,39 @@ export type ServerType = {
     available: boolean;
 };
 
+export type ServerTypeListResponse = {
+    provider: string;
+    region: string;
+    server_types: Array<{
+        name: string;
+        description: string;
+        vcpu: number;
+        ram_gb: number;
+        disk_gb: number;
+        cpu_type: 'shared' | 'dedicated';
+        architecture: 'x86' | 'arm';
+        /**
+         * Our price after markup
+         */
+        price_monthly: number;
+        /**
+         * Raw provider price
+         */
+        provider_price_monthly: number;
+        available: boolean;
+    }>;
+};
+
 export type Provider = {
     name: string;
     displayName: string;
+};
+
+export type ProviderListResponse = {
+    providers: Array<{
+        name: string;
+        displayName: string;
+    }>;
 };
 
 export type Region = {
@@ -166,45 +367,55 @@ export type Region = {
     city: string;
 };
 
-export type Webhook = {
-    id: string;
-    url: string;
-    events: Array<string>;
-    /**
-     * HMAC secret — only returned on creation
-     */
-    secret?: string;
-    active: boolean;
-    created_at: string;
+export type RegionListResponse = {
+    provider: string;
+    regions: Array<{
+        id: string;
+        name: string;
+        country: string;
+        city: string;
+    }>;
 };
 
 export type Account = {
-    id?: string;
-    email?: string;
-    name?: string | null;
-    machines_count?: number;
-    stripe_customer_id?: string | null;
-    created_at?: string;
+    id: string;
+    email: string;
+    name: string | null;
+    machines_count: number;
+    stripe_customer_id: string | null;
+    created_at: string;
 };
 
 export type AccountUsage = {
-    current_period?: {
-        machines?: Array<{
-            id?: string;
-            slug?: string;
-            server_type?: string;
-            status?: string;
+    current_period: {
+        machines: Array<{
+            id: string;
+            slug: string;
+            server_type: string;
+            status: string;
         }>;
-        total_machines?: number;
-        /**
-         * Estimated cost for current period (USD)
-         */
-        estimated_cost?: number;
+        total_machines: number;
+        estimated_cost: number;
     };
 };
 
-export type BillingPortal = {
-    portal_url?: string | null;
+export type Billing = {
+    portal_url: string | null;
+    has_payment_method: boolean;
+    message?: string;
+};
+
+export type BillingSetup = {
+    checkout_url: string;
+};
+
+export type Ack = {
+    ack: boolean;
+};
+
+export type ValidateKeyResponse = {
+    valid: boolean;
+    owner_id?: string;
     message?: string;
 };
 
@@ -234,50 +445,13 @@ export type ListMachinesResponses = {
     /**
      * List of machines
      */
-    200: {
-        machines: Array<Machine>;
-    };
+    200: MachineListResponse;
 };
 
 export type ListMachinesResponse = ListMachinesResponses[keyof ListMachinesResponses];
 
 export type CreateMachineData = {
-    body: {
-        /**
-         * Image to boot from (null for default Ubuntu 24.04)
-         */
-        image_id?: string | null;
-        /**
-         * Cloud provider
-         */
-        provider: string;
-        /**
-         * Provider-specific server type
-         */
-        server_type: string;
-        /**
-         * Provider-specific region
-         */
-        region: string;
-        /**
-         * Human-readable name (auto-generated if omitted)
-         */
-        name?: string;
-        /**
-         * Extra environment variables written to /etc/justavps/env on the machine
-         */
-        env_vars?: {
-            [key: string]: string;
-        };
-        /**
-         * Docker image to run on boot
-         */
-        docker_image?: string;
-        /**
-         * Container entrypoint override
-         */
-        entrypoint?: string;
-    };
+    body: CreateMachine;
     path?: never;
     query?: never;
     url: '/machines';
@@ -289,9 +463,9 @@ export type CreateMachineErrors = {
      */
     400: Error;
     /**
-     * Unauthorized
+     * Payment required — redirect to checkout
      */
-    401: Error;
+    402: CheckoutRequired;
     /**
      * Not Found
      */
@@ -302,14 +476,14 @@ export type CreateMachineError = CreateMachineErrors[keyof CreateMachineErrors];
 
 export type CreateMachineResponses = {
     /**
-     * Machine creation started
+     * Machine provisioning started
      */
     202: Machine;
 };
 
 export type CreateMachineResponse = CreateMachineResponses[keyof CreateMachineResponses];
 
-export type DeleteMachineData = {
+export type DestroyMachineData = {
     body?: never;
     path: {
         /**
@@ -321,7 +495,7 @@ export type DeleteMachineData = {
     url: '/machines/{id}';
 };
 
-export type DeleteMachineErrors = {
+export type DestroyMachineErrors = {
     /**
      * Unauthorized
      */
@@ -332,16 +506,16 @@ export type DeleteMachineErrors = {
     404: Error;
 };
 
-export type DeleteMachineError = DeleteMachineErrors[keyof DeleteMachineErrors];
+export type DestroyMachineError = DestroyMachineErrors[keyof DestroyMachineErrors];
 
-export type DeleteMachineResponses = {
+export type DestroyMachineResponses = {
     /**
      * Machine deleted
      */
     204: void;
 };
 
-export type DeleteMachineResponse = DeleteMachineResponses[keyof DeleteMachineResponses];
+export type DestroyMachineResponse = DestroyMachineResponses[keyof DestroyMachineResponses];
 
 export type GetMachineData = {
     body?: never;
@@ -406,21 +580,13 @@ export type RebootMachineResponses = {
     /**
      * Reboot initiated
      */
-    202: {
-        action?: string;
-        status?: string;
-    };
+    202: ActionResponse;
 };
 
 export type RebootMachineResponse = RebootMachineResponses[keyof RebootMachineResponses];
 
 export type ResizeMachineData = {
-    body: {
-        /**
-         * New server type
-         */
-        server_type: string;
-    };
+    body: ResizeMachine;
     path: {
         /**
          * Machine ID
@@ -452,15 +618,48 @@ export type ResizeMachineResponses = {
     /**
      * Resize initiated
      */
-    202: {
-        action?: string;
-        old_type?: string;
-        new_type?: string;
-        status?: string;
-    };
+    202: ResizeResponse;
 };
 
 export type ResizeMachineResponse = ResizeMachineResponses[keyof ResizeMachineResponses];
+
+export type CreateImageFromMachineData = {
+    body: CreateImage;
+    path: {
+        /**
+         * Machine ID
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/machines/{id}/image';
+};
+
+export type CreateImageFromMachineErrors = {
+    /**
+     * Bad Request
+     */
+    400: Error;
+    /**
+     * Unauthorized
+     */
+    401: Error;
+    /**
+     * Not Found
+     */
+    404: Error;
+};
+
+export type CreateImageFromMachineError = CreateImageFromMachineErrors[keyof CreateImageFromMachineErrors];
+
+export type CreateImageFromMachineResponses = {
+    /**
+     * Image creation started
+     */
+    202: Image;
+};
+
+export type CreateImageFromMachineResponse = CreateImageFromMachineResponses[keyof CreateImageFromMachineResponses];
 
 export type StreamMachineStatusData = {
     body?: never;
@@ -489,103 +688,51 @@ export type StreamMachineStatusError = StreamMachineStatusErrors[keyof StreamMac
 
 export type StreamMachineStatusResponses = {
     /**
-     * SSE stream of machine events
+     * SSE stream
      */
     200: string;
 };
 
 export type StreamMachineStatusResponse = StreamMachineStatusResponses[keyof StreamMachineStatusResponses];
 
-export type ListSnapshotsData = {
+export type ListImagesData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/snapshots';
+    url: '/images';
 };
 
-export type ListSnapshotsErrors = {
+export type ListImagesErrors = {
     /**
      * Unauthorized
      */
     401: Error;
 };
 
-export type ListSnapshotsError = ListSnapshotsErrors[keyof ListSnapshotsErrors];
+export type ListImagesError = ListImagesErrors[keyof ListImagesErrors];
 
-export type ListSnapshotsResponses = {
+export type ListImagesResponses = {
     /**
-     * List of snapshots
+     * List of images
      */
-    200: {
-        snapshots: Array<Snapshot>;
-    };
+    200: ImageListResponse;
 };
 
-export type ListSnapshotsResponse = ListSnapshotsResponses[keyof ListSnapshotsResponses];
+export type ListImagesResponse = ListImagesResponses[keyof ListImagesResponses];
 
-export type CreateSnapshotData = {
-    body: {
-        /**
-         * Docker image to bake into the snapshot
-         */
-        docker_image: string;
-        /**
-         * Container entrypoint command
-         */
-        entrypoint?: string;
-        /**
-         * Human-readable name
-         */
-        name: string;
-        /**
-         * Provider to build on
-         */
-        provider: string;
-    };
-    path?: never;
-    query?: never;
-    url: '/snapshots';
-};
-
-export type CreateSnapshotErrors = {
-    /**
-     * Bad Request
-     */
-    400: Error;
-    /**
-     * Unauthorized
-     */
-    401: Error;
-};
-
-export type CreateSnapshotError = CreateSnapshotErrors[keyof CreateSnapshotErrors];
-
-export type CreateSnapshotResponses = {
-    /**
-     * Snapshot build started
-     */
-    201: Snapshot;
-};
-
-export type CreateSnapshotResponse = CreateSnapshotResponses[keyof CreateSnapshotResponses];
-
-export type DeleteSnapshotData = {
+export type DeleteImageData = {
     body?: never;
     path: {
         /**
-         * Snapshot ID
+         * Image ID
          */
         id: string;
     };
     query?: never;
-    url: '/snapshots/{id}';
+    url: '/images/{id}';
 };
 
-export type DeleteSnapshotErrors = {
-    /**
-     * Bad Request
-     */
-    400: Error;
+export type DeleteImageErrors = {
     /**
      * Unauthorized
      */
@@ -596,30 +743,30 @@ export type DeleteSnapshotErrors = {
     404: Error;
 };
 
-export type DeleteSnapshotError = DeleteSnapshotErrors[keyof DeleteSnapshotErrors];
+export type DeleteImageError = DeleteImageErrors[keyof DeleteImageErrors];
 
-export type DeleteSnapshotResponses = {
+export type DeleteImageResponses = {
     /**
-     * Snapshot deleted
+     * Image deleted
      */
     204: void;
 };
 
-export type DeleteSnapshotResponse = DeleteSnapshotResponses[keyof DeleteSnapshotResponses];
+export type DeleteImageResponse = DeleteImageResponses[keyof DeleteImageResponses];
 
-export type GetSnapshotData = {
+export type GetImageData = {
     body?: never;
     path: {
         /**
-         * Snapshot ID
+         * Image ID
          */
         id: string;
     };
     query?: never;
-    url: '/snapshots/{id}';
+    url: '/images/{id}';
 };
 
-export type GetSnapshotErrors = {
+export type GetImageErrors = {
     /**
      * Unauthorized
      */
@@ -630,66 +777,16 @@ export type GetSnapshotErrors = {
     404: Error;
 };
 
-export type GetSnapshotError = GetSnapshotErrors[keyof GetSnapshotErrors];
+export type GetImageError = GetImageErrors[keyof GetImageErrors];
 
-export type GetSnapshotResponses = {
+export type GetImageResponses = {
     /**
-     * Snapshot details
+     * Image details
      */
-    200: Snapshot;
+    200: Image;
 };
 
-export type GetSnapshotResponse = GetSnapshotResponses[keyof GetSnapshotResponses];
-
-export type BuildSnapshotOnProviderData = {
-    body: {
-        /**
-         * Provider to build on
-         */
-        provider: string;
-    };
-    path: {
-        /**
-         * Snapshot ID
-         */
-        id: string;
-    };
-    query?: never;
-    url: '/snapshots/{id}/build';
-};
-
-export type BuildSnapshotOnProviderErrors = {
-    /**
-     * Bad Request
-     */
-    400: Error;
-    /**
-     * Unauthorized
-     */
-    401: Error;
-    /**
-     * Not Found
-     */
-    404: Error;
-    /**
-     * Conflict
-     */
-    409: Error;
-};
-
-export type BuildSnapshotOnProviderError = BuildSnapshotOnProviderErrors[keyof BuildSnapshotOnProviderErrors];
-
-export type BuildSnapshotOnProviderResponses = {
-    /**
-     * Build started
-     */
-    202: {
-        message?: string;
-        status?: string;
-    };
-};
-
-export type BuildSnapshotOnProviderResponse = BuildSnapshotOnProviderResponses[keyof BuildSnapshotOnProviderResponses];
+export type GetImageResponse = GetImageResponses[keyof GetImageResponses];
 
 export type ListSshKeysData = {
     body?: never;
@@ -711,24 +808,13 @@ export type ListSshKeysResponses = {
     /**
      * List of SSH keys
      */
-    200: {
-        ssh_keys: Array<SshKey>;
-    };
+    200: SshKeyListResponse;
 };
 
 export type ListSshKeysResponse = ListSshKeysResponses[keyof ListSshKeysResponses];
 
 export type CreateSshKeyData = {
-    body: {
-        /**
-         * Label for this key
-         */
-        name: string;
-        /**
-         * SSH public key
-         */
-        public_key: string;
-    };
+    body: CreateSshKey;
     path?: never;
     query?: never;
     url: '/ssh-keys';
@@ -810,20 +896,13 @@ export type ListApiKeysResponses = {
     /**
      * List of API keys
      */
-    200: {
-        api_keys: Array<ApiKey>;
-    };
+    200: ApiKeyListResponse;
 };
 
 export type ListApiKeysResponse = ListApiKeysResponses[keyof ListApiKeysResponses];
 
 export type CreateApiKeyData = {
-    body: {
-        /**
-         * Label for this key
-         */
-        name: string;
-    };
+    body: CreateApiKey;
     path?: never;
     query?: never;
     url: '/api-keys';
@@ -844,7 +923,7 @@ export type CreateApiKeyError = CreateApiKeyErrors[keyof CreateApiKeyErrors];
 
 export type CreateApiKeyResponses = {
     /**
-     * API key created (key shown once)
+     * API key created
      */
     201: ApiKey;
 };
@@ -905,28 +984,13 @@ export type ListWebhooksResponses = {
     /**
      * List of webhooks
      */
-    200: {
-        webhooks: Array<Webhook>;
-    };
+    200: WebhookListResponse;
 };
 
 export type ListWebhooksResponse = ListWebhooksResponses[keyof ListWebhooksResponses];
 
 export type CreateWebhookData = {
-    body: {
-        /**
-         * HTTPS endpoint to receive events
-         */
-        url: string;
-        /**
-         * Event types to subscribe to
-         */
-        events: Array<'*' | 'machine.stage_changed' | 'machine.status_changed' | 'machine.heartbeat'>;
-        /**
-         * HMAC secret (auto-generated if omitted, min 16 chars)
-         */
-        secret?: string;
-    };
+    body: CreateWebhook;
     path?: never;
     query?: never;
     url: '/webhooks';
@@ -993,11 +1057,11 @@ export type ListServerTypesData = {
     path?: never;
     query: {
         /**
-         * Cloud provider name
+         * Cloud provider
          */
         provider?: string;
         /**
-         * Provider region ID (e.g. nbg1, fsn1)
+         * Region ID (e.g. nbg1)
          */
         region: string;
     };
@@ -1017,11 +1081,7 @@ export type ListServerTypesResponses = {
     /**
      * Available server types
      */
-    200: {
-        provider?: string;
-        region?: string;
-        server_types?: Array<ServerType>;
-    };
+    200: ServerTypeListResponse;
 };
 
 export type ListServerTypesResponse = ListServerTypesResponses[keyof ListServerTypesResponses];
@@ -1037,9 +1097,7 @@ export type ListProvidersResponses = {
     /**
      * Available providers
      */
-    200: {
-        providers?: Array<Provider>;
-    };
+    200: ProviderListResponse;
 };
 
 export type ListProvidersResponse = ListProvidersResponses[keyof ListProvidersResponses];
@@ -1049,7 +1107,7 @@ export type ListRegionsData = {
     path?: never;
     query?: {
         /**
-         * Cloud provider name
+         * Cloud provider
          */
         provider?: string;
     };
@@ -1069,10 +1127,7 @@ export type ListRegionsResponses = {
     /**
      * Available regions
      */
-    200: {
-        provider?: string;
-        regions?: Array<Region>;
-    };
+    200: RegionListResponse;
 };
 
 export type ListRegionsResponse = ListRegionsResponses[keyof ListRegionsResponses];
@@ -1131,54 +1186,72 @@ export type GetAccountUsageResponses = {
 
 export type GetAccountUsageResponse = GetAccountUsageResponses[keyof GetAccountUsageResponses];
 
-export type GetBillingPortalData = {
+export type GetBillingData = {
     body?: never;
     path?: never;
     query?: never;
     url: '/account/billing';
 };
 
-export type GetBillingPortalErrors = {
+export type GetBillingErrors = {
     /**
      * Unauthorized
      */
     401: Error;
 };
 
-export type GetBillingPortalError = GetBillingPortalErrors[keyof GetBillingPortalErrors];
+export type GetBillingError = GetBillingErrors[keyof GetBillingErrors];
 
-export type GetBillingPortalResponses = {
+export type GetBillingResponses = {
     /**
-     * Billing portal URL
+     * Billing info
      */
-    200: BillingPortal;
+    200: Billing;
 };
 
-export type GetBillingPortalResponse = GetBillingPortalResponses[keyof GetBillingPortalResponses];
+export type GetBillingResponse = GetBillingResponses[keyof GetBillingResponses];
 
-export type AgentHeartbeatData = {
-    body: {
-        slug: string;
-        machine_token: string;
-        /**
-         * Uptime in seconds
-         */
-        uptime: number;
-        services: {
-            [key: string]: boolean;
-        };
-        load: {
-            cpu: number;
-            memory: number;
-            disk: number;
-        };
-    };
+export type CreateBillingSetupData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/account/billing/setup';
+};
+
+export type CreateBillingSetupErrors = {
+    /**
+     * Unauthorized
+     */
+    401: Error;
+    /**
+     * Not Found
+     */
+    404: Error;
+    /**
+     * Service Unavailable
+     */
+    503: Error;
+};
+
+export type CreateBillingSetupError = CreateBillingSetupErrors[keyof CreateBillingSetupErrors];
+
+export type CreateBillingSetupResponses = {
+    /**
+     * Checkout URL
+     */
+    200: BillingSetup;
+};
+
+export type CreateBillingSetupResponse = CreateBillingSetupResponses[keyof CreateBillingSetupResponses];
+
+export type MachineHeartbeatData = {
+    body: Heartbeat;
     path?: never;
     query?: never;
     url: '/internal/heartbeat';
 };
 
-export type AgentHeartbeatErrors = {
+export type MachineHeartbeatErrors = {
     /**
      * Bad Request
      */
@@ -1187,37 +1260,31 @@ export type AgentHeartbeatErrors = {
      * Unauthorized
      */
     401: Error;
-};
-
-export type AgentHeartbeatError = AgentHeartbeatErrors[keyof AgentHeartbeatErrors];
-
-export type AgentHeartbeatResponses = {
     /**
-     * Heartbeat acknowledged
+     * Internal Server Error
      */
-    200: {
-        ack?: boolean;
-    };
+    500: Error;
 };
 
-export type AgentHeartbeatResponse = AgentHeartbeatResponses[keyof AgentHeartbeatResponses];
+export type MachineHeartbeatError = MachineHeartbeatErrors[keyof MachineHeartbeatErrors];
 
-export type AgentStageReportData = {
-    body: {
-        slug: string;
-        machine_token: string;
-        stage: string;
-        message?: string;
-        metadata?: {
-            [key: string]: unknown;
-        };
-    };
+export type MachineHeartbeatResponses = {
+    /**
+     * Acknowledged
+     */
+    200: Ack;
+};
+
+export type MachineHeartbeatResponse = MachineHeartbeatResponses[keyof MachineHeartbeatResponses];
+
+export type ReportProvisioningStageData = {
+    body: StageReport;
     path?: never;
     query?: never;
     url: '/internal/stage';
 };
 
-export type AgentStageReportErrors = {
+export type ReportProvisioningStageErrors = {
     /**
      * Bad Request
      */
@@ -1226,20 +1293,22 @@ export type AgentStageReportErrors = {
      * Unauthorized
      */
     401: Error;
-};
-
-export type AgentStageReportError = AgentStageReportErrors[keyof AgentStageReportErrors];
-
-export type AgentStageReportResponses = {
     /**
-     * Stage acknowledged
+     * Internal Server Error
      */
-    200: {
-        ack?: boolean;
-    };
+    500: Error;
 };
 
-export type AgentStageReportResponse = AgentStageReportResponses[keyof AgentStageReportResponses];
+export type ReportProvisioningStageError = ReportProvisioningStageErrors[keyof ReportProvisioningStageErrors];
+
+export type ReportProvisioningStageResponses = {
+    /**
+     * Acknowledged
+     */
+    200: Ack;
+};
+
+export type ReportProvisioningStageResponse = ReportProvisioningStageResponses[keyof ReportProvisioningStageResponses];
 
 export type ValidateApiKeyData = {
     body?: never;
@@ -1259,30 +1328,30 @@ export type ValidateApiKeyData = {
 
 export type ValidateApiKeyErrors = {
     /**
+     * Bad Request
+     */
+    400: Error;
+    /**
      * Invalid key
      */
-    401: {
-        valid?: boolean;
-    };
+    401: ValidateKeyResponse;
     /**
      * Key does not own machine
      */
-    403: {
-        valid?: boolean;
-        message?: string;
-    };
+    403: ValidateKeyResponse;
+    /**
+     * Service Unavailable
+     */
+    503: Error;
 };
 
 export type ValidateApiKeyError = ValidateApiKeyErrors[keyof ValidateApiKeyErrors];
 
 export type ValidateApiKeyResponses = {
     /**
-     * Validation result
+     * Valid key
      */
-    200: {
-        valid?: boolean;
-        owner_id?: string;
-    };
+    200: ValidateKeyResponse;
 };
 
 export type ValidateApiKeyResponse = ValidateApiKeyResponses[keyof ValidateApiKeyResponses];

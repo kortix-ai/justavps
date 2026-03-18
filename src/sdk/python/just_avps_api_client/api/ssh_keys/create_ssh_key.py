@@ -5,7 +5,7 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.create_ssh_key_body import CreateSSHKeyBody
+from ...models.create_ssh_key import CreateSSHKey
 from ...models.error import Error
 from ...models.ssh_key import SSHKey
 from ...types import Response
@@ -13,7 +13,7 @@ from ...types import Response
 
 def _get_kwargs(
     *,
-    body: CreateSSHKeyBody,
+    body: CreateSSHKey,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
@@ -64,14 +64,14 @@ def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Res
 def sync_detailed(
     *,
     client: AuthenticatedClient,
-    body: CreateSSHKeyBody,
+    body: CreateSSHKey,
 ) -> Response[Error | SSHKey]:
     """Add an SSH key
 
-     Registers a new SSH public key. The key is automatically uploaded to all available providers.
+     Registers a new SSH public key. Automatically uploaded to all providers.
 
     Args:
-        body (CreateSSHKeyBody):
+        body (CreateSSHKey):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -95,14 +95,14 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
-    body: CreateSSHKeyBody,
+    body: CreateSSHKey,
 ) -> Error | SSHKey | None:
     """Add an SSH key
 
-     Registers a new SSH public key. The key is automatically uploaded to all available providers.
+     Registers a new SSH public key. Automatically uploaded to all providers.
 
     Args:
-        body (CreateSSHKeyBody):
+        body (CreateSSHKey):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -121,14 +121,14 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
-    body: CreateSSHKeyBody,
+    body: CreateSSHKey,
 ) -> Response[Error | SSHKey]:
     """Add an SSH key
 
-     Registers a new SSH public key. The key is automatically uploaded to all available providers.
+     Registers a new SSH public key. Automatically uploaded to all providers.
 
     Args:
-        body (CreateSSHKeyBody):
+        body (CreateSSHKey):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -150,14 +150,14 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
-    body: CreateSSHKeyBody,
+    body: CreateSSHKey,
 ) -> Error | SSHKey | None:
     """Add an SSH key
 
-     Registers a new SSH public key. The key is automatically uploaded to all available providers.
+     Registers a new SSH public key. Automatically uploaded to all providers.
 
     Args:
-        body (CreateSSHKeyBody):
+        body (CreateSSHKey):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

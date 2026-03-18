@@ -6,7 +6,7 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.error import Error
-from ...models.list_regions_response_200 import ListRegionsResponse200
+from ...models.region_list_response import RegionListResponse
 from ...types import UNSET, Response, Unset
 
 
@@ -31,9 +31,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Error | ListRegionsResponse200 | None:
+) -> Error | RegionListResponse | None:
     if response.status_code == 200:
-        response_200 = ListRegionsResponse200.from_dict(response.json())
+        response_200 = RegionListResponse.from_dict(response.json())
 
         return response_200
 
@@ -50,7 +50,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Error | ListRegionsResponse200]:
+) -> Response[Error | RegionListResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -63,10 +63,8 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     provider: str | Unset = "hetzner",
-) -> Response[Error | ListRegionsResponse200]:
+) -> Response[Error | RegionListResponse]:
     """List regions
-
-     Returns all available regions for a given provider.
 
     Args:
         provider (str | Unset):  Default: 'hetzner'.
@@ -76,7 +74,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Error | ListRegionsResponse200]
+        Response[Error | RegionListResponse]
     """
 
     kwargs = _get_kwargs(
@@ -94,10 +92,8 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     provider: str | Unset = "hetzner",
-) -> Error | ListRegionsResponse200 | None:
+) -> Error | RegionListResponse | None:
     """List regions
-
-     Returns all available regions for a given provider.
 
     Args:
         provider (str | Unset):  Default: 'hetzner'.
@@ -107,7 +103,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Error | ListRegionsResponse200
+        Error | RegionListResponse
     """
 
     return sync_detailed(
@@ -120,10 +116,8 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     provider: str | Unset = "hetzner",
-) -> Response[Error | ListRegionsResponse200]:
+) -> Response[Error | RegionListResponse]:
     """List regions
-
-     Returns all available regions for a given provider.
 
     Args:
         provider (str | Unset):  Default: 'hetzner'.
@@ -133,7 +127,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Error | ListRegionsResponse200]
+        Response[Error | RegionListResponse]
     """
 
     kwargs = _get_kwargs(
@@ -149,10 +143,8 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     provider: str | Unset = "hetzner",
-) -> Error | ListRegionsResponse200 | None:
+) -> Error | RegionListResponse | None:
     """List regions
-
-     Returns all available regions for a given provider.
 
     Args:
         provider (str | Unset):  Default: 'hetzner'.
@@ -162,7 +154,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Error | ListRegionsResponse200
+        Error | RegionListResponse
     """
 
     return (

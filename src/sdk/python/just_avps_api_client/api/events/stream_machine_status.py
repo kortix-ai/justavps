@@ -61,17 +61,11 @@ def sync_detailed(
 ) -> Response[Error | str]:
     """Stream machine status (SSE)
 
-     Opens a Server-Sent Events stream that pushes real-time provisioning updates.
+     Opens a Server-Sent Events stream for real-time provisioning updates.
 
-    **Event types:**
-    - `status` — Current machine status snapshot
-    - `stage` — Provisioning stage change (e.g. `server_creating`, `cloud_init_running`)
-    - `done` — Terminal event, stream will close
-    - `ping` — Keepalive (every 2s)
-    - `error` — Error event
+    **Event types:** `status`, `stage`, `done`, `ping`, `error`
 
-    The stream automatically closes when the machine reaches a terminal state (`ready`, `error`,
-    `deleted`) or after 10 minutes.
+    Auto-closes on terminal state or after 10 minutes.
 
     Args:
         id (UUID):
@@ -102,17 +96,11 @@ def sync(
 ) -> Error | str | None:
     """Stream machine status (SSE)
 
-     Opens a Server-Sent Events stream that pushes real-time provisioning updates.
+     Opens a Server-Sent Events stream for real-time provisioning updates.
 
-    **Event types:**
-    - `status` — Current machine status snapshot
-    - `stage` — Provisioning stage change (e.g. `server_creating`, `cloud_init_running`)
-    - `done` — Terminal event, stream will close
-    - `ping` — Keepalive (every 2s)
-    - `error` — Error event
+    **Event types:** `status`, `stage`, `done`, `ping`, `error`
 
-    The stream automatically closes when the machine reaches a terminal state (`ready`, `error`,
-    `deleted`) or after 10 minutes.
+    Auto-closes on terminal state or after 10 minutes.
 
     Args:
         id (UUID):
@@ -138,17 +126,11 @@ async def asyncio_detailed(
 ) -> Response[Error | str]:
     """Stream machine status (SSE)
 
-     Opens a Server-Sent Events stream that pushes real-time provisioning updates.
+     Opens a Server-Sent Events stream for real-time provisioning updates.
 
-    **Event types:**
-    - `status` — Current machine status snapshot
-    - `stage` — Provisioning stage change (e.g. `server_creating`, `cloud_init_running`)
-    - `done` — Terminal event, stream will close
-    - `ping` — Keepalive (every 2s)
-    - `error` — Error event
+    **Event types:** `status`, `stage`, `done`, `ping`, `error`
 
-    The stream automatically closes when the machine reaches a terminal state (`ready`, `error`,
-    `deleted`) or after 10 minutes.
+    Auto-closes on terminal state or after 10 minutes.
 
     Args:
         id (UUID):
@@ -177,17 +159,11 @@ async def asyncio(
 ) -> Error | str | None:
     """Stream machine status (SSE)
 
-     Opens a Server-Sent Events stream that pushes real-time provisioning updates.
+     Opens a Server-Sent Events stream for real-time provisioning updates.
 
-    **Event types:**
-    - `status` — Current machine status snapshot
-    - `stage` — Provisioning stage change (e.g. `server_creating`, `cloud_init_running`)
-    - `done` — Terminal event, stream will close
-    - `ping` — Keepalive (every 2s)
-    - `error` — Error event
+    **Event types:** `status`, `stage`, `done`, `ping`, `error`
 
-    The stream automatically closes when the machine reaches a terminal state (`ready`, `error`,
-    `deleted`) or after 10 minutes.
+    Auto-closes on terminal state or after 10 minutes.
 
     Args:
         id (UUID):

@@ -6,7 +6,7 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.error import Error
-from ...models.list_ssh_keys_response_200 import ListSSHKeysResponse200
+from ...models.ssh_key_list_response import SSHKeyListResponse
 from ...types import Response
 
 
@@ -21,9 +21,9 @@ def _get_kwargs() -> dict[str, Any]:
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Error | ListSSHKeysResponse200 | None:
+) -> Error | SSHKeyListResponse | None:
     if response.status_code == 200:
-        response_200 = ListSSHKeysResponse200.from_dict(response.json())
+        response_200 = SSHKeyListResponse.from_dict(response.json())
 
         return response_200
 
@@ -40,7 +40,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Error | ListSSHKeysResponse200]:
+) -> Response[Error | SSHKeyListResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -52,7 +52,7 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[Error | ListSSHKeysResponse200]:
+) -> Response[Error | SSHKeyListResponse]:
     """List SSH keys
 
      Returns all SSH public keys registered by the authenticated user.
@@ -62,7 +62,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Error | ListSSHKeysResponse200]
+        Response[Error | SSHKeyListResponse]
     """
 
     kwargs = _get_kwargs()
@@ -77,7 +77,7 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
-) -> Error | ListSSHKeysResponse200 | None:
+) -> Error | SSHKeyListResponse | None:
     """List SSH keys
 
      Returns all SSH public keys registered by the authenticated user.
@@ -87,7 +87,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Error | ListSSHKeysResponse200
+        Error | SSHKeyListResponse
     """
 
     return sync_detailed(
@@ -98,7 +98,7 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[Error | ListSSHKeysResponse200]:
+) -> Response[Error | SSHKeyListResponse]:
     """List SSH keys
 
      Returns all SSH public keys registered by the authenticated user.
@@ -108,7 +108,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Error | ListSSHKeysResponse200]
+        Response[Error | SSHKeyListResponse]
     """
 
     kwargs = _get_kwargs()
@@ -121,7 +121,7 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
-) -> Error | ListSSHKeysResponse200 | None:
+) -> Error | SSHKeyListResponse | None:
     """List SSH keys
 
      Returns all SSH public keys registered by the authenticated user.
@@ -131,7 +131,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Error | ListSSHKeysResponse200
+        Error | SSHKeyListResponse
     """
 
     return (

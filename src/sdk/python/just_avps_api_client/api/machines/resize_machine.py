@@ -8,15 +8,15 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.error import Error
-from ...models.resize_machine_body import ResizeMachineBody
-from ...models.resize_machine_response_202 import ResizeMachineResponse202
+from ...models.resize_machine import ResizeMachine
+from ...models.resize_response import ResizeResponse
 from ...types import Response
 
 
 def _get_kwargs(
     id: UUID,
     *,
-    body: ResizeMachineBody,
+    body: ResizeMachine,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
@@ -35,11 +35,9 @@ def _get_kwargs(
     return _kwargs
 
 
-def _parse_response(
-    *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Error | ResizeMachineResponse202 | None:
+def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> Error | ResizeResponse | None:
     if response.status_code == 202:
-        response_202 = ResizeMachineResponse202.from_dict(response.json())
+        response_202 = ResizeResponse.from_dict(response.json())
 
         return response_202
 
@@ -66,7 +64,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Error | ResizeMachineResponse202]:
+) -> Response[Error | ResizeResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -79,28 +77,23 @@ def sync_detailed(
     id: UUID,
     *,
     client: AuthenticatedClient,
-    body: ResizeMachineBody,
-) -> Response[Error | ResizeMachineResponse202]:
+    body: ResizeMachine,
+) -> Response[Error | ResizeResponse]:
     """Resize a machine
 
-     Changes the machine to a different server type. The machine will reboot during the resize (~30s
-    downtime).
-
-    **Constraints:**
-    - Disk can only grow (no downsizing)
-    - Same architecture required (x86 ↔ ARM requires a new machine)
-    - Billing is updated with prorated pricing
+     Changes the machine to a different server type. Requires reboot (~30s downtime). Billing is
+    prorated.
 
     Args:
         id (UUID):
-        body (ResizeMachineBody):
+        body (ResizeMachine):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Error | ResizeMachineResponse202]
+        Response[Error | ResizeResponse]
     """
 
     kwargs = _get_kwargs(
@@ -119,28 +112,23 @@ def sync(
     id: UUID,
     *,
     client: AuthenticatedClient,
-    body: ResizeMachineBody,
-) -> Error | ResizeMachineResponse202 | None:
+    body: ResizeMachine,
+) -> Error | ResizeResponse | None:
     """Resize a machine
 
-     Changes the machine to a different server type. The machine will reboot during the resize (~30s
-    downtime).
-
-    **Constraints:**
-    - Disk can only grow (no downsizing)
-    - Same architecture required (x86 ↔ ARM requires a new machine)
-    - Billing is updated with prorated pricing
+     Changes the machine to a different server type. Requires reboot (~30s downtime). Billing is
+    prorated.
 
     Args:
         id (UUID):
-        body (ResizeMachineBody):
+        body (ResizeMachine):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Error | ResizeMachineResponse202
+        Error | ResizeResponse
     """
 
     return sync_detailed(
@@ -154,28 +142,23 @@ async def asyncio_detailed(
     id: UUID,
     *,
     client: AuthenticatedClient,
-    body: ResizeMachineBody,
-) -> Response[Error | ResizeMachineResponse202]:
+    body: ResizeMachine,
+) -> Response[Error | ResizeResponse]:
     """Resize a machine
 
-     Changes the machine to a different server type. The machine will reboot during the resize (~30s
-    downtime).
-
-    **Constraints:**
-    - Disk can only grow (no downsizing)
-    - Same architecture required (x86 ↔ ARM requires a new machine)
-    - Billing is updated with prorated pricing
+     Changes the machine to a different server type. Requires reboot (~30s downtime). Billing is
+    prorated.
 
     Args:
         id (UUID):
-        body (ResizeMachineBody):
+        body (ResizeMachine):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Error | ResizeMachineResponse202]
+        Response[Error | ResizeResponse]
     """
 
     kwargs = _get_kwargs(
@@ -192,28 +175,23 @@ async def asyncio(
     id: UUID,
     *,
     client: AuthenticatedClient,
-    body: ResizeMachineBody,
-) -> Error | ResizeMachineResponse202 | None:
+    body: ResizeMachine,
+) -> Error | ResizeResponse | None:
     """Resize a machine
 
-     Changes the machine to a different server type. The machine will reboot during the resize (~30s
-    downtime).
-
-    **Constraints:**
-    - Disk can only grow (no downsizing)
-    - Same architecture required (x86 ↔ ARM requires a new machine)
-    - Billing is updated with prorated pricing
+     Changes the machine to a different server type. Requires reboot (~30s downtime). Billing is
+    prorated.
 
     Args:
         id (UUID):
-        body (ResizeMachineBody):
+        body (ResizeMachine):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Error | ResizeMachineResponse202
+        Error | ResizeResponse
     """
 
     return (

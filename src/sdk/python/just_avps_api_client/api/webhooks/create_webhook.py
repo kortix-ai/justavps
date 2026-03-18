@@ -5,7 +5,7 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.create_webhook_body import CreateWebhookBody
+from ...models.create_webhook import CreateWebhook
 from ...models.error import Error
 from ...models.webhook import Webhook
 from ...types import Response
@@ -13,7 +13,7 @@ from ...types import Response
 
 def _get_kwargs(
     *,
-    body: CreateWebhookBody,
+    body: CreateWebhook,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
@@ -64,21 +64,17 @@ def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Res
 def sync_detailed(
     *,
     client: AuthenticatedClient,
-    body: CreateWebhookBody,
+    body: CreateWebhook,
 ) -> Response[Error | Webhook]:
     """Create a webhook
 
-     Subscribes a URL to receive POST requests for specified events. The webhook secret is used to sign
-    payloads with HMAC-SHA256 in the `X-Signature-256` header.
+     Subscribes a URL to receive POST requests for specified events. Payloads are signed with HMAC-SHA256
+    (`X-Signature-256` header).
 
-    **Available events:**
-    - `*` — All events
-    - `machine.stage_changed` — Provisioning stage updates
-    - `machine.status_changed` — Machine status transitions
-    - `machine.heartbeat` — Periodic health updates
+    **Events:** `*`, `machine.stage_changed`, `machine.status_changed`, `machine.heartbeat`
 
     Args:
-        body (CreateWebhookBody):
+        body (CreateWebhook):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -102,21 +98,17 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
-    body: CreateWebhookBody,
+    body: CreateWebhook,
 ) -> Error | Webhook | None:
     """Create a webhook
 
-     Subscribes a URL to receive POST requests for specified events. The webhook secret is used to sign
-    payloads with HMAC-SHA256 in the `X-Signature-256` header.
+     Subscribes a URL to receive POST requests for specified events. Payloads are signed with HMAC-SHA256
+    (`X-Signature-256` header).
 
-    **Available events:**
-    - `*` — All events
-    - `machine.stage_changed` — Provisioning stage updates
-    - `machine.status_changed` — Machine status transitions
-    - `machine.heartbeat` — Periodic health updates
+    **Events:** `*`, `machine.stage_changed`, `machine.status_changed`, `machine.heartbeat`
 
     Args:
-        body (CreateWebhookBody):
+        body (CreateWebhook):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -135,21 +127,17 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
-    body: CreateWebhookBody,
+    body: CreateWebhook,
 ) -> Response[Error | Webhook]:
     """Create a webhook
 
-     Subscribes a URL to receive POST requests for specified events. The webhook secret is used to sign
-    payloads with HMAC-SHA256 in the `X-Signature-256` header.
+     Subscribes a URL to receive POST requests for specified events. Payloads are signed with HMAC-SHA256
+    (`X-Signature-256` header).
 
-    **Available events:**
-    - `*` — All events
-    - `machine.stage_changed` — Provisioning stage updates
-    - `machine.status_changed` — Machine status transitions
-    - `machine.heartbeat` — Periodic health updates
+    **Events:** `*`, `machine.stage_changed`, `machine.status_changed`, `machine.heartbeat`
 
     Args:
-        body (CreateWebhookBody):
+        body (CreateWebhook):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -171,21 +159,17 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
-    body: CreateWebhookBody,
+    body: CreateWebhook,
 ) -> Error | Webhook | None:
     """Create a webhook
 
-     Subscribes a URL to receive POST requests for specified events. The webhook secret is used to sign
-    payloads with HMAC-SHA256 in the `X-Signature-256` header.
+     Subscribes a URL to receive POST requests for specified events. Payloads are signed with HMAC-SHA256
+    (`X-Signature-256` header).
 
-    **Available events:**
-    - `*` — All events
-    - `machine.stage_changed` — Provisioning stage updates
-    - `machine.status_changed` — Machine status transitions
-    - `machine.heartbeat` — Periodic health updates
+    **Events:** `*`, `machine.stage_changed`, `machine.status_changed`, `machine.heartbeat`
 
     Args:
-        body (CreateWebhookBody):
+        body (CreateWebhook):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

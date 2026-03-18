@@ -61,8 +61,6 @@ def sync_detailed(
 ) -> Response[Any | Error]:
     """Delete a webhook
 
-     Removes the webhook subscription. No further events will be delivered.
-
     Args:
         id (UUID):
 
@@ -92,8 +90,6 @@ def sync(
 ) -> Any | Error | None:
     """Delete a webhook
 
-     Removes the webhook subscription. No further events will be delivered.
-
     Args:
         id (UUID):
 
@@ -117,8 +113,6 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
 ) -> Response[Any | Error]:
     """Delete a webhook
-
-     Removes the webhook subscription. No further events will be delivered.
 
     Args:
         id (UUID):
@@ -146,8 +140,6 @@ async def asyncio(
     client: AuthenticatedClient,
 ) -> Any | Error | None:
     """Delete a webhook
-
-     Removes the webhook subscription. No further events will be delivered.
 
     Args:
         id (UUID):

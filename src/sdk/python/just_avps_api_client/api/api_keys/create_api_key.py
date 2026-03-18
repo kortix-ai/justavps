@@ -6,14 +6,14 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.api_key import APIKey
-from ...models.create_api_key_body import CreateAPIKeyBody
+from ...models.create_api_key import CreateAPIKey
 from ...models.error import Error
 from ...types import Response
 
 
 def _get_kwargs(
     *,
-    body: CreateAPIKeyBody,
+    body: CreateAPIKey,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
@@ -64,15 +64,14 @@ def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Res
 def sync_detailed(
     *,
     client: AuthenticatedClient,
-    body: CreateAPIKeyBody,
+    body: CreateAPIKey,
 ) -> Response[APIKey | Error]:
     """Create an API key
 
-     **The full key is only returned once in this response.** Store it securely — it cannot be retrieved
-    again.
+     **The full key is only returned once in this response.** Store it securely.
 
     Args:
-        body (CreateAPIKeyBody):
+        body (CreateAPIKey):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -96,15 +95,14 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
-    body: CreateAPIKeyBody,
+    body: CreateAPIKey,
 ) -> APIKey | Error | None:
     """Create an API key
 
-     **The full key is only returned once in this response.** Store it securely — it cannot be retrieved
-    again.
+     **The full key is only returned once in this response.** Store it securely.
 
     Args:
-        body (CreateAPIKeyBody):
+        body (CreateAPIKey):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -123,15 +121,14 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
-    body: CreateAPIKeyBody,
+    body: CreateAPIKey,
 ) -> Response[APIKey | Error]:
     """Create an API key
 
-     **The full key is only returned once in this response.** Store it securely — it cannot be retrieved
-    again.
+     **The full key is only returned once in this response.** Store it securely.
 
     Args:
-        body (CreateAPIKeyBody):
+        body (CreateAPIKey):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -153,15 +150,14 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
-    body: CreateAPIKeyBody,
+    body: CreateAPIKey,
 ) -> APIKey | Error | None:
     """Create an API key
 
-     **The full key is only returned once in this response.** Store it securely — it cannot be retrieved
-    again.
+     **The full key is only returned once in this response.** Store it securely.
 
     Args:
-        body (CreateAPIKeyBody):
+        body (CreateAPIKey):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

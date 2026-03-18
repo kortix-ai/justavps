@@ -6,7 +6,7 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.error import Error
-from ...models.list_machines_response_200 import ListMachinesResponse200
+from ...models.machine_list_response import MachineListResponse
 from ...types import Response
 
 
@@ -21,9 +21,9 @@ def _get_kwargs() -> dict[str, Any]:
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Error | ListMachinesResponse200 | None:
+) -> Error | MachineListResponse | None:
     if response.status_code == 200:
-        response_200 = ListMachinesResponse200.from_dict(response.json())
+        response_200 = MachineListResponse.from_dict(response.json())
 
         return response_200
 
@@ -40,7 +40,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Error | ListMachinesResponse200]:
+) -> Response[Error | MachineListResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -52,7 +52,7 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[Error | ListMachinesResponse200]:
+) -> Response[Error | MachineListResponse]:
     """List machines
 
      Returns all non-deleted machines owned by the authenticated user.
@@ -62,7 +62,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Error | ListMachinesResponse200]
+        Response[Error | MachineListResponse]
     """
 
     kwargs = _get_kwargs()
@@ -77,7 +77,7 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
-) -> Error | ListMachinesResponse200 | None:
+) -> Error | MachineListResponse | None:
     """List machines
 
      Returns all non-deleted machines owned by the authenticated user.
@@ -87,7 +87,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Error | ListMachinesResponse200
+        Error | MachineListResponse
     """
 
     return sync_detailed(
@@ -98,7 +98,7 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[Error | ListMachinesResponse200]:
+) -> Response[Error | MachineListResponse]:
     """List machines
 
      Returns all non-deleted machines owned by the authenticated user.
@@ -108,7 +108,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Error | ListMachinesResponse200]
+        Response[Error | MachineListResponse]
     """
 
     kwargs = _get_kwargs()
@@ -121,7 +121,7 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
-) -> Error | ListMachinesResponse200 | None:
+) -> Error | MachineListResponse | None:
     """List machines
 
      Returns all non-deleted machines owned by the authenticated user.
@@ -131,7 +131,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Error | ListMachinesResponse200
+        Error | MachineListResponse
     """
 
     return (

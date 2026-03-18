@@ -3,14 +3,11 @@
   "info": {
     "title": "JustAVPS API",
     "version": "1.0.0",
-    "description": "The JustAVPS API lets you programmatically manage VPS machines, images, SSH keys, API keys, webhooks, and billing.\n\n## Authentication\n\nAll authenticated endpoints accept either:\n\n- **Bearer token**: `Authorization: Bearer sk_live_xxx` — your API key\n- **Session cookie**: `authjs.session-token` — set by the dashboard login\n\nCreate API keys at [justavps.com/settings](https://justavps.com/settings).\n\n## Base URL\n\n```\nhttps://justavps.com/api/v1\n```\n\n## Quick Start\n\n```bash\n# List your machines\ncurl https://justavps.com/api/v1/machines \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\"\n\n# Create a machine\ncurl -X POST https://justavps.com/api/v1/machines \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"provider\": \"hetzner\", \"server_type\": \"cpx22\", \"region\": \"nbg1\"}'\n```\n\n## Errors\n\nAll error responses follow the same shape:\n\n```json\n{\n  \"error\": true,\n  \"message\": \"Human-readable error description\",\n  \"status\": 400\n}\n```\n\n## SDKs\n\n- **TypeScript/JavaScript**: `npm install @justavps/sdk` — fully typed SDK auto-generated from this spec\n- **Python**: Coming soon\n",
+    "description": "The JustAVPS API lets you programmatically manage VPS machines, images, SSH keys, API keys, webhooks, and billing.\n\n## Authentication\n\nAll authenticated endpoints accept either:\n- **Bearer token**: `Authorization: Bearer sk_live_xxx` — your API key\n- **Session cookie**: `authjs.session-token` — set by the dashboard login\n\n## Base URL\n```\nhttps://justavps.com/api/v1\n```\n\n## SDKs\n- **TypeScript**: `npm install @justavps/sdk`\n- **Python**: `pip install justavps`\n",
     "contact": {
-      "name": "JustAVPS Support",
+      "name": "JustAVPS",
       "url": "https://justavps.com",
       "email": "support@justavps.com"
-    },
-    "license": {
-      "name": "Proprietary"
     }
   },
   "servers": [
@@ -66,7 +63,6 @@
       "get": {
         "operationId": "listMachines",
         "summary": "List machines",
-        "description": "Returns all non-deleted machines owned by the authenticated user.",
         "tags": [
           "Machines"
         ],
@@ -78,36 +74,14 @@
             "cookieAuth": []
           }
         ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst { machines } = await client.machines.list();\nconsole.log(machines);"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl https://justavps.com/api/v1/machines \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\""
-          }
-        ],
+        "description": "Returns all non-deleted machines owned by the authenticated user.",
         "responses": {
           "200": {
             "description": "List of machines",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "required": [
-                    "machines"
-                  ],
-                  "properties": {
-                    "machines": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/Machine"
-                      }
-                    }
-                  }
+                  "$ref": "#/components/schemas/MachineListResponse"
                 }
               }
             }
@@ -122,12 +96,23 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst { machines } = await client.machines.list();"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.machines import list_machines\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\nresponse = list_machines.sync(client=client)"
+          }
+        ]
       },
       "post": {
         "operationId": "createMachine",
         "summary": "Create a machine",
-        "description": "Provisions a new VPS machine. Returns immediately with status `provisioning` (HTTP 202).\n\nIf `image_id` is provided, boots from that image. If omitted or null, boots from a fresh Ubuntu 24.04 install.\n\nThe machine will transition to `ready` once cloud-init completes and the agent sends its first heartbeat.\n\nUse the SSE endpoint `GET /machines/{id}/status/stream` to watch provisioning progress in real-time.",
         "tags": [
           "Machines"
         ],
@@ -139,86 +124,20 @@
             "cookieAuth": []
           }
         ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst machine = await client.machines.create({\n  provider: 'hetzner',\n  server_type: 'cpx22',\n  region: 'nbg1',\n  name: 'my-machine',\n});\n\n// Wait for it to be ready\nconst ready = await client.machines.waitForReady(machine.id);\nconsole.log('Ready:', ready.connect?.vscode_url);"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl -X POST https://justavps.com/api/v1/machines \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"provider\":\"hetzner\",\"server_type\":\"cpx22\",\"region\":\"nbg1\"}'"
-          }
-        ],
+        "description": "Provisions a new VPS machine. If `image_id` is provided, boots from that image. If omitted, boots from Ubuntu 24.04.\n\nReturns 202 if provisioning starts immediately (user has payment method), or 402 with a `checkout_url` if payment is required first.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": [
-                  "snapshot_id",
-                  "provider",
-                  "server_type",
-                  "region"
-                ],
-                "properties": {
-                  "snapshot_id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "description": "Snapshot to boot from"
-                  },
-                  "provider": {
-                    "type": "string",
-                    "description": "Cloud provider",
-                    "example": "hetzner"
-                  },
-                  "server_type": {
-                    "type": "string",
-                    "description": "Provider-specific server type",
-                    "example": "cpx22"
-                  },
-                  "region": {
-                    "type": "string",
-                    "description": "Provider-specific region",
-                    "example": "nbg1"
-                  },
-                  "name": {
-                    "type": "string",
-                    "description": "Human-readable name (auto-generated if omitted)",
-                    "example": "my-machine",
-                    "maxLength": 64
-                  },
-                  "env_vars": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "type": "string"
-                    },
-                    "description": "Extra environment variables written to /etc/justavps/env on the machine",
-                    "example": {
-                      "API_KEY": "sk-xxx",
-                      "NODE_ENV": "production"
-                    }
-                  },
-                  "docker_image": {
-                    "type": "string",
-                    "description": "Docker image to run on boot",
-                    "example": "nginx:latest"
-                  },
-                  "entrypoint": {
-                    "type": "string",
-                    "description": "Container entrypoint override",
-                    "example": "sleep infinity"
-                  }
-                }
+                "$ref": "#/components/schemas/CreateMachine"
               }
             }
           }
         },
         "responses": {
           "202": {
-            "description": "Machine creation started",
+            "description": "Machine provisioning started",
             "content": {
               "application/json": {
                 "schema": {
@@ -237,12 +156,12 @@
               }
             }
           },
-          "401": {
-            "description": "Unauthorized",
+          "402": {
+            "description": "Payment required — redirect to checkout",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Error"
+                  "$ref": "#/components/schemas/CheckoutRequired"
                 }
               }
             }
@@ -257,14 +176,25 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst machine = await client.machines.create({\n  provider: 'hetzner',\n  server_type: 'cpx22',\n  region: 'nbg1',\n});\nconst ready = await client.machines.waitForReady(machine.id);"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.machines import create_machine\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\nbody = CreateMachineBody(provider=\"hetzner\", server_type=\"cpx22\", region=\"nbg1\")\nmachine = create_machine.sync(client=client, body=body)"
+          }
+        ]
       }
     },
     "/machines/{id}": {
       "get": {
         "operationId": "getMachine",
         "summary": "Get a machine",
-        "description": "Returns full details of a machine including connection info, health metrics, and SSH keys.",
         "tags": [
           "Machines"
         ],
@@ -276,18 +206,7 @@
             "cookieAuth": []
           }
         ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst machine = await client.machines.get('machine-uuid');\nconsole.log(machine.status, machine.connect?.vscode_url);"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl https://justavps.com/api/v1/machines/{id} \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\""
-          }
-        ],
+        "description": "Returns full details of a machine including connection info, health metrics, and SSH keys.",
         "parameters": [
           {
             "name": "id",
@@ -331,12 +250,23 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst machine = await client.machines.get('machine-uuid');"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.machines import get_machine\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\nmachine = get_machine.sync(client=client, id=\"machine-uuid\")"
+          }
+        ]
       },
       "delete": {
-        "operationId": "deleteMachine",
+        "operationId": "destroyMachine",
         "summary": "Delete a machine",
-        "description": "Permanently destroys the machine, removes DNS records, cancels billing, and deletes the provider server. **This action is irreversible.**",
         "tags": [
           "Machines"
         ],
@@ -348,18 +278,7 @@
             "cookieAuth": []
           }
         ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nawait client.machines.delete('machine-uuid');"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl -X DELETE https://justavps.com/api/v1/machines/{id} \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\""
-          }
-        ],
+        "description": "Permanently destroys the machine, removes DNS records, cancels billing, and deletes the provider server. **Irreversible.**",
         "parameters": [
           {
             "name": "id",
@@ -396,14 +315,25 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nawait client.machines.delete('machine-uuid');"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.machines import destroy_machine\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\ndelete_machine.sync_detailed(client=client, id=\"machine-uuid\")"
+          }
+        ]
       }
     },
     "/machines/{id}/reboot": {
       "post": {
         "operationId": "rebootMachine",
         "summary": "Reboot a machine",
-        "description": "Initiates a hard reboot via the provider API. The machine will be briefly unavailable (~30s).",
         "tags": [
           "Machines"
         ],
@@ -415,18 +345,7 @@
             "cookieAuth": []
           }
         ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst result = await client.machines.reboot('machine-uuid');\nconsole.log(result.status); // 'initiated'"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl -X POST https://justavps.com/api/v1/machines/{id}/reboot \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\""
-          }
-        ],
+        "description": "Initiates a hard reboot via the provider API (~30s downtime).",
         "parameters": [
           {
             "name": "id",
@@ -445,17 +364,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "action": {
-                      "type": "string",
-                      "example": "reboot"
-                    },
-                    "status": {
-                      "type": "string",
-                      "example": "initiated"
-                    }
-                  }
+                  "$ref": "#/components/schemas/ActionResponse"
                 }
               }
             }
@@ -480,14 +389,25 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nawait client.machines.reboot('machine-uuid');"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.machines import reboot_machine\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\nreboot_machine.sync(client=client, id=\"machine-uuid\")"
+          }
+        ]
       }
     },
     "/machines/{id}/resize": {
       "post": {
         "operationId": "resizeMachine",
         "summary": "Resize a machine",
-        "description": "Changes the machine to a different server type. The machine will reboot during the resize (~30s downtime).\n\n**Constraints:**\n- Disk can only grow (no downsizing)\n- Same architecture required (x86 ↔ ARM requires a new machine)\n- Billing is updated with prorated pricing",
         "tags": [
           "Machines"
         ],
@@ -499,18 +419,7 @@
             "cookieAuth": []
           }
         ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst result = await client.machines.resize('machine-uuid', {\n  server_type: 'cpx32',\n});\nconsole.log(result.old_type, '→', result.new_type);"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl -X POST https://justavps.com/api/v1/machines/{id}/resize \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"server_type\":\"cpx32\"}'"
-          }
-        ],
+        "description": "Changes the machine to a different server type. Requires reboot (~30s downtime). Billing is prorated.",
         "parameters": [
           {
             "name": "id",
@@ -528,17 +437,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": [
-                  "server_type"
-                ],
-                "properties": {
-                  "server_type": {
-                    "type": "string",
-                    "description": "New server type",
-                    "example": "cpx32"
-                  }
-                }
+                "$ref": "#/components/schemas/ResizeMachine"
               }
             }
           }
@@ -549,25 +448,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "action": {
-                      "type": "string",
-                      "example": "resize"
-                    },
-                    "old_type": {
-                      "type": "string",
-                      "example": "cpx22"
-                    },
-                    "new_type": {
-                      "type": "string",
-                      "example": "cpx32"
-                    },
-                    "status": {
-                      "type": "string",
-                      "example": "initiated"
-                    }
-                  }
+                  "$ref": "#/components/schemas/ResizeResponse"
                 }
               }
             }
@@ -602,14 +483,120 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nawait client.machines.resize('machine-uuid', { server_type: 'cpx32' });"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.machines import resize_machine\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\nbody = ResizeMachineBody(server_type=\"cpx32\")\nresize_machine.sync(client=client, id=\"machine-uuid\", body=body)"
+          }
+        ]
+      }
+    },
+    "/machines/{id}/image": {
+      "post": {
+        "operationId": "createImageFromMachine",
+        "summary": "Create image from machine",
+        "tags": [
+          "Machines",
+          "Images"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "description": "Creates a point-in-time image (snapshot) from a running machine. Machine must be in `ready` status. Returns 202 — poll `GET /images/{id}` until status is `ready`.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Machine ID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateImage"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Image creation started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Image"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst image = await client.machines.createImage('machine-uuid', { name: 'my-backup' });"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.machines import create_image_from_machine\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\nbody = CreateImageBody(name=\"my-backup\")\ncreate_image_from_machine.sync(client=client, id=\"machine-uuid\", body=body)"
+          }
+        ]
       }
     },
     "/machines/{id}/status/stream": {
       "get": {
         "operationId": "streamMachineStatus",
         "summary": "Stream machine status (SSE)",
-        "description": "Opens a Server-Sent Events stream that pushes real-time provisioning updates.\n\n**Event types:**\n- `status` — Current machine status snapshot\n- `stage` — Provisioning stage change (e.g. `server_creating`, `cloud_init_running`)\n- `done` — Terminal event, stream will close\n- `ping` — Keepalive (every 2s)\n- `error` — Error event\n\nThe stream automatically closes when the machine reaches a terminal state (`ready`, `error`, `deleted`) or after 10 minutes.",
         "tags": [
           "Events"
         ],
@@ -621,18 +608,7 @@
             "cookieAuth": []
           }
         ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\n// Async iterator over SSE events\nfor await (const event of client.machines.stream('machine-uuid')) {\n  if (event.type === 'stage') {\n    console.log('Stage:', event.data.provisioning_stage);\n  }\n  if (event.type === 'done') break;\n}\n\n// Or use the convenience helper:\nconst machine = await client.machines.waitForReady('machine-uuid');"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl https://justavps.com/api/v1/machines/{id}/status/stream \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\""
-          }
-        ],
+        "description": "Opens a Server-Sent Events stream for real-time provisioning updates.\n\n**Event types:** `status`, `stage`, `done`, `ping`, `error`\n\nAuto-closes on terminal state or after 10 minutes.",
         "parameters": [
           {
             "name": "id",
@@ -647,7 +623,7 @@
         ],
         "responses": {
           "200": {
-            "description": "SSE stream of machine events",
+            "description": "SSE stream",
             "content": {
               "text/event-stream": {
                 "schema": {
@@ -676,16 +652,27 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nfor await (const event of client.machines.stream('machine-uuid')) {\n  if (event.type === 'done') break;\n}"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.events import stream_machine_status\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\nstream_machine_status.sync_detailed(client=client, id=\"machine-uuid\")"
+          }
+        ]
       }
     },
-    "/snapshots": {
+    "/images": {
       "get": {
-        "operationId": "listSnapshots",
-        "summary": "List snapshots",
-        "description": "Returns all non-deleted snapshots owned by the authenticated user, including the default platform snapshot.",
+        "operationId": "listImages",
+        "summary": "List images",
         "tags": [
-          "Snapshots"
+          "Images"
         ],
         "security": [
           {
@@ -695,36 +682,14 @@
             "cookieAuth": []
           }
         ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst { snapshots } = await client.snapshots.list();\nconsole.log(snapshots);"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl https://justavps.com/api/v1/snapshots \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\""
-          }
-        ],
+        "description": "Returns all non-deleted images owned by the authenticated user.",
         "responses": {
           "200": {
-            "description": "List of snapshots",
+            "description": "List of images",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "required": [
-                    "snapshots"
-                  ],
-                  "properties": {
-                    "snapshots": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/Snapshot"
-                      }
-                    }
-                  }
+                  "$ref": "#/components/schemas/ImageListResponse"
                 }
               }
             }
@@ -735,118 +700,31 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "operationId": "createSnapshot",
-        "summary": "Create a snapshot",
-        "description": "Starts an asynchronous snapshot build from a Docker image. The snapshot will be in `building` status initially. Poll `GET /snapshots/{id}` until status is `ready`.",
-        "tags": [
-          "Snapshots"
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          },
-          {
-            "cookieAuth": []
-          }
-        ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst snapshot = await client.snapshots.create({\n  docker_image: 'nginx:latest',\n  name: 'my-nginx-snapshot',\n  provider: 'hetzner',\n});\nconst ready = await client.snapshots.waitForReady(snapshot.id);"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl -X POST https://justavps.com/api/v1/snapshots \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"docker_image\":\"nginx:latest\",\"name\":\"my-snapshot\",\"provider\":\"hetzner\"}'"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "docker_image",
-                  "name",
-                  "provider"
-                ],
-                "properties": {
-                  "docker_image": {
-                    "type": "string",
-                    "description": "Docker image to bake into the snapshot",
-                    "example": "nginx:latest"
-                  },
-                  "entrypoint": {
-                    "type": "string",
-                    "description": "Container entrypoint command",
-                    "example": "sleep infinity"
-                  },
-                  "name": {
-                    "type": "string",
-                    "description": "Human-readable name",
-                    "example": "my-nginx-snapshot",
-                    "maxLength": 128
-                  },
-                  "provider": {
-                    "type": "string",
-                    "description": "Provider to build on",
-                    "example": "hetzner"
-                  }
                 }
               }
             }
           }
         },
-        "responses": {
-          "201": {
-            "description": "Snapshot build started",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Snapshot"
-                }
-              }
-            }
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst { images } = await client.images.list();"
           },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.images import list_images\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\nresponse = list_images.sync(client=client)"
           }
-        }
+        ]
       }
     },
-    "/snapshots/{id}": {
+    "/images/{id}": {
       "get": {
-        "operationId": "getSnapshot",
-        "summary": "Get a snapshot",
-        "description": "Returns snapshot details including build status and per-provider artifacts.",
+        "operationId": "getImage",
+        "summary": "Get an image",
         "tags": [
-          "Snapshots"
+          "Images"
         ],
         "security": [
           {
@@ -856,24 +734,13 @@
             "cookieAuth": []
           }
         ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst snapshot = await client.snapshots.get('snapshot-uuid');\nconsole.log(snapshot.status, snapshot.providers);"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl https://justavps.com/api/v1/snapshots/{id} \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\""
-          }
-        ],
+        "description": "Returns image details including status and provider artifact info.",
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
-            "description": "Snapshot ID",
+            "description": "Image ID",
             "schema": {
               "type": "string",
               "format": "uuid"
@@ -882,11 +749,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Snapshot details",
+            "description": "Image details",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Snapshot"
+                  "$ref": "#/components/schemas/Image"
                 }
               }
             }
@@ -911,14 +778,25 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst image = await client.images.get('image-uuid');"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.images import get_image\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\nimage = get_image.sync(client=client, id=\"image-uuid\")"
+          }
+        ]
       },
       "delete": {
-        "operationId": "deleteSnapshot",
-        "summary": "Delete a snapshot",
-        "description": "Deletes the snapshot and all provider-side artifacts. Cannot delete the default platform snapshot.",
+        "operationId": "deleteImage",
+        "summary": "Delete an image",
         "tags": [
-          "Snapshots"
+          "Images"
         ],
         "security": [
           {
@@ -928,24 +806,13 @@
             "cookieAuth": []
           }
         ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nawait client.snapshots.delete('snapshot-uuid');"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl -X DELETE https://justavps.com/api/v1/snapshots/{id} \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\""
-          }
-        ],
+        "description": "Deletes the image and its provider-side artifact.",
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
-            "description": "Snapshot ID",
+            "description": "Image ID",
             "schema": {
               "type": "string",
               "format": "uuid"
@@ -954,17 +821,7 @@
         ],
         "responses": {
           "204": {
-            "description": "Snapshot deleted"
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
+            "description": "Image deleted"
           },
           "401": {
             "description": "Unauthorized",
@@ -982,141 +839,29 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/snapshots/{id}/build": {
-      "post": {
-        "operationId": "buildSnapshotOnProvider",
-        "summary": "Build snapshot on another provider",
-        "description": "Triggers an async build of an existing snapshot on a new provider.",
-        "tags": [
-          "Snapshots"
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          },
-          {
-            "cookieAuth": []
-          }
-        ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst result = await client.snapshots.build('snapshot-uuid', { provider: 'hetzner' });"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl -X POST https://justavps.com/api/v1/snapshots/{id}/build \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"provider\":\"hetzner\"}'"
-          }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "description": "Snapshot ID",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "provider"
-                ],
-                "properties": {
-                  "provider": {
-                    "type": "string",
-                    "description": "Provider to build on",
-                    "example": "hetzner"
-                  }
                 }
               }
             }
           }
         },
-        "responses": {
-          "202": {
-            "description": "Build started",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string"
-                    },
-                    "status": {
-                      "type": "string",
-                      "example": "building"
-                    }
-                  }
-                }
-              }
-            }
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nawait client.images.delete('image-uuid');"
           },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.images import delete_image\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\ndelete_image.sync_detailed(client=client, id=\"image-uuid\")"
           }
-        }
+        ]
       }
     },
     "/ssh-keys": {
       "get": {
         "operationId": "listSSHKeys",
         "summary": "List SSH keys",
-        "description": "Returns all SSH public keys registered by the authenticated user.",
         "tags": [
           "SSH Keys"
         ],
@@ -1128,36 +873,14 @@
             "cookieAuth": []
           }
         ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst { ssh_keys } = await client.sshKeys.list();\nconsole.log(ssh_keys);"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl https://justavps.com/api/v1/ssh-keys \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\""
-          }
-        ],
+        "description": "Returns all SSH public keys registered by the authenticated user.",
         "responses": {
           "200": {
             "description": "List of SSH keys",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "required": [
-                    "ssh_keys"
-                  ],
-                  "properties": {
-                    "ssh_keys": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/SSHKey"
-                      }
-                    }
-                  }
+                  "$ref": "#/components/schemas/SSHKeyListResponse"
                 }
               }
             }
@@ -1172,12 +895,23 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst { ssh_keys } = await client.sshKeys.list();"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.ssh_keys import list_s_s_h_keys\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\nresponse = list_ssh_keys.sync(client=client)"
+          }
+        ]
       },
       "post": {
         "operationId": "createSSHKey",
         "summary": "Add an SSH key",
-        "description": "Registers a new SSH public key. The key is automatically uploaded to all available providers.",
         "tags": [
           "SSH Keys"
         ],
@@ -1189,41 +923,13 @@
             "cookieAuth": []
           }
         ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst key = await client.sshKeys.create({\n  name: 'my-laptop',\n  public_key: 'ssh-ed25519 AAAA...',\n});\nconsole.log(key.fingerprint);"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl -X POST https://justavps.com/api/v1/ssh-keys \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"name\":\"my-laptop\",\"public_key\":\"ssh-ed25519 AAAA...\"}'"
-          }
-        ],
+        "description": "Registers a new SSH public key. Automatically uploaded to all providers.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": [
-                  "name",
-                  "public_key"
-                ],
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "description": "Label for this key",
-                    "example": "my-laptop",
-                    "maxLength": 128
-                  },
-                  "public_key": {
-                    "type": "string",
-                    "description": "SSH public key",
-                    "example": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample..."
-                  }
-                }
+                "$ref": "#/components/schemas/CreateSSHKey"
               }
             }
           }
@@ -1259,14 +965,25 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst key = await client.sshKeys.create({ name: 'my-laptop', public_key: 'ssh-ed25519 AAAA...' });"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.ssh_keys import create_s_s_h_key\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\nbody = CreateSshKeyBody(name=\"my-laptop\", public_key=\"ssh-ed25519 AAAA...\")\ncreate_ssh_key.sync(client=client, body=body)"
+          }
+        ]
       }
     },
     "/ssh-keys/{id}": {
       "delete": {
         "operationId": "deleteSSHKey",
         "summary": "Delete an SSH key",
-        "description": "Removes the SSH key from JustAVPS and all providers. Existing machines are not affected.",
         "tags": [
           "SSH Keys"
         ],
@@ -1276,18 +993,6 @@
           },
           {
             "cookieAuth": []
-          }
-        ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nawait client.sshKeys.delete('key-uuid');"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl -X DELETE https://justavps.com/api/v1/ssh-keys/{id} \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\""
           }
         ],
         "parameters": [
@@ -1326,14 +1031,25 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nawait client.sshKeys.delete('key-uuid');"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.ssh_keys import delete_s_s_h_key\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\ndelete_ssh_key.sync_detailed(client=client, id=\"key-uuid\")"
+          }
+        ]
       }
     },
     "/api-keys": {
       "get": {
         "operationId": "listAPIKeys",
         "summary": "List API keys",
-        "description": "Returns all API keys for the authenticated user. The full key value is never returned after creation.",
         "tags": [
           "API Keys"
         ],
@@ -1345,36 +1061,14 @@
             "cookieAuth": []
           }
         ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst { api_keys } = await client.apiKeys.list();\nconsole.log(api_keys);"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl https://justavps.com/api/v1/api-keys \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\""
-          }
-        ],
+        "description": "Returns all API keys. Full key value is never returned after creation.",
         "responses": {
           "200": {
             "description": "List of API keys",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "required": [
-                    "api_keys"
-                  ],
-                  "properties": {
-                    "api_keys": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/APIKey"
-                      }
-                    }
-                  }
+                  "$ref": "#/components/schemas/APIKeyListResponse"
                 }
               }
             }
@@ -1389,12 +1083,23 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst { api_keys } = await client.apiKeys.list();"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.api_keys import list_a_p_i_keys\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\nresponse = list_api_keys.sync(client=client)"
+          }
+        ]
       },
       "post": {
         "operationId": "createAPIKey",
         "summary": "Create an API key",
-        "description": "**The full key is only returned once in this response.** Store it securely — it cannot be retrieved again.",
         "tags": [
           "API Keys"
         ],
@@ -1406,42 +1111,20 @@
             "cookieAuth": []
           }
         ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst apiKey = await client.apiKeys.create({ name: 'production' });\nconsole.log('Save this key:', apiKey.key); // Only shown once!"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl -X POST https://justavps.com/api/v1/api-keys \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"name\":\"production\"}'"
-          }
-        ],
+        "description": "**The full key is only returned once in this response.** Store it securely.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": [
-                  "name"
-                ],
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "description": "Label for this key",
-                    "example": "production",
-                    "maxLength": 128
-                  }
-                }
+                "$ref": "#/components/schemas/CreateAPIKey"
               }
             }
           }
         },
         "responses": {
           "201": {
-            "description": "API key created (key shown once)",
+            "description": "API key created",
             "content": {
               "application/json": {
                 "schema": {
@@ -1470,14 +1153,25 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst apiKey = await client.apiKeys.create({ name: 'production' });\nconsole.log(apiKey.key); // Only shown once!"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.api_keys import create_a_p_i_key\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\nbody = CreateApiKeyBody(name=\"production\")\napi_key = create_api_key.sync(client=client, body=body)"
+          }
+        ]
       }
     },
     "/api-keys/{id}": {
       "delete": {
         "operationId": "deleteAPIKey",
         "summary": "Delete an API key",
-        "description": "Permanently revokes the API key. Any requests using this key will immediately fail.",
         "tags": [
           "API Keys"
         ],
@@ -1489,18 +1183,7 @@
             "cookieAuth": []
           }
         ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nawait client.apiKeys.delete('key-uuid');"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl -X DELETE https://justavps.com/api/v1/api-keys/{id} \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\""
-          }
-        ],
+        "description": "Permanently revokes the API key. Requests using it will immediately fail.",
         "parameters": [
           {
             "name": "id",
@@ -1537,14 +1220,25 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nawait client.apiKeys.delete('key-uuid');"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.api_keys import delete_a_p_i_key\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\ndelete_api_key.sync_detailed(client=client, id=\"key-uuid\")"
+          }
+        ]
       }
     },
     "/webhooks": {
       "get": {
         "operationId": "listWebhooks",
         "summary": "List webhooks",
-        "description": "Returns all webhook subscriptions for the authenticated user.",
         "tags": [
           "Webhooks"
         ],
@@ -1556,36 +1250,13 @@
             "cookieAuth": []
           }
         ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst { webhooks } = await client.webhooks.list();\nconsole.log(webhooks);"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl https://justavps.com/api/v1/webhooks \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\""
-          }
-        ],
         "responses": {
           "200": {
             "description": "List of webhooks",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "required": [
-                    "webhooks"
-                  ],
-                  "properties": {
-                    "webhooks": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/Webhook"
-                      }
-                    }
-                  }
+                  "$ref": "#/components/schemas/WebhookListResponse"
                 }
               }
             }
@@ -1600,12 +1271,23 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst { webhooks } = await client.webhooks.list();"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.webhooks import list_webhooks\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\nresponse = list_webhooks.sync(client=client)"
+          }
+        ]
       },
       "post": {
         "operationId": "createWebhook",
         "summary": "Create a webhook",
-        "description": "Subscribes a URL to receive POST requests for specified events. The webhook secret is used to sign payloads with HMAC-SHA256 in the `X-Signature-256` header.\n\n**Available events:**\n- `*` — All events\n- `machine.stage_changed` — Provisioning stage updates\n- `machine.status_changed` — Machine status transitions\n- `machine.heartbeat` — Periodic health updates",
         "tags": [
           "Webhooks"
         ],
@@ -1617,57 +1299,13 @@
             "cookieAuth": []
           }
         ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst webhook = await client.webhooks.create({\n  url: 'https://example.com/webhooks/justavps',\n  events: ['machine.status_changed'],\n});\nconsole.log('Secret:', webhook.secret); // Save this!"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl -X POST https://justavps.com/api/v1/webhooks \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"url\":\"https://example.com/hook\",\"events\":[\"machine.status_changed\"]}'"
-          }
-        ],
+        "description": "Subscribes a URL to receive POST requests for specified events. Payloads are signed with HMAC-SHA256 (`X-Signature-256` header).\n\n**Events:** `*`, `machine.stage_changed`, `machine.status_changed`, `machine.heartbeat`",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": [
-                  "url",
-                  "events"
-                ],
-                "properties": {
-                  "url": {
-                    "type": "string",
-                    "format": "uri",
-                    "description": "HTTPS endpoint to receive events",
-                    "example": "https://example.com/webhooks/justavps"
-                  },
-                  "events": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "enum": [
-                        "*",
-                        "machine.stage_changed",
-                        "machine.status_changed",
-                        "machine.heartbeat"
-                      ]
-                    },
-                    "description": "Event types to subscribe to",
-                    "example": [
-                      "machine.status_changed"
-                    ]
-                  },
-                  "secret": {
-                    "type": "string",
-                    "description": "HMAC secret (auto-generated if omitted, min 16 chars)",
-                    "minLength": 16
-                  }
-                }
+                "$ref": "#/components/schemas/CreateWebhook"
               }
             }
           }
@@ -1703,14 +1341,25 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst webhook = await client.webhooks.create({\n  url: 'https://example.com/hook',\n  events: ['machine.status_changed'],\n});"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.webhooks import create_webhook\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\nbody = CreateWebhookBody(url=\"https://example.com/hook\", events=[\"machine.status_changed\"])\nwebhook = create_webhook.sync(client=client, body=body)"
+          }
+        ]
       }
     },
     "/webhooks/{id}": {
       "delete": {
         "operationId": "deleteWebhook",
         "summary": "Delete a webhook",
-        "description": "Removes the webhook subscription. No further events will be delivered.",
         "tags": [
           "Webhooks"
         ],
@@ -1720,18 +1369,6 @@
           },
           {
             "cookieAuth": []
-          }
-        ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nawait client.webhooks.delete('webhook-uuid');"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl -X DELETE https://justavps.com/api/v1/webhooks/{id} \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\""
           }
         ],
         "parameters": [
@@ -1770,35 +1407,35 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nawait client.webhooks.delete('webhook-uuid');"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.webhooks import delete_webhook\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\ndelete_webhook.sync_detailed(client=client, id=\"webhook-uuid\")"
+          }
+        ]
       }
     },
     "/server-types": {
       "get": {
         "operationId": "listServerTypes",
         "summary": "List server types",
-        "description": "Returns all available server types for a given provider and region, including pricing with markup.",
         "tags": [
           "Server Types"
         ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst { server_types } = await client.serverTypes.list('nbg1');\nfor (const st of server_types) {\n  console.log(st.name, st.vcpu + ' vCPU', st.ram_gb + 'GB', '$' + st.price_monthly + '/mo');\n}"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl https://justavps.com/api/v1/server-types?provider=hetzner&region=nbg1 \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\""
-          }
-        ],
+        "description": "Returns available server types for a provider + region, with pricing.",
         "parameters": [
           {
             "name": "provider",
             "in": "query",
             "required": false,
-            "description": "Cloud provider name",
+            "description": "Cloud provider",
             "schema": {
               "type": "string",
               "default": "hetzner"
@@ -1808,7 +1445,7 @@
             "name": "region",
             "in": "query",
             "required": true,
-            "description": "Provider region ID (e.g. nbg1, fsn1)",
+            "description": "Region ID (e.g. nbg1)",
             "schema": {
               "type": "string"
             }
@@ -1820,21 +1457,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "provider": {
-                      "type": "string"
-                    },
-                    "region": {
-                      "type": "string"
-                    },
-                    "server_types": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/ServerType"
-                      }
-                    }
-                  }
+                  "$ref": "#/components/schemas/ServerTypeListResponse"
                 }
               }
             }
@@ -1849,28 +1472,27 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst { server_types } = await client.serverTypes.list('nbg1');"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.server_types import list_server_types\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\nresponse = list_server_types.sync(client=client, region=\"nbg1\")"
+          }
+        ]
       }
     },
     "/server-types/providers": {
       "get": {
         "operationId": "listProviders",
         "summary": "List providers",
-        "description": "Returns all available cloud providers.",
         "tags": [
           "Server Types"
-        ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst { providers } = await client.serverTypes.providers();\nconsole.log(providers);"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl https://justavps.com/api/v1/server-types/providers \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\""
-          }
         ],
         "responses": {
           "200": {
@@ -1878,48 +1500,39 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "providers": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/Provider"
-                      }
-                    }
-                  }
+                  "$ref": "#/components/schemas/ProviderListResponse"
                 }
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst { providers } = await client.serverTypes.providers();"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.server_types import list_providers\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\nresponse = list_providers.sync(client=client)"
+          }
+        ]
       }
     },
     "/server-types/regions": {
       "get": {
         "operationId": "listRegions",
         "summary": "List regions",
-        "description": "Returns all available regions for a given provider.",
         "tags": [
           "Server Types"
-        ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst { regions } = await client.serverTypes.regions('hetzner');\nfor (const r of regions) {\n  console.log(r.id, r.city, r.country);\n}"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl https://justavps.com/api/v1/server-types/regions?provider=hetzner \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\""
-          }
         ],
         "parameters": [
           {
             "name": "provider",
             "in": "query",
             "required": false,
-            "description": "Cloud provider name",
+            "description": "Cloud provider",
             "schema": {
               "type": "string",
               "default": "hetzner"
@@ -1932,18 +1545,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "provider": {
-                      "type": "string"
-                    },
-                    "regions": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/Region"
-                      }
-                    }
-                  }
+                  "$ref": "#/components/schemas/RegionListResponse"
                 }
               }
             }
@@ -1958,14 +1560,25 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst { regions } = await client.serverTypes.regions('hetzner');"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.server_types import list_regions\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\nresponse = list_regions.sync(client=client, provider=\"hetzner\")"
+          }
+        ]
       }
     },
     "/account": {
       "get": {
         "operationId": "getAccount",
         "summary": "Get account info",
-        "description": "Returns the authenticated user's account details.",
         "tags": [
           "Account"
         ],
@@ -1975,18 +1588,6 @@
           },
           {
             "cookieAuth": []
-          }
-        ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst account = await client.account.get();\nconsole.log(account.email, account.machines_count);"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl https://justavps.com/api/v1/account \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\""
           }
         ],
         "responses": {
@@ -2020,14 +1621,25 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst account = await client.account.get();"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.account import get_account\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\naccount = get_account.sync(client=client)"
+          }
+        ]
       }
     },
     "/account/usage": {
       "get": {
         "operationId": "getAccountUsage",
         "summary": "Get usage stats",
-        "description": "Returns current billing period usage including active machines and estimated cost.",
         "tags": [
           "Account"
         ],
@@ -2039,18 +1651,7 @@
             "cookieAuth": []
           }
         ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst usage = await client.account.usage();\nconsole.log('Machines:', usage.current_period.total_machines);\nconsole.log('Cost: $' + usage.current_period.estimated_cost);"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl https://justavps.com/api/v1/account/usage \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\""
-          }
-        ],
+        "description": "Returns current billing period usage including active machines and estimated cost.",
         "responses": {
           "200": {
             "description": "Usage statistics",
@@ -2072,14 +1673,25 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst usage = await client.account.usage();"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.account import get_account_usage\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\nusage = get_account_usage.sync(client=client)"
+          }
+        ]
       }
     },
     "/account/billing": {
       "get": {
-        "operationId": "getBillingPortal",
-        "summary": "Get billing portal URL",
-        "description": "Returns a Stripe Customer Portal URL for self-service billing management.",
+        "operationId": "getBilling",
+        "summary": "Get billing info",
         "tags": [
           "Account"
         ],
@@ -2091,25 +1703,14 @@
             "cookieAuth": []
           }
         ],
-        "x-codeSamples": [
-          {
-            "lang": "JavaScript",
-            "label": "TypeScript SDK",
-            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst { portal_url } = await client.account.billing();\nif (portal_url) window.open(portal_url);"
-          },
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl https://justavps.com/api/v1/account/billing \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\""
-          }
-        ],
+        "description": "Returns Stripe billing portal URL and payment method status.",
         "responses": {
           "200": {
-            "description": "Billing portal URL",
+            "description": "Billing info",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BillingPortal"
+                  "$ref": "#/components/schemas/Billing"
                 }
               }
             }
@@ -2124,96 +1725,118 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst billing = await client.account.billing();"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.account import get_billing\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\nbilling = get_billing.sync(client=client)"
+          }
+        ]
+      }
+    },
+    "/account/billing/setup": {
+      "post": {
+        "operationId": "createBillingSetup",
+        "summary": "Create billing setup session",
+        "tags": [
+          "Account"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "description": "Creates a Stripe Checkout Session in setup mode to add a payment method.",
+        "responses": {
+          "200": {
+            "description": "Checkout URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingSetup"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "@justavps/sdk",
+            "source": "import { JustAVPS } from '@justavps/sdk';\n\nconst client = new JustAVPS({ apiKey: 'sk_live_YOUR_KEY' });\n\nconst { checkout_url } = await client.account.billingSetup();"
+          },
+          {
+            "lang": "Python",
+            "label": "justavps (PyPI)",
+            "source": "from just_avps_api_client import AuthenticatedClient\nfrom just_avps_api_client.api.account import create_billing_setup\n\nclient = AuthenticatedClient(base_url=\"https://justavps.com/api/v1\", token=\"sk_live_YOUR_KEY\")\n\nresponse = create_billing_setup.sync(client=client)"
+          }
+        ]
       }
     },
     "/internal/heartbeat": {
       "post": {
-        "operationId": "agentHeartbeat",
+        "operationId": "machineHeartbeat",
         "summary": "Agent heartbeat",
-        "description": "Called by the justavps-agent on each machine every 60s. Updates health metrics and can transition machines from `provisioning` to `ready`.",
         "tags": [
           "Internal"
         ],
-        "x-codeSamples": [
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl -X POST https://justavps.com/api/v1/internal/heartbeat \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"slug\":\"abc123\",\"machine_token\":\"mt_xxx\",\"uptime\":3600,\"services\":{\"code_server\":true},\"load\":{\"cpu\":0.45,\"memory\":0.62,\"disk\":0.31}}'"
-          }
-        ],
+        "description": "Called by the justavps-agent on each machine every 60s. Authenticated via `machine_token` in body.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": [
-                  "slug",
-                  "machine_token",
-                  "uptime",
-                  "services",
-                  "load"
-                ],
-                "properties": {
-                  "slug": {
-                    "type": "string",
-                    "example": "abc123"
-                  },
-                  "machine_token": {
-                    "type": "string"
-                  },
-                  "uptime": {
-                    "type": "number",
-                    "description": "Uptime in seconds"
-                  },
-                  "services": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "type": "boolean"
-                    },
-                    "example": {
-                      "code_server": true,
-                      "caddy": true
-                    }
-                  },
-                  "load": {
-                    "type": "object",
-                    "required": [
-                      "cpu",
-                      "memory",
-                      "disk"
-                    ],
-                    "properties": {
-                      "cpu": {
-                        "type": "number"
-                      },
-                      "memory": {
-                        "type": "number"
-                      },
-                      "disk": {
-                        "type": "number"
-                      }
-                    }
-                  }
-                }
+                "$ref": "#/components/schemas/Heartbeat"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Heartbeat acknowledged",
+            "description": "Acknowledged",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "ack": {
-                      "type": "boolean",
-                      "example": true
-                    }
-                  }
+                  "$ref": "#/components/schemas/Ack"
                 }
               }
             }
@@ -2230,6 +1853,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
             "content": {
               "application/json": {
                 "schema": {
@@ -2243,65 +1876,29 @@
     },
     "/internal/stage": {
       "post": {
-        "operationId": "agentStageReport",
+        "operationId": "reportProvisioningStage",
         "summary": "Report provisioning stage",
-        "description": "Called by the machine agent to report provisioning progress.",
         "tags": [
           "Internal"
         ],
-        "x-codeSamples": [
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl -X POST https://justavps.com/api/v1/internal/stage \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"slug\":\"abc123\",\"machine_token\":\"mt_xxx\",\"stage\":\"docker_pulling\",\"message\":\"Pulling nginx:latest\"}'"
-          }
-        ],
+        "description": "Called by the machine agent to report provisioning progress.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": [
-                  "slug",
-                  "machine_token",
-                  "stage"
-                ],
-                "properties": {
-                  "slug": {
-                    "type": "string"
-                  },
-                  "machine_token": {
-                    "type": "string"
-                  },
-                  "stage": {
-                    "type": "string",
-                    "example": "docker_pulling"
-                  },
-                  "message": {
-                    "type": "string"
-                  },
-                  "metadata": {
-                    "type": "object",
-                    "additionalProperties": {}
-                  }
-                }
+                "$ref": "#/components/schemas/StageReport"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Stage acknowledged",
+            "description": "Acknowledged",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "ack": {
-                      "type": "boolean"
-                    }
-                  }
+                  "$ref": "#/components/schemas/Ack"
                 }
               }
             }
@@ -2318,6 +1915,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
             "content": {
               "application/json": {
                 "schema": {
@@ -2333,17 +1940,10 @@
       "get": {
         "operationId": "validateAPIKey",
         "summary": "Validate API key",
-        "description": "Called by the Cloudflare Worker to validate API keys at the edge. IP-restricted.",
         "tags": [
           "Internal"
         ],
-        "x-codeSamples": [
-          {
-            "lang": "Shell",
-            "label": "cURL",
-            "source": "curl https://justavps.com/api/v1/internal/validate-key?key=sk_live_xxx&machine_slug=abc123 \\\n  -H \"Authorization: Bearer sk_live_YOUR_KEY\""
-          }
-        ],
+        "description": "Called by the Cloudflare Worker to validate API keys at the edge.",
         "parameters": [
           {
             "name": "key",
@@ -2366,20 +1966,21 @@
         ],
         "responses": {
           "200": {
-            "description": "Validation result",
+            "description": "Valid key",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "valid": {
-                      "type": "boolean"
-                    },
-                    "owner_id": {
-                      "type": "string",
-                      "format": "uuid"
-                    }
-                  }
+                  "$ref": "#/components/schemas/ValidateKeyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -2389,13 +1990,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "valid": {
-                      "type": "boolean",
-                      "example": false
-                    }
-                  }
+                  "$ref": "#/components/schemas/ValidateKeyResponse"
                 }
               }
             }
@@ -2405,16 +2000,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "valid": {
-                      "type": "boolean",
-                      "example": false
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  }
+                  "$ref": "#/components/schemas/ValidateKeyResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -2425,31 +2021,263 @@
   },
   "components": {
     "schemas": {
-      "Machine": {
+      "CreateMachine": {
         "type": "object",
+        "properties": {
+          "image_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Image to boot from. Null = Ubuntu 24.04"
+          },
+          "provider": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Cloud provider (e.g. \"hetzner\")"
+          },
+          "server_type": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Provider-specific server type (e.g. \"cpx22\", \"t3.medium\")"
+          },
+          "region": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Provider-specific region (e.g. \"nbg1\", \"us-east-1\")"
+          },
+          "name": {
+            "description": "Human-readable name",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "env_vars": {
+            "description": "Extra environment variables written to /etc/justavps/env on the machine",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "docker_image": {
+            "description": "Docker image to run on boot (e.g. \"myapp:latest\")",
+            "type": "string"
+          },
+          "entrypoint": {
+            "description": "Entrypoint for the Docker container",
+            "type": "string"
+          }
+        },
         "required": [
-          "id",
-          "slug",
-          "name",
-          "status",
           "provider",
           "server_type",
-          "region",
-          "created_at"
+          "region"
         ],
+        "additionalProperties": false
+      },
+      "ResizeMachine": {
+        "type": "object",
+        "properties": {
+          "server_type": {
+            "type": "string",
+            "minLength": 1,
+            "description": "New server type"
+          }
+        },
+        "required": [
+          "server_type"
+        ],
+        "additionalProperties": false
+      },
+      "CreateImage": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Name for the image"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "CreateSSHKey": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "public_key": {
+            "type": "string",
+            "minLength": 1,
+            "description": "SSH public key (e.g. ssh-ed25519 AAAA...)"
+          }
+        },
+        "required": [
+          "name",
+          "public_key"
+        ],
+        "additionalProperties": false
+      },
+      "CreateAPIKey": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "CreateWebhook": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "HTTPS URL to receive webhook POSTs"
+          },
+          "events": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "*",
+                "machine.stage_changed",
+                "machine.status_changed",
+                "machine.heartbeat"
+              ]
+            },
+            "description": "Event types to subscribe to"
+          },
+          "secret": {
+            "description": "HMAC secret (auto-generated if omitted)",
+            "type": "string",
+            "minLength": 16
+          }
+        },
+        "required": [
+          "url",
+          "events"
+        ],
+        "additionalProperties": false
+      },
+      "Heartbeat": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "machine_token": {
+            "type": "string"
+          },
+          "uptime": {
+            "type": "number"
+          },
+          "services": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "boolean"
+            }
+          },
+          "load": {
+            "type": "object",
+            "properties": {
+              "cpu": {
+                "type": "number"
+              },
+              "memory": {
+                "type": "number"
+              },
+              "disk": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "cpu",
+              "memory",
+              "disk"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "slug",
+          "machine_token",
+          "uptime",
+          "services",
+          "load"
+        ],
+        "additionalProperties": false
+      },
+      "StageReport": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1
+          },
+          "machine_token": {
+            "type": "string",
+            "minLength": 1
+          },
+          "stage": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "slug",
+          "machine_token",
+          "stage"
+        ],
+        "additionalProperties": false
+      },
+      "Machine": {
+        "type": "object",
         "properties": {
           "id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
           "slug": {
-            "type": "string",
-            "example": "abc123",
-            "description": "Unique 6-char identifier used in URLs"
+            "type": "string"
           },
           "name": {
-            "type": "string",
-            "example": "my-machine"
+            "type": "string"
           },
           "status": {
             "type": "string",
@@ -2462,418 +2290,1118 @@
             ]
           },
           "provisioning_stage": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Current provisioning step",
-            "example": "server_creating"
-          },
-          "provisioning_stage_updated_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "provider": {
-            "type": "string",
-            "example": "hetzner"
-          },
-          "snapshot_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uuid"
-          },
-          "server_type": {
-            "type": "string",
-            "example": "cpx22"
-          },
-          "region": {
-            "type": "string",
-            "example": "nbg1"
-          },
-          "ip": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "example": "116.203.0.1"
-          },
-          "price_monthly": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "example": 12,
-            "description": "Monthly price in USD (cents)"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "ready_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "urls": {
-            "$ref": "#/components/schemas/MachineURLs"
-          },
-          "ssh": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "example": "ssh -i ~/.ssh/justavps_abc123 root@1.2.3.4"
-          },
-          "ssh_key": {
-            "$ref": "#/components/schemas/MachineSSHKey"
-          },
-          "connect": {
-            "$ref": "#/components/schemas/MachineConnect"
-          },
-          "health": {
-            "$ref": "#/components/schemas/MachineHealth"
-          }
-        }
-      },
-      "MachineURLs": {
-        "type": [
-          "object",
-          "null"
-        ],
-        "properties": {
-          "vscode": {
-            "type": "string",
-            "format": "uri",
-            "example": "https://abc123.kortix.cloud"
-          },
-          "pty": {
-            "type": "string",
-            "format": "uri",
-            "example": "wss://abc123.kortix.cloud/_pty"
-          }
-        }
-      },
-      "MachineSSHKey": {
-        "type": [
-          "object",
-          "null"
-        ],
-        "properties": {
-          "private_key": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "PEM-encoded private key (only returned on creation)"
-          },
-          "public_key": {
-            "type": [
-              "string",
-              "null"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
-          "setup_command": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Shell command to save the key and SSH in"
+          "provisioning_stage_updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
-          "key_path": {
-            "type": "string",
-            "example": "~/.ssh/justavps_abc123"
+          "provider": {
+            "type": "string"
+          },
+          "image_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "server_type": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "price_monthly": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "ready_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "urls": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "vscode": {
+                    "type": "string"
+                  },
+                  "pty": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "vscode",
+                  "pty"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ssh": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ssh_key": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "private_key": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "public_key": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "setup_command": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "key_path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "private_key",
+                  "public_key",
+                  "setup_command",
+                  "key_path"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "connect": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "ssh_command": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "setup_command": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "vscode_url": {
+                    "type": "string"
+                  },
+                  "vscode_password": {
+                    "type": "string"
+                  },
+                  "cursor_ssh": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "ssh_command",
+                  "setup_command",
+                  "vscode_url",
+                  "vscode_password",
+                  "cursor_ssh"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "cpu": {
+                    "type": "number"
+                  },
+                  "memory": {
+                    "type": "number"
+                  },
+                  "disk": {
+                    "type": "number"
+                  },
+                  "services": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "boolean"
+                    }
+                  },
+                  "last_heartbeat_at": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "cpu",
+                  "memory",
+                  "disk",
+                  "services",
+                  "last_heartbeat_at"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
-        }
-      },
-      "MachineConnect": {
-        "type": [
-          "object",
-          "null"
-        ],
-        "properties": {
-          "ssh_command": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "example": "ssh -i ~/.ssh/justavps_abc123 root@1.2.3.4"
-          },
-          "setup_command": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "One-liner to save SSH key and connect"
-          },
-          "vscode_url": {
-            "type": "string",
-            "format": "uri",
-            "example": "https://abc123.kortix.cloud"
-          },
-          "vscode_password": {
-            "type": "string",
-            "example": "randompassword123"
-          },
-          "cursor_ssh": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "example": "ssh -i ~/.ssh/justavps_abc123 root@1.2.3.4"
-          }
-        }
-      },
-      "MachineHealth": {
-        "type": [
-          "object",
-          "null"
-        ],
-        "properties": {
-          "cpu": {
-            "type": "number",
-            "example": 0.45,
-            "description": "CPU usage (0-1)"
-          },
-          "memory": {
-            "type": "number",
-            "example": 0.62,
-            "description": "Memory usage (0-1)"
-          },
-          "disk": {
-            "type": "number",
-            "example": 0.31,
-            "description": "Disk usage (0-1)"
-          },
-          "services": {
-            "$ref": "#/components/schemas/MachineHealthServices"
-          },
-          "last_heartbeat_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          }
-        }
-      },
-      "MachineHealthServices": {
-        "type": "object",
-        "additionalProperties": {
-          "type": "boolean"
         },
-        "description": "Service status map (e.g. code_server, caddy, docker)",
-        "example": {
-          "code_server": true,
-          "caddy": true,
-          "docker": true
-        }
-      },
-      "Snapshot": {
-        "type": "object",
         "required": [
           "id",
+          "slug",
           "name",
           "status",
-          "is_default",
+          "provisioning_stage",
+          "provisioning_stage_updated_at",
+          "provider",
+          "image_id",
+          "server_type",
+          "region",
+          "ip",
+          "price_monthly",
           "created_at",
-          "updated_at"
+          "ready_at",
+          "urls",
+          "ssh",
+          "ssh_key",
+          "connect",
+          "health"
         ],
+        "additionalProperties": false
+      },
+      "MachineListResponse": {
+        "type": "object",
+        "properties": {
+          "machines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "slug": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "provisioning",
+                    "ready",
+                    "error",
+                    "stopped",
+                    "deleted"
+                  ]
+                },
+                "provisioning_stage": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "provisioning_stage_updated_at": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "provider": {
+                  "type": "string"
+                },
+                "image_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "server_type": {
+                  "type": "string"
+                },
+                "region": {
+                  "type": "string"
+                },
+                "ip": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "price_monthly": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "created_at": {
+                  "type": "string"
+                },
+                "ready_at": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "urls": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "vscode": {
+                          "type": "string"
+                        },
+                        "pty": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "vscode",
+                        "pty"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "ssh": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "ssh_key": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "private_key": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "public_key": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "setup_command": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "key_path": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "private_key",
+                        "public_key",
+                        "setup_command",
+                        "key_path"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "connect": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "ssh_command": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "setup_command": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "vscode_url": {
+                          "type": "string"
+                        },
+                        "vscode_password": {
+                          "type": "string"
+                        },
+                        "cursor_ssh": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "ssh_command",
+                        "setup_command",
+                        "vscode_url",
+                        "vscode_password",
+                        "cursor_ssh"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "health": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "cpu": {
+                          "type": "number"
+                        },
+                        "memory": {
+                          "type": "number"
+                        },
+                        "disk": {
+                          "type": "number"
+                        },
+                        "services": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {
+                            "type": "boolean"
+                          }
+                        },
+                        "last_heartbeat_at": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "cpu",
+                        "memory",
+                        "disk",
+                        "services",
+                        "last_heartbeat_at"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "slug",
+                "name",
+                "status",
+                "provisioning_stage",
+                "provisioning_stage_updated_at",
+                "provider",
+                "image_id",
+                "server_type",
+                "region",
+                "ip",
+                "price_monthly",
+                "created_at",
+                "ready_at",
+                "urls",
+                "ssh",
+                "ssh_key",
+                "connect",
+                "health"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "machines"
+        ],
+        "additionalProperties": false
+      },
+      "CheckoutRequired": {
+        "type": "object",
+        "properties": {
+          "requires_checkout": {
+            "type": "boolean",
+            "const": true
+          },
+          "checkout_url": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "requires_checkout",
+          "checkout_url",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "ActionResponse": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "ResizeResponse": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "resize"
+          },
+          "old_type": {
+            "type": "string"
+          },
+          "new_type": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "old_type",
+          "new_type",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "Image": {
+        "type": "object",
         "properties": {
           "id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
           "name": {
-            "type": "string",
-            "example": "my-snapshot"
-          },
-          "docker_image": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "example": "nginx:latest"
-          },
-          "entrypoint": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "example": "sleep infinity"
-          },
-          "is_default": {
-            "type": "boolean",
-            "description": "True for the platform base snapshot"
+            "type": "string"
           },
           "status": {
             "type": "string",
             "enum": [
-              "building",
+              "creating",
               "ready",
               "failed",
               "deleted"
             ]
           },
-          "architecture": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "enum": [
-              "x86",
-              "arm",
-              null
+          "source_machine_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
-          "providers": {
-            "type": "object",
-            "additionalProperties": {
-              "$ref": "#/components/schemas/ProviderArtifact"
-            },
-            "description": "Per-provider snapshot artifacts"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "last_used_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          }
-        }
-      },
-      "ProviderArtifact": {
-        "type": "object",
-        "properties": {
-          "snapshotId": {
+          "provider": {
             "type": "string"
           },
-          "diskSize": {
-            "type": "integer"
+          "provider_image_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "disk_size_gb": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "architecture": {
-            "type": "string",
-            "enum": [
-              "x86",
-              "arm"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
           }
-        }
+        },
+        "required": [
+          "id",
+          "name",
+          "status",
+          "source_machine_id",
+          "provider",
+          "provider_image_id",
+          "disk_size_gb",
+          "architecture",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": false
+      },
+      "ImageListResponse": {
+        "type": "object",
+        "properties": {
+          "images": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "creating",
+                    "ready",
+                    "failed",
+                    "deleted"
+                  ]
+                },
+                "source_machine_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "provider": {
+                  "type": "string"
+                },
+                "provider_image_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "disk_size_gb": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "architecture": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "created_at": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "status",
+                "source_machine_id",
+                "provider",
+                "provider_image_id",
+                "disk_size_gb",
+                "architecture",
+                "created_at",
+                "updated_at"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "images"
+        ],
+        "additionalProperties": false
       },
       "SSHKey": {
         "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "name": {
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
         "required": [
           "id",
           "name",
           "fingerprint",
           "created_at"
         ],
+        "additionalProperties": false
+      },
+      "SSHKeyListResponse": {
+        "type": "object",
         "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "name": {
-            "type": "string",
-            "example": "my-laptop"
-          },
-          "fingerprint": {
-            "type": "string",
-            "example": "SHA256:abc..."
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
+          "ssh_keys": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "fingerprint": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "fingerprint",
+                "created_at"
+              ],
+              "additionalProperties": false
+            }
           }
-        }
+        },
+        "required": [
+          "ssh_keys"
+        ],
+        "additionalProperties": false
       },
       "APIKey": {
         "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "name": {
+            "type": "string"
+          },
+          "key": {
+            "description": "Only returned on creation",
+            "type": "string"
+          },
+          "key_prefix": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "last_used": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
         "required": [
           "id",
           "name",
           "key_prefix",
-          "created_at"
+          "created_at",
+          "last_used"
         ],
+        "additionalProperties": false
+      },
+      "APIKeyListResponse": {
+        "type": "object",
+        "properties": {
+          "api_keys": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "key": {
+                  "description": "Only returned on creation",
+                  "type": "string"
+                },
+                "key_prefix": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "string"
+                },
+                "last_used": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "key_prefix",
+                "created_at",
+                "last_used"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "api_keys"
+        ],
+        "additionalProperties": false
+      },
+      "Webhook": {
+        "type": "object",
         "properties": {
           "id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
-          "name": {
-            "type": "string",
-            "example": "production"
+          "url": {
+            "type": "string"
           },
-          "key": {
-            "type": "string",
-            "description": "Full API key — only returned on creation",
-            "example": "sk_live_abc123..."
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
-          "key_prefix": {
-            "type": "string",
-            "example": "sk_live_abc1"
+          "secret": {
+            "description": "Only returned on creation",
+            "type": "string"
+          },
+          "active": {
+            "type": "boolean"
           },
           "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "last_used": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
+            "type": "string"
           }
-        }
+        },
+        "required": [
+          "id",
+          "url",
+          "events",
+          "active",
+          "created_at"
+        ],
+        "additionalProperties": false
+      },
+      "WebhookListResponse": {
+        "type": "object",
+        "properties": {
+          "webhooks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "events": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "active": {
+                  "type": "boolean"
+                },
+                "created_at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "url",
+                "events",
+                "active",
+                "created_at"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "webhooks"
+        ],
+        "additionalProperties": false
       },
       "ServerType": {
         "type": "object",
-        "required": [
-          "name",
-          "description",
-          "vcpu",
-          "ram_gb",
-          "disk_gb",
-          "cpu_type",
-          "architecture",
-          "price_monthly",
-          "provider_price_monthly",
-          "available"
-        ],
         "properties": {
           "name": {
-            "type": "string",
-            "example": "cpx22"
+            "type": "string"
           },
           "description": {
-            "type": "string",
-            "example": "CPX22 — 2 vCPU, 4GB RAM"
+            "type": "string"
           },
           "vcpu": {
-            "type": "integer",
-            "example": 2
+            "type": "number"
           },
           "ram_gb": {
-            "type": "number",
-            "example": 4
+            "type": "number"
           },
           "disk_gb": {
-            "type": "integer",
-            "example": 40
+            "type": "number"
           },
           "cpu_type": {
             "type": "string",
@@ -2891,137 +3419,263 @@
           },
           "price_monthly": {
             "type": "number",
-            "example": 12,
-            "description": "Our price after markup (USD)"
+            "description": "Our price after markup"
           },
           "provider_price_monthly": {
             "type": "number",
-            "example": 4.35,
             "description": "Raw provider price"
           },
           "available": {
             "type": "boolean"
           }
-        }
+        },
+        "required": [
+          "name",
+          "description",
+          "vcpu",
+          "ram_gb",
+          "disk_gb",
+          "cpu_type",
+          "architecture",
+          "price_monthly",
+          "provider_price_monthly",
+          "available"
+        ],
+        "additionalProperties": false
+      },
+      "ServerTypeListResponse": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "server_types": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "vcpu": {
+                  "type": "number"
+                },
+                "ram_gb": {
+                  "type": "number"
+                },
+                "disk_gb": {
+                  "type": "number"
+                },
+                "cpu_type": {
+                  "type": "string",
+                  "enum": [
+                    "shared",
+                    "dedicated"
+                  ]
+                },
+                "architecture": {
+                  "type": "string",
+                  "enum": [
+                    "x86",
+                    "arm"
+                  ]
+                },
+                "price_monthly": {
+                  "type": "number",
+                  "description": "Our price after markup"
+                },
+                "provider_price_monthly": {
+                  "type": "number",
+                  "description": "Raw provider price"
+                },
+                "available": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "name",
+                "description",
+                "vcpu",
+                "ram_gb",
+                "disk_gb",
+                "cpu_type",
+                "architecture",
+                "price_monthly",
+                "provider_price_monthly",
+                "available"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "provider",
+          "region",
+          "server_types"
+        ],
+        "additionalProperties": false
       },
       "Provider": {
         "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          }
+        },
         "required": [
           "name",
           "displayName"
         ],
+        "additionalProperties": false
+      },
+      "ProviderListResponse": {
+        "type": "object",
         "properties": {
-          "name": {
-            "type": "string",
-            "example": "hetzner"
-          },
-          "displayName": {
-            "type": "string",
-            "example": "Hetzner Cloud"
+          "providers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "displayName"
+              ],
+              "additionalProperties": false
+            }
           }
-        }
+        },
+        "required": [
+          "providers"
+        ],
+        "additionalProperties": false
       },
       "Region": {
         "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          }
+        },
         "required": [
           "id",
           "name",
           "country",
           "city"
         ],
-        "properties": {
-          "id": {
-            "type": "string",
-            "example": "nbg1"
-          },
-          "name": {
-            "type": "string",
-            "example": "Nuremberg"
-          },
-          "country": {
-            "type": "string",
-            "example": "DE"
-          },
-          "city": {
-            "type": "string",
-            "example": "Nuremberg"
-          }
-        }
+        "additionalProperties": false
       },
-      "Webhook": {
+      "RegionListResponse": {
         "type": "object",
-        "required": [
-          "id",
-          "url",
-          "events",
-          "active",
-          "created_at"
-        ],
         "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
+          "provider": {
+            "type": "string"
           },
-          "url": {
-            "type": "string",
-            "format": "uri",
-            "example": "https://example.com/webhooks/justavps"
-          },
-          "events": {
+          "regions": {
             "type": "array",
             "items": {
-              "type": "string"
-            },
-            "example": [
-              "machine.status_changed",
-              "machine.stage_changed"
-            ]
-          },
-          "secret": {
-            "type": "string",
-            "description": "HMAC secret — only returned on creation",
-            "example": "whsec_abc123..."
-          },
-          "active": {
-            "type": "boolean"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "country": {
+                  "type": "string"
+                },
+                "city": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "country",
+                "city"
+              ],
+              "additionalProperties": false
+            }
           }
-        }
+        },
+        "required": [
+          "provider",
+          "regions"
+        ],
+        "additionalProperties": false
       },
       "Account": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
           "email": {
-            "type": "string",
-            "format": "email"
+            "type": "string"
           },
           "name": {
-            "type": [
-              "string",
-              "null"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "machines_count": {
-            "type": "integer"
+            "type": "number"
           },
           "stripe_customer_id": {
-            "type": [
-              "string",
-              "null"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "created_at": {
-            "type": "string",
-            "format": "date-time"
+            "type": "string"
           }
-        }
+        },
+        "required": [
+          "id",
+          "email",
+          "name",
+          "machines_count",
+          "stripe_customer_id",
+          "created_at"
+        ],
+        "additionalProperties": false
       },
       "AccountUsage": {
         "type": "object",
@@ -3036,7 +3690,8 @@
                   "properties": {
                     "id": {
                       "type": "string",
-                      "format": "uuid"
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     },
                     "slug": {
                       "type": "string"
@@ -3047,56 +3702,126 @@
                     "status": {
                       "type": "string"
                     }
-                  }
+                  },
+                  "required": [
+                    "id",
+                    "slug",
+                    "server_type",
+                    "status"
+                  ],
+                  "additionalProperties": false
                 }
               },
               "total_machines": {
-                "type": "integer"
+                "type": "number"
               },
               "estimated_cost": {
-                "type": "number",
-                "description": "Estimated cost for current period (USD)"
+                "type": "number"
               }
-            }
+            },
+            "required": [
+              "machines",
+              "total_machines",
+              "estimated_cost"
+            ],
+            "additionalProperties": false
           }
-        }
+        },
+        "required": [
+          "current_period"
+        ],
+        "additionalProperties": false
       },
-      "BillingPortal": {
+      "Billing": {
         "type": "object",
         "properties": {
           "portal_url": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uri"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "has_payment_method": {
+            "type": "boolean"
           },
           "message": {
             "type": "string"
           }
-        }
+        },
+        "required": [
+          "portal_url",
+          "has_payment_method"
+        ],
+        "additionalProperties": false
+      },
+      "BillingSetup": {
+        "type": "object",
+        "properties": {
+          "checkout_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "checkout_url"
+        ],
+        "additionalProperties": false
+      },
+      "Ack": {
+        "type": "object",
+        "properties": {
+          "ack": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ack"
+        ],
+        "additionalProperties": false
+      },
+      "ValidateKeyResponse": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "owner_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "valid"
+        ],
+        "additionalProperties": false
       },
       "Error": {
         "type": "object",
+        "properties": {
+          "error": {
+            "default": true,
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "number"
+          }
+        },
         "required": [
           "error",
           "message",
           "status"
         ],
-        "properties": {
-          "error": {
-            "type": "boolean",
-            "example": true
-          },
-          "message": {
-            "type": "string",
-            "example": "Resource not found"
-          },
-          "status": {
-            "type": "integer",
-            "example": 404
-          }
-        }
+        "additionalProperties": false
       }
     },
     "securitySchemes": {

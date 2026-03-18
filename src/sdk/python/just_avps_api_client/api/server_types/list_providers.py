@@ -5,7 +5,7 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.list_providers_response_200 import ListProvidersResponse200
+from ...models.provider_list_response import ProviderListResponse
 from ...types import Response
 
 
@@ -18,11 +18,9 @@ def _get_kwargs() -> dict[str, Any]:
     return _kwargs
 
 
-def _parse_response(
-    *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ListProvidersResponse200 | None:
+def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> ProviderListResponse | None:
     if response.status_code == 200:
-        response_200 = ListProvidersResponse200.from_dict(response.json())
+        response_200 = ProviderListResponse.from_dict(response.json())
 
         return response_200
 
@@ -34,7 +32,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ListProvidersResponse200]:
+) -> Response[ProviderListResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -46,17 +44,15 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-) -> Response[ListProvidersResponse200]:
+) -> Response[ProviderListResponse]:
     """List providers
-
-     Returns all available cloud providers.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ListProvidersResponse200]
+        Response[ProviderListResponse]
     """
 
     kwargs = _get_kwargs()
@@ -71,17 +67,15 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-) -> ListProvidersResponse200 | None:
+) -> ProviderListResponse | None:
     """List providers
-
-     Returns all available cloud providers.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ListProvidersResponse200
+        ProviderListResponse
     """
 
     return sync_detailed(
@@ -92,17 +86,15 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-) -> Response[ListProvidersResponse200]:
+) -> Response[ProviderListResponse]:
     """List providers
-
-     Returns all available cloud providers.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ListProvidersResponse200]
+        Response[ProviderListResponse]
     """
 
     kwargs = _get_kwargs()
@@ -115,17 +107,15 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-) -> ListProvidersResponse200 | None:
+) -> ProviderListResponse | None:
     """List providers
-
-     Returns all available cloud providers.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ListProvidersResponse200
+        ProviderListResponse
     """
 
     return (

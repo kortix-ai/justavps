@@ -5,7 +5,8 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.create_machine_body import CreateMachineBody
+from ...models.checkout_required import CheckoutRequired
+from ...models.create_machine import CreateMachine
 from ...models.error import Error
 from ...models.machine import Machine
 from ...types import Response
@@ -13,7 +14,7 @@ from ...types import Response
 
 def _get_kwargs(
     *,
-    body: CreateMachineBody,
+    body: CreateMachine,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
@@ -30,7 +31,9 @@ def _get_kwargs(
     return _kwargs
 
 
-def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> Error | Machine | None:
+def _parse_response(
+    *, client: AuthenticatedClient | Client, response: httpx.Response
+) -> CheckoutRequired | Error | Machine | None:
     if response.status_code == 202:
         response_202 = Machine.from_dict(response.json())
 
@@ -41,10 +44,10 @@ def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Res
 
         return response_400
 
-    if response.status_code == 401:
-        response_401 = Error.from_dict(response.json())
+    if response.status_code == 402:
+        response_402 = CheckoutRequired.from_dict(response.json())
 
-        return response_401
+        return response_402
 
     if response.status_code == 404:
         response_404 = Error.from_dict(response.json())
@@ -57,7 +60,9 @@ def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Res
         return None
 
 
-def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> Response[Error | Machine]:
+def _build_response(
+    *, client: AuthenticatedClient | Client, response: httpx.Response
+) -> Response[CheckoutRequired | Error | Machine]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -69,29 +74,25 @@ def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Res
 def sync_detailed(
     *,
     client: AuthenticatedClient,
-    body: CreateMachineBody,
-) -> Response[Error | Machine]:
+    body: CreateMachine,
+) -> Response[CheckoutRequired | Error | Machine]:
     """Create a machine
 
-     Provisions a new VPS machine. Returns immediately with status `provisioning` (HTTP 202).
+     Provisions a new VPS machine. If `image_id` is provided, boots from that image. If omitted, boots
+    from Ubuntu 24.04.
 
-    If `image_id` is provided, boots from that image. If omitted or null, boots from a fresh Ubuntu
-    24.04 install.
-
-    The machine will transition to `ready` once cloud-init completes and the agent sends its first
-    heartbeat.
-
-    Use the SSE endpoint `GET /machines/{id}/status/stream` to watch provisioning progress in real-time.
+    Returns 202 if provisioning starts immediately (user has payment method), or 402 with a
+    `checkout_url` if payment is required first.
 
     Args:
-        body (CreateMachineBody):
+        body (CreateMachine):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Error | Machine]
+        Response[CheckoutRequired | Error | Machine]
     """
 
     kwargs = _get_kwargs(
@@ -108,29 +109,25 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
-    body: CreateMachineBody,
-) -> Error | Machine | None:
+    body: CreateMachine,
+) -> CheckoutRequired | Error | Machine | None:
     """Create a machine
 
-     Provisions a new VPS machine. Returns immediately with status `provisioning` (HTTP 202).
+     Provisions a new VPS machine. If `image_id` is provided, boots from that image. If omitted, boots
+    from Ubuntu 24.04.
 
-    If `image_id` is provided, boots from that image. If omitted or null, boots from a fresh Ubuntu
-    24.04 install.
-
-    The machine will transition to `ready` once cloud-init completes and the agent sends its first
-    heartbeat.
-
-    Use the SSE endpoint `GET /machines/{id}/status/stream` to watch provisioning progress in real-time.
+    Returns 202 if provisioning starts immediately (user has payment method), or 402 with a
+    `checkout_url` if payment is required first.
 
     Args:
-        body (CreateMachineBody):
+        body (CreateMachine):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Error | Machine
+        CheckoutRequired | Error | Machine
     """
 
     return sync_detailed(
@@ -142,29 +139,25 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
-    body: CreateMachineBody,
-) -> Response[Error | Machine]:
+    body: CreateMachine,
+) -> Response[CheckoutRequired | Error | Machine]:
     """Create a machine
 
-     Provisions a new VPS machine. Returns immediately with status `provisioning` (HTTP 202).
+     Provisions a new VPS machine. If `image_id` is provided, boots from that image. If omitted, boots
+    from Ubuntu 24.04.
 
-    If `image_id` is provided, boots from that image. If omitted or null, boots from a fresh Ubuntu
-    24.04 install.
-
-    The machine will transition to `ready` once cloud-init completes and the agent sends its first
-    heartbeat.
-
-    Use the SSE endpoint `GET /machines/{id}/status/stream` to watch provisioning progress in real-time.
+    Returns 202 if provisioning starts immediately (user has payment method), or 402 with a
+    `checkout_url` if payment is required first.
 
     Args:
-        body (CreateMachineBody):
+        body (CreateMachine):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Error | Machine]
+        Response[CheckoutRequired | Error | Machine]
     """
 
     kwargs = _get_kwargs(
@@ -179,29 +172,25 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
-    body: CreateMachineBody,
-) -> Error | Machine | None:
+    body: CreateMachine,
+) -> CheckoutRequired | Error | Machine | None:
     """Create a machine
 
-     Provisions a new VPS machine. Returns immediately with status `provisioning` (HTTP 202).
+     Provisions a new VPS machine. If `image_id` is provided, boots from that image. If omitted, boots
+    from Ubuntu 24.04.
 
-    If `image_id` is provided, boots from that image. If omitted or null, boots from a fresh Ubuntu
-    24.04 install.
-
-    The machine will transition to `ready` once cloud-init completes and the agent sends its first
-    heartbeat.
-
-    Use the SSE endpoint `GET /machines/{id}/status/stream` to watch provisioning progress in real-time.
+    Returns 202 if provisioning starts immediately (user has payment method), or 402 with a
+    `checkout_url` if payment is required first.
 
     Args:
-        body (CreateMachineBody):
+        body (CreateMachine):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Error | Machine
+        CheckoutRequired | Error | Machine
     """
 
     return (

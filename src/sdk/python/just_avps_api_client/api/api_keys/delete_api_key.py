@@ -61,7 +61,7 @@ def sync_detailed(
 ) -> Response[Any | Error]:
     """Delete an API key
 
-     Permanently revokes the API key. Any requests using this key will immediately fail.
+     Permanently revokes the API key. Requests using it will immediately fail.
 
     Args:
         id (UUID):
@@ -92,7 +92,7 @@ def sync(
 ) -> Any | Error | None:
     """Delete an API key
 
-     Permanently revokes the API key. Any requests using this key will immediately fail.
+     Permanently revokes the API key. Requests using it will immediately fail.
 
     Args:
         id (UUID):
@@ -118,7 +118,7 @@ async def asyncio_detailed(
 ) -> Response[Any | Error]:
     """Delete an API key
 
-     Permanently revokes the API key. Any requests using this key will immediately fail.
+     Permanently revokes the API key. Requests using it will immediately fail.
 
     Args:
         id (UUID):
@@ -147,7 +147,7 @@ async def asyncio(
 ) -> Any | Error | None:
     """Delete an API key
 
-     Permanently revokes the API key. Any requests using this key will immediately fail.
+     Permanently revokes the API key. Requests using it will immediately fail.
 
     Args:
         id (UUID):
