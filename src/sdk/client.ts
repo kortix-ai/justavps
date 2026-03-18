@@ -18,28 +18,82 @@
  * ```
  */
 
-import type {
-  Machine,
-  Image,
-  SshKey,
-  ApiKey,
-  Webhook,
-  Account,
-  AccountUsage,
-  Billing,
-  BillingSetup,
-  ServerType,
-  Provider,
-  Region,
-  CreateMachineData,
-  CreateImageFromMachineData,
-  ResizeMachineData,
-} from './generated/types.gen';
+// ─── SDK types (defined locally — generated types no longer export these) ────
 
-// ─── Re-export generated types for convenience ─────────────────────────────
-export type { Machine, Image, SshKey, ApiKey, Webhook, Account, AccountUsage, Billing, BillingSetup, ServerType, Provider, Region };
+export interface Machine {
+  id: string;
+  slug: string;
+  name: string;
+  status: string;
+  provider: string;
+  image_id?: string | null;
+  docker_image?: string | null;
+  entrypoint?: string | null;
+  server_type: string;
+  region: string;
+  ip?: string | null;
+  price_monthly?: number | null;
+  created_at: string;
+  ready_at?: string | null;
+  deleted_at?: string | null;
+  ssh_key?: { public_key: string; private_key: string };
+  connect?: { vscode_url: string; ssh_command: string };
+  urls?: { ide: string; pty: string; proxy: string };
+  provisioning_stage?: string | null;
+  requires_checkout?: boolean;
+}
 
-// Backward compat aliases
+export interface Image {
+  id: string;
+  name: string;
+  status: string;
+  provider: string;
+  provider_image_id?: string | null;
+  disk_size_gb?: number | null;
+  created_at: string;
+}
+
+export interface SshKey {
+  id: string;
+  name: string;
+  public_key: string;
+  fingerprint: string;
+  created_at: string;
+}
+
+export interface ApiKey {
+  id: string;
+  name: string;
+  key_prefix: string;
+  key?: string;
+  created_at: string;
+}
+
+export interface Webhook {
+  id: string;
+  url: string;
+  events: string[];
+  active: boolean;
+  created_at: string;
+}
+
+export interface Account {
+  id: string;
+  email: string;
+  name?: string | null;
+}
+
+export interface AccountUsage {
+  machines: number;
+  total_monthly_cost: number;
+}
+
+export interface Billing { url?: string; status?: string }
+export interface BillingSetup { url: string }
+export interface ServerType { name: string; cores: number; memory: number; disk: number; price_monthly: number; cpu_type: string }
+export interface Provider { id: string; name: string; regions: string[] }
+export interface Region { id: string; name: string; city: string; country: string }
+
 export type Snapshot = Image;
 
 // ─── Configuration ──────────────────────────────────────────────────────────
@@ -150,11 +204,17 @@ class HttpClient {
   }
 }
 
-// ─── Type aliases for request bodies ────────────────────────────────────────
+// ─── Type aliases for request bodies (from generated types) ─────────────────
 
-type CreateMachineBody = NonNullable<CreateMachineData['body']>;
-type CreateSnapshotBody = NonNullable<CreateImageFromMachineData['body']>;
-type ResizeMachineBody = NonNullable<ResizeMachineData['body']>;
+import type {
+  PostApiV1MachinesData,
+  PostApiV1MachinesByIdResizeData,
+  PostApiV1MachinesByIdImageData,
+} from './generated/types.gen';
+
+type CreateMachineBody = NonNullable<PostApiV1MachinesData['body']>;
+type CreateSnapshotBody = NonNullable<PostApiV1MachinesByIdImageData['body']>;
+type ResizeMachineBody = NonNullable<PostApiV1MachinesByIdResizeData['body']>;
 
 // ─── Resource Namespaces ────────────────────────────────────────────────────
 
