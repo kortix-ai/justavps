@@ -105,8 +105,31 @@ export async function proxyHTTPRequest(
   try {
     const proxyRequest = createProxyRequest(request, machineInfo, port);
     
-    // Forward the request
-    const response = await fetch(proxyRequest);
+    // Forward to the VPS origin via HTTP.
+    //
+    // Architecture:
+    //   - slug.kortix.cloud → Worker route (proxied, auth + proxy)
+    //   - origin.slug.kortix.cloud → VPS IP directly (grey cloud, no Worker)
+    //
+    // The Worker route *.kortix.cloud/* matches single-level wildcards only.
+    // Two-level subdomains (origin.slug.kortix.cloud) bypass the Worker route,
+    // so the fetch goes directly to the VPS with no loop.
+    //
+    // Cloudflare blocks raw IP fetch (error 1003), so we MUST use a hostname.
+    const url = new URL(request.url);
+    const slug = url.hostname.split('.')[0]; // extract slug from slug.kortix.cloud
+    const originHostname = `origin.${slug}.kortix.cloud`;
+    const originUrl = `http://${originHostname}:${port}${url.pathname}${url.search}`;
+    
+    const originHeaders = new Headers(proxyRequest.headers);
+    originHeaders.set('Host', originHostname);
+    
+    const response = await fetch(originUrl, {
+      method: proxyRequest.method,
+      headers: originHeaders,
+      body: proxyRequest.body,
+      redirect: 'manual',
+    });
     
     // Create response with CORS headers
     const responseHeaders = new Headers(response.headers);
@@ -122,17 +145,17 @@ export async function proxyHTTPRequest(
   } catch (error) {
     console.error('Proxy request failed:', error);
     
-    const errorHeaders = new Headers({
-      'Content-Type': 'application/json'
-    });
-    addCORSHeaders(errorHeaders, request);
-    
     return new Response(JSON.stringify({ 
       error: 'Proxy request failed',
+      target: `http://${machineInfo.ip}:${port}`,
       details: error instanceof Error ? error.message : 'Unknown error'
     }), {
       status: 502,
-      headers: errorHeaders
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'X-Proxy-Error': 'true',
+      },
     });
   }
 }

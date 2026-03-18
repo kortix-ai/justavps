@@ -14,7 +14,7 @@ import {
 describe('validation schemas', () => {
   describe('CreateMachineSchema', () => {
     const validData = {
-      image_id: '00000000-0000-0000-0000-000000000001',
+      image_id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
       provider: 'hetzner',
       server_type: 'ccx13',
       region: 'hel1',

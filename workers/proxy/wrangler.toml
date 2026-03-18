@@ -13,8 +13,8 @@ name = "kortix-cloud-proxy-staging"
 
 [[kv_namespaces]]
 binding = "KV"
-preview_id = "YOUR_PREVIEW_KV_ID"   # TODO: replace with real KV namespace ID
-id = "YOUR_PRODUCTION_KV_ID"         # TODO: replace with real KV namespace ID
+preview_id = "b6332b3e89104ea89321ec2ca20382ad"
+id = "250d587f8010426a8259d1fab5b2abe4"
 
 [vars]
 ENVIRONMENT = "production"

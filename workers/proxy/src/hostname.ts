@@ -27,7 +27,7 @@ export function parseHostname(hostname: string, pathname?: string): ParsedHostna
   if (parts.length === 0) return null;
   
   let slug: string;
-  let port = 8080; // Default port for code-server
+  let port = 80; // Caddy on port 80 → reverse proxies to code-server localhost:8080
   
   if (parts.length === 1) {
     // Simple case: slug.kortix.cloud
