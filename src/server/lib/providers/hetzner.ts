@@ -125,7 +125,15 @@ export class HetznerProvider implements ComputeProvider {
   }
 
   async deleteImage(imageId: string): Promise<void> {
-    await hetznerFetch(`/images/${imageId}`, { method: 'DELETE' });
+    try {
+      await hetznerFetch(`/images/${imageId}`, { method: 'DELETE' });
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('404')) {
+        console.log(`[hetzner] Image ${imageId} already deleted on Hetzner`);
+        return;
+      }
+      throw err;
+    }
     console.log(`[hetzner] Deleted image ${imageId}`);
   }
 
@@ -139,6 +147,7 @@ export class HetznerProvider implements ComputeProvider {
       user_data: opts.userData,
       labels: opts.labels,
       automount: false,
+      public_net: { enable_ipv4: true, enable_ipv6: false },
     };
 
     if (opts.enableBackups) body.enable_backup = true;
@@ -161,7 +170,16 @@ export class HetznerProvider implements ComputeProvider {
   }
 
   async deleteServer(serverId: string): Promise<void> {
-    await hetznerFetch(`/servers/${serverId}`, { method: 'DELETE' });
+    try {
+      await hetznerFetch(`/servers/${serverId}`, { method: 'DELETE' });
+    } catch (err) {
+      // 404 = already deleted on Hetzner — that's fine, proceed with DB cleanup
+      if (err instanceof Error && err.message.includes('404')) {
+        console.log(`[hetzner] Server ${serverId} already deleted on Hetzner`);
+        return;
+      }
+      throw err;
+    }
     console.log(`[hetzner] Deleted server ${serverId}`);
   }
 
@@ -174,7 +192,12 @@ export class HetznerProvider implements ComputeProvider {
   }
 
   async rebootServer(serverId: string): Promise<void> {
-    await hetznerFetch(`/servers/${serverId}/actions/reboot`, { method: 'POST' });
+    try {
+      await hetznerFetch(`/servers/${serverId}/actions/reboot`, { method: 'POST' });
+    } catch {
+      // Soft reboot can fail if no network interface — fall back to hard reset
+      await hetznerFetch(`/servers/${serverId}/actions/reset`, { method: 'POST' });
+    }
     console.log(`[hetzner] Rebooted server ${serverId}`);
   }
 

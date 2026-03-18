@@ -38,6 +38,20 @@ export const cloudflareClient = {
   async createDNSRecord(slug: string, ip: string): Promise<void> {
     const zoneId = config.CLOUDFLARE_ZONE_ID;
     const domain = config.PROXY_DOMAIN;
+    const fqdn = `${slug}.${domain}`;
+
+    // Delete any existing record for this slug first (prevents stale/stuck records)
+    try {
+      const existing = await cfFetch<{ result: Array<{ id: string }> }>(
+        `/zones/${zoneId}/dns_records?name=${fqdn}&type=A`,
+      );
+      for (const record of existing.result) {
+        await cfFetch(`/zones/${zoneId}/dns_records/${record.id}`, { method: 'DELETE' });
+        console.log(`[CF] Deleted stale DNS record for ${fqdn}`);
+      }
+    } catch {
+      // Ignore — no existing record
+    }
 
     await cfFetch<{ result: { id: string } }>(
       `/zones/${zoneId}/dns_records`,
@@ -45,7 +59,7 @@ export const cloudflareClient = {
         method: 'POST',
         body: {
           type: 'A',
-          name: `${slug}.${domain}`,
+          name: fqdn,
           content: ip,
           proxied: false,
           ttl: 1, // auto
@@ -53,7 +67,7 @@ export const cloudflareClient = {
       },
     );
 
-    console.log(`[CF] Created DNS: ${slug}.${domain} → ${ip}`);
+    console.log(`[CF] Created DNS: ${fqdn} → ${ip}`);
   },
 
   /**
