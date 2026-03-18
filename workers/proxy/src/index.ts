@@ -105,6 +105,20 @@ export default {
       // HTTP proxy (pass rewrittenPath for path-based port routing)
       const response = await proxyHTTPRequest(request, machineInfo, port, rewrittenPath);
 
+      // If origin is unreachable (machine still booting), show friendly page instead of CF error
+      if (response.status === 502 || response.status === 521 || response.status === 523) {
+        if (isBrowserRequest(request)) {
+          return new Response(MACHINE_STARTING_HTML, {
+            status: 503,
+            headers: {
+              'Content-Type': 'text/html; charset=utf-8',
+              'Retry-After': '5',
+              'Cache-Control': 'no-store',
+            },
+          });
+        }
+      }
+
       // Silent cookie refresh hint
       if (authResult.shouldRefresh) {
         const refreshed = new Response(response.body, response);
@@ -126,6 +140,27 @@ export default {
     }
   },
 };
+
+const MACHINE_STARTING_HTML = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="5">
+<title>Machine Starting...</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #0a0a0a; color: #e5e5e5; }
+  .card { text-align: center; max-width: 400px; padding: 40px; }
+  .spinner { width: 40px; height: 40px; border: 3px solid #333; border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 24px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 8px; }
+  p { color: #888; font-size: 14px; margin: 0; }
+</style>
+</head><body>
+<div class="card">
+  <div class="spinner"></div>
+  <h1>Machine is starting up</h1>
+  <p>Services are initializing. This page will auto-refresh.</p>
+</div>
+</body></html>`;
 
 function isBrowserRequest(request: Request): boolean {
   const accept = request.headers.get('Accept') || '';
