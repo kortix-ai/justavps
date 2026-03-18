@@ -41,6 +41,33 @@ export default {
 
       const { slug, port, rewrittenPath } = parsed;
 
+      // Handle proxy token callback: platform redirects here with __proxy_token in query
+      // We verify it, set cookie on .kortix.cloud, and redirect to clean URL
+      const proxyToken = url.searchParams.get('__proxy_token');
+      if (proxyToken && request.method === 'GET') {
+        // Verify the token is valid before setting cookie
+        const tokenAuth = await validateAuth(
+          new Request(url.toString(), {
+            headers: { 'Authorization': `Bearer ${proxyToken}` },
+          }),
+          slug, env.KV, env.PROXY_AUTH_SECRET,
+        );
+        if (tokenAuth.success) {
+          // Set cookie on .kortix.cloud and redirect to clean URL
+          url.searchParams.delete('__proxy_token');
+          const cookieValue = `__justavps_proxy=${proxyToken}; Domain=.kortix.cloud; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400`;
+          return new Response(null, {
+            status: 302,
+            headers: {
+              'Location': url.toString(),
+              'Set-Cookie': cookieValue,
+              'Cache-Control': 'no-store',
+            },
+          });
+        }
+        // Token invalid — fall through to normal auth flow
+      }
+
       // CORS preflight — let through without auth
       if (request.method === 'OPTIONS') {
         const cors = handleCORSPreflight(request);

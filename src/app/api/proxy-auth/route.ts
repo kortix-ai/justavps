@@ -44,11 +44,12 @@ export async function GET(request: NextRequest) {
     // 3. Sign proxy JWT (user-scoped)
     const token = await signProxyToken(session.user.id);
 
-    // 4. Redirect back with cookie set on .kortix.cloud
-    const response = NextResponse.redirect(redirect);
-    response.headers.append('Set-Cookie', buildProxyCookieHeader(token));
-
-    return response;
+    // 4. Redirect back to the machine URL with token in query param.
+    // The CF Worker will read the token, verify it, set the cookie on .kortix.cloud
+    // (justavps.com CANNOT set cookies on .kortix.cloud — different origin).
+    const redirectUrl = new URL(redirect);
+    redirectUrl.searchParams.set('__proxy_token', token);
+    return NextResponse.redirect(redirectUrl.toString());
   } catch (error) {
     console.error('[proxy-auth] Error:', error);
     return NextResponse.json(
