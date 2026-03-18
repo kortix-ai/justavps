@@ -167,6 +167,10 @@ if ! command -v code-server &>/dev/null; then
   # ── OpenCode ────────────────────────────────────────────────────────────
   curl -fsSL -o /tmp/opencode.deb https://github.com/opencode-ai/opencode/releases/download/v0.0.55/opencode-linux-amd64.deb && dpkg -i /tmp/opencode.deb && rm /tmp/opencode.deb || true
 
+  # ── Sandbox Agent (universal coding agent API by Rivet) ────────────────
+  curl -fsSL https://releases.rivet.dev/sandbox-agent/0.3.x/install.sh | sh
+  sandbox-agent install-agent --all 2>/dev/null || true
+
   # ── Create 'user' account ──────────────────────────────────────────────
   id -u user &>/dev/null || useradd -m -s /bin/bash -G sudo,docker user
   echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/user
@@ -204,6 +208,24 @@ RestartSec=3
 [Install]
 WantedBy=multi-user.target
 OCEOF
+
+  # ── Systemd service: Sandbox Agent ────────────────────────────────────
+  cat > /etc/systemd/system/sandbox-agent.service << 'SAEOF'
+[Unit]
+Description=Sandbox Agent (coding agent API)
+After=network.target
+
+[Service]
+Type=simple
+User=user
+ExecStart=/usr/local/bin/sandbox-agent server --no-token --host 0.0.0.0 --port 2468
+Restart=always
+RestartSec=3
+Environment=HOME=/home/user
+
+[Install]
+WantedBy=multi-user.target
+SAEOF
 
   # ── Systemd service: Docker workload (template — configured at boot) ──
   cat > /etc/systemd/system/justavps-docker.service << 'DSVEOF'
@@ -291,7 +313,23 @@ echo '${envLinesBase64}' | base64 -d > /etc/justavps/env
 mkdir -p /etc/caddy
 cat > /etc/caddy/Caddyfile << CADDYEOF
 ${opts.slug}.${opts.proxyDomain} {
+    # code-server (default — web IDE)
     reverse_proxy localhost:8080
+
+    # Sandbox Agent API + Inspector UI
+    handle_path /agent/* {
+        reverse_proxy localhost:2468
+    }
+
+    # OpenCode Web UI
+    handle_path /opencode/* {
+        reverse_proxy localhost:3456
+    }
+
+    # justavps-daemon local API
+    handle_path /daemon/* {
+        reverse_proxy localhost:7777
+    }
 }
 CADDYEOF
 
@@ -312,6 +350,7 @@ ${stageCallback('cloud_init_done', 'Configuration complete, starting services')}
 systemctl daemon-reload
 systemctl enable --now justavps-daemon 2>/dev/null || true
 systemctl enable --now code-server
+systemctl enable --now sandbox-agent 2>/dev/null || true
 
 # Caddy: must restart (not just enable) because apt-get install auto-starts it
 # with the default Caddyfile BEFORE we write ours. Restart picks up our config

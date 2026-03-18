@@ -14,6 +14,7 @@ Every VPS boots from an **image** (default: Ubuntu), cloud-init makes it managed
 | **Default image** | `ubuntu-24.04`. Every user gets this. No pre-building needed. |
 | **Cloud-init** | Script that runs on every boot. Installs platform software (if missing), configures identity, starts services. This is invisible to users. |
 | **justavps-daemon** | Go binary. The on-machine agent. Heartbeats, health, local API. What makes a VPS "managed." |
+| **Sandbox Agent** | Rust binary by Rivet. Universal coding agent API — controls Claude Code, Codex, OpenCode, Amp over HTTP/SSE. Runs on port 2468. Includes session management, process control, file system API, terminal WebSocket, and built-in Inspector UI at `/agent/ui/`. |
 
 ---
 
@@ -38,6 +39,7 @@ set -e
 # ── Phase 1: Install (skip if already on disk) ────────────────────
 if ! command -v code-server >/dev/null 2>&1; then
   # Docker, Node.js, code-server, Caddy, dev tools
+  # Sandbox Agent (+ pre-install all coding agents)
   # justavps-daemon (download Go binary)
   # Create 'user' account
   # Write systemd service files
@@ -47,12 +49,13 @@ fi
 # SSH keys
 # Machine config → /etc/justavps/config.json
 # Env vars → /etc/justavps/env
-# Caddy config (slug.proxy-domain)
+# Caddy config (slug.proxy-domain with sub-routes)
 # code-server password
 
 # ── Phase 3: Start services ──────────────────────────────────────
 systemctl enable --now justavps-daemon
 systemctl enable --now code-server
+systemctl enable --now sandbox-agent
 systemctl enable --now caddy
 
 # ── Phase 4: Docker workload (optional) ──────────────────────────
@@ -154,7 +157,7 @@ POST /api/v1/machines
 |---|---|
 | **Heartbeat** | POST to platform every 30s: CPU, memory, disk, services |
 | **Stage reporting** | Cloud-init calls daemon to report provisioning progress |
-| **Health** | Monitors Docker, code-server, Caddy. Self-heals if possible. |
+| **Health** | Monitors Docker, code-server, Caddy, Sandbox Agent, OpenCode. |
 | **Local API** | `:7777` — platform queries status, triggers restarts |
 | **Identity** | Reads `/etc/justavps/config.json`, authenticates with `machine_token` |
 
@@ -214,11 +217,61 @@ chmod +x /usr/local/bin/justavps-daemon
 
 ---
 
+## Sandbox Agent (Rivet)
+
+### What it is
+
+A Rust binary by [Rivet](https://rivet.dev) that provides a universal HTTP API for controlling coding agents (Claude Code, Codex, OpenCode, Amp, Pi) inside sandboxes. We ship it as part of every JustAVPS machine.
+
+### What it provides
+
+| Feature | Detail |
+|---|---|
+| **Coding Agent Sessions** | Create sessions, send prompts, stream events via SSE. One API for all agents. |
+| **Process Management** | Run commands, spawn long-lived processes, stream logs, PTY terminals via WebSocket |
+| **File System** | Read/write/list/move/delete files over HTTP |
+| **Desktop** | Virtual Xvfb desktop with screenshots, mouse/keyboard, recordings, WebRTC streaming |
+| **Inspector UI** | Built-in debug UI at `/agent/ui/` for inspecting sessions and events |
+| **Session Persistence** | Event history, session resume, audit trail |
+
+### Port & Routing
+
+- Sandbox Agent listens on `:2468` internally
+- Caddy proxies it at `https://{slug}.{domain}/agent/*`
+- Inspector UI at `https://{slug}.{domain}/agent/ui/`
+
+### Supported Agents
+
+| Agent | ID | Requires |
+|---|---|---|
+| Claude Code | `claude` | `ANTHROPIC_API_KEY` |
+| Codex | `codex` | `OPENAI_API_KEY` |
+| OpenCode | `opencode` | Provider API key |
+| Amp | `amp` | Provider API key |
+| Pi | `pi` | Provider API key |
+
+API keys are passed via the machine's env vars (`/etc/justavps/env`).
+
+---
+
+## Service Port Map
+
+| Service | Port | Caddy Route | Description |
+|---|---|---|---|
+| code-server | 8080 | `/` (default) | VS Code web IDE |
+| Sandbox Agent | 2468 | `/agent/*` | Coding agent API + Inspector |
+| OpenCode Web | 3456 | `/opencode/*` | OpenCode web UI |
+| justavps-daemon | 7777 | `/daemon/*` | Platform agent (heartbeat, health) |
+| Docker workload | 8000+ | — | User's container (if configured) |
+
+---
+
 ## Implementation Order
 
-1. **Rename snapshots → images** (schema, types, routes, frontend, tests)
-2. **Rewrite cloud-init** (smart install, daemon placeholder, docker workload)
-3. **Add `POST /machines/:id/image`** (take image from running machine)
-4. **Update machine creation** (image_id optional, docker_image + entrypoint)
-5. **Update frontend** (images page, create image button on machine, wizard)
-6. **Build justavps-daemon** (Go — separate step, can start with bash placeholder)
+1. ~~**Rename snapshots → images**~~ ✅
+2. ~~**Rewrite cloud-init**~~ ✅
+3. ~~**Add `POST /machines/:id/image`**~~ ✅
+4. ~~**Update machine creation**~~ ✅
+5. ~~**Update frontend**~~ ✅
+6. ~~**Build justavps-daemon**~~ ✅
+7. ~~**Integrate Sandbox Agent**~~ ✅

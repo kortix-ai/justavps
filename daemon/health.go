@@ -34,6 +34,7 @@ var ManagedServices = []string{
 	"caddy",
 	"docker",
 	"opencode-web",
+	"sandbox-agent",
 	"justavps-docker",
 }
 
