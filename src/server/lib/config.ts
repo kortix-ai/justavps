@@ -7,13 +7,11 @@ export const config = {
   // Hetzner
   HETZNER_API_KEY: process.env.HETZNER_API_KEY || '',
   HETZNER_DEFAULT_LOCATION: process.env.HETZNER_DEFAULT_LOCATION || 'nbg1',
-  // Cloudflare
+  // Cloudflare (DNS + KV only — no tunnels)
   CLOUDFLARE_API_KEY: process.env.CLOUDFLARE_GLOBAL_API_KEY || '',
   CLOUDFLARE_EMAIL: process.env.CLOUDFLARE_EMAIL || '',
   CLOUDFLARE_ZONE_ID: process.env.CLOUDFLARE_ZONE_ID || '',
   CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID || '',
-  CLOUDFLARE_TUNNEL_ID: process.env.CLOUDFLARE_TUNNEL_ID || '',
-  CLOUDFLARE_TUNNEL_TOKEN: process.env.CLOUDFLARE_TUNNEL_TOKEN || '',
 
   // Database
   DATABASE_URL: process.env.DATABASE_URL || '',

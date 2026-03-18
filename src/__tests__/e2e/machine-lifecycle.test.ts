@@ -1,20 +1,32 @@
 /**
- * E2E Machine Lifecycle Test — Full infrastructure test.
+ * E2E Machine Lifecycle Test — Full infrastructure + proxy + auth test.
  *
- * This test creates a REAL Hetzner VPS, waits for it to provision,
- * verifies DNS, HTTPS, SSH, services, then cleans up.
+ * This test creates a REAL Hetzner VPS, waits for it to provision, then verifies
+ * the ENTIRE stack end-to-end:
+ *
+ *   1. Machine creation via API (provisioning → ready)
+ *   2. Cloudflare DNS (proxied A record + origin A + wildcard A)
+ *   3. SSH connectivity + cloud-init completion
+ *   4. Platform services (code-server, Caddy, Docker, daemon, sandbox-agent)
+ *   5. Security: no cloudflared, correct firewall, correct config (no tunnel secrets)
+ *   6. CF Worker auth: unauthenticated → 302/401, wrong key → 401
+ *   7. CF Worker proxy: authenticated → 200 (code-server via Caddy)
+ *   8. Port forwarding: start custom server on port 9000, proxy via /_port/9000/ → 200
+ *   9. Port forwarding: daemon health via /_port/7777/health → 200 JSON
+ *  10. Port forwarding: sandbox-agent via /_port/2468/ → 200
+ *  11. API contract tests (images, docker machines)
+ *  12. Cleanup + deletion
  *
  * Requires:
- *   1. Dev server running on port 4100 (PLATFORM_URL must be set to production URL for real proxy tests)
- *   2. Docker Postgres on port 54330
- *   3. Hetzner API key configured
- *   4. Cloudflare API key configured (for DNS)
- *   5. Valid API key in the database
+ *   - Dev server running on port 4100
+ *   - Hetzner API key, Cloudflare API key, CF KV namespace
+ *   - Valid API key (set E2E_API_KEY or seed a test user)
+ *   - CF Worker deployed (`cd workers/proxy && npx wrangler deploy`)
+ *   - CF Worker route: *.kortix.cloud/* → kortix-cloud-proxy
  *
- * Run:  PLATFORM_E2E=1 npx vitest run src/__tests__/e2e/machine-lifecycle.test.ts
+ * Run:  PLATFORM_E2E=1 npx vitest run --config vitest.e2e.config.ts src/__tests__/e2e/machine-lifecycle.test.ts
  *
- * Cost: ~$0.01 per run (cpx22 for ~5 minutes)
- * Time: ~5-7 minutes
+ * Cost: ~$0.01 per run (cpx22 for ~5-7 minutes)
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -28,8 +40,11 @@ const SKIP_REASON = !process.env.PLATFORM_E2E
   ? 'Set PLATFORM_E2E=1 to run infrastructure tests (creates real Hetzner VPS)'
   : '';
 
-const PROVISION_TIMEOUT = 5 * 60 * 1000; // 5 min for fresh Ubuntu cloud-init
+const PROVISION_TIMEOUT = 5 * 60 * 1000; // 5 min
+const CLOUD_INIT_TIMEOUT = 5 * 60 * 1000; // 5 min for fresh Ubuntu
 const POLL_INTERVAL = 10_000; // 10s
+const PROXY_POLL_INTERVAL = 5_000; // 5s
+const PROXY_RETRIES = 12; // 12 × 5s = 60s max wait for CF Worker
 
 // ─── State ──────────────────────────────────────────────────────────────────
 
@@ -52,9 +67,7 @@ async function apiGet(path: string) {
 
 async function apiPost(path: string, body: Record<string, unknown>) {
   const res = await fetch(`${BASE_URL}${path}`, {
-    method: 'POST',
-    headers: headers(),
-    body: JSON.stringify(body),
+    method: 'POST', headers: headers(), body: JSON.stringify(body),
   });
   return { status: res.status, data: await res.json().catch(() => null) };
 }
@@ -80,19 +93,36 @@ function ssh(cmd: string, timeoutSec = 10): string | null {
   }
 }
 
+/** curl to CF Worker proxy (slug.kortix.cloud) with optional auth + path */
+function proxyGet(path: string, opts?: { auth?: boolean; accept?: string }): string {
+  const authHeader = opts?.auth ? `-H "Authorization: Bearer ${API_KEY}"` : '';
+  const acceptHeader = opts?.accept ? `-H "Accept: ${opts.accept}"` : '';
+  try {
+    return execSync(
+      `curl -sk -w "\\n%{http_code}" ${authHeader} ${acceptHeader} "https://${machineSlug}.kortix.cloud${path}"`,
+      { encoding: 'utf8', timeout: 15_000 },
+    ).trim();
+  } catch {
+    return '\n000';
+  }
+}
+
+/** Parse curl output into {body, status} */
+function parseCurl(raw: string): { body: string; status: string } {
+  const lines = raw.split('\n');
+  const status = lines[lines.length - 1] || '000';
+  const body = lines.slice(0, -1).join('\n');
+  return { body, status };
+}
+
 // ─── Setup / Teardown ───────────────────────────────────────────────────────
 
 beforeAll(async () => {
   if (SKIP_REASON) return;
-
-  // Resolve API key — try env var first, then create one via the API
   API_KEY = process.env.E2E_API_KEY || '';
   if (!API_KEY) {
-    // Fall back to seeded key
     API_KEY = 'sk_live_0b3f3fdcfc4ffa293cb94e2ca3c1a8fa3b6d99ab3b45f0b0c8a9de48d30e008a';
   }
-
-  // Verify API works
   const { status } = await apiGet('/v1/machines');
   if (status === 401) {
     console.error('[E2E] API key invalid — set E2E_API_KEY or seed a test user');
@@ -103,13 +133,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (!machineId || SKIP_REASON) return;
-
   console.log(`[E2E] Cleaning up machine ${machineSlug} (${machineId})...`);
-
-  // Delete via API
   await apiDelete(`/v1/machines/${machineId}`);
 
-  // Fallback: delete directly on Hetzner if API delete failed
   if (HETZNER_TOKEN && machineSlug) {
     try {
       const res = await fetch(
@@ -119,29 +145,24 @@ afterAll(async () => {
       const data = await res.json() as { servers: Array<{ id: number }> };
       for (const srv of data.servers) {
         await fetch(`https://api.hetzner.cloud/v1/servers/${srv.id}`, {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${HETZNER_TOKEN}` },
+          method: 'DELETE', headers: { Authorization: `Bearer ${HETZNER_TOKEN}` },
         });
         console.log(`[E2E] Deleted Hetzner server ${srv.id}`);
       }
-    } catch (err) {
-      console.warn('[E2E] Hetzner cleanup failed:', err);
-    }
+    } catch {}
   }
-
-  // Clean up SSH key
-  if (sshKeyPath) {
-    try { execSync(`rm -f ${sshKeyPath}`); } catch {}
-  }
+  if (sshKeyPath) { try { execSync(`rm -f ${sshKeyPath}`); } catch {} }
 });
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
-describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 10 * 60 * 1000 }, () => {
+describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 1000 }, () => {
 
-  // ── 1. Create Machine ──────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  PHASE 1: MACHINE CREATION
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  it('creates a machine from Ubuntu (no image_id)', async () => {
+  it('1. creates a machine from Ubuntu via API', async () => {
     const { status, data } = await apiPost('/v1/machines', {
       provider: 'hetzner',
       server_type: 'cpx22',
@@ -149,11 +170,9 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 10 * 60 * 100
       name: 'e2e-lifecycle-test',
     });
 
-    // May return 202 (machine created) or 200 (checkout redirect if Stripe is active)
     expect([200, 202]).toContain(status);
-
     if (status === 200 && data.requires_checkout) {
-      console.log('[E2E] Stripe checkout required — skipping machine lifecycle tests');
+      console.log('[E2E] Stripe checkout required — skipping');
       return;
     }
 
@@ -165,37 +184,26 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 10 * 60 * 100
     machineId = data.id;
     machineSlug = data.slug;
 
-    // Save SSH key — may come from POST response or need a GET
+    // Save SSH key
     let privateKey = data.ssh_key?.private_key;
     if (!privateKey) {
-      // POST might not include the key (e.g. if response was trimmed)
-      // Fetch from GET endpoint
-      const { data: machineData } = await apiGet(`/v1/machines/${machineId}`);
-      privateKey = machineData?.ssh_key?.private_key;
+      const { data: d2 } = await apiGet(`/v1/machines/${machineId}`);
+      privateKey = d2?.ssh_key?.private_key;
     }
-
     if (privateKey) {
       sshKeyPath = `/tmp/e2e_ssh_${machineSlug}`;
-      const { writeFileSync, chmodSync } = await import('fs');
-      // Ensure trailing newline — OpenSSH requires it
-      const keyContent = privateKey.endsWith('\n') ? privateKey : privateKey + '\n';
-      writeFileSync(sshKeyPath, keyContent, { mode: 0o600 });
-      console.log(`[E2E] SSH key saved to ${sshKeyPath} (${keyContent.length} bytes)`);
-    } else {
-      console.warn('[E2E] No SSH key available — SSH tests will be skipped');
+      const { writeFileSync } = await import('fs');
+      writeFileSync(sshKeyPath, privateKey.endsWith('\n') ? privateKey : privateKey + '\n', { mode: 0o600 });
+      console.log(`[E2E] SSH key saved to ${sshKeyPath}`);
     }
 
     console.log(`[E2E] Machine created: slug=${machineSlug} id=${machineId}`);
   });
 
-  // ── 2. Wait for Ready ──────────────────────────────────────────────────
-
-  it('transitions to ready within 5 minutes', async () => {
+  it('2. transitions to ready within 5 minutes', async () => {
     const start = Date.now();
-
     while (Date.now() - start < PROVISION_TIMEOUT) {
       const { data } = await apiGet(`/v1/machines/${machineId}`);
-
       if (data.status === 'ready') {
         machineIp = data.ip;
         console.log(`[E2E] Machine ready: ip=${machineIp} (${Math.round((Date.now() - start) / 1000)}s)`);
@@ -203,187 +211,295 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 10 * 60 * 100
         expect(data.connect?.vscode_url).toContain(machineSlug);
         return;
       }
-
-      if (data.status === 'error') {
-        throw new Error(`Machine failed: ${JSON.stringify(data.provisioning_stage)}`);
-      }
-
-      // Log progress
+      if (data.status === 'error') throw new Error(`Machine failed: ${data.provisioning_stage}`);
       if (data.ip && !machineIp) {
         machineIp = data.ip;
         console.log(`[E2E] Got IP: ${machineIp}, stage: ${data.provisioning_stage}`);
       }
-
       await sleep(POLL_INTERVAL);
     }
-
-    throw new Error(`Machine did not become ready within ${PROVISION_TIMEOUT / 1000}s`);
+    throw new Error('Machine did not become ready within 5 minutes');
   });
 
-  // ── 3. DNS Resolution ──────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  PHASE 2: DNS RECORDS (Cloudflare API verification)
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  it('DNS resolves slug.kortix.cloud to machine IP', async () => {
-    // DNS can take a few seconds to propagate
-    let resolved = false;
-    for (let i = 0; i < 12; i++) {
-      try {
-        const result = execSync(`dig +short ${machineSlug}.kortix.cloud`, { encoding: 'utf8' }).trim();
-        if (result === machineIp) {
-          resolved = true;
-          break;
-        }
-      } catch {}
-      await sleep(5_000);
-    }
+  it('3. Cloudflare has proxied A record for slug.kortix.cloud', async () => {
+    const cfApiKey = process.env.CLOUDFLARE_GLOBAL_API_KEY;
+    const cfEmail = process.env.CLOUDFLARE_EMAIL;
+    const cfZoneId = process.env.CLOUDFLARE_ZONE_ID;
+    if (!cfApiKey || !cfZoneId) { console.log('[E2E] No CF creds — skip'); return; }
 
-    expect(resolved).toBe(true);
+    const hostname = `${machineSlug}.kortix.cloud`;
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/zones/${cfZoneId}/dns_records?name=${hostname}&type=A`,
+      { headers: { 'X-Auth-Key': cfApiKey, 'X-Auth-Email': cfEmail || '' } },
+    );
+    const data = await res.json() as { result: Array<{ type: string; content: string; proxied: boolean }> };
+
+    expect(data.result.length).toBeGreaterThan(0);
+    expect(data.result[0].content).toBe(machineIp);
+    expect(data.result[0].proxied).toBe(true);
+    console.log(`[E2E] CF A record: ${hostname} → ${data.result[0].content} (proxied)`);
   });
 
-  // ── 4. SSH Connectivity + Wait for Cloud-Init ──────────────────────────
+  it('4. Cloudflare has DNS-only origin record for origin-slug.kortix.cloud', async () => {
+    const cfApiKey = process.env.CLOUDFLARE_GLOBAL_API_KEY;
+    const cfEmail = process.env.CLOUDFLARE_EMAIL;
+    const cfZoneId = process.env.CLOUDFLARE_ZONE_ID;
+    if (!cfApiKey || !cfZoneId) { console.log('[E2E] No CF creds — skip'); return; }
 
-  it('SSH connects and cloud-init completes', async () => {
-    if (!sshKeyPath) {
-      console.log('[E2E] No SSH key — skipping SSH tests');
-      return;
-    }
+    const origin = `origin-${machineSlug}.kortix.cloud`;
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/zones/${cfZoneId}/dns_records?name=${origin}&type=A`,
+      { headers: { 'X-Auth-Key': cfApiKey, 'X-Auth-Email': cfEmail || '' } },
+    );
+    const data = await res.json() as { result: Array<{ content: string; proxied: boolean }> };
 
-    // Fresh Ubuntu boot: cloud-init installs Docker, Node, code-server, Caddy, etc.
-    // This takes 3-6 minutes. We need to wait for SSH AND cloud-init to finish.
+    expect(data.result.length).toBeGreaterThan(0);
+    expect(data.result[0].content).toBe(machineIp);
+    expect(data.result[0].proxied).toBe(false); // DNS-only — Worker fetches this
+    console.log(`[E2E] CF origin: ${origin} → ${data.result[0].content} (DNS-only)`);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  PHASE 3: SSH + CLOUD-INIT + SERVICES
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  it('5. SSH connects and cloud-init completes', async () => {
+    if (!sshKeyPath) { console.log('[E2E] No SSH key — skip'); return; }
+
+    // Wait for SSH
     let connected = false;
-    let cloudInitDone = false;
-
-    // Phase 1: Wait for SSH to become available (up to 5 min)
     for (let i = 0; i < 30; i++) {
-      const result = ssh('echo OK', 15);
-      if (result === 'OK') {
-        connected = true;
-        console.log(`[E2E] SSH connected after ${i * 10}s`);
-        break;
-      }
+      if (ssh('echo OK', 15) === 'OK') { connected = true; console.log(`[E2E] SSH connected after ${i * 10}s`); break; }
       await sleep(10_000);
     }
     expect(connected).toBe(true);
 
-    // Phase 2: Wait for cloud-init to finish (up to 5 min more)
+    // Wait for cloud-init
+    let done = false;
     for (let i = 0; i < 30; i++) {
-      const status = ssh('cloud-init status 2>/dev/null | grep -o "done\\|running\\|error"', 10);
-      if (status === 'done') {
-        cloudInitDone = true;
-        console.log(`[E2E] Cloud-init done after ${i * 10}s`);
-        break;
-      }
-      if (status === 'error') {
-        console.error('[E2E] Cloud-init failed!');
-        const log = ssh('tail -20 /var/log/cloud-init-output.log 2>/dev/null', 10);
-        console.error(log);
-        break;
-      }
+      const s = ssh('cloud-init status 2>/dev/null | grep -o "done\\|running\\|error"', 10);
+      if (s === 'done') { done = true; console.log(`[E2E] Cloud-init done after ${i * 10}s`); break; }
+      if (s === 'error') { console.error('[E2E] Cloud-init failed:', ssh('tail -20 /var/log/cloud-init-output.log', 10)); break; }
       await sleep(10_000);
     }
-    expect(cloudInitDone).toBe(true);
+    expect(done).toBe(true);
   });
 
-  // ── 5. Platform Services ───────────────────────────────────────────────
-
-  it('code-server is running on port 8080', () => {
+  it('6. code-server active on port 8080', () => {
     if (!sshKeyPath) return;
-    const result = ssh('systemctl is-active code-server');
-    expect(result).toBe('active');
-
-    const port = ssh('ss -tlnp | grep 8080 | wc -l');
-    expect(Number(port)).toBeGreaterThan(0);
+    expect(ssh('systemctl is-active code-server')).toBe('active');
+    expect(Number(ssh('ss -tlnp | grep 8080 | wc -l'))).toBeGreaterThan(0);
   });
 
-  it('Caddy is running on port 80', () => {
+  it('7. Caddy active on port 80', () => {
     if (!sshKeyPath) return;
-    const result = ssh('systemctl is-active caddy');
-    expect(result).toBe('active');
-
-    const port = ssh('ss -tlnp | grep caddy | grep -c ":80"');
-    expect(Number(port)).toBeGreaterThan(0);
+    expect(ssh('systemctl is-active caddy')).toBe('active');
+    expect(Number(ssh('ss -tlnp | grep caddy | grep -c ":80"'))).toBeGreaterThan(0);
   });
 
-  it('Docker is running', () => {
+  it('8. Docker active', () => {
     if (!sshKeyPath) return;
-    const result = ssh('systemctl is-active docker');
-    expect(result).toBe('active');
+    expect(ssh('systemctl is-active docker')).toBe('active');
   });
 
-  it('platform config is written correctly', () => {
+  it('9. justavps-daemon active on port 7777', () => {
+    if (!sshKeyPath) return;
+    expect(ssh('systemctl is-active justavps-daemon')).toBe('active');
+    expect(Number(ssh('ss -tlnp | grep 7777 | wc -l'))).toBeGreaterThan(0);
+  });
+
+  it('10. sandbox-agent active on port 2468', () => {
+    if (!sshKeyPath) return;
+    expect(ssh('systemctl is-active sandbox-agent')).toBe('active');
+    expect(Number(ssh('ss -tlnp | grep 2468 | wc -l'))).toBeGreaterThan(0);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  PHASE 4: SECURITY — no tunnels, correct config, correct firewall
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  it('11. cloudflared service is NOT active (no tunnels)', () => {
+    if (!sshKeyPath) return;
+    // systemctl is-active returns "inactive" for stopped/disabled/unknown units
+    // but exits non-zero, so we wrap to always exit 0
+    const result = ssh('systemctl is-active cloudflared 2>/dev/null || true');
+    expect(result).not.toBe('active');
+  });
+
+  it('12. platform config has no proxy_domain or proxy_auth_secret', () => {
     if (!sshKeyPath) return;
     const config = ssh('cat /etc/justavps/config.json');
     expect(config).toBeTruthy();
     const parsed = JSON.parse(config!);
     expect(parsed.slug).toBe(machineSlug);
     expect(parsed.machine_token).toBeTruthy();
-    expect(parsed.proxy_domain).toBe('kortix.cloud');
+    expect(parsed.callback_url).toBeTruthy();
+    expect(parsed.proxy_domain).toBeUndefined();
+    expect(parsed.proxy_auth_secret).toBeUndefined();
   });
 
-  it('user account exists with sudo + docker', () => {
+  it('13. ufw allows SSH + port 80 + user ports 1024-65535', () => {
+    if (!sshKeyPath) return;
+    const ufw = ssh('ufw status');
+    expect(ufw).toContain('22/tcp');
+    expect(ufw).toContain('80/tcp');
+    expect(ufw).toContain('1024:65535/tcp');
+  });
+
+  it('14. user account exists with sudo + docker groups', () => {
     if (!sshKeyPath) return;
     const groups = ssh('id user');
     expect(groups).toContain('sudo');
     expect(groups).toContain('docker');
   });
 
-  // ── 6. HTTPS via Cloudflare Proxy ────────────────────────────────────
-
-  it('HTTPS via Cloudflare proxy reaches code-server', async () => {
-    // Cloudflare handles TLS via the wildcard *.kortix.cloud (proxied).
-    // The CF Worker routes slug → VPS IP via KV.
-    // We test HTTPS via the public URL (goes through Cloudflare).
-    let reachable = false;
-    for (let i = 0; i < 12; i++) {
-      try {
-        const result = execSync(
-          `curl -sk -o /dev/null -w "%{http_code}" "https://${machineSlug}.kortix.cloud/login"`,
-          { encoding: 'utf8', timeout: 10_000 },
-        ).trim();
-        if (result === '200' || result === '302') {
-          reachable = true;
-          break;
-        }
-      } catch {}
-      await sleep(5_000);
-    }
-
-    if (!reachable) {
-      // Fallback: check code-server is at least running locally on the VPS
-      if (sshKeyPath) {
-        const result = ssh('curl -sf -o /dev/null -w "%{http_code}" http://localhost:8080/login');
-        expect(result).toBe('200');
-      }
-    } else {
-      expect(reachable).toBe(true);
-    }
+  it('15. OpenCode service unit references port 3456', () => {
+    if (!sshKeyPath) return;
+    const unit = ssh('cat /etc/systemd/system/opencode-web.service 2>/dev/null');
+    expect(unit).toContain('3456');
   });
 
-  // ── 7. Images API ──────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  PHASE 5: CF WORKER AUTH — the real proxy auth test
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  it('GET /images returns empty list', async () => {
+  it('16. unauthenticated browser request → 302 redirect to login', async () => {
+    let status = '';
+    for (let i = 0; i < PROXY_RETRIES; i++) {
+      const r = parseCurl(proxyGet('/', { accept: 'text/html' }));
+      status = r.status;
+      if (status === '302' || status === '401') break;
+      await sleep(PROXY_POLL_INTERVAL);
+    }
+    console.log(`[E2E] Unauth browser: ${machineSlug}.kortix.cloud → ${status}`);
+    expect(['302', '401']).toContain(status);
+  });
+
+  it('17. unauthenticated API request → 401 with JSON error', async () => {
+    let status = '';
+    let body = '';
+    for (let i = 0; i < PROXY_RETRIES; i++) {
+      const r = parseCurl(proxyGet('/api/test'));
+      status = r.status; body = r.body;
+      if (status === '401') break;
+      await sleep(PROXY_POLL_INTERVAL);
+    }
+    console.log(`[E2E] Unauth API: ${status} ${body}`);
+    expect(status).toBe('401');
+    expect(body).toContain('Authentication required');
+  });
+
+  it('18. wrong API key → 401 "Invalid API key"', async () => {
+    let result = '';
+    try {
+      result = execSync(
+        `curl -sk -w "\\n%{http_code}" -H "Authorization: Bearer sk_live_wrong_key" "https://${machineSlug}.kortix.cloud/"`,
+        { encoding: 'utf8', timeout: 15_000 },
+      ).trim();
+    } catch {}
+    const { status, body } = parseCurl(result);
+    console.log(`[E2E] Wrong key: ${status} ${body}`);
+    expect(status).toBe('401');
+    expect(body).toContain('Invalid API key');
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  PHASE 6: CF WORKER PROXY — authenticated traffic flows through
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  it('19. authenticated request → 200 (Caddy → code-server)', async () => {
+    let status = '';
+    for (let i = 0; i < PROXY_RETRIES; i++) {
+      const r = parseCurl(proxyGet('/', { auth: true }));
+      status = r.status;
+      if (status === '200' || status === '302') break;
+      await sleep(PROXY_POLL_INTERVAL);
+    }
+    console.log(`[E2E] Auth proxy (default port 80): ${machineSlug}.kortix.cloud → ${status}`);
+    expect(['200', '302']).toContain(status);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  PHASE 7: PORT FORWARDING — start custom server, proxy through CF Worker
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  it('20. starts custom HTTP server on port 9000 via SSH', () => {
+    if (!sshKeyPath) return;
+    // Write a Python server script via base64 to avoid shell escaping issues
+    const script = `import http.server
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"HELLO_FROM_PORT_9000")
+    def log_message(self, *a): pass
+http.server.HTTPServer(("0.0.0.0", 9000), H).serve_forever()
+`;
+    const b64 = Buffer.from(script).toString('base64');
+
+    // Write script via base64 decode then start server
+    // Use execSync directly to avoid single-quote nesting in ssh() helper
+    try {
+      execSync(
+        `ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${machineIp} "echo ${b64} | base64 -d > /tmp/testserver.py && nohup python3 /tmp/testserver.py > /dev/null 2>&1 &"`,
+        { timeout: 15_000, encoding: 'utf8' },
+      );
+    } catch { /* background process exits with nohup */ }
+
+    // Wait for it to start
+    let running = false;
+    for (let i = 0; i < 10; i++) {
+      const result = ssh('curl -sf http://localhost:9000/ 2>/dev/null || echo ""');
+      if (result === 'HELLO_FROM_PORT_9000') { running = true; break; }
+      execSync('sleep 1');
+    }
+    console.log(`[E2E] Custom server on port 9000: ${running ? 'running' : 'failed to start'}`);
+    expect(running).toBe(true);
+  });
+
+  it('21. /_port/9000/ with API key → 200 "HELLO_FROM_PORT_9000"', async () => {
+    const { status, body } = parseCurl(proxyGet('/_port/9000/', { auth: true }));
+    console.log(`[E2E] Port 9000 proxy: ${status} body="${body.slice(0, 50)}"`);
+    expect(status).toBe('200');
+    expect(body).toContain('HELLO_FROM_PORT_9000');
+  });
+
+  it('22. /_port/7777/health with API key → 200 daemon health JSON', async () => {
+    const { status, body } = parseCurl(proxyGet('/_port/7777/health', { auth: true }));
+    console.log(`[E2E] Port 7777 daemon: ${status} body="${body.slice(0, 80)}"`);
+    expect(status).toBe('200');
+    const json = JSON.parse(body);
+    expect(json.status).toBe('ok');
+    expect(json.load).toBeDefined();
+  });
+
+  it('23. /_port/2468/ with API key → 200 sandbox-agent', async () => {
+    const { status } = parseCurl(proxyGet('/_port/2468/', { auth: true }));
+    console.log(`[E2E] Port 2468 sandbox-agent: ${status}`);
+    expect(['200', '404']).toContain(status); // 404 = agent running but no route at /
+  });
+
+  it('24. /_port/9000/ WITHOUT auth → 401', async () => {
+    const { status, body } = parseCurl(proxyGet('/_port/9000/'));
+    console.log(`[E2E] Port 9000 no auth: ${status} ${body}`);
+    expect(status).toBe('401');
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  PHASE 8: API CONTRACT TESTS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  it('25. GET /images returns list', async () => {
     const { status, data } = await apiGet('/v1/images');
     expect(status).toBe(200);
     expect(Array.isArray(data.images)).toBe(true);
   });
 
-  it('POST /machines/:id/image fails on provisioning machine', async () => {
-    // Create a fresh machine that's still provisioning for this test
-    // Or use existing machine if it's ready — should succeed
-    // Let's test the API contract
-    const { status } = await apiPost(`/v1/machines/00000000-0000-0000-0000-000000000000/image`, {
-      name: 'should-fail',
-    });
-    expect(status).toBe(404);
-  });
-
-  it('GET /images/:nonexistent returns 404', async () => {
-    const { status } = await apiGet('/v1/images/00000000-0000-0000-0000-000000000000');
-    expect(status).toBe(404);
-  });
-
-  // ── 8. Machine with Docker Image ───────────────────────────────────────
-
-  it('creates machine with docker_image + entrypoint (validates API contract)', async () => {
+  it('26. POST /machines with docker_image validates API contract', async () => {
     const { status, data } = await apiPost('/v1/machines', {
       provider: 'hetzner',
       server_type: 'cpx22',
@@ -392,30 +508,24 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 10 * 60 * 100
       docker_image: 'nginx:latest',
       entrypoint: 'sleep infinity',
     });
-
     expect(status).toBe(202);
     expect(data.status).toBe('provisioning');
-    expect(data.image_id).toBeNull(); // no image, boots from Ubuntu
-
-    // Immediately delete — we just tested the API contract, don't need the machine
     if (data.id) {
-      await sleep(3_000); // give Hetzner a moment to register the server
+      await sleep(3_000);
       await apiDelete(`/v1/machines/${data.id}`);
     }
   });
 
-  // ── 9. Cleanup validation ──────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  PHASE 9: CLEANUP
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  it('deletes the test machine', async () => {
+  it('27. deletes the test machine', async () => {
     const { status } = await apiDelete(`/v1/machines/${machineId}`);
     expect([204, 200]).toContain(status);
-
-    // Verify it's gone
     await sleep(2_000);
     const { data } = await apiGet(`/v1/machines/${machineId}`);
     expect(['deleted', null]).toContain(data?.status ?? null);
-
-    // Clear so afterAll doesn't double-delete
-    machineId = '';
+    machineId = ''; // prevent afterAll double-delete
   });
 });

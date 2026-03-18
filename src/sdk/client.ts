@@ -20,26 +20,27 @@
 
 import type {
   Machine,
-  Snapshot,
+  Image,
   SshKey,
   ApiKey,
   Webhook,
   Account,
   AccountUsage,
-  BillingPortal,
+  Billing,
+  BillingSetup,
   ServerType,
   Provider,
   Region,
   CreateMachineData,
-  CreateSnapshotData,
+  CreateImageFromMachineData,
   ResizeMachineData,
 } from './generated/types.gen';
 
 // ─── Re-export generated types for convenience ─────────────────────────────
-export type { Machine, Snapshot, SshKey, ApiKey, Webhook, Account, AccountUsage, BillingPortal, ServerType, Provider, Region };
+export type { Machine, Image, SshKey, ApiKey, Webhook, Account, AccountUsage, Billing, BillingSetup, ServerType, Provider, Region };
 
-// Also export Snapshot as Image for the new naming
-export type Image = Snapshot;
+// Backward compat aliases
+export type Snapshot = Image;
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 
@@ -152,7 +153,7 @@ class HttpClient {
 // ─── Type aliases for request bodies ────────────────────────────────────────
 
 type CreateMachineBody = NonNullable<CreateMachineData['body']>;
-type CreateSnapshotBody = NonNullable<CreateSnapshotData['body']>;
+type CreateSnapshotBody = NonNullable<CreateImageFromMachineData['body']>;
 type ResizeMachineBody = NonNullable<ResizeMachineData['body']>;
 
 // ─── Resource Namespaces ────────────────────────────────────────────────────
@@ -254,7 +255,7 @@ class AccountResource {
   constructor(private readonly http: HttpClient) {}
   get() { return this.http.get<Account>('/account'); }
   usage() { return this.http.get<AccountUsage>('/account/usage'); }
-  billing() { return this.http.get<BillingPortal>('/account/billing'); }
+  billing() { return this.http.get<Billing>('/account/billing'); }
 }
 
 // ─── Main Client ────────────────────────────────────────────────────────────

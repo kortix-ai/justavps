@@ -50,8 +50,6 @@ export function buildMachineUserData(
     machineToken,
     platformCallbackUrl: config.PLATFORM_URL,
     proxyDomain: config.PROXY_DOMAIN,
-    tunnelToken: config.CLOUDFLARE_TUNNEL_TOKEN || undefined,
-    proxyAuthSecret: config.PROXY_AUTH_SECRET || undefined,
     envVars,
     dockerImage,
     entrypoint,
@@ -59,12 +57,12 @@ export function buildMachineUserData(
 }
 
 /**
- * Register machine in Cloudflare: tunnel ingress + CNAME DNS + KV.
- * - Adds ingress rule to the shared tunnel
- * - Creates CNAME slug.kortix.cloud → tunnel.cfargotunnel.com
+ * Register machine in Cloudflare: DNS A records + KV.
+ * - Creates A record slug.kortix.cloud → VPS_IP (proxied)
+ * - Creates wildcard A *.slug.kortix.cloud → VPS_IP (for port subdomains)
  * - Writes machine:{slug} to KV for Worker auth
  */
-export async function setupProxyKV(
+export async function setupProxyDNS(
   slug: string,
   ip: string,
   ownerId: string,
@@ -72,15 +70,16 @@ export async function setupProxyKV(
 ) {
   if (!config.isCloudflareConfigured()) return;
   
-  // Tunnel ingress + CNAME DNS
-  await cloudflareClient.addMachineToTunnel(slug).catch((err: unknown) => {
-    console.warn(`[CF] Failed to add ${slug} to tunnel:`, err);
+  // DNS A records (slug + wildcard for port subdomains)
+  await cloudflareClient.addMachineDNS(slug, ip).catch((err: unknown) => {
+    console.warn(`[CF] Failed to add DNS for ${slug}:`, err);
   });
 
-  // KV for Worker auth
+  // KV for Worker auth (includes origin hostname for Worker fetch)
   await cloudflareClient.writeKVMachine(slug, {
     owner_id: ownerId,
     ip,
+    origin_hostname: `origin-${slug}.${config.PROXY_DOMAIN}`,
     status: 'provisioning',
     server_type: serverType,
   }).catch((err: unknown) => {
@@ -168,7 +167,7 @@ export async function cleanupMachineResources(
   }
 
   if (config.isCloudflareConfigured()) {
-    await cloudflareClient.removeMachineFromTunnel(machine.slug).catch(() => {});
+    await cloudflareClient.removeMachineDNS(machine.slug).catch(() => {});
     await cloudflareClient.deleteKVMachine(machine.slug);
   }
 

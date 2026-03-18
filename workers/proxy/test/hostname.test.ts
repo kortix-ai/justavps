@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { parseHostname } from '../src/hostname';
 
 describe('parseHostname', () => {
-  it('should parse simple slug with default port 8080', () => {
+  it('should parse simple slug with default port 80 (Caddy)', () => {
     const result = parseHostname('abc123.kortix.cloud');
     expect(result).toEqual({
       slug: 'abc123',
-      port: 8080,
-      isPty: false
+      port: 80, // Default: CF Worker → VPS:80 (Caddy → code-server)
+      isPty: false,
     });
   });
 
@@ -16,7 +16,7 @@ describe('parseHostname', () => {
     expect(result).toEqual({
       slug: 'abc123',
       port: 3000,
-      isPty: false
+      isPty: false,
     });
   });
 
@@ -25,7 +25,7 @@ describe('parseHostname', () => {
     expect(result).toEqual({
       slug: 'def456',
       port: 8080,
-      isPty: false
+      isPty: false,
     });
   });
 
@@ -34,7 +34,16 @@ describe('parseHostname', () => {
     expect(result).toEqual({
       slug: 'xyz789',
       port: 12345,
-      isPty: false
+      isPty: false,
+    });
+  });
+
+  it('should handle OpenCode port 3456', () => {
+    const result = parseHostname('3456.abc123.kortix.cloud');
+    expect(result).toEqual({
+      slug: 'abc123',
+      port: 3456,
+      isPty: false,
     });
   });
 
@@ -42,8 +51,8 @@ describe('parseHostname', () => {
     const result = parseHostname('abc123.kortix.cloud', '/_pty');
     expect(result).toEqual({
       slug: 'abc123',
-      port: 8080,
-      isPty: true
+      port: 80,
+      isPty: true,
     });
   });
 
@@ -52,13 +61,12 @@ describe('parseHostname', () => {
     expect(result).toEqual({
       slug: 'abc123',
       port: 3000,
-      isPty: true
+      isPty: true,
     });
   });
 
   it('should handle www subdomain gracefully', () => {
-    const result = parseHostname('www.kortix.cloud');
-    expect(result).toBeNull();
+    expect(parseHostname('www.kortix.cloud')).toBeNull();
   });
 
   it('should handle invalid hostnames', () => {
@@ -77,13 +85,13 @@ describe('parseHostname', () => {
     expect(parseHostname('ab.kortix.cloud')).toBeNull(); // Too short
     expect(parseHostname('abc-123.kortix.cloud')).toEqual({
       slug: 'abc-123',
-      port: 8080,
-      isPty: false
-    }); // Allow hyphens
+      port: 80,
+      isPty: false,
+    });
     expect(parseHostname('ABC123.kortix.cloud')).toEqual({
       slug: 'abc123', // Should lowercase
-      port: 8080,
-      isPty: false
+      port: 80,
+      isPty: false,
     });
   });
 });

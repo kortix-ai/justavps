@@ -10,10 +10,9 @@ import (
 )
 
 func TestLoadConfig(t *testing.T) {
-	// Write a temp config
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.json")
-	data := `{"slug":"test","callback_url":"http://localhost","machine_token":"mt_123","proxy_domain":"test.com"}`
+	data := `{"slug":"test","callback_url":"http://localhost","machine_token":"mt_123"}`
 	if err := os.WriteFile(cfgPath, []byte(data), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -53,8 +52,26 @@ func TestLoadConfigMissingFile(t *testing.T) {
 	}
 }
 
+func TestLoadConfigIgnoresUnknownFields(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	// Old configs may still have proxy_domain / proxy_auth_secret — should not fail
+	data := `{"slug":"test","callback_url":"http://localhost","machine_token":"mt_123","proxy_domain":"old.com","proxy_auth_secret":"old-secret"}`
+	if err := os.WriteFile(cfgPath, []byte(data), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Slug != "test" {
+		t.Errorf("expected slug 'test', got '%s'", cfg.Slug)
+	}
+}
+
 func TestAPIHealth(t *testing.T) {
-	cfg := &Config{Slug: "test", CallbackURL: "http://localhost", MachineToken: "mt_123", ProxyDomain: "test.com"}
+	cfg := &Config{Slug: "test", CallbackURL: "http://localhost", MachineToken: "mt_123"}
 	health := NewHealthChecker()
 	api := NewAPIServer(cfg, health, 0)
 
@@ -75,7 +92,7 @@ func TestAPIHealth(t *testing.T) {
 }
 
 func TestAPIInfo(t *testing.T) {
-	cfg := &Config{Slug: "my-machine", CallbackURL: "http://localhost", MachineToken: "mt_123", ProxyDomain: "kortix.cloud"}
+	cfg := &Config{Slug: "my-machine", CallbackURL: "http://localhost", MachineToken: "mt_123"}
 	health := NewHealthChecker()
 	api := NewAPIServer(cfg, health, 0)
 
@@ -93,8 +110,9 @@ func TestAPIInfo(t *testing.T) {
 	if result["slug"] != "my-machine" {
 		t.Errorf("expected slug 'my-machine', got '%v'", result["slug"])
 	}
-	if result["proxy_domain"] != "kortix.cloud" {
-		t.Errorf("expected proxy_domain 'kortix.cloud', got '%v'", result["proxy_domain"])
+	// proxy_domain no longer returned (removed — auth is at CF Worker edge)
+	if _, exists := result["proxy_domain"]; exists {
+		t.Error("proxy_domain should not be in info response (removed)")
 	}
 }
 
@@ -138,7 +156,6 @@ func TestAPIServiceRestartForbidden(t *testing.T) {
 }
 
 func TestHeartbeatPayload(t *testing.T) {
-	// Start a mock server to receive heartbeats
 	received := make(chan heartbeatPayload, 1)
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var p heartbeatPayload
@@ -160,40 +177,5 @@ func TestHeartbeatPayload(t *testing.T) {
 	}
 	if p.MachineToken != "mt_hb" {
 		t.Errorf("expected token 'mt_hb', got '%s'", p.MachineToken)
-	}
-}
-
-func TestAuthProxyNoToken(t *testing.T) {
-	cfg := &Config{Slug: "test", CallbackURL: "http://localhost:4100", MachineToken: "mt_123", ProxyDomain: "kortix.cloud", ProxyAuthSecret: "test-secret"}
-	handler := NewAuthProxy(cfg, cfg.ProxyAuthSecret, 9999) // port doesn't matter — won't reach it
-
-	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("Accept", "application/json")
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-
-	if w.Code != 401 {
-		t.Errorf("expected 401 without token, got %d", w.Code)
-	}
-}
-
-func TestAuthProxyBrowserRedirect(t *testing.T) {
-	cfg := &Config{Slug: "test-slug", CallbackURL: "http://localhost:4100", MachineToken: "mt_123", ProxyDomain: "kortix.cloud", ProxyAuthSecret: "test-secret"}
-	handler := NewAuthProxy(cfg, cfg.ProxyAuthSecret, 9999)
-
-	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("Accept", "text/html")
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-
-	if w.Code != 302 {
-		t.Errorf("expected 302 redirect for browser, got %d", w.Code)
-	}
-	loc := w.Header().Get("Location")
-	if loc == "" {
-		t.Error("expected Location header")
-	}
-	if !containsStr(loc, "/auth/login") {
-		t.Errorf("expected redirect to /auth/login, got %s", loc)
 	}
 }

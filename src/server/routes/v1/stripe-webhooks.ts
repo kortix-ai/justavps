@@ -21,7 +21,7 @@ import {
   generateMachineIdentity,
   uploadSSHKeyToProvider,
   buildMachineUserData,
-  setupProxyKV,
+  setupProxyDNS,
   createMachineRecord,
 } from '../../lib/machine-lifecycle';
 
@@ -221,7 +221,7 @@ function provisionMachineAsync(
 
       // Register in CF KV for proxy routing
       try {
-        await setupProxyKV(slug, server.publicIp, userId, machineConfig.server_type);
+        await setupProxyDNS(slug, server.publicIp, userId, machineConfig.server_type);
       } catch (err) {
         console.warn(`[STRIPE WEBHOOK] KV setup failed for ${slug}:`, err);
       }

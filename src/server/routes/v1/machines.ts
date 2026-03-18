@@ -19,7 +19,7 @@ import {
   generateMachineIdentity,
   uploadSSHKeyToProvider,
   buildMachineUserData,
-  setupProxyKV,
+  setupProxyDNS,
   lookupPriceAndSpecs,
   createMachineRecord,
   createStripeSubscription,
@@ -40,7 +40,7 @@ const CreateMachineSchema = z.object({
   server_type: z.string().min(1).describe('Provider-specific server type (e.g. "cpx22")'),
   region: z.string().min(1).describe('Provider-specific region (e.g. "nbg1")'),
   name: z.string().min(1).max(64).optional().describe('Human-readable name'),
-  env_vars: z.record(z.string()).optional().describe('Extra environment variables written to /etc/justavps/env on the machine'),
+  env_vars: z.record(z.string(), z.string()).optional().describe('Extra environment variables written to /etc/justavps/env on the machine'),
   docker_image: z.string().optional().describe('Docker image to run on boot (e.g. "myapp:latest"). Starts with --env-file /etc/justavps/env'),
   entrypoint: z.string().optional().describe('Entrypoint for the Docker container'),
 });
@@ -249,7 +249,7 @@ machinesApp.post('/', async (c) => {
         await eventBus.emitStageChange(machine.id, ownerId, 'server_created', `Server created (IP: ${server.publicIp})`, { ip: server.publicIp });
 
         try {
-          await setupProxyKV(slug, server.publicIp, ownerId, data.server_type);
+          await setupProxyDNS(slug, server.publicIp, ownerId, data.server_type);
         } catch (err) {
           console.warn(`[MACHINES] KV setup failed for ${slug}:`, err);
         }

@@ -1,19 +1,16 @@
 /**
- * Cloudflare client — Tunnel ingress, DNS CNAME records, and KV management.
+ * Cloudflare client — DNS A records and KV management.
  *
- * Architecture:
- *   - One shared tunnel ("justavps-production") with many connectors (one per VPS)
- *   - Each VPS runs cloudflared → connects outbound to Cloudflare
- *   - DNS: CNAME slug.kortix.cloud → {tunnel-id}.cfargotunnel.com (proxied)
- *   - Tunnel ingress config maps hostname → localhost:7777 (daemon)
+ * Architecture (direct IP proxy — no tunnels):
+ *   - Per-machine A records: slug.kortix.cloud → VPS_IP (proxied, orange-cloud)
+ *   - Per-machine wildcard A: *.slug.kortix.cloud → VPS_IP (proxied, for port subdomains)
+ *   - CF Worker route intercepts all requests, authenticates, proxies to VPS IP
+ *   - KV stores machine info for Worker auth lookups
  */
 
 import { config } from './config';
-import { execSync } from 'child_process';
 
 const CF_API = 'https://api.cloudflare.com/client/v4';
-const DNS_VERIFY_ATTEMPTS = 3;
-const DNS_VERIFY_WAIT_MS = 8000;
 
 async function cfFetch<T = unknown>(
   path: string,
@@ -38,48 +35,6 @@ async function cfFetch<T = unknown>(
   return res.json() as Promise<T>;
 }
 
-function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
-
-/**
- * Verify DNS resolves via Cloudflare's own nameservers.
- * Returns true if the hostname returns any result from dig.
- */
-function verifyDNS(hostname: string): boolean {
-  try {
-    const result = execSync(`dig @1.1.1.1 +short ${hostname}`, { encoding: 'utf8', timeout: 5000 }).trim();
-    return result.length > 0;
-  } catch {
-    return false;
-  }
-}
-
-// ─── Tunnel Ingress ─────────────────────────────────────────────────────────
-
-interface TunnelIngress {
-  hostname?: string;
-  service: string;
-  originRequest?: Record<string, unknown>;
-}
-
-async function getTunnelIngress(): Promise<TunnelIngress[]> {
-  const { CLOUDFLARE_ACCOUNT_ID: acct, CLOUDFLARE_TUNNEL_ID: tid } = config;
-  if (!acct || !tid) return [];
-  const result = await cfFetch<{ result: { config: { ingress: TunnelIngress[] } } }>(
-    `/accounts/${acct}/cfd_tunnel/${tid}/configurations`,
-  );
-  return result.result?.config?.ingress || [{ service: 'http_status:404' }];
-}
-
-async function setTunnelIngress(ingress: TunnelIngress[]): Promise<void> {
-  const { CLOUDFLARE_ACCOUNT_ID: acct, CLOUDFLARE_TUNNEL_ID: tid } = config;
-  if (!acct || !tid) return;
-  const rules = ingress.filter(r => r.hostname);
-  await cfFetch(`/accounts/${acct}/cfd_tunnel/${tid}/configurations`, {
-    method: 'PUT',
-    body: { config: { ingress: [...rules, { service: 'http_status:404' }] } },
-  });
-}
-
 /**
  * Delete all DNS records for a hostname (any type).
  */
@@ -92,121 +47,92 @@ async function deleteAllDNSRecords(zid: string, hostname: string): Promise<void>
       for (const r of existing.result) {
         await cfFetch(`/zones/${zid}/dns_records/${r.id}`, { method: 'DELETE' });
       }
-    } catch {}
+    } catch { /* best-effort cleanup */ }
   }
-}
-
-/**
- * Create a proxied CNAME record pointing to the tunnel.
- */
-async function createTunnelCNAME(zid: string, hostname: string, tunnelId: string): Promise<void> {
-  await cfFetch(`/zones/${zid}/dns_records`, {
-    method: 'POST',
-    body: {
-      type: 'CNAME',
-      name: hostname,
-      content: `${tunnelId}.cfargotunnel.com`,
-      proxied: true,
-      ttl: 1,
-    },
-  });
 }
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 export const cloudflareClient = {
   /**
-   * Add a machine to the tunnel: ingress rule + CNAME DNS with verification.
+   * Add DNS records for a machine: A record + wildcard A for port subdomains.
    *
-   * DNS CNAME propagation on Cloudflare is unreliable — newly created records
-   * sometimes don't resolve for 30-60s. This function creates the CNAME, verifies
-   * it resolves via dig, and if not, deletes + recreates up to 3 times.
+   * Creates:
+   *   slug.kortix.cloud         → A → VPS_IP (proxied) — triggers Worker route
+   *   origin-slug.kortix.cloud  → A → VPS_IP (DNS-only) — Worker fetches this
+   *
+   * No wildcard A record needed — the Worker route *.kortix.cloud/* handles
+   * port subdomains (3000.slug.kortix.cloud). A wildcard A would conflict with
+   * the DNS-only origin record.
+   *
+   * The origin record uses "origin-slug" (single level) not "origin.slug" (two levels)
+   * to avoid wildcard DNS precedence conflicts.
    */
-  async addMachineToTunnel(slug: string): Promise<void> {
-    const { CLOUDFLARE_TUNNEL_ID: tid, CLOUDFLARE_ZONE_ID: zid, PROXY_DOMAIN: domain } = config;
-    if (!tid || !zid) {
-      console.warn(`[CF] Tunnel not configured — skipping for ${slug}`);
+  async addMachineDNS(slug: string, ip: string): Promise<void> {
+    const { CLOUDFLARE_ZONE_ID: zid, PROXY_DOMAIN: domain } = config;
+    if (!zid) {
+      console.warn(`[CF] Zone not configured — skipping DNS for ${slug}`);
       return;
     }
 
     const hostname = `${slug}.${domain}`;
+    const origin = `origin-${slug}.${domain}`;
 
-    // 1. Add ingress rule to tunnel config
-    const ingress = await getTunnelIngress();
-    if (!ingress.find(r => r.hostname === hostname)) {
-      ingress.push({ hostname, service: 'http://localhost:7777', originRequest: {} });
-      await setTunnelIngress(ingress);
-      console.log(`[CF Tunnel] Added ingress: ${hostname}`);
-    }
-
-    // 2. Create CNAME with verification loop
-    // Delete any stale records first
+    // Clean up stale records (any type)
     await deleteAllDNSRecords(zid, hostname);
-    // Also clean origin.slug records from old architecture
+    await deleteAllDNSRecords(zid, `*.${hostname}`);
+    await deleteAllDNSRecords(zid, origin);
+    // Also clean old architecture artifacts
     await deleteAllDNSRecords(zid, `origin.${hostname}`);
 
-    for (let attempt = 1; attempt <= DNS_VERIFY_ATTEMPTS; attempt++) {
-      // Wait after deletion before creating
-      await sleep(3000);
+    // Create A record: slug.kortix.cloud → VPS_IP (proxied — triggers Worker route)
+    await cfFetch(`/zones/${zid}/dns_records`, {
+      method: 'POST',
+      body: { type: 'A', name: hostname, content: ip, proxied: true, ttl: 1 },
+    });
+    console.log(`[CF DNS] A record: ${hostname} → ${ip}`);
 
-      // Create the CNAME
-      await createTunnelCNAME(zid, hostname, tid);
-      console.log(`[CF DNS] Created CNAME (attempt ${attempt}): ${hostname} → ${tid}.cfargotunnel.com`);
+    // Create wildcard A: *.slug.kortix.cloud → VPS_IP (proxied)
+    // Enables port-based subdomains: 3000.slug.kortix.cloud
+    // (requires CF Worker route *.kortix.cloud/* to match — single-level wildcard)
+    await cfFetch(`/zones/${zid}/dns_records`, {
+      method: 'POST',
+      body: { type: 'A', name: `*.${hostname}`, content: ip, proxied: true, ttl: 1 },
+    });
+    console.log(`[CF DNS] Wildcard A: *.${hostname} → ${ip}`);
 
-      // Verify it resolves
-      await sleep(DNS_VERIFY_WAIT_MS);
-      if (verifyDNS(hostname)) {
-        console.log(`[CF DNS] ✓ Verified: ${hostname} resolves`);
-        return;
-      }
-
-      console.warn(`[CF DNS] ✗ ${hostname} not resolving after ${DNS_VERIFY_WAIT_MS / 1000}s (attempt ${attempt}/${DNS_VERIFY_ATTEMPTS})`);
-
-      // Delete and retry
-      if (attempt < DNS_VERIFY_ATTEMPTS) {
-        await deleteAllDNSRecords(zid, hostname);
-        console.log(`[CF DNS] Deleted for retry`);
-      }
-    }
-
-    // Final check — sometimes it resolves right after the last attempt
-    await sleep(5000);
-    if (verifyDNS(hostname)) {
-      console.log(`[CF DNS] ✓ Verified on final check: ${hostname}`);
-    } else {
-      console.error(`[CF DNS] ✗ FAILED: ${hostname} did not resolve after ${DNS_VERIFY_ATTEMPTS} attempts. DNS may propagate later.`);
-    }
+    // Create origin A: origin-slug.kortix.cloud → VPS_IP (DNS-only, NOT proxied)
+    // The CF Worker fetches this hostname to reach the VPS — bypasses CF proxy layer.
+    // Workers cannot fetch raw IPs that are on CF's network (error 1003).
+    await cfFetch(`/zones/${zid}/dns_records`, {
+      method: 'POST',
+      body: { type: 'A', name: origin, content: ip, proxied: false, ttl: 1 },
+    });
+    console.log(`[CF DNS] Origin A (DNS-only): ${origin} → ${ip}`);
   },
 
   /**
-   * Remove a machine from the tunnel: ingress rule + DNS.
+   * Remove all DNS records for a machine.
    */
-  async removeMachineFromTunnel(slug: string): Promise<void> {
-    const { CLOUDFLARE_TUNNEL_ID: tid, CLOUDFLARE_ZONE_ID: zid, PROXY_DOMAIN: domain } = config;
-    if (!tid || !zid) return;
+  async removeMachineDNS(slug: string): Promise<void> {
+    const { CLOUDFLARE_ZONE_ID: zid, PROXY_DOMAIN: domain } = config;
+    if (!zid) return;
+
     const hostname = `${slug}.${domain}`;
-
-    try {
-      const ingress = await getTunnelIngress();
-      const filtered = ingress.filter(r => r.hostname !== hostname);
-      if (filtered.length !== ingress.length) {
-        await setTunnelIngress(filtered);
-        console.log(`[CF Tunnel] Removed ingress: ${hostname}`);
-      }
-    } catch (err) {
-      console.warn(`[CF Tunnel] Failed to remove ingress for ${hostname}:`, err);
-    }
-
     await deleteAllDNSRecords(zid, hostname);
+    await deleteAllDNSRecords(zid, `*.${hostname}`);
+    await deleteAllDNSRecords(zid, `origin-${slug}.${domain}`);
+    // Clean old architecture artifacts
     await deleteAllDNSRecords(zid, `origin.${hostname}`);
   },
 
   /**
-   * Write machine to KV (for Worker/daemon auth if needed).
+   * Write machine info to KV for Worker auth lookups.
    */
   async writeKVMachine(slug: string, data: {
     owner_id: string;
     ip: string;
+    origin_hostname: string;
     status: string;
     server_type: string;
   }): Promise<void> {

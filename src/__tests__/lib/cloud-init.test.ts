@@ -166,7 +166,9 @@ describe('cloud-init', () => {
       expect(script).toContain('"slug": "test-slug"');
       expect(script).toContain('"callback_url": "https://api.test.com/callback"');
       expect(script).toContain('"machine_token": "mt_test_token"');
-      expect(script).toContain('"proxy_domain": "test.com"');
+      // proxy_domain and proxy_auth_secret removed — auth is at CF Worker edge, not daemon
+      expect(script).not.toContain('"proxy_domain"');
+      expect(script).not.toContain('"proxy_auth_secret"');
     });
   });
 });

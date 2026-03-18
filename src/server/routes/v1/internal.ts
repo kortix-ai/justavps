@@ -24,7 +24,7 @@ const StageReportSchema = z.object({
   machine_token: z.string().min(1),
   stage: z.string().min(1),
   message: z.string().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 // ─── POST /heartbeat — Agent heartbeat callback ─────────────────────────────
@@ -65,6 +65,7 @@ internalApp.post('/heartbeat', async (c) => {
       cloudflareClient.writeKVMachine(slug, {
         owner_id: machine.ownerId,
         ip: machine.ip,
+        origin_hostname: `origin-${slug}.${config.PROXY_DOMAIN}`,
         status: 'ready',
         server_type: machine.serverType,
       }).catch(() => {});

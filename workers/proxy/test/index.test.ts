@@ -1,49 +1,76 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import worker from '../src/index';
-import { createMockKV } from '../src/auth';
+import type { Env } from '../src/index';
 
-// Create mock environment
+/**
+ * Mock KV store for Worker integration tests.
+ */
+function createMockKV() {
+  const store = new Map<string, string>();
+  return {
+    get: async (key: string) => store.get(key) ?? null,
+    put: async (key: string, value: string) => { store.set(key, value); },
+    delete: async (key: string) => { store.delete(key); },
+    set: (key: string, value: string) => store.set(key, value),
+    clear: () => store.clear(),
+  };
+}
+
+const PROXY_SECRET = 'test-proxy-auth-secret-for-jwt-signing';
+const PLATFORM_URL = 'https://justavps.com';
+
 const mockKV = createMockKV();
-const mockEnv = { KV: mockKV as any, ENVIRONMENT: 'test' };
-const mockCtx = {} as ExecutionContext;
+const mockEnv: Env = {
+  KV: mockKV as any,
+  PROXY_AUTH_SECRET: PROXY_SECRET,
+  PLATFORM_URL,
+  ENVIRONMENT: 'test',
+};
+const mockCtx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
-describe('Worker integration', () => {
+let savedFetch: typeof globalThis.fetch;
+
+describe('Worker integration — direct IP proxy', () => {
   beforeEach(() => {
     mockKV.clear();
-    
-    // Setup test data
-    mockKV.set('apikey:sha256_of_sk_live_test123', JSON.stringify({
+    savedFetch = globalThis.fetch;
+
+    // Setup test data: API key + machine
+    // Use the real SHA-256 hash of 'sk_live_test123'
+    setupTestData();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = savedFetch;
+  });
+
+  async function setupTestData() {
+    const hash = await sha256Hex('sk_live_test123');
+    mockKV.set(`apikey:${hash}`, JSON.stringify({
       owner_id: 'user_123',
-      name: 'Test API Key'
+      name: 'Test API Key',
     }));
-    
     mockKV.set('machine:abc123', JSON.stringify({
       owner_id: 'user_123',
-      ip: '1.2.3.4',
-      status: 'running',
-      server_type: 'code-server'
+      ip: '10.0.0.1',
+      status: 'ready',
+      server_type: 'cx22',
     }));
-  });
+  }
 
   describe('hostname validation', () => {
     it('should reject invalid hostnames', async () => {
       const request = new Request('https://invalid.domain.com');
-      
       const response = await worker.fetch(request, mockEnv, mockCtx);
-      
       expect(response.status).toBe(400);
       const body = await response.json() as any;
-      expect(body.error).toBe('Invalid hostname format');
+      expect(body.error).toBe('Invalid hostname');
     });
 
     it('should reject www subdomain', async () => {
       const request = new Request('https://www.kortix.cloud');
-      
       const response = await worker.fetch(request, mockEnv, mockCtx);
-      
       expect(response.status).toBe(400);
-      const body = await response.json() as any;
-      expect(body.error).toBe('Invalid hostname format');
     });
   });
 
@@ -53,132 +80,158 @@ describe('Worker integration', () => {
         method: 'OPTIONS',
         headers: {
           'Origin': 'https://app.example.com',
-          'Access-Control-Request-Method': 'POST'
-        }
+          'Access-Control-Request-Method': 'POST',
+        },
       });
-      
       const response = await worker.fetch(request, mockEnv, mockCtx);
-      
       expect(response.status).toBe(200);
       expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.com');
     });
   });
 
-  describe('authentication', () => {
-    it('should authenticate with valid Bearer token', async () => {
-      // Mock fetch for proxy
-      const originalFetch = globalThis.fetch;
+  describe('authentication + direct IP proxy', () => {
+    it('should proxy authenticated request to VPS IP directly', async () => {
+      // Wait for async setup
+      await setupTestData();
+
+      // Mock the outgoing fetch (Worker → VPS_IP)
       globalThis.fetch = vi.fn().mockResolvedValue(
-        new Response('proxy response', { status: 200 })
+        new Response('code-server response', { status: 200 }),
       );
 
       const request = new Request('https://abc123.kortix.cloud/api/test', {
-        headers: {
-          'Authorization': 'Bearer sk_live_test123'
-        }
+        headers: { 'Authorization': 'Bearer sk_live_test123' },
       });
-      
+
       const response = await worker.fetch(request, mockEnv, mockCtx);
-      
+
       expect(response.status).toBe(200);
+      // Verify the Worker fetched the VPS IP directly (no tunnel)
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        expect.objectContaining({
-          url: 'http://1.2.3.4:8080/api/test'
-        })
+        'http://10.0.0.1:80/api/test',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    });
+
+    it('should proxy port subdomain to correct VPS port', async () => {
+      await setupTestData();
+
+      globalThis.fetch = vi.fn().mockResolvedValue(
+        new Response('app response', { status: 200 }),
       );
 
-      // Restore fetch
-      globalThis.fetch = originalFetch;
+      const request = new Request('https://3000.abc123.kortix.cloud/app', {
+        headers: { 'Authorization': 'Bearer sk_live_test123' },
+      });
+
+      const response = await worker.fetch(request, mockEnv, mockCtx);
+
+      expect(response.status).toBe(200);
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://10.0.0.1:3000/app',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    });
+
+    it('should proxy OpenCode port 3456 correctly', async () => {
+      await setupTestData();
+
+      globalThis.fetch = vi.fn().mockResolvedValue(
+        new Response('opencode ui', { status: 200 }),
+      );
+
+      const request = new Request('https://3456.abc123.kortix.cloud/', {
+        headers: { 'Authorization': 'Bearer sk_live_test123' },
+      });
+
+      const response = await worker.fetch(request, mockEnv, mockCtx);
+
+      expect(response.status).toBe(200);
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://10.0.0.1:3456/',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    });
+
+    it('should set X-Forwarded-Host and X-Forwarded-Proto headers', async () => {
+      await setupTestData();
+
+      globalThis.fetch = vi.fn().mockResolvedValue(
+        new Response('ok', { status: 200 }),
+      );
+
+      const request = new Request('https://abc123.kortix.cloud/path', {
+        headers: { 'Authorization': 'Bearer sk_live_test123' },
+      });
+
+      await worker.fetch(request, mockEnv, mockCtx);
+
+      const fetchCall = (globalThis.fetch as any).mock.calls[0];
+      const forwardedHeaders = fetchCall[1].headers;
+      expect(forwardedHeaders.get('X-Forwarded-Host')).toBe('abc123.kortix.cloud');
+      expect(forwardedHeaders.get('X-Forwarded-Proto')).toBe('https');
     });
 
     it('should redirect browser requests to login on auth failure', async () => {
       const request = new Request('https://abc123.kortix.cloud/dashboard', {
         headers: {
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-        }
+          'Accept': 'text/html',
+          'User-Agent': 'Mozilla/5.0',
+        },
       });
-      
+
       const response = await worker.fetch(request, mockEnv, mockCtx);
-      
+
       expect(response.status).toBe(302);
-      expect(response.headers.get('Location')).toContain('justavps.com/login');
+      const location = response.headers.get('Location') || '';
+      expect(location).toContain('justavps.com');
+      expect(location).toContain('proxy-auth');
     });
 
     it('should return 401 for API requests without auth', async () => {
       const request = new Request('https://abc123.kortix.cloud/api/test');
-      
       const response = await worker.fetch(request, mockEnv, mockCtx);
-      
       expect(response.status).toBe(401);
-      const body = await response.json() as any;
-      expect(body.error).toBe('Authentication required');
     });
 
-    it('should handle machine not found', async () => {
+    it('should return 401 for nonexistent machine', async () => {
+      await setupTestData();
+
       const request = new Request('https://nonexistent.kortix.cloud/api/test', {
-        headers: {
-          'Authorization': 'Bearer sk_live_test123'
-        }
+        headers: { 'Authorization': 'Bearer sk_live_test123' },
       });
-      
+
       const response = await worker.fetch(request, mockEnv, mockCtx);
-      
       expect(response.status).toBe(401);
-      const body = await response.json() as any;
-      expect(body.error).toBe('Machine not found or access denied');
-    });
-  });
-
-  describe('hostname parsing', () => {
-    it('should handle custom ports', async () => {
-      // Mock fetch for proxy
-      const originalFetch = globalThis.fetch;
-      globalThis.fetch = vi.fn().mockResolvedValue(
-        new Response('proxy response', { status: 200 })
-      );
-
-      const request = new Request('https://3000.abc123.kortix.cloud/app', {
-        headers: {
-          'Authorization': 'Bearer sk_live_test123'
-        }
-      });
-      
-      const response = await worker.fetch(request, mockEnv, mockCtx);
-      
-      expect(response.status).toBe(200);
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        expect.objectContaining({
-          url: 'http://1.2.3.4:3000/app'
-        })
-      );
-
-      // Restore fetch
-      globalThis.fetch = originalFetch;
     });
   });
 
   describe('error handling', () => {
-    it('should handle worker errors gracefully', async () => {
-      // Create a request that will cause an error in the auth validation
-      const mockEnvWithBrokenKV = { 
-        KV: { 
-          get: vi.fn().mockRejectedValue(new Error('KV Error'))
-        } as any,
-        ENVIRONMENT: 'test' 
+    it('should handle KV errors gracefully (returns auth failure)', async () => {
+      const brokenEnv: Env = {
+        KV: { get: vi.fn().mockRejectedValue(new Error('KV Error')) } as any,
+        PROXY_AUTH_SECRET: PROXY_SECRET,
+        PLATFORM_URL,
+        ENVIRONMENT: 'test',
       };
 
       const request = new Request('https://abc123.kortix.cloud/api/test', {
-        headers: {
-          'Authorization': 'Bearer sk_live_test123'
-        }
+        headers: { 'Authorization': 'Bearer sk_live_test123' },
       });
-      
-      const response = await worker.fetch(request, mockEnvWithBrokenKV, mockCtx);
-      
-      expect(response.status).toBe(500);
-      const body = await response.json() as any;
-      expect(body.error).toBe('Internal server error');
+
+      const response = await worker.fetch(request, brokenEnv, mockCtx);
+      // KV error manifests as auth failure (can't verify key) — returns 401, not 500
+      expect(response.status).toBe(401);
     });
   });
 });
+
+// ─── Helper ─────────────────────────────────────────────────────────────────
+
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}

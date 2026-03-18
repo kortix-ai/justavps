@@ -20,6 +20,7 @@ export interface AuthResult {
 export interface MachineInfo {
   owner_id: string;
   ip: string;
+  origin_hostname?: string; // DNS-only hostname: origin.slug.kortix.cloud
   status: string;
   server_type: string;
 }
