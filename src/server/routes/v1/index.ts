@@ -3,7 +3,7 @@
  * Import this once in app.ts to register all v1 endpoints.
  */
 
-import { Hono } from 'hono';
+import { OpenAPIHono } from '@hono/zod-openapi';
 import { machinesApp } from './machines';
 import { imagesApp } from './images';
 import { sshKeysApp } from './ssh-keys';
@@ -15,7 +15,7 @@ import { sseApp } from './sse';
 import { webhooksApp } from './webhooks';
 import { stripeWebhooksApp } from './stripe-webhooks';
 
-export const v1 = new Hono();
+export const v1 = new OpenAPIHono();
 
 v1.route('/machines', machinesApp);
 v1.route('/images', imagesApp);

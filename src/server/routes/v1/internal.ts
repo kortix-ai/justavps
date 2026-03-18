@@ -3,7 +3,7 @@
  * No API key auth — IP-restricted at the Cloudflare/proxy level.
  */
 
-import { Hono } from 'hono';
+import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db';
 import { machines, apiKeys } from '../../db/schema';
@@ -12,33 +12,47 @@ import { cloudflareClient } from '../../lib/cloudflare';
 import { config } from '../../lib/config';
 import { errorResponse } from '../../lib/route-helpers';
 import { eventBus } from '../../lib/event-bus';
-import { HeartbeatSchema } from '@/lib/schemas';
-import { z } from 'zod';
+import {
+  HeartbeatSchema,
+  StageReportSchema,
+  AckResponseSchema,
+  ValidateKeyResponseSchema,
+  ErrorResponseSchema,
+} from '@/lib/schemas';
 
-export const internalApp = new Hono();
-
-// ─── Schemas ────────────────────────────────────────────────────────────────
-
-const StageReportSchema = z.object({
-  slug: z.string().min(1),
-  machine_token: z.string().min(1),
-  stage: z.string().min(1),
-  message: z.string().optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-});
+export const internalApp = new OpenAPIHono();
 
 // ─── POST /heartbeat — Agent heartbeat callback ─────────────────────────────
 
-internalApp.post('/heartbeat', async (c) => {
-  const body = await c.req.json();
-  const parsed = HeartbeatSchema.safeParse(body);
-  if (!parsed.success) return errorResponse(c, 400, 'Invalid heartbeat');
+const heartbeatRoute = createRoute({
+  method: 'post',
+  path: '/heartbeat',
+  tags: ['Internal'],
+  summary: 'Agent heartbeat',
+  description: 'Called by the justavps-agent on each machine every 60s. Authenticated via `machine_token` in body.',
+  request: {
+    body: {
+      required: true,
+      content: { 'application/json': { schema: HeartbeatSchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Acknowledged',
+      content: { 'application/json': { schema: AckResponseSchema } },
+    },
+    400: { description: 'Bad Request', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    500: { description: 'Internal Server Error', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
 
-  const { slug, machine_token, uptime, services, load } = parsed.data;
+internalApp.openapi(heartbeatRoute, async (c) => {
+  const { slug, machine_token, uptime, services, load } = c.req.valid('json');
   try {
     const [machine] = await db.select().from(machines).where(eq(machines.slug, slug));
     if (!machine || machine.machineToken !== machine_token) {
-      return errorResponse(c, 401, 'Unauthorized');
+      return errorResponse(c, 401, 'Unauthorized') as any;
     }
 
     const wasProvisioning = machine.status === 'provisioning';
@@ -48,7 +62,6 @@ internalApp.post('/heartbeat', async (c) => {
       ...(wasProvisioning ? { status: 'ready', readyAt: new Date() } : {}),
     }).where(eq(machines.id, machine.id));
 
-    // Emit events
     if (wasProvisioning) {
       await eventBus.emitStatusChange(machine.id, machine.ownerId, 'ready', 'Machine is ready');
     }
@@ -60,7 +73,6 @@ internalApp.post('/heartbeat', async (c) => {
       timestamp: new Date().toISOString(),
     });
 
-    // Update KV status to 'ready' so proxy Worker allows traffic
     if (wasProvisioning && config.isCloudflareConfigured() && machine.ip) {
       cloudflareClient.writeKVMachine(slug, {
         owner_id: machine.ownerId,
@@ -74,23 +86,42 @@ internalApp.post('/heartbeat', async (c) => {
     return c.json({ ack: true });
   } catch (err) {
     console.error('[HEARTBEAT] error:', err);
-    return errorResponse(c, 500, 'Failed to process heartbeat');
+    return errorResponse(c, 500, 'Failed to process heartbeat') as any;
   }
 });
 
 // ─── POST /stage — Machine reports provisioning stage ───────────────────────
 
-internalApp.post('/stage', async (c) => {
-  const body = await c.req.json();
-  const parsed = StageReportSchema.safeParse(body);
-  if (!parsed.success) return errorResponse(c, 400, 'Invalid stage report');
+const stageRoute = createRoute({
+  method: 'post',
+  path: '/stage',
+  tags: ['Internal'],
+  summary: 'Report provisioning stage',
+  description: 'Called by the machine agent to report provisioning progress.',
+  request: {
+    body: {
+      required: true,
+      content: { 'application/json': { schema: StageReportSchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Acknowledged',
+      content: { 'application/json': { schema: AckResponseSchema } },
+    },
+    400: { description: 'Bad Request', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    500: { description: 'Internal Server Error', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
 
-  const { slug, machine_token, stage, message, metadata } = parsed.data;
+internalApp.openapi(stageRoute, async (c) => {
+  const { slug, machine_token, stage, message, metadata } = c.req.valid('json');
 
   try {
     const [machine] = await db.select().from(machines).where(eq(machines.slug, slug));
     if (!machine || machine.machineToken !== machine_token) {
-      return errorResponse(c, 401, 'Unauthorized');
+      return errorResponse(c, 401, 'Unauthorized') as any;
     }
 
     await eventBus.emitStageChange(machine.id, machine.ownerId, stage, message, metadata);
@@ -99,17 +130,45 @@ internalApp.post('/stage', async (c) => {
     return c.json({ ack: true });
   } catch (err) {
     console.error('[STAGE] error:', err);
-    return errorResponse(c, 500, 'Failed to process stage report');
+    return errorResponse(c, 500, 'Failed to process stage report') as any;
   }
 });
 
-// ─── GET /validate-key — Validate API key (called by CF Worker for auth) ────
+// ─── GET /validate-key — Validate API key ───────────────────────────────────
 
-internalApp.get('/validate-key', async (c) => {
-  const keyValue = c.req.query('key');
-  const machineSlug = c.req.query('machine_slug');
+const validateKeyRoute = createRoute({
+  method: 'get',
+  path: '/validate-key',
+  tags: ['Internal'],
+  summary: 'Validate API key',
+  description: 'Called by the Cloudflare Worker to validate API keys at the edge.',
+  request: {
+    query: z.object({
+      key: z.string().openapi({ description: 'API key to validate' }),
+      machine_slug: z.string().optional().openapi({ description: 'Machine slug to check ownership' }),
+    }),
+  },
+  responses: {
+    200: {
+      description: 'Valid key',
+      content: { 'application/json': { schema: ValidateKeyResponseSchema } },
+    },
+    400: { description: 'Bad Request', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    401: {
+      description: 'Invalid key',
+      content: { 'application/json': { schema: ValidateKeyResponseSchema } },
+    },
+    403: {
+      description: 'Key does not own machine',
+      content: { 'application/json': { schema: ValidateKeyResponseSchema } },
+    },
+    503: { description: 'Service Unavailable', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
 
-  if (!keyValue) return errorResponse(c, 400, 'key required');
+// @ts-expect-error — handler returns multiple response shapes with different status codes; spec types are correctly declared above
+internalApp.openapi(validateKeyRoute, async (c) => {
+  const { key: keyValue, machine_slug: machineSlug } = c.req.valid('query');
 
   try {
     const keys = await db.select().from(apiKeys);

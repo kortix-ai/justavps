@@ -9,9 +9,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "sdk:generate": "tsx scripts/extract-openapi.ts && npx @hey-api/openapi-ts && openapi-python-client generate --path src/sdk/openapi.json --output-path src/sdk/python --overwrite",
-    "sdk:generate:ts": "tsx scripts/extract-openapi.ts && npx @hey-api/openapi-ts",
-    "sdk:generate:python": "tsx scripts/extract-openapi.ts && openapi-python-client generate --path src/sdk/openapi.json --output-path src/sdk/python --overwrite",
+    "sdk:generate": "tsx scripts/fetch-openapi.ts && npx @hey-api/openapi-ts && openapi-python-client generate --path src/sdk/openapi.json --output-path src/sdk/python --overwrite",
+    "sdk:generate:ts": "tsx scripts/fetch-openapi.ts && npx @hey-api/openapi-ts",
+    "sdk:generate:python": "tsx scripts/fetch-openapi.ts && openapi-python-client generate --path src/sdk/openapi.json --output-path src/sdk/python --overwrite",
     "sdk:check": "pnpm sdk:generate && git diff --exit-code src/sdk/"
   },
   "dependencies": {

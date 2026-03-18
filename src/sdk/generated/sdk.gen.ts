@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { CreateApiKeyData, CreateApiKeyErrors, CreateApiKeyResponses, CreateBillingSetupData, CreateBillingSetupErrors, CreateBillingSetupResponses, CreateImageFromMachineData, CreateImageFromMachineErrors, CreateImageFromMachineResponses, CreateMachineData, CreateMachineErrors, CreateMachineResponses, CreateSshKeyData, CreateSshKeyErrors, CreateSshKeyResponses, CreateWebhookData, CreateWebhookErrors, CreateWebhookResponses, DeleteApiKeyData, DeleteApiKeyErrors, DeleteApiKeyResponses, DeleteImageData, DeleteImageErrors, DeleteImageResponses, DeleteSshKeyData, DeleteSshKeyErrors, DeleteSshKeyResponses, DeleteWebhookData, DeleteWebhookErrors, DeleteWebhookResponses, DestroyMachineData, DestroyMachineErrors, DestroyMachineResponses, GetAccountData, GetAccountErrors, GetAccountResponses, GetAccountUsageData, GetAccountUsageErrors, GetAccountUsageResponses, GetBillingData, GetBillingErrors, GetBillingResponses, GetImageData, GetImageErrors, GetImageResponses, GetMachineData, GetMachineErrors, GetMachineResponses, ListApiKeysData, ListApiKeysErrors, ListApiKeysResponses, ListImagesData, ListImagesErrors, ListImagesResponses, ListMachinesData, ListMachinesErrors, ListMachinesResponses, ListProvidersData, ListProvidersResponses, ListRegionsData, ListRegionsErrors, ListRegionsResponses, ListServerTypesData, ListServerTypesErrors, ListServerTypesResponses, ListSshKeysData, ListSshKeysErrors, ListSshKeysResponses, ListWebhooksData, ListWebhooksErrors, ListWebhooksResponses, MachineHeartbeatData, MachineHeartbeatErrors, MachineHeartbeatResponses, RebootMachineData, RebootMachineErrors, RebootMachineResponses, ReportProvisioningStageData, ReportProvisioningStageErrors, ReportProvisioningStageResponses, ResizeMachineData, ResizeMachineErrors, ResizeMachineResponses, StreamMachineStatusData, StreamMachineStatusErrors, StreamMachineStatusResponses, ValidateApiKeyData, ValidateApiKeyErrors, ValidateApiKeyResponses } from './types.gen';
+import type { DeleteApiV1ApiKeysByIdData, DeleteApiV1ApiKeysByIdErrors, DeleteApiV1ApiKeysByIdResponses, DeleteApiV1ImagesByIdData, DeleteApiV1ImagesByIdErrors, DeleteApiV1ImagesByIdResponses, DeleteApiV1MachinesByIdData, DeleteApiV1MachinesByIdErrors, DeleteApiV1MachinesByIdResponses, DeleteApiV1SshKeysByIdData, DeleteApiV1SshKeysByIdErrors, DeleteApiV1SshKeysByIdResponses, DeleteApiV1WebhooksByIdData, DeleteApiV1WebhooksByIdErrors, DeleteApiV1WebhooksByIdResponses, GetApiV1AccountBillingData, GetApiV1AccountBillingErrors, GetApiV1AccountBillingResponses, GetApiV1AccountData, GetApiV1AccountErrors, GetApiV1AccountResponses, GetApiV1AccountUsageData, GetApiV1AccountUsageErrors, GetApiV1AccountUsageResponses, GetApiV1ApiKeysData, GetApiV1ApiKeysErrors, GetApiV1ApiKeysResponses, GetApiV1ImagesByIdData, GetApiV1ImagesByIdErrors, GetApiV1ImagesByIdResponses, GetApiV1ImagesData, GetApiV1ImagesErrors, GetApiV1ImagesResponses, GetApiV1InternalValidateKeyData, GetApiV1InternalValidateKeyErrors, GetApiV1InternalValidateKeyResponses, GetApiV1MachinesByIdData, GetApiV1MachinesByIdErrors, GetApiV1MachinesByIdResponses, GetApiV1MachinesByIdStatusStreamData, GetApiV1MachinesByIdStatusStreamErrors, GetApiV1MachinesByIdStatusStreamResponses, GetApiV1MachinesData, GetApiV1MachinesErrors, GetApiV1MachinesResponses, GetApiV1ServerTypesData, GetApiV1ServerTypesErrors, GetApiV1ServerTypesProvidersData, GetApiV1ServerTypesProvidersResponses, GetApiV1ServerTypesRegionsData, GetApiV1ServerTypesRegionsErrors, GetApiV1ServerTypesRegionsResponses, GetApiV1ServerTypesResponses, GetApiV1SshKeysData, GetApiV1SshKeysErrors, GetApiV1SshKeysResponses, GetApiV1WebhooksData, GetApiV1WebhooksErrors, GetApiV1WebhooksResponses, PostApiV1AccountBillingSetupData, PostApiV1AccountBillingSetupErrors, PostApiV1AccountBillingSetupResponses, PostApiV1ApiKeysData, PostApiV1ApiKeysErrors, PostApiV1ApiKeysResponses, PostApiV1InternalHeartbeatData, PostApiV1InternalHeartbeatErrors, PostApiV1InternalHeartbeatResponses, PostApiV1InternalStageData, PostApiV1InternalStageErrors, PostApiV1InternalStageResponses, PostApiV1MachinesByIdImageData, PostApiV1MachinesByIdImageErrors, PostApiV1MachinesByIdImageResponses, PostApiV1MachinesByIdRebootData, PostApiV1MachinesByIdRebootErrors, PostApiV1MachinesByIdRebootResponses, PostApiV1MachinesByIdResizeData, PostApiV1MachinesByIdResizeErrors, PostApiV1MachinesByIdResizeResponses, PostApiV1MachinesData, PostApiV1MachinesErrors, PostApiV1MachinesResponses, PostApiV1SshKeysData, PostApiV1SshKeysErrors, PostApiV1SshKeysResponses, PostApiV1WebhooksData, PostApiV1WebhooksErrors, PostApiV1WebhooksResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<TData, ThrowOnError> & {
     /**
@@ -23,13 +23,13 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
  *
  * Returns all non-deleted machines owned by the authenticated user.
  */
-export const listMachines = <ThrowOnError extends boolean = false>(options?: Options<ListMachinesData, ThrowOnError>) => (options?.client ?? client).get<ListMachinesResponses, ListMachinesErrors, ThrowOnError>({
+export const getApiV1Machines = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1MachinesData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1MachinesResponses, GetApiV1MachinesErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/machines',
+    url: '/api/v1/machines',
     ...options
 });
 
@@ -40,13 +40,13 @@ export const listMachines = <ThrowOnError extends boolean = false>(options?: Opt
  *
  * Returns 202 if provisioning starts immediately (user has payment method), or 402 with a `checkout_url` if payment is required first.
  */
-export const createMachine = <ThrowOnError extends boolean = false>(options: Options<CreateMachineData, ThrowOnError>) => (options.client ?? client).post<CreateMachineResponses, CreateMachineErrors, ThrowOnError>({
+export const postApiV1Machines = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesResponses, PostApiV1MachinesErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/machines',
+    url: '/api/v1/machines',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -59,13 +59,13 @@ export const createMachine = <ThrowOnError extends boolean = false>(options: Opt
  *
  * Permanently destroys the machine, removes DNS records, cancels billing, and deletes the provider server. **Irreversible.**
  */
-export const destroyMachine = <ThrowOnError extends boolean = false>(options: Options<DestroyMachineData, ThrowOnError>) => (options.client ?? client).delete<DestroyMachineResponses, DestroyMachineErrors, ThrowOnError>({
+export const deleteApiV1MachinesById = <ThrowOnError extends boolean = false>(options: Options<DeleteApiV1MachinesByIdData, ThrowOnError>) => (options.client ?? client).delete<DeleteApiV1MachinesByIdResponses, DeleteApiV1MachinesByIdErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/machines/{id}',
+    url: '/api/v1/machines/{id}',
     ...options
 });
 
@@ -74,13 +74,13 @@ export const destroyMachine = <ThrowOnError extends boolean = false>(options: Op
  *
  * Returns full details of a machine including connection info, health metrics, and SSH keys.
  */
-export const getMachine = <ThrowOnError extends boolean = false>(options: Options<GetMachineData, ThrowOnError>) => (options.client ?? client).get<GetMachineResponses, GetMachineErrors, ThrowOnError>({
+export const getApiV1MachinesById = <ThrowOnError extends boolean = false>(options: Options<GetApiV1MachinesByIdData, ThrowOnError>) => (options.client ?? client).get<GetApiV1MachinesByIdResponses, GetApiV1MachinesByIdErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/machines/{id}',
+    url: '/api/v1/machines/{id}',
     ...options
 });
 
@@ -89,13 +89,13 @@ export const getMachine = <ThrowOnError extends boolean = false>(options: Option
  *
  * Initiates a hard reboot via the provider API (~30s downtime).
  */
-export const rebootMachine = <ThrowOnError extends boolean = false>(options: Options<RebootMachineData, ThrowOnError>) => (options.client ?? client).post<RebootMachineResponses, RebootMachineErrors, ThrowOnError>({
+export const postApiV1MachinesByIdReboot = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByIdRebootData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByIdRebootResponses, PostApiV1MachinesByIdRebootErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/machines/{id}/reboot',
+    url: '/api/v1/machines/{id}/reboot',
     ...options
 });
 
@@ -104,13 +104,13 @@ export const rebootMachine = <ThrowOnError extends boolean = false>(options: Opt
  *
  * Changes the machine to a different server type. Requires reboot (~30s downtime). Billing is prorated.
  */
-export const resizeMachine = <ThrowOnError extends boolean = false>(options: Options<ResizeMachineData, ThrowOnError>) => (options.client ?? client).post<ResizeMachineResponses, ResizeMachineErrors, ThrowOnError>({
+export const postApiV1MachinesByIdResize = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByIdResizeData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByIdResizeResponses, PostApiV1MachinesByIdResizeErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/machines/{id}/resize',
+    url: '/api/v1/machines/{id}/resize',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -123,13 +123,13 @@ export const resizeMachine = <ThrowOnError extends boolean = false>(options: Opt
  *
  * Creates a point-in-time image (snapshot) from a running machine. Machine must be in `ready` status. Returns 202 — poll `GET /images/{id}` until status is `ready`.
  */
-export const createImageFromMachine = <ThrowOnError extends boolean = false>(options: Options<CreateImageFromMachineData, ThrowOnError>) => (options.client ?? client).post<CreateImageFromMachineResponses, CreateImageFromMachineErrors, ThrowOnError>({
+export const postApiV1MachinesByIdImage = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByIdImageData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByIdImageResponses, PostApiV1MachinesByIdImageErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/machines/{id}/image',
+    url: '/api/v1/machines/{id}/image',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -138,36 +138,17 @@ export const createImageFromMachine = <ThrowOnError extends boolean = false>(opt
 });
 
 /**
- * Stream machine status (SSE)
- *
- * Opens a Server-Sent Events stream for real-time provisioning updates.
- *
- * **Event types:** `status`, `stage`, `done`, `ping`, `error`
- *
- * Auto-closes on terminal state or after 10 minutes.
- */
-export const streamMachineStatus = <ThrowOnError extends boolean = false>(options: Options<StreamMachineStatusData, ThrowOnError>) => (options.client ?? client).sse.get<StreamMachineStatusResponses, StreamMachineStatusErrors, ThrowOnError>({
-    security: [{ scheme: 'bearer', type: 'http' }, {
-            in: 'cookie',
-            name: 'authjs.session-token',
-            type: 'apiKey'
-        }],
-    url: '/machines/{id}/status/stream',
-    ...options
-});
-
-/**
  * List images
  *
  * Returns all non-deleted images owned by the authenticated user.
  */
-export const listImages = <ThrowOnError extends boolean = false>(options?: Options<ListImagesData, ThrowOnError>) => (options?.client ?? client).get<ListImagesResponses, ListImagesErrors, ThrowOnError>({
+export const getApiV1Images = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1ImagesData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1ImagesResponses, GetApiV1ImagesErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/images',
+    url: '/api/v1/images',
     ...options
 });
 
@@ -176,13 +157,13 @@ export const listImages = <ThrowOnError extends boolean = false>(options?: Optio
  *
  * Deletes the image and its provider-side artifact.
  */
-export const deleteImage = <ThrowOnError extends boolean = false>(options: Options<DeleteImageData, ThrowOnError>) => (options.client ?? client).delete<DeleteImageResponses, DeleteImageErrors, ThrowOnError>({
+export const deleteApiV1ImagesById = <ThrowOnError extends boolean = false>(options: Options<DeleteApiV1ImagesByIdData, ThrowOnError>) => (options.client ?? client).delete<DeleteApiV1ImagesByIdResponses, DeleteApiV1ImagesByIdErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/images/{id}',
+    url: '/api/v1/images/{id}',
     ...options
 });
 
@@ -191,13 +172,13 @@ export const deleteImage = <ThrowOnError extends boolean = false>(options: Optio
  *
  * Returns image details including status and provider artifact info.
  */
-export const getImage = <ThrowOnError extends boolean = false>(options: Options<GetImageData, ThrowOnError>) => (options.client ?? client).get<GetImageResponses, GetImageErrors, ThrowOnError>({
+export const getApiV1ImagesById = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ImagesByIdData, ThrowOnError>) => (options.client ?? client).get<GetApiV1ImagesByIdResponses, GetApiV1ImagesByIdErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/images/{id}',
+    url: '/api/v1/images/{id}',
     ...options
 });
 
@@ -206,13 +187,13 @@ export const getImage = <ThrowOnError extends boolean = false>(options: Options<
  *
  * Returns all SSH public keys registered by the authenticated user.
  */
-export const listSshKeys = <ThrowOnError extends boolean = false>(options?: Options<ListSshKeysData, ThrowOnError>) => (options?.client ?? client).get<ListSshKeysResponses, ListSshKeysErrors, ThrowOnError>({
+export const getApiV1SshKeys = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1SshKeysData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1SshKeysResponses, GetApiV1SshKeysErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/ssh-keys',
+    url: '/api/v1/ssh-keys',
     ...options
 });
 
@@ -221,13 +202,13 @@ export const listSshKeys = <ThrowOnError extends boolean = false>(options?: Opti
  *
  * Registers a new SSH public key. Automatically uploaded to all providers.
  */
-export const createSshKey = <ThrowOnError extends boolean = false>(options: Options<CreateSshKeyData, ThrowOnError>) => (options.client ?? client).post<CreateSshKeyResponses, CreateSshKeyErrors, ThrowOnError>({
+export const postApiV1SshKeys = <ThrowOnError extends boolean = false>(options: Options<PostApiV1SshKeysData, ThrowOnError>) => (options.client ?? client).post<PostApiV1SshKeysResponses, PostApiV1SshKeysErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/ssh-keys',
+    url: '/api/v1/ssh-keys',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -238,13 +219,13 @@ export const createSshKey = <ThrowOnError extends boolean = false>(options: Opti
 /**
  * Delete an SSH key
  */
-export const deleteSshKey = <ThrowOnError extends boolean = false>(options: Options<DeleteSshKeyData, ThrowOnError>) => (options.client ?? client).delete<DeleteSshKeyResponses, DeleteSshKeyErrors, ThrowOnError>({
+export const deleteApiV1SshKeysById = <ThrowOnError extends boolean = false>(options: Options<DeleteApiV1SshKeysByIdData, ThrowOnError>) => (options.client ?? client).delete<DeleteApiV1SshKeysByIdResponses, DeleteApiV1SshKeysByIdErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/ssh-keys/{id}',
+    url: '/api/v1/ssh-keys/{id}',
     ...options
 });
 
@@ -253,13 +234,13 @@ export const deleteSshKey = <ThrowOnError extends boolean = false>(options: Opti
  *
  * Returns all API keys. Full key value is never returned after creation.
  */
-export const listApiKeys = <ThrowOnError extends boolean = false>(options?: Options<ListApiKeysData, ThrowOnError>) => (options?.client ?? client).get<ListApiKeysResponses, ListApiKeysErrors, ThrowOnError>({
+export const getApiV1ApiKeys = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1ApiKeysData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1ApiKeysResponses, GetApiV1ApiKeysErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/api-keys',
+    url: '/api/v1/api-keys',
     ...options
 });
 
@@ -268,13 +249,13 @@ export const listApiKeys = <ThrowOnError extends boolean = false>(options?: Opti
  *
  * **The full key is only returned once in this response.** Store it securely.
  */
-export const createApiKey = <ThrowOnError extends boolean = false>(options: Options<CreateApiKeyData, ThrowOnError>) => (options.client ?? client).post<CreateApiKeyResponses, CreateApiKeyErrors, ThrowOnError>({
+export const postApiV1ApiKeys = <ThrowOnError extends boolean = false>(options: Options<PostApiV1ApiKeysData, ThrowOnError>) => (options.client ?? client).post<PostApiV1ApiKeysResponses, PostApiV1ApiKeysErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/api-keys',
+    url: '/api/v1/api-keys',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -287,90 +268,43 @@ export const createApiKey = <ThrowOnError extends boolean = false>(options: Opti
  *
  * Permanently revokes the API key. Requests using it will immediately fail.
  */
-export const deleteApiKey = <ThrowOnError extends boolean = false>(options: Options<DeleteApiKeyData, ThrowOnError>) => (options.client ?? client).delete<DeleteApiKeyResponses, DeleteApiKeyErrors, ThrowOnError>({
+export const deleteApiV1ApiKeysById = <ThrowOnError extends boolean = false>(options: Options<DeleteApiV1ApiKeysByIdData, ThrowOnError>) => (options.client ?? client).delete<DeleteApiV1ApiKeysByIdResponses, DeleteApiV1ApiKeysByIdErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/api-keys/{id}',
+    url: '/api/v1/api-keys/{id}',
     ...options
 });
 
 /**
- * List webhooks
+ * List providers
  */
-export const listWebhooks = <ThrowOnError extends boolean = false>(options?: Options<ListWebhooksData, ThrowOnError>) => (options?.client ?? client).get<ListWebhooksResponses, ListWebhooksErrors, ThrowOnError>({
-    security: [{ scheme: 'bearer', type: 'http' }, {
-            in: 'cookie',
-            name: 'authjs.session-token',
-            type: 'apiKey'
-        }],
-    url: '/webhooks',
-    ...options
-});
-
-/**
- * Create a webhook
- *
- * Subscribes a URL to receive POST requests for specified events. Payloads are signed with HMAC-SHA256 (`X-Signature-256` header).
- *
- * **Events:** `*`, `machine.stage_changed`, `machine.status_changed`, `machine.heartbeat`
- */
-export const createWebhook = <ThrowOnError extends boolean = false>(options: Options<CreateWebhookData, ThrowOnError>) => (options.client ?? client).post<CreateWebhookResponses, CreateWebhookErrors, ThrowOnError>({
-    security: [{ scheme: 'bearer', type: 'http' }, {
-            in: 'cookie',
-            name: 'authjs.session-token',
-            type: 'apiKey'
-        }],
-    url: '/webhooks',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-/**
- * Delete a webhook
- */
-export const deleteWebhook = <ThrowOnError extends boolean = false>(options: Options<DeleteWebhookData, ThrowOnError>) => (options.client ?? client).delete<DeleteWebhookResponses, DeleteWebhookErrors, ThrowOnError>({
-    security: [{ scheme: 'bearer', type: 'http' }, {
-            in: 'cookie',
-            name: 'authjs.session-token',
-            type: 'apiKey'
-        }],
-    url: '/webhooks/{id}',
-    ...options
-});
+export const getApiV1ServerTypesProviders = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1ServerTypesProvidersData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1ServerTypesProvidersResponses, unknown, ThrowOnError>({ url: '/api/v1/server-types/providers', ...options });
 
 /**
  * List server types
  *
  * Returns available server types for a provider + region, with pricing.
  */
-export const listServerTypes = <ThrowOnError extends boolean = false>(options: Options<ListServerTypesData, ThrowOnError>) => (options.client ?? client).get<ListServerTypesResponses, ListServerTypesErrors, ThrowOnError>({ url: '/server-types', ...options });
-
-/**
- * List providers
- */
-export const listProviders = <ThrowOnError extends boolean = false>(options?: Options<ListProvidersData, ThrowOnError>) => (options?.client ?? client).get<ListProvidersResponses, unknown, ThrowOnError>({ url: '/server-types/providers', ...options });
+export const getApiV1ServerTypes = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ServerTypesData, ThrowOnError>) => (options.client ?? client).get<GetApiV1ServerTypesResponses, GetApiV1ServerTypesErrors, ThrowOnError>({ url: '/api/v1/server-types', ...options });
 
 /**
  * List regions
  */
-export const listRegions = <ThrowOnError extends boolean = false>(options?: Options<ListRegionsData, ThrowOnError>) => (options?.client ?? client).get<ListRegionsResponses, ListRegionsErrors, ThrowOnError>({ url: '/server-types/regions', ...options });
+export const getApiV1ServerTypesRegions = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1ServerTypesRegionsData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1ServerTypesRegionsResponses, GetApiV1ServerTypesRegionsErrors, ThrowOnError>({ url: '/api/v1/server-types/regions', ...options });
 
 /**
  * Get account info
  */
-export const getAccount = <ThrowOnError extends boolean = false>(options?: Options<GetAccountData, ThrowOnError>) => (options?.client ?? client).get<GetAccountResponses, GetAccountErrors, ThrowOnError>({
+export const getApiV1Account = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1AccountData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1AccountResponses, GetApiV1AccountErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/account',
+    url: '/api/v1/account',
     ...options
 });
 
@@ -379,13 +313,13 @@ export const getAccount = <ThrowOnError extends boolean = false>(options?: Optio
  *
  * Returns current billing period usage including active machines and estimated cost.
  */
-export const getAccountUsage = <ThrowOnError extends boolean = false>(options?: Options<GetAccountUsageData, ThrowOnError>) => (options?.client ?? client).get<GetAccountUsageResponses, GetAccountUsageErrors, ThrowOnError>({
+export const getApiV1AccountUsage = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1AccountUsageData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1AccountUsageResponses, GetApiV1AccountUsageErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/account/usage',
+    url: '/api/v1/account/usage',
     ...options
 });
 
@@ -394,13 +328,13 @@ export const getAccountUsage = <ThrowOnError extends boolean = false>(options?: 
  *
  * Returns Stripe billing portal URL and payment method status.
  */
-export const getBilling = <ThrowOnError extends boolean = false>(options?: Options<GetBillingData, ThrowOnError>) => (options?.client ?? client).get<GetBillingResponses, GetBillingErrors, ThrowOnError>({
+export const getApiV1AccountBilling = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1AccountBillingData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1AccountBillingResponses, GetApiV1AccountBillingErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/account/billing',
+    url: '/api/v1/account/billing',
     ...options
 });
 
@@ -409,13 +343,13 @@ export const getBilling = <ThrowOnError extends boolean = false>(options?: Optio
  *
  * Creates a Stripe Checkout Session in setup mode to add a payment method.
  */
-export const createBillingSetup = <ThrowOnError extends boolean = false>(options?: Options<CreateBillingSetupData, ThrowOnError>) => (options?.client ?? client).post<CreateBillingSetupResponses, CreateBillingSetupErrors, ThrowOnError>({
+export const postApiV1AccountBillingSetup = <ThrowOnError extends boolean = false>(options?: Options<PostApiV1AccountBillingSetupData, ThrowOnError>) => (options?.client ?? client).post<PostApiV1AccountBillingSetupResponses, PostApiV1AccountBillingSetupErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
             type: 'apiKey'
         }],
-    url: '/account/billing/setup',
+    url: '/api/v1/account/billing/setup',
     ...options
 });
 
@@ -424,8 +358,8 @@ export const createBillingSetup = <ThrowOnError extends boolean = false>(options
  *
  * Called by the justavps-agent on each machine every 60s. Authenticated via `machine_token` in body.
  */
-export const machineHeartbeat = <ThrowOnError extends boolean = false>(options: Options<MachineHeartbeatData, ThrowOnError>) => (options.client ?? client).post<MachineHeartbeatResponses, MachineHeartbeatErrors, ThrowOnError>({
-    url: '/internal/heartbeat',
+export const postApiV1InternalHeartbeat = <ThrowOnError extends boolean = false>(options: Options<PostApiV1InternalHeartbeatData, ThrowOnError>) => (options.client ?? client).post<PostApiV1InternalHeartbeatResponses, PostApiV1InternalHeartbeatErrors, ThrowOnError>({
+    url: '/api/v1/internal/heartbeat',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -438,8 +372,8 @@ export const machineHeartbeat = <ThrowOnError extends boolean = false>(options: 
  *
  * Called by the machine agent to report provisioning progress.
  */
-export const reportProvisioningStage = <ThrowOnError extends boolean = false>(options: Options<ReportProvisioningStageData, ThrowOnError>) => (options.client ?? client).post<ReportProvisioningStageResponses, ReportProvisioningStageErrors, ThrowOnError>({
-    url: '/internal/stage',
+export const postApiV1InternalStage = <ThrowOnError extends boolean = false>(options: Options<PostApiV1InternalStageData, ThrowOnError>) => (options.client ?? client).post<PostApiV1InternalStageResponses, PostApiV1InternalStageErrors, ThrowOnError>({
+    url: '/api/v1/internal/stage',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -452,4 +386,70 @@ export const reportProvisioningStage = <ThrowOnError extends boolean = false>(op
  *
  * Called by the Cloudflare Worker to validate API keys at the edge.
  */
-export const validateApiKey = <ThrowOnError extends boolean = false>(options: Options<ValidateApiKeyData, ThrowOnError>) => (options.client ?? client).get<ValidateApiKeyResponses, ValidateApiKeyErrors, ThrowOnError>({ url: '/internal/validate-key', ...options });
+export const getApiV1InternalValidateKey = <ThrowOnError extends boolean = false>(options: Options<GetApiV1InternalValidateKeyData, ThrowOnError>) => (options.client ?? client).get<GetApiV1InternalValidateKeyResponses, GetApiV1InternalValidateKeyErrors, ThrowOnError>({ url: '/api/v1/internal/validate-key', ...options });
+
+/**
+ * Stream machine status (SSE)
+ *
+ * Opens a Server-Sent Events stream for real-time provisioning updates.
+ *
+ * **Event types:** `status`, `stage`, `done`, `ping`, `error`
+ *
+ * Auto-closes on terminal state or after 10 minutes.
+ */
+export const getApiV1MachinesByIdStatusStream = <ThrowOnError extends boolean = false>(options: Options<GetApiV1MachinesByIdStatusStreamData, ThrowOnError>) => (options.client ?? client).sse.get<GetApiV1MachinesByIdStatusStreamResponses, GetApiV1MachinesByIdStatusStreamErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{id}/status/stream',
+    ...options
+});
+
+/**
+ * List webhooks
+ */
+export const getApiV1Webhooks = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1WebhooksData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1WebhooksResponses, GetApiV1WebhooksErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/webhooks',
+    ...options
+});
+
+/**
+ * Create a webhook
+ *
+ * Subscribes a URL to receive POST requests for specified events. Payloads are signed with HMAC-SHA256 (`X-Signature-256` header).
+ *
+ * **Events:** `*`, `machine.stage_changed`, `machine.status_changed`, `machine.heartbeat`
+ */
+export const postApiV1Webhooks = <ThrowOnError extends boolean = false>(options: Options<PostApiV1WebhooksData, ThrowOnError>) => (options.client ?? client).post<PostApiV1WebhooksResponses, PostApiV1WebhooksErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/webhooks',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Delete a webhook
+ */
+export const deleteApiV1WebhooksById = <ThrowOnError extends boolean = false>(options: Options<DeleteApiV1WebhooksByIdData, ThrowOnError>) => (options.client ?? client).delete<DeleteApiV1WebhooksByIdResponses, DeleteApiV1WebhooksByIdErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/webhooks/{id}',
+    ...options
+});

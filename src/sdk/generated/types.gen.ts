@@ -4,186 +4,195 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}/api/v1` | 'https://justavps.com/api/v1' | (string & {});
 };
 
-export type CreateMachine = {
-    /**
-     * Image to boot from. Null = Ubuntu 24.04
-     */
-    image_id?: string | null;
-    /**
-     * Cloud provider (e.g. "hetzner")
-     */
-    provider: string;
-    /**
-     * Provider-specific server type (e.g. "cpx22", "t3.medium")
-     */
-    server_type: string;
-    /**
-     * Provider-specific region (e.g. "nbg1", "us-east-1")
-     */
-    region: string;
-    /**
-     * Human-readable name
-     */
-    name?: string;
-    /**
-     * Extra environment variables written to /etc/justavps/env on the machine
-     */
-    env_vars?: {
-        [key: string]: string;
-    };
-    /**
-     * Docker image to run on boot (e.g. "myapp:latest")
-     */
-    docker_image?: string;
-    /**
-     * Entrypoint for the Docker container
-     */
-    entrypoint?: string;
+export type GetApiV1MachinesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/machines';
 };
 
-export type ResizeMachine = {
+export type GetApiV1MachinesErrors = {
     /**
-     * New server type
+     * Unauthorized
      */
-    server_type: string;
-};
-
-export type CreateImage = {
-    /**
-     * Name for the image
-     */
-    name: string;
-};
-
-export type CreateSshKey = {
-    name: string;
-    /**
-     * SSH public key (e.g. ssh-ed25519 AAAA...)
-     */
-    public_key: string;
-};
-
-export type CreateApiKey = {
-    name: string;
-};
-
-export type CreateWebhook = {
-    /**
-     * HTTPS URL to receive webhook POSTs
-     */
-    url: string;
-    /**
-     * Event types to subscribe to
-     */
-    events: Array<'*' | 'machine.stage_changed' | 'machine.status_changed' | 'machine.heartbeat'>;
-    /**
-     * HMAC secret (auto-generated if omitted)
-     */
-    secret?: string;
-};
-
-export type Heartbeat = {
-    slug: string;
-    machine_token: string;
-    uptime: number;
-    services: {
-        [key: string]: boolean;
-    };
-    load: {
-        cpu: number;
-        memory: number;
-        disk: number;
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
     };
 };
 
-export type StageReport = {
-    slug: string;
-    machine_token: string;
-    stage: string;
-    message?: string;
-    metadata?: {
-        [key: string]: unknown;
+export type GetApiV1MachinesError = GetApiV1MachinesErrors[keyof GetApiV1MachinesErrors];
+
+export type GetApiV1MachinesResponses = {
+    /**
+     * List of machines
+     */
+    200: {
+        machines: Array<{
+            id: string;
+            slug: string;
+            name: string;
+            status: 'provisioning' | 'ready' | 'error' | 'stopped' | 'deleted';
+            provisioning_stage: string;
+            provisioning_stage_updated_at: string;
+            provider: string;
+            image_id: string;
+            server_type: string;
+            region: string;
+            ip: string;
+            price_monthly: number;
+            created_at: string;
+            ready_at: string;
+            urls: {
+                vscode: string;
+                pty: string;
+            };
+            ssh: string;
+            ssh_key: {
+                private_key: string;
+                public_key: string;
+                setup_command: string;
+                key_path: string;
+            };
+            connect: {
+                ssh_command: string;
+                setup_command: string;
+                vscode_url: string;
+                vscode_password: string;
+                cursor_ssh: string;
+            };
+            health: {
+                cpu: number;
+                memory: number;
+                disk: number;
+                services: {
+                    [key: string]: boolean;
+                };
+                last_heartbeat_at: string;
+            };
+        }>;
     };
 };
 
-export type Machine = {
-    id: string;
-    slug: string;
-    name: string;
-    status: 'provisioning' | 'ready' | 'error' | 'stopped' | 'deleted';
-    provisioning_stage: string | null;
-    provisioning_stage_updated_at: string | null;
-    provider: string;
-    image_id: string | null;
-    server_type: string;
-    region: string;
-    ip: string | null;
-    price_monthly: number | null;
-    created_at: string;
-    ready_at: string | null;
-    urls: {
-        vscode: string;
-        pty: string;
-    } | null;
-    ssh: string | null;
-    ssh_key: {
-        private_key: string | null;
-        public_key: string | null;
-        setup_command: string | null;
-        key_path: string;
-    } | null;
-    connect: {
-        ssh_command: string | null;
-        setup_command: string | null;
-        vscode_url: string;
-        vscode_password: string;
-        cursor_ssh: string | null;
-    } | null;
-    health: {
-        cpu: number;
-        memory: number;
-        disk: number;
-        services: {
-            [key: string]: boolean;
+export type GetApiV1MachinesResponse = GetApiV1MachinesResponses[keyof GetApiV1MachinesResponses];
+
+export type PostApiV1MachinesData = {
+    body: {
+        /**
+         * Image to boot from. Null = Ubuntu 24.04
+         */
+        image_id?: string;
+        /**
+         * Cloud provider (e.g. "hetzner")
+         */
+        provider: string;
+        /**
+         * Provider-specific server type (e.g. "cpx22", "t3.medium")
+         */
+        server_type: string;
+        /**
+         * Provider-specific region (e.g. "nbg1", "us-east-1")
+         */
+        region: string;
+        /**
+         * Human-readable name
+         */
+        name?: string;
+        /**
+         * Extra environment variables written to /etc/justavps/env on the machine
+         */
+        env_vars?: {
+            [key: string]: string;
         };
-        last_heartbeat_at: string | null;
-    } | null;
+        /**
+         * Docker image to run on boot (e.g. "myapp:latest")
+         */
+        docker_image?: string;
+        /**
+         * Entrypoint for the Docker container
+         */
+        entrypoint?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/machines';
 };
 
-export type MachineListResponse = {
-    machines: Array<{
+export type PostApiV1MachinesErrors = {
+    /**
+     * Bad Request
+     */
+    400: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+    /**
+     * Unauthorized
+     */
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+    /**
+     * Payment required — redirect to checkout
+     */
+    402: {
+        requires_checkout: true;
+        checkout_url: string;
+        message: string;
+    };
+    /**
+     * Not Found
+     */
+    404: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+};
+
+export type PostApiV1MachinesError = PostApiV1MachinesErrors[keyof PostApiV1MachinesErrors];
+
+export type PostApiV1MachinesResponses = {
+    /**
+     * Machine provisioning started
+     */
+    202: {
         id: string;
         slug: string;
         name: string;
         status: 'provisioning' | 'ready' | 'error' | 'stopped' | 'deleted';
-        provisioning_stage: string | null;
-        provisioning_stage_updated_at: string | null;
+        provisioning_stage: string;
+        provisioning_stage_updated_at: string;
         provider: string;
-        image_id: string | null;
+        image_id: string;
         server_type: string;
         region: string;
-        ip: string | null;
-        price_monthly: number | null;
+        ip: string;
+        price_monthly: number;
         created_at: string;
-        ready_at: string | null;
+        ready_at: string;
         urls: {
             vscode: string;
             pty: string;
-        } | null;
-        ssh: string | null;
+        };
+        ssh: string;
         ssh_key: {
-            private_key: string | null;
-            public_key: string | null;
-            setup_command: string | null;
+            private_key: string;
+            public_key: string;
+            setup_command: string;
             key_path: string;
-        } | null;
+        };
         connect: {
-            ssh_command: string | null;
-            setup_command: string | null;
+            ssh_command: string;
+            setup_command: string;
             vscode_url: string;
             vscode_password: string;
-            cursor_ssh: string | null;
-        } | null;
+            cursor_ssh: string;
+        };
         health: {
             cpu: number;
             memory: number;
@@ -191,299 +200,14 @@ export type MachineListResponse = {
             services: {
                 [key: string]: boolean;
             };
-            last_heartbeat_at: string | null;
-        } | null;
-    }>;
-};
-
-export type CheckoutRequired = {
-    requires_checkout: true;
-    checkout_url: string;
-    message: string;
-};
-
-export type ActionResponse = {
-    action: string;
-    status: string;
-};
-
-export type ResizeResponse = {
-    action: 'resize';
-    old_type: string;
-    new_type: string;
-    status: string;
-};
-
-export type Image = {
-    id: string;
-    name: string;
-    status: 'creating' | 'ready' | 'failed' | 'deleted';
-    source_machine_id: string | null;
-    provider: string;
-    provider_image_id: string | null;
-    disk_size_gb: number | null;
-    architecture: string | null;
-    created_at: string;
-    updated_at: string;
-};
-
-export type ImageListResponse = {
-    images: Array<{
-        id: string;
-        name: string;
-        status: 'creating' | 'ready' | 'failed' | 'deleted';
-        source_machine_id: string | null;
-        provider: string;
-        provider_image_id: string | null;
-        disk_size_gb: number | null;
-        architecture: string | null;
-        created_at: string;
-        updated_at: string;
-    }>;
-};
-
-export type SshKey = {
-    id: string;
-    name: string;
-    fingerprint: string;
-    created_at: string;
-};
-
-export type SshKeyListResponse = {
-    ssh_keys: Array<{
-        id: string;
-        name: string;
-        fingerprint: string;
-        created_at: string;
-    }>;
-};
-
-export type ApiKey = {
-    id: string;
-    name: string;
-    /**
-     * Only returned on creation
-     */
-    key?: string;
-    key_prefix: string;
-    created_at: string;
-    last_used: string | null;
-};
-
-export type ApiKeyListResponse = {
-    api_keys: Array<{
-        id: string;
-        name: string;
-        /**
-         * Only returned on creation
-         */
-        key?: string;
-        key_prefix: string;
-        created_at: string;
-        last_used: string | null;
-    }>;
-};
-
-export type Webhook = {
-    id: string;
-    url: string;
-    events: Array<string>;
-    /**
-     * Only returned on creation
-     */
-    secret?: string;
-    active: boolean;
-    created_at: string;
-};
-
-export type WebhookListResponse = {
-    webhooks: Array<{
-        id: string;
-        url: string;
-        events: Array<string>;
-        active: boolean;
-        created_at: string;
-    }>;
-};
-
-export type ServerType = {
-    name: string;
-    description: string;
-    vcpu: number;
-    ram_gb: number;
-    disk_gb: number;
-    cpu_type: 'shared' | 'dedicated';
-    architecture: 'x86' | 'arm';
-    /**
-     * Our price after markup
-     */
-    price_monthly: number;
-    /**
-     * Raw provider price
-     */
-    provider_price_monthly: number;
-    available: boolean;
-};
-
-export type ServerTypeListResponse = {
-    provider: string;
-    region: string;
-    server_types: Array<{
-        name: string;
-        description: string;
-        vcpu: number;
-        ram_gb: number;
-        disk_gb: number;
-        cpu_type: 'shared' | 'dedicated';
-        architecture: 'x86' | 'arm';
-        /**
-         * Our price after markup
-         */
-        price_monthly: number;
-        /**
-         * Raw provider price
-         */
-        provider_price_monthly: number;
-        available: boolean;
-    }>;
-};
-
-export type Provider = {
-    name: string;
-    displayName: string;
-};
-
-export type ProviderListResponse = {
-    providers: Array<{
-        name: string;
-        displayName: string;
-    }>;
-};
-
-export type Region = {
-    id: string;
-    name: string;
-    country: string;
-    city: string;
-};
-
-export type RegionListResponse = {
-    provider: string;
-    regions: Array<{
-        id: string;
-        name: string;
-        country: string;
-        city: string;
-    }>;
-};
-
-export type Account = {
-    id: string;
-    email: string;
-    name: string | null;
-    machines_count: number;
-    stripe_customer_id: string | null;
-    created_at: string;
-};
-
-export type AccountUsage = {
-    current_period: {
-        machines: Array<{
-            id: string;
-            slug: string;
-            server_type: string;
-            status: string;
-        }>;
-        total_machines: number;
-        estimated_cost: number;
+            last_heartbeat_at: string;
+        };
     };
 };
 
-export type Billing = {
-    portal_url: string | null;
-    has_payment_method: boolean;
-    message?: string;
-};
+export type PostApiV1MachinesResponse = PostApiV1MachinesResponses[keyof PostApiV1MachinesResponses];
 
-export type BillingSetup = {
-    checkout_url: string;
-};
-
-export type Ack = {
-    ack: boolean;
-};
-
-export type ValidateKeyResponse = {
-    valid: boolean;
-    owner_id?: string;
-    message?: string;
-};
-
-export type Error = {
-    error: boolean;
-    message: string;
-    status: number;
-};
-
-export type ListMachinesData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/machines';
-};
-
-export type ListMachinesErrors = {
-    /**
-     * Unauthorized
-     */
-    401: Error;
-};
-
-export type ListMachinesError = ListMachinesErrors[keyof ListMachinesErrors];
-
-export type ListMachinesResponses = {
-    /**
-     * List of machines
-     */
-    200: MachineListResponse;
-};
-
-export type ListMachinesResponse = ListMachinesResponses[keyof ListMachinesResponses];
-
-export type CreateMachineData = {
-    body: CreateMachine;
-    path?: never;
-    query?: never;
-    url: '/machines';
-};
-
-export type CreateMachineErrors = {
-    /**
-     * Bad Request
-     */
-    400: Error;
-    /**
-     * Payment required — redirect to checkout
-     */
-    402: CheckoutRequired;
-    /**
-     * Not Found
-     */
-    404: Error;
-};
-
-export type CreateMachineError = CreateMachineErrors[keyof CreateMachineErrors];
-
-export type CreateMachineResponses = {
-    /**
-     * Machine provisioning started
-     */
-    202: Machine;
-};
-
-export type CreateMachineResponse = CreateMachineResponses[keyof CreateMachineResponses];
-
-export type DestroyMachineData = {
+export type DeleteApiV1MachinesByIdData = {
     body?: never;
     path: {
         /**
@@ -492,32 +216,40 @@ export type DestroyMachineData = {
         id: string;
     };
     query?: never;
-    url: '/machines/{id}';
+    url: '/api/v1/machines/{id}';
 };
 
-export type DestroyMachineErrors = {
+export type DeleteApiV1MachinesByIdErrors = {
     /**
      * Unauthorized
      */
-    401: Error;
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
     /**
      * Not Found
      */
-    404: Error;
+    404: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type DestroyMachineError = DestroyMachineErrors[keyof DestroyMachineErrors];
+export type DeleteApiV1MachinesByIdError = DeleteApiV1MachinesByIdErrors[keyof DeleteApiV1MachinesByIdErrors];
 
-export type DestroyMachineResponses = {
+export type DeleteApiV1MachinesByIdResponses = {
     /**
      * Machine deleted
      */
     204: void;
 };
 
-export type DestroyMachineResponse = DestroyMachineResponses[keyof DestroyMachineResponses];
+export type DeleteApiV1MachinesByIdResponse = DeleteApiV1MachinesByIdResponses[keyof DeleteApiV1MachinesByIdResponses];
 
-export type GetMachineData = {
+export type GetApiV1MachinesByIdData = {
     body?: never;
     path: {
         /**
@@ -526,32 +258,82 @@ export type GetMachineData = {
         id: string;
     };
     query?: never;
-    url: '/machines/{id}';
+    url: '/api/v1/machines/{id}';
 };
 
-export type GetMachineErrors = {
+export type GetApiV1MachinesByIdErrors = {
     /**
      * Unauthorized
      */
-    401: Error;
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
     /**
      * Not Found
      */
-    404: Error;
+    404: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type GetMachineError = GetMachineErrors[keyof GetMachineErrors];
+export type GetApiV1MachinesByIdError = GetApiV1MachinesByIdErrors[keyof GetApiV1MachinesByIdErrors];
 
-export type GetMachineResponses = {
+export type GetApiV1MachinesByIdResponses = {
     /**
      * Machine details
      */
-    200: Machine;
+    200: {
+        id: string;
+        slug: string;
+        name: string;
+        status: 'provisioning' | 'ready' | 'error' | 'stopped' | 'deleted';
+        provisioning_stage: string;
+        provisioning_stage_updated_at: string;
+        provider: string;
+        image_id: string;
+        server_type: string;
+        region: string;
+        ip: string;
+        price_monthly: number;
+        created_at: string;
+        ready_at: string;
+        urls: {
+            vscode: string;
+            pty: string;
+        };
+        ssh: string;
+        ssh_key: {
+            private_key: string;
+            public_key: string;
+            setup_command: string;
+            key_path: string;
+        };
+        connect: {
+            ssh_command: string;
+            setup_command: string;
+            vscode_url: string;
+            vscode_password: string;
+            cursor_ssh: string;
+        };
+        health: {
+            cpu: number;
+            memory: number;
+            disk: number;
+            services: {
+                [key: string]: boolean;
+            };
+            last_heartbeat_at: string;
+        };
+    };
 };
 
-export type GetMachineResponse = GetMachineResponses[keyof GetMachineResponses];
+export type GetApiV1MachinesByIdResponse = GetApiV1MachinesByIdResponses[keyof GetApiV1MachinesByIdResponses];
 
-export type RebootMachineData = {
+export type PostApiV1MachinesByIdRebootData = {
     body?: never;
     path: {
         /**
@@ -560,33 +342,49 @@ export type RebootMachineData = {
         id: string;
     };
     query?: never;
-    url: '/machines/{id}/reboot';
+    url: '/api/v1/machines/{id}/reboot';
 };
 
-export type RebootMachineErrors = {
+export type PostApiV1MachinesByIdRebootErrors = {
     /**
      * Unauthorized
      */
-    401: Error;
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
     /**
      * Not Found
      */
-    404: Error;
+    404: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type RebootMachineError = RebootMachineErrors[keyof RebootMachineErrors];
+export type PostApiV1MachinesByIdRebootError = PostApiV1MachinesByIdRebootErrors[keyof PostApiV1MachinesByIdRebootErrors];
 
-export type RebootMachineResponses = {
+export type PostApiV1MachinesByIdRebootResponses = {
     /**
      * Reboot initiated
      */
-    202: ActionResponse;
+    202: {
+        action: string;
+        status: string;
+    };
 };
 
-export type RebootMachineResponse = RebootMachineResponses[keyof RebootMachineResponses];
+export type PostApiV1MachinesByIdRebootResponse = PostApiV1MachinesByIdRebootResponses[keyof PostApiV1MachinesByIdRebootResponses];
 
-export type ResizeMachineData = {
-    body: ResizeMachine;
+export type PostApiV1MachinesByIdResizeData = {
+    body: {
+        /**
+         * New server type
+         */
+        server_type: string;
+    };
     path: {
         /**
          * Machine ID
@@ -594,37 +392,59 @@ export type ResizeMachineData = {
         id: string;
     };
     query?: never;
-    url: '/machines/{id}/resize';
+    url: '/api/v1/machines/{id}/resize';
 };
 
-export type ResizeMachineErrors = {
+export type PostApiV1MachinesByIdResizeErrors = {
     /**
      * Bad Request
      */
-    400: Error;
+    400: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
     /**
      * Unauthorized
      */
-    401: Error;
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
     /**
      * Not Found
      */
-    404: Error;
+    404: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type ResizeMachineError = ResizeMachineErrors[keyof ResizeMachineErrors];
+export type PostApiV1MachinesByIdResizeError = PostApiV1MachinesByIdResizeErrors[keyof PostApiV1MachinesByIdResizeErrors];
 
-export type ResizeMachineResponses = {
+export type PostApiV1MachinesByIdResizeResponses = {
     /**
      * Resize initiated
      */
-    202: ResizeResponse;
+    202: {
+        action: 'resize';
+        old_type: string;
+        new_type: string;
+        status: string;
+    };
 };
 
-export type ResizeMachineResponse = ResizeMachineResponses[keyof ResizeMachineResponses];
+export type PostApiV1MachinesByIdResizeResponse = PostApiV1MachinesByIdResizeResponses[keyof PostApiV1MachinesByIdResizeResponses];
 
-export type CreateImageFromMachineData = {
-    body: CreateImage;
+export type PostApiV1MachinesByIdImageData = {
+    body: {
+        /**
+         * Name for the image
+         */
+        name: string;
+    };
     path: {
         /**
          * Machine ID
@@ -632,95 +452,101 @@ export type CreateImageFromMachineData = {
         id: string;
     };
     query?: never;
-    url: '/machines/{id}/image';
+    url: '/api/v1/machines/{id}/image';
 };
 
-export type CreateImageFromMachineErrors = {
+export type PostApiV1MachinesByIdImageErrors = {
     /**
      * Bad Request
      */
-    400: Error;
+    400: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
     /**
      * Unauthorized
      */
-    401: Error;
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
     /**
      * Not Found
      */
-    404: Error;
+    404: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type CreateImageFromMachineError = CreateImageFromMachineErrors[keyof CreateImageFromMachineErrors];
+export type PostApiV1MachinesByIdImageError = PostApiV1MachinesByIdImageErrors[keyof PostApiV1MachinesByIdImageErrors];
 
-export type CreateImageFromMachineResponses = {
+export type PostApiV1MachinesByIdImageResponses = {
     /**
      * Image creation started
      */
-    202: Image;
-};
-
-export type CreateImageFromMachineResponse = CreateImageFromMachineResponses[keyof CreateImageFromMachineResponses];
-
-export type StreamMachineStatusData = {
-    body?: never;
-    path: {
-        /**
-         * Machine ID
-         */
+    202: {
         id: string;
+        name: string;
+        status: 'creating' | 'ready' | 'failed' | 'deleted';
+        source_machine_id: string;
+        provider: string;
+        provider_image_id: string;
+        disk_size_gb: number;
+        architecture: string;
+        created_at: string;
+        updated_at: string;
     };
-    query?: never;
-    url: '/machines/{id}/status/stream';
 };
 
-export type StreamMachineStatusErrors = {
-    /**
-     * Unauthorized
-     */
-    401: Error;
-    /**
-     * Not Found
-     */
-    404: Error;
-};
+export type PostApiV1MachinesByIdImageResponse = PostApiV1MachinesByIdImageResponses[keyof PostApiV1MachinesByIdImageResponses];
 
-export type StreamMachineStatusError = StreamMachineStatusErrors[keyof StreamMachineStatusErrors];
-
-export type StreamMachineStatusResponses = {
-    /**
-     * SSE stream
-     */
-    200: string;
-};
-
-export type StreamMachineStatusResponse = StreamMachineStatusResponses[keyof StreamMachineStatusResponses];
-
-export type ListImagesData = {
+export type GetApiV1ImagesData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/images';
+    url: '/api/v1/images';
 };
 
-export type ListImagesErrors = {
+export type GetApiV1ImagesErrors = {
     /**
      * Unauthorized
      */
-    401: Error;
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type ListImagesError = ListImagesErrors[keyof ListImagesErrors];
+export type GetApiV1ImagesError = GetApiV1ImagesErrors[keyof GetApiV1ImagesErrors];
 
-export type ListImagesResponses = {
+export type GetApiV1ImagesResponses = {
     /**
      * List of images
      */
-    200: ImageListResponse;
+    200: {
+        images: Array<{
+            id: string;
+            name: string;
+            status: 'creating' | 'ready' | 'failed' | 'deleted';
+            source_machine_id: string;
+            provider: string;
+            provider_image_id: string;
+            disk_size_gb: number;
+            architecture: string;
+            created_at: string;
+            updated_at: string;
+        }>;
+    };
 };
 
-export type ListImagesResponse = ListImagesResponses[keyof ListImagesResponses];
+export type GetApiV1ImagesResponse = GetApiV1ImagesResponses[keyof GetApiV1ImagesResponses];
 
-export type DeleteImageData = {
+export type DeleteApiV1ImagesByIdData = {
     body?: never;
     path: {
         /**
@@ -729,32 +555,40 @@ export type DeleteImageData = {
         id: string;
     };
     query?: never;
-    url: '/images/{id}';
+    url: '/api/v1/images/{id}';
 };
 
-export type DeleteImageErrors = {
+export type DeleteApiV1ImagesByIdErrors = {
     /**
      * Unauthorized
      */
-    401: Error;
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
     /**
      * Not Found
      */
-    404: Error;
+    404: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type DeleteImageError = DeleteImageErrors[keyof DeleteImageErrors];
+export type DeleteApiV1ImagesByIdError = DeleteApiV1ImagesByIdErrors[keyof DeleteApiV1ImagesByIdErrors];
 
-export type DeleteImageResponses = {
+export type DeleteApiV1ImagesByIdResponses = {
     /**
      * Image deleted
      */
     204: void;
 };
 
-export type DeleteImageResponse = DeleteImageResponses[keyof DeleteImageResponses];
+export type DeleteApiV1ImagesByIdResponse = DeleteApiV1ImagesByIdResponses[keyof DeleteApiV1ImagesByIdResponses];
 
-export type GetImageData = {
+export type GetApiV1ImagesByIdData = {
     body?: never;
     path: {
         /**
@@ -763,86 +597,135 @@ export type GetImageData = {
         id: string;
     };
     query?: never;
-    url: '/images/{id}';
+    url: '/api/v1/images/{id}';
 };
 
-export type GetImageErrors = {
+export type GetApiV1ImagesByIdErrors = {
     /**
      * Unauthorized
      */
-    401: Error;
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
     /**
      * Not Found
      */
-    404: Error;
+    404: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type GetImageError = GetImageErrors[keyof GetImageErrors];
+export type GetApiV1ImagesByIdError = GetApiV1ImagesByIdErrors[keyof GetApiV1ImagesByIdErrors];
 
-export type GetImageResponses = {
+export type GetApiV1ImagesByIdResponses = {
     /**
      * Image details
      */
-    200: Image;
+    200: {
+        id: string;
+        name: string;
+        status: 'creating' | 'ready' | 'failed' | 'deleted';
+        source_machine_id: string;
+        provider: string;
+        provider_image_id: string;
+        disk_size_gb: number;
+        architecture: string;
+        created_at: string;
+        updated_at: string;
+    };
 };
 
-export type GetImageResponse = GetImageResponses[keyof GetImageResponses];
+export type GetApiV1ImagesByIdResponse = GetApiV1ImagesByIdResponses[keyof GetApiV1ImagesByIdResponses];
 
-export type ListSshKeysData = {
+export type GetApiV1SshKeysData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/ssh-keys';
+    url: '/api/v1/ssh-keys';
 };
 
-export type ListSshKeysErrors = {
+export type GetApiV1SshKeysErrors = {
     /**
      * Unauthorized
      */
-    401: Error;
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type ListSshKeysError = ListSshKeysErrors[keyof ListSshKeysErrors];
+export type GetApiV1SshKeysError = GetApiV1SshKeysErrors[keyof GetApiV1SshKeysErrors];
 
-export type ListSshKeysResponses = {
+export type GetApiV1SshKeysResponses = {
     /**
      * List of SSH keys
      */
-    200: SshKeyListResponse;
+    200: {
+        ssh_keys: Array<{
+            id: string;
+            name: string;
+            fingerprint: string;
+            created_at: string;
+        }>;
+    };
 };
 
-export type ListSshKeysResponse = ListSshKeysResponses[keyof ListSshKeysResponses];
+export type GetApiV1SshKeysResponse = GetApiV1SshKeysResponses[keyof GetApiV1SshKeysResponses];
 
-export type CreateSshKeyData = {
-    body: CreateSshKey;
+export type PostApiV1SshKeysData = {
+    body: {
+        name: string;
+        /**
+         * SSH public key (e.g. ssh-ed25519 AAAA...)
+         */
+        public_key: string;
+    };
     path?: never;
     query?: never;
-    url: '/ssh-keys';
+    url: '/api/v1/ssh-keys';
 };
 
-export type CreateSshKeyErrors = {
+export type PostApiV1SshKeysErrors = {
     /**
      * Bad Request
      */
-    400: Error;
+    400: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
     /**
      * Unauthorized
      */
-    401: Error;
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type CreateSshKeyError = CreateSshKeyErrors[keyof CreateSshKeyErrors];
+export type PostApiV1SshKeysError = PostApiV1SshKeysErrors[keyof PostApiV1SshKeysErrors];
 
-export type CreateSshKeyResponses = {
+export type PostApiV1SshKeysResponses = {
     /**
      * SSH key added
      */
-    201: SshKey;
+    201: {
+        id: string;
+        name: string;
+        fingerprint: string;
+        created_at: string;
+    };
 };
 
-export type CreateSshKeyResponse = CreateSshKeyResponses[keyof CreateSshKeyResponses];
+export type PostApiV1SshKeysResponse = PostApiV1SshKeysResponses[keyof PostApiV1SshKeysResponses];
 
-export type DeleteSshKeyData = {
+export type DeleteApiV1SshKeysByIdData = {
     body?: never;
     path: {
         /**
@@ -851,86 +734,130 @@ export type DeleteSshKeyData = {
         id: string;
     };
     query?: never;
-    url: '/ssh-keys/{id}';
+    url: '/api/v1/ssh-keys/{id}';
 };
 
-export type DeleteSshKeyErrors = {
+export type DeleteApiV1SshKeysByIdErrors = {
     /**
      * Unauthorized
      */
-    401: Error;
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
     /**
      * Not Found
      */
-    404: Error;
+    404: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type DeleteSshKeyError = DeleteSshKeyErrors[keyof DeleteSshKeyErrors];
+export type DeleteApiV1SshKeysByIdError = DeleteApiV1SshKeysByIdErrors[keyof DeleteApiV1SshKeysByIdErrors];
 
-export type DeleteSshKeyResponses = {
+export type DeleteApiV1SshKeysByIdResponses = {
     /**
      * SSH key deleted
      */
     204: void;
 };
 
-export type DeleteSshKeyResponse = DeleteSshKeyResponses[keyof DeleteSshKeyResponses];
+export type DeleteApiV1SshKeysByIdResponse = DeleteApiV1SshKeysByIdResponses[keyof DeleteApiV1SshKeysByIdResponses];
 
-export type ListApiKeysData = {
+export type GetApiV1ApiKeysData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/api-keys';
+    url: '/api/v1/api-keys';
 };
 
-export type ListApiKeysErrors = {
+export type GetApiV1ApiKeysErrors = {
     /**
      * Unauthorized
      */
-    401: Error;
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type ListApiKeysError = ListApiKeysErrors[keyof ListApiKeysErrors];
+export type GetApiV1ApiKeysError = GetApiV1ApiKeysErrors[keyof GetApiV1ApiKeysErrors];
 
-export type ListApiKeysResponses = {
+export type GetApiV1ApiKeysResponses = {
     /**
      * List of API keys
      */
-    200: ApiKeyListResponse;
+    200: {
+        api_keys: Array<{
+            id: string;
+            name: string;
+            /**
+             * Only returned on creation
+             */
+            key?: string;
+            key_prefix: string;
+            created_at: string;
+            last_used: string;
+        }>;
+    };
 };
 
-export type ListApiKeysResponse = ListApiKeysResponses[keyof ListApiKeysResponses];
+export type GetApiV1ApiKeysResponse = GetApiV1ApiKeysResponses[keyof GetApiV1ApiKeysResponses];
 
-export type CreateApiKeyData = {
-    body: CreateApiKey;
+export type PostApiV1ApiKeysData = {
+    body: {
+        name: string;
+    };
     path?: never;
     query?: never;
-    url: '/api-keys';
+    url: '/api/v1/api-keys';
 };
 
-export type CreateApiKeyErrors = {
+export type PostApiV1ApiKeysErrors = {
     /**
      * Bad Request
      */
-    400: Error;
+    400: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
     /**
      * Unauthorized
      */
-    401: Error;
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type CreateApiKeyError = CreateApiKeyErrors[keyof CreateApiKeyErrors];
+export type PostApiV1ApiKeysError = PostApiV1ApiKeysErrors[keyof PostApiV1ApiKeysErrors];
 
-export type CreateApiKeyResponses = {
+export type PostApiV1ApiKeysResponses = {
     /**
      * API key created
      */
-    201: ApiKey;
+    201: {
+        id: string;
+        name: string;
+        /**
+         * Only returned on creation
+         */
+        key?: string;
+        key_prefix: string;
+        created_at: string;
+        last_used: string;
+    };
 };
 
-export type CreateApiKeyResponse = CreateApiKeyResponses[keyof CreateApiKeyResponses];
+export type PostApiV1ApiKeysResponse = PostApiV1ApiKeysResponses[keyof PostApiV1ApiKeysResponses];
 
-export type DeleteApiKeyData = {
+export type DeleteApiV1ApiKeysByIdData = {
     body?: never;
     path: {
         /**
@@ -939,120 +866,61 @@ export type DeleteApiKeyData = {
         id: string;
     };
     query?: never;
-    url: '/api-keys/{id}';
+    url: '/api/v1/api-keys/{id}';
 };
 
-export type DeleteApiKeyErrors = {
+export type DeleteApiV1ApiKeysByIdErrors = {
     /**
      * Unauthorized
      */
-    401: Error;
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
     /**
      * Not Found
      */
-    404: Error;
+    404: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type DeleteApiKeyError = DeleteApiKeyErrors[keyof DeleteApiKeyErrors];
+export type DeleteApiV1ApiKeysByIdError = DeleteApiV1ApiKeysByIdErrors[keyof DeleteApiV1ApiKeysByIdErrors];
 
-export type DeleteApiKeyResponses = {
+export type DeleteApiV1ApiKeysByIdResponses = {
     /**
      * API key deleted
      */
     204: void;
 };
 
-export type DeleteApiKeyResponse = DeleteApiKeyResponses[keyof DeleteApiKeyResponses];
+export type DeleteApiV1ApiKeysByIdResponse = DeleteApiV1ApiKeysByIdResponses[keyof DeleteApiV1ApiKeysByIdResponses];
 
-export type ListWebhooksData = {
+export type GetApiV1ServerTypesProvidersData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/webhooks';
+    url: '/api/v1/server-types/providers';
 };
 
-export type ListWebhooksErrors = {
+export type GetApiV1ServerTypesProvidersResponses = {
     /**
-     * Unauthorized
+     * Available providers
      */
-    401: Error;
-};
-
-export type ListWebhooksError = ListWebhooksErrors[keyof ListWebhooksErrors];
-
-export type ListWebhooksResponses = {
-    /**
-     * List of webhooks
-     */
-    200: WebhookListResponse;
-};
-
-export type ListWebhooksResponse = ListWebhooksResponses[keyof ListWebhooksResponses];
-
-export type CreateWebhookData = {
-    body: CreateWebhook;
-    path?: never;
-    query?: never;
-    url: '/webhooks';
-};
-
-export type CreateWebhookErrors = {
-    /**
-     * Bad Request
-     */
-    400: Error;
-    /**
-     * Unauthorized
-     */
-    401: Error;
-};
-
-export type CreateWebhookError = CreateWebhookErrors[keyof CreateWebhookErrors];
-
-export type CreateWebhookResponses = {
-    /**
-     * Webhook created (secret shown once)
-     */
-    201: Webhook;
-};
-
-export type CreateWebhookResponse = CreateWebhookResponses[keyof CreateWebhookResponses];
-
-export type DeleteWebhookData = {
-    body?: never;
-    path: {
-        /**
-         * Webhook ID
-         */
-        id: string;
+    200: {
+        providers: Array<{
+            name: string;
+            displayName: string;
+        }>;
     };
-    query?: never;
-    url: '/webhooks/{id}';
 };
 
-export type DeleteWebhookErrors = {
-    /**
-     * Unauthorized
-     */
-    401: Error;
-    /**
-     * Not Found
-     */
-    404: Error;
-};
+export type GetApiV1ServerTypesProvidersResponse = GetApiV1ServerTypesProvidersResponses[keyof GetApiV1ServerTypesProvidersResponses];
 
-export type DeleteWebhookError = DeleteWebhookErrors[keyof DeleteWebhookErrors];
-
-export type DeleteWebhookResponses = {
-    /**
-     * Webhook deleted
-     */
-    204: void;
-};
-
-export type DeleteWebhookResponse = DeleteWebhookResponses[keyof DeleteWebhookResponses];
-
-export type ListServerTypesData = {
+export type GetApiV1ServerTypesData = {
     body?: never;
     path?: never;
     query: {
@@ -1065,44 +933,53 @@ export type ListServerTypesData = {
          */
         region: string;
     };
-    url: '/server-types';
+    url: '/api/v1/server-types';
 };
 
-export type ListServerTypesErrors = {
+export type GetApiV1ServerTypesErrors = {
     /**
      * Bad Request
      */
-    400: Error;
+    400: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type ListServerTypesError = ListServerTypesErrors[keyof ListServerTypesErrors];
+export type GetApiV1ServerTypesError = GetApiV1ServerTypesErrors[keyof GetApiV1ServerTypesErrors];
 
-export type ListServerTypesResponses = {
+export type GetApiV1ServerTypesResponses = {
     /**
      * Available server types
      */
-    200: ServerTypeListResponse;
+    200: {
+        provider: string;
+        region: string;
+        server_types: Array<{
+            name: string;
+            description: string;
+            vcpu: number;
+            ram_gb: number;
+            disk_gb: number;
+            cpu_type: 'shared' | 'dedicated';
+            architecture: 'x86' | 'arm';
+            /**
+             * Our price after markup
+             */
+            price_monthly: number;
+            /**
+             * Raw provider price
+             */
+            provider_price_monthly: number;
+            available: boolean;
+        }>;
+    };
 };
 
-export type ListServerTypesResponse = ListServerTypesResponses[keyof ListServerTypesResponses];
+export type GetApiV1ServerTypesResponse = GetApiV1ServerTypesResponses[keyof GetApiV1ServerTypesResponses];
 
-export type ListProvidersData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/server-types/providers';
-};
-
-export type ListProvidersResponses = {
-    /**
-     * Available providers
-     */
-    200: ProviderListResponse;
-};
-
-export type ListProvidersResponse = ListProvidersResponses[keyof ListProvidersResponses];
-
-export type ListRegionsData = {
+export type GetApiV1ServerTypesRegionsData = {
     body?: never;
     path?: never;
     query?: {
@@ -1111,206 +988,318 @@ export type ListRegionsData = {
          */
         provider?: string;
     };
-    url: '/server-types/regions';
+    url: '/api/v1/server-types/regions';
 };
 
-export type ListRegionsErrors = {
+export type GetApiV1ServerTypesRegionsErrors = {
     /**
      * Bad Request
      */
-    400: Error;
+    400: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type ListRegionsError = ListRegionsErrors[keyof ListRegionsErrors];
+export type GetApiV1ServerTypesRegionsError = GetApiV1ServerTypesRegionsErrors[keyof GetApiV1ServerTypesRegionsErrors];
 
-export type ListRegionsResponses = {
+export type GetApiV1ServerTypesRegionsResponses = {
     /**
      * Available regions
      */
-    200: RegionListResponse;
+    200: {
+        provider: string;
+        regions: Array<{
+            id: string;
+            name: string;
+            country: string;
+            city: string;
+        }>;
+    };
 };
 
-export type ListRegionsResponse = ListRegionsResponses[keyof ListRegionsResponses];
+export type GetApiV1ServerTypesRegionsResponse = GetApiV1ServerTypesRegionsResponses[keyof GetApiV1ServerTypesRegionsResponses];
 
-export type GetAccountData = {
+export type GetApiV1AccountData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/account';
+    url: '/api/v1/account';
 };
 
-export type GetAccountErrors = {
+export type GetApiV1AccountErrors = {
     /**
      * Unauthorized
      */
-    401: Error;
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
     /**
      * Not Found
      */
-    404: Error;
+    404: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type GetAccountError = GetAccountErrors[keyof GetAccountErrors];
+export type GetApiV1AccountError = GetApiV1AccountErrors[keyof GetApiV1AccountErrors];
 
-export type GetAccountResponses = {
+export type GetApiV1AccountResponses = {
     /**
      * Account details
      */
-    200: Account;
+    200: {
+        id: string;
+        email: string;
+        name: string;
+        machines_count: number;
+        stripe_customer_id: string;
+        created_at: string;
+    };
 };
 
-export type GetAccountResponse = GetAccountResponses[keyof GetAccountResponses];
+export type GetApiV1AccountResponse = GetApiV1AccountResponses[keyof GetApiV1AccountResponses];
 
-export type GetAccountUsageData = {
+export type GetApiV1AccountUsageData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/account/usage';
+    url: '/api/v1/account/usage';
 };
 
-export type GetAccountUsageErrors = {
+export type GetApiV1AccountUsageErrors = {
     /**
      * Unauthorized
      */
-    401: Error;
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type GetAccountUsageError = GetAccountUsageErrors[keyof GetAccountUsageErrors];
+export type GetApiV1AccountUsageError = GetApiV1AccountUsageErrors[keyof GetApiV1AccountUsageErrors];
 
-export type GetAccountUsageResponses = {
+export type GetApiV1AccountUsageResponses = {
     /**
      * Usage statistics
      */
-    200: AccountUsage;
+    200: {
+        current_period: {
+            machines: Array<{
+                id: string;
+                slug: string;
+                server_type: string;
+                status: string;
+            }>;
+            total_machines: number;
+            estimated_cost: number;
+        };
+    };
 };
 
-export type GetAccountUsageResponse = GetAccountUsageResponses[keyof GetAccountUsageResponses];
+export type GetApiV1AccountUsageResponse = GetApiV1AccountUsageResponses[keyof GetApiV1AccountUsageResponses];
 
-export type GetBillingData = {
+export type GetApiV1AccountBillingData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/account/billing';
+    url: '/api/v1/account/billing';
 };
 
-export type GetBillingErrors = {
+export type GetApiV1AccountBillingErrors = {
     /**
      * Unauthorized
      */
-    401: Error;
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type GetBillingError = GetBillingErrors[keyof GetBillingErrors];
+export type GetApiV1AccountBillingError = GetApiV1AccountBillingErrors[keyof GetApiV1AccountBillingErrors];
 
-export type GetBillingResponses = {
+export type GetApiV1AccountBillingResponses = {
     /**
      * Billing info
      */
-    200: Billing;
+    200: {
+        portal_url: string;
+        has_payment_method: boolean;
+        message?: string;
+    };
 };
 
-export type GetBillingResponse = GetBillingResponses[keyof GetBillingResponses];
+export type GetApiV1AccountBillingResponse = GetApiV1AccountBillingResponses[keyof GetApiV1AccountBillingResponses];
 
-export type CreateBillingSetupData = {
+export type PostApiV1AccountBillingSetupData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/account/billing/setup';
+    url: '/api/v1/account/billing/setup';
 };
 
-export type CreateBillingSetupErrors = {
+export type PostApiV1AccountBillingSetupErrors = {
     /**
      * Unauthorized
      */
-    401: Error;
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
     /**
      * Not Found
      */
-    404: Error;
+    404: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
     /**
      * Service Unavailable
      */
-    503: Error;
+    503: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type CreateBillingSetupError = CreateBillingSetupErrors[keyof CreateBillingSetupErrors];
+export type PostApiV1AccountBillingSetupError = PostApiV1AccountBillingSetupErrors[keyof PostApiV1AccountBillingSetupErrors];
 
-export type CreateBillingSetupResponses = {
+export type PostApiV1AccountBillingSetupResponses = {
     /**
      * Checkout URL
      */
-    200: BillingSetup;
+    200: {
+        checkout_url: string;
+    };
 };
 
-export type CreateBillingSetupResponse = CreateBillingSetupResponses[keyof CreateBillingSetupResponses];
+export type PostApiV1AccountBillingSetupResponse = PostApiV1AccountBillingSetupResponses[keyof PostApiV1AccountBillingSetupResponses];
 
-export type MachineHeartbeatData = {
-    body: Heartbeat;
+export type PostApiV1InternalHeartbeatData = {
+    body: {
+        slug: string;
+        machine_token: string;
+        uptime: number;
+        services: {
+            [key: string]: boolean;
+        };
+        load: {
+            cpu: number;
+            memory: number;
+            disk: number;
+        };
+    };
     path?: never;
     query?: never;
-    url: '/internal/heartbeat';
+    url: '/api/v1/internal/heartbeat';
 };
 
-export type MachineHeartbeatErrors = {
+export type PostApiV1InternalHeartbeatErrors = {
     /**
      * Bad Request
      */
-    400: Error;
+    400: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
     /**
      * Unauthorized
      */
-    401: Error;
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
     /**
      * Internal Server Error
      */
-    500: Error;
+    500: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type MachineHeartbeatError = MachineHeartbeatErrors[keyof MachineHeartbeatErrors];
+export type PostApiV1InternalHeartbeatError = PostApiV1InternalHeartbeatErrors[keyof PostApiV1InternalHeartbeatErrors];
 
-export type MachineHeartbeatResponses = {
+export type PostApiV1InternalHeartbeatResponses = {
     /**
      * Acknowledged
      */
-    200: Ack;
+    200: {
+        ack: boolean;
+    };
 };
 
-export type MachineHeartbeatResponse = MachineHeartbeatResponses[keyof MachineHeartbeatResponses];
+export type PostApiV1InternalHeartbeatResponse = PostApiV1InternalHeartbeatResponses[keyof PostApiV1InternalHeartbeatResponses];
 
-export type ReportProvisioningStageData = {
-    body: StageReport;
+export type PostApiV1InternalStageData = {
+    body: {
+        slug: string;
+        machine_token: string;
+        stage: string;
+        message?: string;
+        metadata?: {
+            [key: string]: unknown;
+        };
+    };
     path?: never;
     query?: never;
-    url: '/internal/stage';
+    url: '/api/v1/internal/stage';
 };
 
-export type ReportProvisioningStageErrors = {
+export type PostApiV1InternalStageErrors = {
     /**
      * Bad Request
      */
-    400: Error;
+    400: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
     /**
      * Unauthorized
      */
-    401: Error;
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
     /**
      * Internal Server Error
      */
-    500: Error;
+    500: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type ReportProvisioningStageError = ReportProvisioningStageErrors[keyof ReportProvisioningStageErrors];
+export type PostApiV1InternalStageError = PostApiV1InternalStageErrors[keyof PostApiV1InternalStageErrors];
 
-export type ReportProvisioningStageResponses = {
+export type PostApiV1InternalStageResponses = {
     /**
      * Acknowledged
      */
-    200: Ack;
+    200: {
+        ack: boolean;
+    };
 };
 
-export type ReportProvisioningStageResponse = ReportProvisioningStageResponses[keyof ReportProvisioningStageResponses];
+export type PostApiV1InternalStageResponse = PostApiV1InternalStageResponses[keyof PostApiV1InternalStageResponses];
 
-export type ValidateApiKeyData = {
+export type GetApiV1InternalValidateKeyData = {
     body?: never;
     path?: never;
     query: {
@@ -1323,35 +1312,236 @@ export type ValidateApiKeyData = {
          */
         machine_slug?: string;
     };
-    url: '/internal/validate-key';
+    url: '/api/v1/internal/validate-key';
 };
 
-export type ValidateApiKeyErrors = {
+export type GetApiV1InternalValidateKeyErrors = {
     /**
      * Bad Request
      */
-    400: Error;
+    400: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
     /**
      * Invalid key
      */
-    401: ValidateKeyResponse;
+    401: {
+        valid: boolean;
+        owner_id?: string;
+        message?: string;
+    };
     /**
      * Key does not own machine
      */
-    403: ValidateKeyResponse;
+    403: {
+        valid: boolean;
+        owner_id?: string;
+        message?: string;
+    };
     /**
      * Service Unavailable
      */
-    503: Error;
+    503: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
 };
 
-export type ValidateApiKeyError = ValidateApiKeyErrors[keyof ValidateApiKeyErrors];
+export type GetApiV1InternalValidateKeyError = GetApiV1InternalValidateKeyErrors[keyof GetApiV1InternalValidateKeyErrors];
 
-export type ValidateApiKeyResponses = {
+export type GetApiV1InternalValidateKeyResponses = {
     /**
      * Valid key
      */
-    200: ValidateKeyResponse;
+    200: {
+        valid: boolean;
+        owner_id?: string;
+        message?: string;
+    };
 };
 
-export type ValidateApiKeyResponse = ValidateApiKeyResponses[keyof ValidateApiKeyResponses];
+export type GetApiV1InternalValidateKeyResponse = GetApiV1InternalValidateKeyResponses[keyof GetApiV1InternalValidateKeyResponses];
+
+export type GetApiV1MachinesByIdStatusStreamData = {
+    body?: never;
+    path: {
+        /**
+         * Machine ID
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/machines/{id}/status/stream';
+};
+
+export type GetApiV1MachinesByIdStatusStreamErrors = {
+    /**
+     * Unauthorized
+     */
+    401: {
+        error: boolean;
+        message: string;
+        status: number;
+    };
+    /**
+     * Not Found
+     */
+    404: {
+        error: boolean;
+        message: string;
+        status: number;
+    };
+};
+
+export type GetApiV1MachinesByIdStatusStreamError = GetApiV1MachinesByIdStatusStreamErrors[keyof GetApiV1MachinesByIdStatusStreamErrors];
+
+export type GetApiV1MachinesByIdStatusStreamResponses = {
+    /**
+     * SSE stream
+     */
+    200: string;
+};
+
+export type GetApiV1MachinesByIdStatusStreamResponse = GetApiV1MachinesByIdStatusStreamResponses[keyof GetApiV1MachinesByIdStatusStreamResponses];
+
+export type GetApiV1WebhooksData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/webhooks';
+};
+
+export type GetApiV1WebhooksErrors = {
+    /**
+     * Unauthorized
+     */
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+};
+
+export type GetApiV1WebhooksError = GetApiV1WebhooksErrors[keyof GetApiV1WebhooksErrors];
+
+export type GetApiV1WebhooksResponses = {
+    /**
+     * List of webhooks
+     */
+    200: {
+        webhooks: Array<{
+            id: string;
+            url: string;
+            events: Array<string>;
+            active: boolean;
+            created_at: string;
+        }>;
+    };
+};
+
+export type GetApiV1WebhooksResponse = GetApiV1WebhooksResponses[keyof GetApiV1WebhooksResponses];
+
+export type PostApiV1WebhooksData = {
+    body: {
+        /**
+         * HTTPS URL to receive webhook POSTs
+         */
+        url: string;
+        /**
+         * Event types to subscribe to
+         */
+        events: Array<'*' | 'machine.stage_changed' | 'machine.status_changed' | 'machine.heartbeat'>;
+        /**
+         * HMAC secret (auto-generated if omitted)
+         */
+        secret?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/webhooks';
+};
+
+export type PostApiV1WebhooksErrors = {
+    /**
+     * Bad Request
+     */
+    400: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+    /**
+     * Unauthorized
+     */
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+};
+
+export type PostApiV1WebhooksError = PostApiV1WebhooksErrors[keyof PostApiV1WebhooksErrors];
+
+export type PostApiV1WebhooksResponses = {
+    /**
+     * Webhook created (secret shown once)
+     */
+    201: {
+        id: string;
+        url: string;
+        events: Array<string>;
+        /**
+         * Only returned on creation
+         */
+        secret?: string;
+        active: boolean;
+        created_at: string;
+    };
+};
+
+export type PostApiV1WebhooksResponse = PostApiV1WebhooksResponses[keyof PostApiV1WebhooksResponses];
+
+export type DeleteApiV1WebhooksByIdData = {
+    body?: never;
+    path: {
+        /**
+         * Webhook ID
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/webhooks/{id}';
+};
+
+export type DeleteApiV1WebhooksByIdErrors = {
+    /**
+     * Unauthorized
+     */
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+    /**
+     * Not Found
+     */
+    404: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+};
+
+export type DeleteApiV1WebhooksByIdError = DeleteApiV1WebhooksByIdErrors[keyof DeleteApiV1WebhooksByIdErrors];
+
+export type DeleteApiV1WebhooksByIdResponses = {
+    /**
+     * Webhook deleted
+     */
+    204: void;
+};
+
+export type DeleteApiV1WebhooksByIdResponse = DeleteApiV1WebhooksByIdResponses[keyof DeleteApiV1WebhooksByIdResponses];

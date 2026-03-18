@@ -1,21 +1,49 @@
-import { Hono } from 'hono';
+import { OpenAPIHono, createRoute } from '@hono/zod-openapi';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db';
 import { users, machines } from '../../db/schema';
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 import { stripeClient } from '../../lib/stripe';
 import { config } from '../../lib/config';
+import {
+  AccountResponseSchema,
+  AccountUsageResponseSchema,
+  BillingResponseSchema,
+  BillingSetupResponseSchema,
+  ErrorResponseSchema,
+} from '@/lib/schemas';
 
-export const accountApp = new Hono<{ Variables: AuthVariables }>();
+export const accountApp = new OpenAPIHono<{ Variables: AuthVariables }>();
 accountApp.use('*', apiGuard);
 
-accountApp.get('/', async (c) => {
+const bearerSecurity = [{ bearerAuth: [] as string[] }, { cookieAuth: [] as string[] }] as Record<string, string[]>[];
+
+// ─── GET / — Get Account ────────────────────────────────────────────────────
+
+const getAccountRoute = createRoute({
+  method: 'get',
+  path: '/',
+  tags: ['Account'],
+  security: bearerSecurity,
+  summary: 'Get account info',
+  responses: {
+    200: {
+      description: 'Account details',
+      content: { 'application/json': { schema: AccountResponseSchema } },
+    },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+// @ts-expect-error — handler returns multiple shapes (error + success); spec types are correctly declared above
+accountApp.openapi(getAccountRoute, async (c) => {
   const userId = c.get('userId');
 
   try {
     const [userRow] = await db.select().from(users).where(eq(users.id, userId));
     if (!userRow) {
-      return c.json({ error: true, message: 'User not found' }, 404);
+      return c.json({ error: true, message: 'User not found', status: 404 }, 404);
     }
 
     const userMachines = await db.select().from(machines)
@@ -32,11 +60,30 @@ accountApp.get('/', async (c) => {
     });
   } catch (err) {
     console.error('[ACCOUNT] Error fetching account:', err);
-    return c.json({ error: true, message: 'Failed to fetch account' }, 500);
+    return c.json({ error: true, message: 'Failed to fetch account', status: 500 }, 500);
   }
 });
 
-accountApp.get('/usage', async (c) => {
+// ─── GET /usage — Get Usage Stats ──────────────────────────────────────────
+
+const getAccountUsageRoute = createRoute({
+  method: 'get',
+  path: '/usage',
+  tags: ['Account'],
+  security: bearerSecurity,
+  summary: 'Get usage stats',
+  description: 'Returns current billing period usage including active machines and estimated cost.',
+  responses: {
+    200: {
+      description: 'Usage statistics',
+      content: { 'application/json': { schema: AccountUsageResponseSchema } },
+    },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+// @ts-expect-error — handler returns multiple shapes (error + success); spec types are correctly declared above
+accountApp.openapi(getAccountUsageRoute, async (c) => {
   const userId = c.get('userId');
 
   try {
@@ -62,15 +109,30 @@ accountApp.get('/usage', async (c) => {
     });
   } catch (err) {
     console.error('[ACCOUNT] Error fetching usage:', err);
-    return c.json({ error: true, message: 'Failed to fetch usage' }, 500);
+    return c.json({ error: true, message: 'Failed to fetch usage', status: 500 }, 500);
   }
 });
 
-/**
- * GET /account/billing — returns billing portal URL + payment method status.
- * The frontend uses `has_payment_method` to decide what UI to show.
- */
-accountApp.get('/billing', async (c) => {
+// ─── GET /billing — Get Billing Info ────────────────────────────────────────
+
+const getBillingRoute = createRoute({
+  method: 'get',
+  path: '/billing',
+  tags: ['Account'],
+  security: bearerSecurity,
+  summary: 'Get billing info',
+  description: 'Returns Stripe billing portal URL and payment method status.',
+  responses: {
+    200: {
+      description: 'Billing info',
+      content: { 'application/json': { schema: BillingResponseSchema } },
+    },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+// @ts-expect-error — handler returns multiple shapes (error + success); spec types are correctly declared above
+accountApp.openapi(getBillingRoute, async (c) => {
   const userId = c.get('userId');
 
   if (!stripeClient.isConfigured()) {
@@ -85,7 +147,6 @@ accountApp.get('/billing', async (c) => {
     const [user] = await db.select().from(users).where(eq(users.id, userId));
 
     if (!user?.stripeCustomerId) {
-      // Create Stripe customer proactively so we can offer setup checkout
       const customerId = await stripeClient.getOrCreateCustomer(userId, user?.email || '');
       if (user) {
         await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, userId));
@@ -116,23 +177,38 @@ accountApp.get('/billing', async (c) => {
   }
 });
 
-/**
- * POST /account/billing/setup — create a Stripe Checkout Session in setup mode.
- * Used from the billing page "Add payment method" button.
- * Returns a checkout URL the frontend redirects to.
- */
-accountApp.post('/billing/setup', async (c) => {
+// ─── POST /billing/setup — Create Billing Setup Session ─────────────────────
+
+const createBillingSetupRoute = createRoute({
+  method: 'post',
+  path: '/billing/setup',
+  tags: ['Account'],
+  security: bearerSecurity,
+  summary: 'Create billing setup session',
+  description: 'Creates a Stripe Checkout Session in setup mode to add a payment method.',
+  responses: {
+    200: {
+      description: 'Checkout URL',
+      content: { 'application/json': { schema: BillingSetupResponseSchema } },
+    },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    503: { description: 'Service Unavailable', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+// @ts-expect-error — handler returns multiple shapes (error + success); spec types are correctly declared above
+accountApp.openapi(createBillingSetupRoute, async (c) => {
   const userId = c.get('userId');
 
   if (!stripeClient.isConfigured()) {
-    return c.json({ error: true, message: 'Stripe not configured' }, 503);
+    return c.json({ error: true, message: 'Stripe not configured', status: 503 }, 503);
   }
 
   try {
     const [user] = await db.select().from(users).where(eq(users.id, userId));
-    if (!user) return c.json({ error: true, message: 'User not found' }, 404);
+    if (!user) return c.json({ error: true, message: 'User not found', status: 404 }, 404);
 
-    // Ensure Stripe customer exists
     const customerId = await stripeClient.getOrCreateCustomer(userId, user.email);
     if (!user.stripeCustomerId) {
       await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, userId));
@@ -147,6 +223,6 @@ accountApp.post('/billing/setup', async (c) => {
     return c.json({ checkout_url: url });
   } catch (err) {
     console.error('[BILLING] setup checkout error:', err);
-    return c.json({ error: true, message: 'Failed to create setup session' }, 500);
+    return c.json({ error: true, message: 'Failed to create setup session', status: 500 }, 500);
   }
 });

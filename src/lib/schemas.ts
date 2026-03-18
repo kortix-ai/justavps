@@ -1,10 +1,11 @@
 /**
  * Shared Zod schemas — SINGLE SOURCE OF TRUTH.
- * Used by API routes, OpenAPI spec generation, and SDK codegen.
- * Every request/response shape must be defined here.
+ * Used by API routes (via @hono/zod-openapi). The OpenAPI spec is
+ * auto-generated at runtime from these schemas + the createRoute() definitions.
+ * No separate extract-openapi script needed.
  */
 
-import { z } from 'zod';
+import { z } from '@hono/zod-openapi';
 
 // ─── Machine Schemas ────────────────────────────────────────────────────────
 
