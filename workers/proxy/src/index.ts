@@ -119,16 +119,31 @@ export default {
       // HTTP proxy (pass rewrittenPath for path-based port routing)
       const response = await proxyHTTPRequest(request, machineInfo, port, rewrittenPath);
 
-      // If origin is unreachable (machine still booting), show friendly page instead of CF error
-      if (response.status === 502 || response.status === 521 || response.status === 523) {
+      // Handle origin errors with friendly pages
+      if (response.status === 521 || response.status === 523) {
+        // 521/523 = origin server is down (Caddy not running yet)
         if (isBrowserRequest(request)) {
           return new Response(MACHINE_STARTING_HTML, {
             status: 503,
-            headers: {
-              'Content-Type': 'text/html; charset=utf-8',
-              'Retry-After': '5',
-              'Cache-Control': 'no-store',
-            },
+            headers: { 'Content-Type': 'text/html; charset=utf-8', 'Retry-After': '5', 'Cache-Control': 'no-store' },
+          });
+        }
+      }
+      if (response.status === 502 && port !== 80) {
+        // 502 on a non-default port = nothing listening on that port
+        if (isBrowserRequest(request)) {
+          return new Response(PORT_NOT_LISTENING_HTML.replace('{{PORT}}', String(port)), {
+            status: 502,
+            headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+          });
+        }
+      }
+      if (response.status === 502 && port === 80) {
+        // 502 on default port = Caddy/code-server still starting
+        if (isBrowserRequest(request)) {
+          return new Response(MACHINE_STARTING_HTML, {
+            status: 503,
+            headers: { 'Content-Type': 'text/html; charset=utf-8', 'Retry-After': '5', 'Cache-Control': 'no-store' },
           });
         }
       }
@@ -172,6 +187,26 @@ const ACCESS_DENIED_HTML = `<!DOCTYPE html>
   <h1>Access Denied</h1>
   <p>You don't have permission to access this machine. Make sure you're logged in with the account that created it.</p>
   <a href="https://justavps.com/machines">← Back to Dashboard</a>
+</div>
+</body></html>`;
+
+const PORT_NOT_LISTENING_HTML = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Port {{PORT}} — Not Listening</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #0a0a0a; color: #e5e5e5; }
+  .card { text-align: center; max-width: 420px; padding: 40px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 8px; }
+  p { color: #888; font-size: 14px; margin: 0 0 16px; }
+  code { background: #1a1a1a; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+  a { color: #3b82f6; text-decoration: none; }
+</style>
+</head><body>
+<div class="card">
+  <h1>Port {{PORT}} — Nothing Listening</h1>
+  <p>No service is running on port <code>{{PORT}}</code> on this machine.</p>
+  <p>Start a server on that port and try again.</p>
 </div>
 </body></html>`;
 
