@@ -5,13 +5,15 @@
  *   - One shared tunnel ("justavps-production") with many connectors (one per VPS)
  *   - Each VPS runs cloudflared → connects outbound to Cloudflare
  *   - DNS: CNAME slug.kortix.cloud → {tunnel-id}.cfargotunnel.com (proxied)
- *   - Tunnel ingress config maps hostname → localhost:80 on the connector
- *   - Worker handles auth, then passes through to the tunnel
+ *   - Tunnel ingress config maps hostname → localhost:7777 (daemon)
  */
 
 import { config } from './config';
+import { execSync } from 'child_process';
 
 const CF_API = 'https://api.cloudflare.com/client/v4';
+const DNS_VERIFY_ATTEMPTS = 3;
+const DNS_VERIFY_WAIT_MS = 8000;
 
 async function cfFetch<T = unknown>(
   path: string,
@@ -34,6 +36,21 @@ async function cfFetch<T = unknown>(
   }
 
   return res.json() as Promise<T>;
+}
+
+function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
+
+/**
+ * Verify DNS resolves via Cloudflare's own nameservers.
+ * Returns true if the hostname returns any result from dig.
+ */
+function verifyDNS(hostname: string): boolean {
+  try {
+    const result = execSync(`dig @1.1.1.1 +short ${hostname}`, { encoding: 'utf8', timeout: 5000 }).trim();
+    return result.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 // ─── Tunnel Ingress ─────────────────────────────────────────────────────────
@@ -63,11 +80,47 @@ async function setTunnelIngress(ingress: TunnelIngress[]): Promise<void> {
   });
 }
 
+/**
+ * Delete all DNS records for a hostname (any type).
+ */
+async function deleteAllDNSRecords(zid: string, hostname: string): Promise<void> {
+  for (const type of ['CNAME', 'A', 'AAAA']) {
+    try {
+      const existing = await cfFetch<{ result: Array<{ id: string }> }>(
+        `/zones/${zid}/dns_records?name=${hostname}&type=${type}`,
+      );
+      for (const r of existing.result) {
+        await cfFetch(`/zones/${zid}/dns_records/${r.id}`, { method: 'DELETE' });
+      }
+    } catch {}
+  }
+}
+
+/**
+ * Create a proxied CNAME record pointing to the tunnel.
+ */
+async function createTunnelCNAME(zid: string, hostname: string, tunnelId: string): Promise<void> {
+  await cfFetch(`/zones/${zid}/dns_records`, {
+    method: 'POST',
+    body: {
+      type: 'CNAME',
+      name: hostname,
+      content: `${tunnelId}.cfargotunnel.com`,
+      proxied: true,
+      ttl: 1,
+    },
+  });
+}
+
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 export const cloudflareClient = {
   /**
-   * Add a machine to the tunnel: ingress rule + CNAME DNS.
+   * Add a machine to the tunnel: ingress rule + CNAME DNS with verification.
+   *
+   * DNS CNAME propagation on Cloudflare is unreliable — newly created records
+   * sometimes don't resolve for 30-60s. This function creates the CNAME, verifies
+   * it resolves via dig, and if not, deletes + recreates up to 3 times.
    */
   async addMachineToTunnel(slug: string): Promise<void> {
     const { CLOUDFLARE_TUNNEL_ID: tid, CLOUDFLARE_ZONE_ID: zid, PROXY_DOMAIN: domain } = config;
@@ -78,7 +131,7 @@ export const cloudflareClient = {
 
     const hostname = `${slug}.${domain}`;
 
-    // Add ingress rule
+    // 1. Add ingress rule to tunnel config
     const ingress = await getTunnelIngress();
     if (!ingress.find(r => r.hostname === hostname)) {
       ingress.push({ hostname, service: 'http://localhost:7777', originRequest: {} });
@@ -86,42 +139,43 @@ export const cloudflareClient = {
       console.log(`[CF Tunnel] Added ingress: ${hostname}`);
     }
 
-    // Delete any stale DNS records (A or CNAME)
-    for (const type of ['CNAME', 'A']) {
-      try {
-        const existing = await cfFetch<{ result: Array<{ id: string }> }>(
-          `/zones/${zid}/dns_records?name=${hostname}&type=${type}`,
-        );
-        for (const r of existing.result) {
-          await cfFetch(`/zones/${zid}/dns_records/${r.id}`, { method: 'DELETE' });
-        }
-      } catch {}
-    }
+    // 2. Create CNAME with verification loop
+    // Delete any stale records first
+    await deleteAllDNSRecords(zid, hostname);
     // Also clean origin.slug records from old architecture
-    try {
-      const old = await cfFetch<{ result: Array<{ id: string }> }>(
-        `/zones/${zid}/dns_records?name=origin.${hostname}`,
-      );
-      for (const r of old.result) {
-        await cfFetch(`/zones/${zid}/dns_records/${r.id}`, { method: 'DELETE' });
+    await deleteAllDNSRecords(zid, `origin.${hostname}`);
+
+    for (let attempt = 1; attempt <= DNS_VERIFY_ATTEMPTS; attempt++) {
+      // Wait after deletion before creating
+      await sleep(3000);
+
+      // Create the CNAME
+      await createTunnelCNAME(zid, hostname, tid);
+      console.log(`[CF DNS] Created CNAME (attempt ${attempt}): ${hostname} → ${tid}.cfargotunnel.com`);
+
+      // Verify it resolves
+      await sleep(DNS_VERIFY_WAIT_MS);
+      if (verifyDNS(hostname)) {
+        console.log(`[CF DNS] ✓ Verified: ${hostname} resolves`);
+        return;
       }
-    } catch {}
 
-    // Brief delay after deletions to let CF propagate before creating new record
-    await new Promise(r => setTimeout(r, 2000));
+      console.warn(`[CF DNS] ✗ ${hostname} not resolving after ${DNS_VERIFY_WAIT_MS / 1000}s (attempt ${attempt}/${DNS_VERIFY_ATTEMPTS})`);
 
-    // Create CNAME → tunnel
-    await cfFetch(`/zones/${zid}/dns_records`, {
-      method: 'POST',
-      body: {
-        type: 'CNAME',
-        name: hostname,
-        content: `${tid}.cfargotunnel.com`,
-        proxied: true,
-        ttl: 1,
-      },
-    });
-    console.log(`[CF DNS] CNAME: ${hostname} → ${tid}.cfargotunnel.com`);
+      // Delete and retry
+      if (attempt < DNS_VERIFY_ATTEMPTS) {
+        await deleteAllDNSRecords(zid, hostname);
+        console.log(`[CF DNS] Deleted for retry`);
+      }
+    }
+
+    // Final check — sometimes it resolves right after the last attempt
+    await sleep(5000);
+    if (verifyDNS(hostname)) {
+      console.log(`[CF DNS] ✓ Verified on final check: ${hostname}`);
+    } else {
+      console.error(`[CF DNS] ✗ FAILED: ${hostname} did not resolve after ${DNS_VERIFY_ATTEMPTS} attempts. DNS may propagate later.`);
+    }
   },
 
   /**
@@ -132,7 +186,6 @@ export const cloudflareClient = {
     if (!tid || !zid) return;
     const hostname = `${slug}.${domain}`;
 
-    // Remove ingress
     try {
       const ingress = await getTunnelIngress();
       const filtered = ingress.filter(r => r.hostname !== hostname);
@@ -144,21 +197,12 @@ export const cloudflareClient = {
       console.warn(`[CF Tunnel] Failed to remove ingress for ${hostname}:`, err);
     }
 
-    // Delete DNS
-    try {
-      for (const pattern of [hostname, `origin.${hostname}`]) {
-        const records = await cfFetch<{ result: Array<{ id: string }> }>(
-          `/zones/${zid}/dns_records?name=${pattern}`,
-        );
-        for (const r of records.result) {
-          await cfFetch(`/zones/${zid}/dns_records/${r.id}`, { method: 'DELETE' });
-        }
-      }
-    } catch {}
+    await deleteAllDNSRecords(zid, hostname);
+    await deleteAllDNSRecords(zid, `origin.${hostname}`);
   },
 
   /**
-   * Write machine to KV (Worker auth).
+   * Write machine to KV (for Worker/daemon auth if needed).
    */
   async writeKVMachine(slug: string, data: {
     owner_id: string;

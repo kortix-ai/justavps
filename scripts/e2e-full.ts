@@ -359,12 +359,21 @@ async function main() {
     jwt = await signProxyToken(userId);
   } catch { jwt = ''; }
 
-  // 6.1 Web URL — no auth → blocked (302 redirect to login or 401)
+  // 6.1 Web URL — no auth → redirect to /auth/login (302)
   if (httpsOk) {
     const na = curlCode(proxyUrl);
     if (na === '401' || na === '302') ok(`Web URL no auth → ${na} (blocked)`);
     else bad(`Web URL no auth → ${na} (expected 401/302)`);
   } else { skipped('Web URL no auth'); }
+
+  // 6.1b Login page is served at /auth/login
+  if (httpsOk) {
+    try {
+      const loginBody = execSync(`curl -s --max-time 10 "${proxyUrl}/auth/login"`, { encoding: 'utf8', timeout: 15000 });
+      assertContains('Login page served', loginBody, 'Authenticate');
+      assertContains('Login page has API key input', loginBody, 'api_key');
+    } catch { bad('Login page'); }
+  } else { skipped('Login page'); }
 
   // 6.2 Web URL — JWT cookie → code-server (200)
   if (httpsOk && jwt) {

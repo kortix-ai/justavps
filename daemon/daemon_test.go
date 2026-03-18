@@ -193,7 +193,7 @@ func TestAuthProxyBrowserRedirect(t *testing.T) {
 	if loc == "" {
 		t.Error("expected Location header")
 	}
-	if !containsStr(loc, "/api/proxy-auth") {
-		t.Errorf("expected redirect to proxy-auth, got %s", loc)
+	if !containsStr(loc, "/auth/login") {
+		t.Errorf("expected redirect to /auth/login, got %s", loc)
 	}
 }

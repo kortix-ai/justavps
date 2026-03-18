@@ -65,6 +65,10 @@ func main() {
 	mux.HandleFunc("POST /services/{name}/restart", apiServer.handleServiceRestart)
 	mux.HandleFunc("GET /info", apiServer.handleInfo)
 
+	// Auth login page (no auth required — this IS the auth flow)
+	mux.HandleFunc("GET /auth/login", handleLoginPage(cfg))
+	mux.HandleFunc("POST /auth/login", handleLoginSubmit(cfg))
+
 	// Auth reverse proxy for everything else → code-server
 	authProxy := NewAuthProxy(cfg, cfg.ProxyAuthSecret, *codeServerPort)
 	mux.Handle("/", authProxy)
