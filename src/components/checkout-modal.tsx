@@ -1,35 +1,13 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { useProviders, useRegions, useServerTypes } from "@/hooks/use-server-types";
 import { useCreateMachine } from "@/hooks/use-machines";
 import { toast } from "sonner";
-import { X, Check, Loader2, Cpu, MemoryStick, HardDrive, Zap, Star, Rocket, ArrowRight } from "lucide-react";
-
-/* ═══ Config ═══ */
-const FEATURED_BY_REGION: Record<string, string[]> = {
-  hel1: ["cpx22", "cpx32", "cpx42"],
-  hil: ["cpx11", "cpx21", "cpx31"],
-};
-const PLAN_LABELS = ["Starter", "Pro", "Power"] as const;
-const PLAN_ICONS = [Zap, Star, Rocket] as const;
-const PLAN_TAGLINES = ["Light workloads", "Most workloads", "Heavy & parallel"] as const;
-
-const REGION_MAP: Record<string, { flag: string; label: string }> = {
-  hel1: { flag: "🇪🇺", label: "Europe" },
-  fsn1: { flag: "🇪🇺", label: "Europe" },
-  nbg1: { flag: "🇪🇺", label: "Europe" },
-  hil: { flag: "🇺🇸", label: "USA" },
-  ash: { flag: "🇺🇸", label: "USA" },
-};
-
-const INCLUDED = [
-  "SSH access", "Browser IDE", "Web terminal", "Auth proxy",
-  "Daily backups", "Docker", "Claude Code / OpenCode", "sandbox-agent SDK",
-];
+import { X, Loader2, ArrowRight } from "lucide-react";
+import { PlanPicker } from "@/components/plan-picker";
 
 /* ═══ Component ═══ */
 interface CheckoutModalProps { open: boolean; onClose: () => void }
@@ -47,22 +25,24 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
   const [selectedServerType, setSelectedServerType] = useState("");
   const createMachine = useCreateMachine();
 
+  // Auto-select first provider
   useEffect(() => { if (providers.length >= 1 && !selectedProvider) setSelectedProvider(providers[0].name); }, [providers, selectedProvider]);
+  // Auto-select first region
   useEffect(() => { if (regions?.length && !selectedRegion) setSelectedRegion(regions[0].id); }, [regions, selectedRegion]);
+  // Auto-select second plan (Pro / most popular)
   useEffect(() => {
     if (serverTypes?.length && !selectedServerType) {
-      const names = FEATURED_BY_REGION[selectedRegion] ?? FEATURED_BY_REGION.hel1;
-      const mid = names[1];
-      const match = mid ? serverTypes.find((s) => s.name === mid) : null;
-      setSelectedServerType(match ? match.name : serverTypes[0].name);
+      setSelectedServerType(serverTypes[Math.min(1, serverTypes.length - 1)].name);
     }
-  }, [serverTypes, selectedRegion, selectedServerType]);
+  }, [serverTypes, selectedServerType]);
 
+  // Lock body scroll when open
   useEffect(() => {
     document.body.style.overflow = open ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
   }, [open]);
 
+  // Escape to close
   useEffect(() => {
     if (!open) return;
     const handleKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -71,11 +51,6 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
   }, [open, onClose]);
 
   const selectedST = serverTypes?.find((s) => s.name === selectedServerType);
-  const featuredNames = FEATURED_BY_REGION[selectedRegion] ?? FEATURED_BY_REGION.hel1;
-  const featured = useMemo(
-    () => featuredNames.map((name) => serverTypes?.find((s) => s.name === name)).filter(Boolean),
-    [serverTypes, selectedRegion, featuredNames]
-  );
 
   const handleDeploy = () => {
     if (!isLoggedIn) { window.location.href = `/login?next=${encodeURIComponent("/machines/new")}`; return; }
@@ -114,95 +89,15 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
           </div>
 
           {/* ── Body ── */}
-          <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-6">
-
-            {/* Region */}
-            {regions && regions.length > 1 && (
-              <div className="flex gap-2">
-                {regions.map((r) => {
-                  const active = selectedRegion === r.id;
-                  const rm = REGION_MAP[r.id];
-                  return (
-                    <button
-                      key={r.id}
-                      onClick={() => { setSelectedRegion(r.id); setSelectedServerType(""); }}
-                      className={cn(
-                        "flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-medium transition-all",
-                        active ? "border-foreground bg-foreground text-background" : "border-border text-muted-foreground hover:border-foreground hover:text-foreground"
-                      )}
-                    >
-                      <span>{rm?.flag ?? "🌍"}</span>
-                      {rm?.label ?? r.city}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Plans */}
-            <div className="space-y-2">
-              {featured.map((s, idx) => {
-                if (!s) return null;
-                const label = PLAN_LABELS[idx] || s.name;
-                const Icon = PLAN_ICONS[idx] || Zap;
-                const tagline = PLAN_TAGLINES[idx];
-                const isMid = idx === 1;
-                const active = selectedServerType === s.name;
-                return (
-                  <button
-                    key={s.name}
-                    onClick={() => setSelectedServerType(s.name)}
-                    className={cn(
-                      "w-full flex items-center gap-4 p-4 rounded-xl border text-left transition-all",
-                      active ? "border-foreground bg-card" : "border-border hover:border-foreground/50"
-                    )}
-                  >
-                    {/* Radio */}
-                    <div className={cn("size-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors", active ? "border-foreground bg-foreground" : "border-border")}>
-                      {active && <Check className="size-3 text-background" />}
-                    </div>
-
-                    {/* Icon */}
-                    <div className={cn("size-10 rounded-xl flex items-center justify-center shrink-0", active ? "bg-foreground text-background" : "bg-muted text-muted-foreground")}>
-                      <Icon className="size-4" />
-                    </div>
-
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">{label}</span>
-                        {isMid && <span className="px-1.5 py-0.5 rounded bg-foreground text-background text-[9px] font-medium leading-none">POPULAR</span>}
-                      </div>
-                      <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground whitespace-nowrap">
-                        <span>{s.vcpu} vCPU</span>
-                        <span className="text-border">·</span>
-                        <span>{s.ram_gb} GB RAM</span>
-                        <span className="text-border">·</span>
-                        <span>{s.disk_gb} GB SSD</span>
-                        <span className="text-border">·</span>
-                        <span>{tagline}</span>
-                      </div>
-                    </div>
-
-                    {/* Price */}
-                    <div className="text-right shrink-0">
-                      <span className="text-lg font-medium">${s.price_monthly}</span>
-                      <span className="text-xs text-muted-foreground">/mo</span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Included */}
-            <div className="flex flex-wrap gap-1.5">
-              {INCLUDED.map((item) => (
-                <span key={item} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-muted text-xs text-muted-foreground">
-                  <Check className="size-3 text-green-600 dark:text-green-400" />
-                  {item}
-                </span>
-              ))}
-            </div>
+          <div className="flex-1 overflow-y-auto px-6 pb-6">
+            <PlanPicker
+              regions={regions ?? undefined}
+              serverTypes={serverTypes ?? undefined}
+              selectedRegion={selectedRegion}
+              selectedServerType={selectedServerType}
+              onRegionChange={(r) => { setSelectedRegion(r); setSelectedServerType(""); }}
+              onServerTypeChange={setSelectedServerType}
+            />
           </div>
 
           {/* ── Footer CTA ── */}

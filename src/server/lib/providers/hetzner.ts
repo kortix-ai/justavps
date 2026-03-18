@@ -13,12 +13,29 @@ const API_TIMEOUT_MS = 30_000;
 const PROVISION_TIMEOUT_MS = 600_000;
 const POLL_INTERVAL_MS = 3_000;
 
-// Only CPX (shared AMD) types — curated list per region
-const ALLOWED_TYPES_BY_REGION: Record<string, string[]> = {
-  hel1: ['cpx22', 'cpx32', 'cpx42', 'cpx52', 'cpx62'],
-  nbg1: ['cpx22', 'cpx32', 'cpx42', 'cpx52', 'cpx62'],
-  hil:  ['cpx11', 'cpx21', 'cpx31', 'cpx41'],
-};
+/**
+ * ═══ PLAN TIERS — single source of truth ═══
+ *
+ * Canonical customer-facing specs & pricing.  Both EU and US show
+ * identical plans; the underlying Hetzner SKU differs per region.
+ *
+ * EU uses one-tier-up CPX so customers always get ≥ advertised specs
+ * (e.g. EU cpx32 = 3 vCPU / 4 GB — we advertise 2 vCPU / 4 GB, they
+ * get *more* CPU than promised).
+ *
+ *   Plan       vCPU   RAM    SSD     Price    EU SKU    US SKU
+ *   ────────   ────   ────   ─────   ──────   ───────   ──────
+ *   Starter      2    4 GB    80 GB   $15/mo   cpx32    cpx11
+ *   Pro          4    8 GB   160 GB   $27/mo   cpx42    cpx21
+ *   Power        8   16 GB   320 GB   $49/mo   cpx52    cpx31
+ *   Ultra       16   32 GB   640 GB   $97/mo   cpx62    cpx41
+ */
+const PLAN_TIERS = [
+  { vcpu: 2,  memory: 4,  disk: 80,  price: 15, sku: { hel1: 'cpx32', nbg1: 'cpx32', hil: 'cpx11' } as Record<string, string> },
+  { vcpu: 4,  memory: 8,  disk: 160, price: 27, sku: { hel1: 'cpx42', nbg1: 'cpx42', hil: 'cpx21' } as Record<string, string> },
+  { vcpu: 8,  memory: 16, disk: 320, price: 49, sku: { hel1: 'cpx52', nbg1: 'cpx52', hil: 'cpx31' } as Record<string, string> },
+  { vcpu: 16, memory: 32, disk: 640, price: 97, sku: { hel1: 'cpx62', nbg1: 'cpx62', hil: 'cpx41' } as Record<string, string> },
+];
 
 interface HetznerServerType {
   id: number;
@@ -228,29 +245,37 @@ export class HetznerProvider implements ComputeProvider {
 
   async listServerTypes(region: string): Promise<ServerTypeInfo[]> {
     const loc = region || config.HETZNER_DEFAULT_LOCATION;
-    const data = await hetznerFetch<{ server_types: HetznerServerType[] }>('/server_types?per_page=50');
-    const markup = config.COMPUTE_MARKUP;
 
-    return data.server_types
-      .filter((st) => (ALLOWED_TYPES_BY_REGION[loc] ?? []).includes(st.name))
-      .filter((st) => st.prices.some((p) => p.location === loc))
-      .map((st) => {
-        const locPrice = st.prices.find((p) => p.location === loc)!;
-        const providerMonthly = parseFloat(locPrice.price_monthly.gross);
+    // Collect the Hetzner SKU names we need for this region
+    const skuNames = PLAN_TIERS.map((t) => t.sku[loc]).filter(Boolean);
+
+    // Fetch Hetzner server types for provider-cost tracking only
+    const data = await hetznerFetch<{ server_types: HetznerServerType[] }>('/server_types?per_page=50');
+    const providerCosts: Record<string, number> = {};
+    for (const st of data.server_types) {
+      if (!skuNames.includes(st.name)) continue;
+      const locPrice = st.prices.find((p) => p.location === loc);
+      if (locPrice) providerCosts[st.name] = parseFloat(locPrice.price_monthly.gross);
+    }
+
+    // Return canonical plan definitions — specs & prices are region-independent
+    return PLAN_TIERS
+      .filter((tier) => tier.sku[loc])
+      .map((tier) => {
+        const skuName = tier.sku[loc];
         return {
-          name: st.name,
-          description: st.description,
-          cores: st.cores,
-          memory: st.memory,
-          disk: st.disk,
-          cpuType: st.cpu_type,
-          architecture: st.architecture as 'x86' | 'arm',
-          providerPriceMonthly: providerMonthly,
-          priceMonthly: Math.ceil(providerMonthly * markup),
+          name: skuName,
+          description: `${tier.vcpu} vCPU / ${tier.memory} GB RAM / ${tier.disk} GB SSD`,
+          cores: tier.vcpu,
+          memory: tier.memory,
+          disk: tier.disk,
+          cpuType: 'shared' as const,
+          architecture: 'x86' as const,
+          providerPriceMonthly: providerCosts[skuName] ?? 0,
+          priceMonthly: tier.price,
           region: loc,
         };
-      })
-      .sort((a, b) => a.providerPriceMonthly - b.providerPriceMonthly);
+      });
   }
 
   async listRegions(): Promise<RegionInfo[]> {

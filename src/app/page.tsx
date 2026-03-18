@@ -137,7 +137,7 @@ export default function Home() {
               <div className="border-t border-border bg-muted p-4 font-mono text-xs leading-relaxed">
                 <div className="text-muted-foreground"># pip install justavps</div>
                 <div className="mt-1"><span className="text-blue-600 dark:text-blue-400">from</span> <span className="text-foreground">justavps</span> <span className="text-blue-600 dark:text-blue-400">import</span> <span className="text-foreground">JustAVPS</span></div>
-                <div className="mt-1 text-foreground">sandbox = JustAVPS().create(type=<span className="text-amber-600 dark:text-amber-400">&quot;cx22&quot;</span>)</div>
+                <div className="mt-1 text-foreground">sandbox = JustAVPS().create(type=<span className="text-amber-600 dark:text-amber-400">&quot;cpx32&quot;</span>)</div>
                 <div className="mt-1 text-foreground">sandbox.exec(<span className="text-amber-600 dark:text-amber-400">&quot;echo hello&quot;</span>)</div>
                 <div className="mt-1 text-foreground">sandbox.url(<span className="text-amber-600 dark:text-amber-400">8000</span>) <span className="text-muted-foreground"># → https://8000.abc123.kortix.cloud</span></div>
               </div>
@@ -287,9 +287,9 @@ const API_SECTIONS = [
   { id: "machine", label: "Machine",
     icon: <svg className="size-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /></svg>,
     desc: "Create, snapshot, resize, destroy sandboxes via SDK.",
-    py: [`from justavps import JustAVPS`,``,`client = JustAVPS()`,``,`# Create a sandbox`,`sandbox = client.create(type="cx22", region="hel1")`,`print(sandbox.ip)    # 95.217.x.x`,`print(sandbox.url()) # https://abc123.kortix.cloud`,``,`# Snapshot & destroy`,`client.snapshot(sandbox.id, name="v1")`,`client.remove(sandbox.id)`,``,``],
-    ts: [`import { JustAVPS } from "justavps"`,``,`const client = new JustAVPS()`,``,`// Create a sandbox`,`const sandbox = await client.create({`,`  type: "cx22", region: "hel1"`,`})`,`console.log(sandbox.ip)  // 95.217.x.x`,`console.log(sandbox.url())`,``,`// Snapshot & destroy`,`await client.snapshot(sandbox.id, { name: "v1" })`,`await client.remove(sandbox.id)`],
-    rest: [`# Create a sandbox`,`POST /api/v1/machines`,`Authorization: Bearer $API_KEY`,`{"type": "cx22", "region": "hel1"}`,``,`# → 201 Created`,`# {"id": "abc123", "ip": "95.217.x.x"}`,``,`# Snapshot`,`POST /api/v1/machines/abc123/snapshots`,`{"name": "v1"}`,``,`# Destroy`,`DELETE /api/v1/machines/abc123`],
+    py: [`from justavps import JustAVPS`,``,`client = JustAVPS()`,``,`# Create a sandbox`,`sandbox = client.create(type="cpx32", region="hel1")`,`print(sandbox.ip)    # 95.217.x.x`,`print(sandbox.url()) # https://abc123.kortix.cloud`,``,`# Snapshot & destroy`,`client.snapshot(sandbox.id, name="v1")`,`client.remove(sandbox.id)`,``,``],
+    ts: [`import { JustAVPS } from "justavps"`,``,`const client = new JustAVPS()`,``,`// Create a sandbox`,`const sandbox = await client.create({`,`  type: "cpx32", region: "hel1"`,`})`,`console.log(sandbox.ip)  // 95.217.x.x`,`console.log(sandbox.url())`,``,`// Snapshot & destroy`,`await client.snapshot(sandbox.id, { name: "v1" })`,`await client.remove(sandbox.id)`],
+    rest: [`# Create a sandbox`,`POST /api/v1/machines`,`Authorization: Bearer $API_KEY`,`{"type": "cpx32", "region": "hel1"}`,``,`# → 201 Created`,`# {"id": "abc123", "ip": "95.217.x.x"}`,``,`# Snapshot`,`POST /api/v1/machines/abc123/snapshots`,`{"name": "v1"}`,``,`# Destroy`,`DELETE /api/v1/machines/abc123`],
   },
   { id: "process", label: "Process",
     icon: <svg className="size-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></svg>,

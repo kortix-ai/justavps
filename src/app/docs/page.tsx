@@ -452,7 +452,7 @@ ssh -i ~/.ssh/justavps_{slug} -L 3000:localhost:3000 root@{ip}`}</CodeBlock>
   -d '{
     "snapshot_id": "...",
     "provider": "hetzner",
-    "server_type": "cpx22",
+    "server_type": "cpx32",
     "region": "hel1",
     "name": "my-machine"
   }'`}</CodeBlock>
@@ -461,7 +461,7 @@ ssh -i ~/.ssh/justavps_{slug} -L 3000:localhost:3000 root@{ip}`}</CodeBlock>
   "id": "...",
   "slug": "abc123",
   "status": "provisioning",
-  "server_type": "cpx22",
+  "server_type": "cpx32",
   "region": "hel1",
   "ip": null,
   "urls": null,
@@ -483,8 +483,8 @@ ssh -i ~/.ssh/justavps_{slug} -L 3000:localhost:3000 root@{ip}`}</CodeBlock>
   "region": "hel1",
   "server_types": [
     {
-      "name": "cpx22",
-      "vcpu": 3,
+      "name": "cpx32",
+      "vcpu": 2,
       "ram_gb": 4,
       "disk_gb": 80,
       "cpu_type": "shared",
@@ -555,7 +555,7 @@ ssh -i ~/.ssh/justavps_{slug} -L 3000:localhost:3000 root@{ip}`}</CodeBlock>
   -d '{
     "snapshot_id": "...",
     "provider": "hetzner",
-    "server_type": "cpx22",
+    "server_type": "cpx32",
     "region": "hel1"
   }'`}</CodeBlock>
         <P>You can also override the Docker image or entrypoint at provision time by passing <InlineCode>docker_image</InlineCode> or <InlineCode>entrypoint</InlineCode> in the request body.</P>
