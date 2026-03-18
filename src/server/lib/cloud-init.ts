@@ -238,7 +238,7 @@ DSEOF
 fi
 
 # ── justavps-daemon (ALWAYS update to latest — runs outside install guard) ─
-DAEMON_URL="https://github.com/heyagi/justavps-daemon/releases/latest/download/justavps-daemon-linux-amd64"
+DAEMON_URL="https://github.com/kortix-ai/justavps/releases/latest/download/justavps-daemon-linux-amd64"
 echo "[justavps] Updating justavps-daemon..."
 curl -fsSL -o /usr/local/bin/justavps-daemon "$DAEMON_URL" 2>/dev/null \\
   || echo "[justavps] WARNING: Failed to download daemon, using existing binary if available"

@@ -31,6 +31,9 @@ drizzle/meta/
 agent/justavps-agent
 agent/bin/
 
+# daemon binary
+daemon/bin/
+
 # cloudflare worker
 workers/proxy/.wrangler/
 .env*.local
