@@ -80,12 +80,26 @@ export default {
       const authResult = await validateAuth(request, slug, env.KV, env.PROXY_AUTH_SECRET);
 
       if (!authResult.success) {
-        // Browser request → redirect to login
+        const error = authResult.error || 'Authentication required';
+        const isAccessDenied = error === 'Access denied' || error === 'Machine is deleted';
+
+        // If user IS authenticated but doesn't own the machine → show error, don't redirect
+        // (redirecting causes infinite loop: login → proxy-auth → JWT → ownership fail → redirect)
+        if (isAccessDenied) {
+          if (isBrowserRequest(request)) {
+            return new Response(ACCESS_DENIED_HTML, {
+              status: 403,
+              headers: { 'Content-Type': 'text/html; charset=utf-8' },
+            });
+          }
+          return createUnauthorizedResponse(error);
+        }
+
+        // Not authenticated at all → redirect to login
         if (isBrowserRequest(request) && request.method === 'GET') {
           return createLoginRedirect(request, env.PLATFORM_URL);
         }
-        // API request → 401
-        return createUnauthorizedResponse(authResult.error || 'Authentication required');
+        return createUnauthorizedResponse(error);
       }
 
       // Auth passed — proxy directly to VPS IP
@@ -140,6 +154,26 @@ export default {
     }
   },
 };
+
+const ACCESS_DENIED_HTML = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Access Denied</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #0a0a0a; color: #e5e5e5; }
+  .card { text-align: center; max-width: 420px; padding: 40px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 8px; }
+  p { color: #888; font-size: 14px; margin: 0 0 16px; }
+  a { color: #3b82f6; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+</style>
+</head><body>
+<div class="card">
+  <h1>Access Denied</h1>
+  <p>You don't have permission to access this machine. Make sure you're logged in with the account that created it.</p>
+  <a href="https://justavps.com/machines">← Back to Dashboard</a>
+</div>
+</body></html>`;
 
 const MACHINE_STARTING_HTML = `<!DOCTYPE html>
 <html><head>
