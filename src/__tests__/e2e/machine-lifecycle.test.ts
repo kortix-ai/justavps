@@ -423,6 +423,49 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
     expect(['200', '302']).toContain(status);
   });
 
+  it('19b. proxy-auth endpoint issues JWT cookie without 500', async () => {
+    // This tests the full proxy-auth flow that the browser uses:
+    // 1. Login to platform (get session cookie)
+    // 2. Hit /api/proxy-auth?redirect=... with session
+    // 3. Should get 302 redirect with __justavps_proxy cookie, NOT 500
+    const baseUrl = BASE_URL.replace('/api', '');
+
+    // Get CSRF token
+    const csrfRes = await fetch(`${baseUrl}/api/auth/csrf`);
+    const csrfData = await csrfRes.json() as { csrfToken: string };
+    const cookies = csrfRes.headers.getSetCookie?.() || [];
+
+    // Login
+    const loginRes = await fetch(`${baseUrl}/api/auth/callback/credentials`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Cookie': cookies.join('; '),
+      },
+      body: `email=e2e-prod@justavps.com&password=testpassword123&csrfToken=${csrfData.csrfToken}`,
+      redirect: 'manual',
+    });
+    const sessionCookies = loginRes.headers.getSetCookie?.() || [];
+    const allCookies = [...cookies, ...sessionCookies].join('; ');
+
+    // Hit proxy-auth with session
+    const proxyAuthRes = await fetch(
+      `${baseUrl}/api/proxy-auth?redirect=https://${machineSlug}.kortix.cloud/`,
+      { headers: { 'Cookie': allCookies }, redirect: 'manual' },
+    );
+
+    console.log(`[E2E] proxy-auth: ${proxyAuthRes.status}`);
+    // Must be 302 (redirect with cookie), NOT 500
+    expect(proxyAuthRes.status).toBe(302);
+    const location = proxyAuthRes.headers.get('location') || '';
+    expect(location).toContain(`${machineSlug}.kortix.cloud`);
+    // Check the proxy cookie was set
+    const setCookies = proxyAuthRes.headers.getSetCookie?.() || [];
+    const proxyCookie = setCookies.find(c => c.includes('__justavps_proxy'));
+    expect(proxyCookie).toBeTruthy();
+    console.log(`[E2E] proxy-auth: cookie set ✓, redirect to ${location.slice(0, 50)}`);
+  });
+
   // ═══════════════════════════════════════════════════════════════════════════
   //  PHASE 7: PORT FORWARDING — start custom server, proxy through CF Worker
   // ═══════════════════════════════════════════════════════════════════════════
