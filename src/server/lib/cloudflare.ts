@@ -107,6 +107,9 @@ export const cloudflareClient = {
       }
     } catch {}
 
+    // Brief delay after deletions to let CF propagate before creating new record
+    await new Promise(r => setTimeout(r, 2000));
+
     // Create CNAME → tunnel
     await cfFetch(`/zones/${zid}/dns_records`, {
       method: 'POST',
