@@ -137,11 +137,7 @@ async function verifyJWT(
     const signature = base64UrlDecode(signatureB64);
 
     const valid = await crypto.subtle.verify('HMAC', key, signature, sigInput);
-    if (!valid) {
-      // Debug: log secret length to help diagnose mismatches (no secret value!)
-      console.log(`JWT sig verify failed. Secret length: ${secret.length}, token header: ${headerB64.slice(0, 20)}`);
-      return { success: false, error: `Invalid JWT signature (secret_len=${secret.length})` };
-    }
+    if (!valid) return { success: false, error: 'Invalid JWT signature' };
 
     // Decode payload
     const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(payloadB64)));
