@@ -35,7 +35,7 @@ const XTermComponent = ({ machineId, machineIp, machineSlug, machineStatus, ptyU
     }
   }, []);
 
-  const connectPTY = useCallback((term: Terminal | null) => {
+  const connectPTY = useCallback(async (term: Terminal | null) => {
     if (!ptyUrl || !term) return;
     
     // Close existing connection if any
@@ -43,7 +43,24 @@ const XTermComponent = ({ machineId, machineIp, machineSlug, machineStatus, ptyU
 
     term.write('\x1b[90mConnecting to machine...\x1b[0m\r\n');
 
-    const ws = new WebSocket(ptyUrl);
+    // Get proxy auth token for cross-origin WebSocket
+    // (cookies aren't sent cross-origin from justavps.com → slug.kortix.cloud)
+    let wsUrl = ptyUrl;
+    try {
+      const res = await fetch('/api/proxy-auth', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.token) {
+          const url = new URL(ptyUrl);
+          url.searchParams.set('token', data.token);
+          wsUrl = url.toString();
+        }
+      }
+    } catch {
+      // Fall back to cookie-based auth (works if same origin)
+    }
+
+    const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
