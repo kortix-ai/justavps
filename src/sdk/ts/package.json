@@ -1,0 +1,49 @@
+{
+  "name": "@justavps/sdk",
+  "version": "0.1.0",
+  "description": "Official TypeScript SDK for the JustAVPS API",
+  "license": "MIT",
+  "author": "JustAVPS <support@justavps.com>",
+  "homepage": "https://justavps.com/api/docs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heyagi/justavps.com",
+    "directory": "src/sdk/ts"
+  },
+  "keywords": ["justavps", "vps", "api", "sdk", "cloud", "machines"],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./generated": {
+      "import": {
+        "types": "./dist/generated/index.d.ts",
+        "default": "./dist/generated/index.js"
+      },
+      "require": {
+        "types": "./dist/generated/index.d.cts",
+        "default": "./dist/generated/index.cjs"
+      }
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  }
+}

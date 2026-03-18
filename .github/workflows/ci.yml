@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm vitest run
+
+  sdk-check:
+    name: SDK Drift Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: pnpm }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: pnpm install --frozen-lockfile
+      - run: pip install openapi-python-client
+      - run: pnpm sdk:generate
+      - name: Fail if SDK is stale
+        run: |
+          if [ -n "$(git diff --name-only)" ]; then
+            echo "::error::SDK is out of date. Run 'pnpm sdk:generate' and commit."
+            git diff --stat
+            exit 1
+          fi

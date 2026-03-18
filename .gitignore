@@ -34,3 +34,8 @@ agent/bin/
 # cloudflare worker
 workers/proxy/.wrangler/
 .env*.local
+
+# Python SDK build artifacts
+src/sdk/python/.ruff_cache/
+__pycache__/
+*.pyc
