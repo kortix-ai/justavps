@@ -74,7 +74,7 @@ describe('cloud-init', () => {
     it('should configure Caddy reverse proxy', () => {
       const script = buildCloudInit(defaultOpts);
       
-      expect(script).toContain('.example.com {');
+      expect(script).toContain(':80 {');
       expect(script).toContain('reverse_proxy localhost:8080');
     });
     

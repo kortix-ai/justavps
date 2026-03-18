@@ -6,7 +6,7 @@
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db';
-import { machines, images } from '../../db/schema';
+import { machines, images, users } from '../../db/schema';
 import { config } from '../../lib/config';
 
 type Machine = typeof machines.$inferSelect;
@@ -19,7 +19,7 @@ import {
   generateMachineIdentity,
   uploadSSHKeyToProvider,
   buildMachineUserData,
-  setupDNSAndKV,
+  setupProxyKV,
   lookupPrice,
   createMachineRecord,
   createStripeSubscription,
@@ -102,6 +102,14 @@ function serializeMachine(m: typeof machines.$inferSelect) {
 }
 
 // ─── POST / — Create Machine ────────────────────────────────────────────────
+//
+// Payment flow:
+//   1. Validate input + provider
+//   2. Ensure Stripe customer exists
+//   3. Check if customer has a payment method on file
+//      - YES → provision machine immediately, subscription charges default PM
+//      - NO  → create Stripe Checkout Session, return 402 with checkout_url
+//              Machine is provisioned by the webhook after successful payment
 
 machinesApp.post('/', async (c) => {
   const body = await c.req.json();
@@ -135,17 +143,64 @@ machinesApp.post('/', async (c) => {
     resolvedImage = img.providerImageId;
   }
 
+  // 3. Price lookup
+  const priceMonthly = await lookupPrice(provider, data.region, data.server_type);
+
+  // 4. Payment gate — check if user has a payment method
+  if (stripeClient.isConfigured()) {
+    try {
+      const [user] = await db.select().from(users).where(eq(users.id, ownerId));
+      if (!user) return errorResponse(c, 404, 'User not found');
+
+      // Ensure Stripe customer exists
+      const customerId = await stripeClient.getOrCreateCustomer(ownerId, user.email);
+      if (!user.stripeCustomerId) {
+        await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, ownerId));
+      }
+
+      // Check for payment method
+      const hasPM = await stripeClient.hasPaymentMethod(customerId);
+
+      if (!hasPM) {
+        // No payment method → redirect to Stripe Checkout
+        const { url: checkoutUrl } = await stripeClient.createCheckoutSession({
+          customerId,
+          userId: ownerId,
+          machineConfig: {
+            provider: data.provider,
+            server_type: data.server_type,
+            region: data.region,
+            name: data.name,
+            image_id: data.image_id ?? null,
+            docker_image: data.docker_image,
+            entrypoint: data.entrypoint,
+            env_vars: data.env_vars,
+          },
+          priceMonthlyUsd: priceMonthly,
+          successUrl: `${config.APP_URL}/machines`,
+          cancelUrl: `${config.APP_URL}/machines`,
+        });
+
+        console.log(`[MACHINES] User ${ownerId} has no payment method — redirecting to Stripe Checkout`);
+
+        return c.json({
+          requires_checkout: true,
+          checkout_url: checkoutUrl,
+          message: 'Payment method required. Complete checkout to provision your machine.',
+        }, 402);
+      }
+    } catch (err) {
+      console.error('[MACHINES] Payment check failed:', err);
+      // Fall through — don't block machine creation if Stripe check fails
+    }
+  }
+
+  // 5. User has a payment method (or Stripe is not configured) → provision immediately
   try {
-    // 3. Generate identity (slug, token, password, SSH keypair)
     const { slug, machineToken, codeServerPassword, keyPair } = await generateMachineIdentity();
-
-    // 4. Upload SSH key to provider
     const providerKeyId = await uploadSSHKeyToProvider(provider, slug, keyPair.publicKey);
-
-    // 5. Build cloud-init
     const userdata = buildMachineUserData(slug, codeServerPassword, keyPair.publicKey, machineToken, data.env_vars, data.docker_image, data.entrypoint);
 
-    // 6. Create DB record immediately (provisioning state)
     const machine = await createMachineRecord({
       ownerId,
       slug,
@@ -160,17 +215,14 @@ machinesApp.post('/', async (c) => {
       codeServerPassword,
       sshPublicKey: keyPair.publicKey,
       sshPrivateKey: keyPair.privateKey,
-      priceMonthly: null,
+      priceMonthly,
       dockerImage: data.docker_image || null,
       entrypoint: data.entrypoint || null,
     });
 
-    // Emit initial stage
     await eventBus.emitStageChange(machine.id, ownerId, 'server_creating', 'Creating server on provider...');
 
-    // 7. Run provider creation + setup in background (non-blocking)
-    // Uses Next.js `after()` which maps to Vercel's `waitUntil()` in production,
-    // ensuring the serverless function stays alive until provisioning completes.
+    // Background: provider creation + Stripe subscription
     after(async () => {
       try {
         const server = await provider.createServer({
@@ -188,7 +240,6 @@ machinesApp.post('/', async (c) => {
           },
         });
 
-        // Update machine with IP and provider ID
         await db.update(machines).set({
           ip: server.publicIp,
           providerServerId: server.serverId,
@@ -196,17 +247,14 @@ machinesApp.post('/', async (c) => {
 
         await eventBus.emitStageChange(machine.id, ownerId, 'server_created', `Server created (IP: ${server.publicIp})`, { ip: server.publicIp });
 
-        // DNS + KV (non-critical)
         try {
-          await setupDNSAndKV(slug, server.publicIp, ownerId, data.server_type);
+          await setupProxyKV(slug, server.publicIp, ownerId, data.server_type);
         } catch (err) {
-          console.warn(`[MACHINES] DNS/KV setup failed for ${slug}:`, err);
+          console.warn(`[MACHINES] KV setup failed for ${slug}:`, err);
         }
 
-        // Price lookup + Stripe subscription
+        // Create Stripe subscription (charges default payment method immediately)
         try {
-          const priceMonthly = await lookupPrice(provider, data.region, data.server_type);
-          await db.update(machines).set({ priceMonthly }).where(eq(machines.id, machine.id));
           createStripeSubscription(ownerId, machine.id, slug, priceMonthly, data.server_type);
         } catch (err) {
           console.warn(`[MACHINES] Billing setup failed for ${slug}:`, err);
@@ -222,7 +270,6 @@ machinesApp.post('/', async (c) => {
       }
     });
 
-    // Return immediately with 202 Accepted
     return c.json(serializeMachine(machine), 202);
   } catch (err) {
     return handleRouteError(c, err, 'MACHINES');

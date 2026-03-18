@@ -56,20 +56,26 @@ export function buildMachineUserData(
   });
 }
 
-export async function setupDNSAndKV(
+/**
+ * Register machine in Cloudflare KV for the proxy Worker.
+ * No per-machine DNS — the wildcard *.kortix.cloud handles all slugs.
+ * The Worker reads machine:{slug} from KV to route requests to the VPS IP.
+ */
+export async function setupProxyKV(
   slug: string,
   ip: string,
   ownerId: string,
   serverType: string,
 ) {
   if (!config.isCloudflareConfigured()) return;
-  await cloudflareClient.createDNSRecord(slug, ip);
   await cloudflareClient.writeKVMachine(slug, {
     owner_id: ownerId,
     ip,
     status: 'provisioning',
     server_type: serverType,
-  }).catch(() => {});
+  }).catch((err) => {
+    console.warn(`[CF KV] Failed to write machine:${slug}:`, err);
+  });
 }
 
 export async function lookupPrice(
@@ -147,7 +153,7 @@ export async function cleanupMachineResources(
   }
 
   if (config.isCloudflareConfigured()) {
-    await cloudflareClient.deleteDNSRecord(machine.slug);
+    await cloudflareClient.deleteKVMachine(machine.slug);
   }
 
   if (stripeClient.isConfigured() && machine.stripeSubItemId) {

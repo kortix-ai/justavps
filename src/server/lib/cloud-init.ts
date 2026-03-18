@@ -309,10 +309,13 @@ CONFIGEOF
 # ── Environment variables ─────────────────────────────────────────────────
 echo '${envLinesBase64}' | base64 -d > /etc/justavps/env
 
-# ── Caddy config (HTTPS reverse proxy) ────────────────────────────────────
+# ── Caddy config (HTTP reverse proxy — Cloudflare handles TLS) ─────────────
+# The CF Worker proxies HTTPS → VPS:8080 (code-server directly).
+# Caddy runs on :80 as a local reverse proxy for path-based routing to
+# other services. Cloudflare connects to the origin over HTTP.
 mkdir -p /etc/caddy
 cat > /etc/caddy/Caddyfile << CADDYEOF
-${opts.slug}.${opts.proxyDomain} {
+:80 {
     # code-server (default — web IDE)
     reverse_proxy localhost:8080
 
@@ -352,9 +355,7 @@ systemctl enable --now justavps-daemon 2>/dev/null || true
 systemctl enable --now code-server
 systemctl enable --now sandbox-agent 2>/dev/null || true
 
-# Caddy: must restart (not just enable) because apt-get install auto-starts it
-# with the default Caddyfile BEFORE we write ours. Restart picks up our config
-# and triggers HTTPS cert provisioning via Let's Encrypt.
+# Caddy: restart to pick up our Caddyfile (apt-get install auto-starts with default)
 systemctl enable caddy
 systemctl restart caddy
 
