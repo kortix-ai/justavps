@@ -50,6 +50,8 @@ export function buildMachineUserData(
     machineToken,
     platformCallbackUrl: config.PLATFORM_URL,
     proxyDomain: config.PROXY_DOMAIN,
+    tunnelToken: config.CLOUDFLARE_TUNNEL_TOKEN || undefined,
+    proxyAuthSecret: config.PROXY_AUTH_SECRET || undefined,
     envVars,
     dockerImage,
     entrypoint,
@@ -57,9 +59,10 @@ export function buildMachineUserData(
 }
 
 /**
- * Register machine in Cloudflare: DNS records + KV for proxy Worker.
- * Creates: slug.kortix.cloud + origin.slug.kortix.cloud → VPS IP
- * Writes: machine:{slug} → { owner_id, ip, status, server_type } to KV
+ * Register machine in Cloudflare: tunnel ingress + CNAME DNS + KV.
+ * - Adds ingress rule to the shared tunnel
+ * - Creates CNAME slug.kortix.cloud → tunnel.cfargotunnel.com
+ * - Writes machine:{slug} to KV for Worker auth
  */
 export async function setupProxyKV(
   slug: string,
@@ -69,12 +72,12 @@ export async function setupProxyKV(
 ) {
   if (!config.isCloudflareConfigured()) return;
   
-  // DNS records (slug + origin.slug)
-  await cloudflareClient.createDNSRecords(slug, ip).catch((err: unknown) => {
-    console.warn(`[CF DNS] Failed to create DNS for ${slug}:`, err);
+  // Tunnel ingress + CNAME DNS
+  await cloudflareClient.addMachineToTunnel(slug).catch((err: unknown) => {
+    console.warn(`[CF] Failed to add ${slug} to tunnel:`, err);
   });
 
-  // KV entry for Worker auth
+  // KV for Worker auth
   await cloudflareClient.writeKVMachine(slug, {
     owner_id: ownerId,
     ip,
@@ -165,7 +168,7 @@ export async function cleanupMachineResources(
   }
 
   if (config.isCloudflareConfigured()) {
-    await cloudflareClient.deleteDNSRecords(machine.slug).catch(() => {});
+    await cloudflareClient.removeMachineFromTunnel(machine.slug).catch(() => {});
     await cloudflareClient.deleteKVMachine(machine.slug);
   }
 

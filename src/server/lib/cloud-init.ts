@@ -23,6 +23,8 @@ interface CloudInitOpts {
   machineToken: string;
   platformCallbackUrl: string;
   proxyDomain: string;
+  tunnelToken?: string;
+  proxyAuthSecret?: string;
   envVars?: Record<string, string>;
   dockerImage?: string;
   entrypoint?: string;
@@ -148,6 +150,12 @@ if ! command -v code-server &>/dev/null; then
   echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
   apt-get update -qq
   apt-get install -y -qq docker-ce docker-ce-cli containerd.io
+
+  # ── cloudflared (Cloudflare Tunnel connector) ───────────────────────────
+  curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | gpg --dearmor -o /usr/share/keyrings/cloudflare-main.gpg
+  echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' | tee /etc/apt/sources.list.d/cloudflared.list
+  apt-get update -qq
+  apt-get install -y -qq cloudflared
 
   # ── Node.js 22 LTS ─────────────────────────────────────────────────────
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
@@ -302,7 +310,8 @@ cat > /etc/justavps/config.json << 'CONFIGEOF'
   "slug": "${opts.slug}",
   "callback_url": "${opts.platformCallbackUrl}",
   "machine_token": "${opts.machineToken}",
-  "proxy_domain": "${opts.proxyDomain}"
+  "proxy_domain": "${opts.proxyDomain}",
+  "proxy_auth_secret": "${opts.proxyAuthSecret || ''}"
 }
 CONFIGEOF
 
@@ -346,35 +355,16 @@ CSEOF
 cp /home/user/.config/code-server/config.yaml /root/.config/code-server/config.yaml
 chown -R user:user /home/user/.config
 
-# ── Firewall: only allow Cloudflare IPs + SSH ─────────────────────────────
-# All HTTP/HTTPS traffic MUST come through Cloudflare (CF Worker handles auth).
-# Direct access to VPS ports is blocked. Only SSH (22) is open to the world.
-echo "[justavps] Configuring firewall (Cloudflare IPs only)..."
+# ── Firewall: deny ALL inbound except SSH ──────────────────────────────────
+# cloudflared tunnel is outbound-only — no inbound ports needed for web traffic.
+# Only SSH (22) is open for direct access.
+echo "[justavps] Configuring firewall (outbound tunnel, SSH only inbound)..."
 ufw --force reset >/dev/null 2>&1
 ufw default deny incoming >/dev/null 2>&1
 ufw default allow outgoing >/dev/null 2>&1
-
-# SSH — open to all (key-based auth only)
 ufw allow 22/tcp >/dev/null 2>&1
-
-# Cloudflare IPv4 ranges — allow HTTP/HTTPS from CF only
-for cidr in \\
-  173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 \\
-  141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 \\
-  197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 \\
-  104.24.0.0/14 172.64.0.0/13 131.0.72.0/22; do
-  ufw allow from "$cidr" to any port 80,443 proto tcp >/dev/null 2>&1
-done
-
-# Cloudflare IPv6 ranges
-for cidr in \\
-  2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 \\
-  2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32; do
-  ufw allow from "$cidr" to any port 80,443 proto tcp >/dev/null 2>&1
-done
-
 ufw --force enable >/dev/null 2>&1
-echo "[justavps] Firewall active: SSH open, HTTP/HTTPS Cloudflare-only."
+echo "[justavps] Firewall active: SSH only inbound, all web via tunnel."
 
 ${stageCallback('cloud_init_done', 'Configuration complete, starting services')}
 
@@ -387,6 +377,14 @@ systemctl enable --now sandbox-agent 2>/dev/null || true
 # Caddy: restart to pick up our Caddyfile (apt-get install auto-starts with default)
 systemctl enable caddy
 systemctl restart caddy
+
+# ── Cloudflare Tunnel (connects VPS to Cloudflare edge) ───────────────────
+# cloudflared was installed in the install phase. Now connect to the shared tunnel.
+${opts.tunnelToken ? `
+echo "[justavps] Starting Cloudflare Tunnel..."
+cloudflared service install ${opts.tunnelToken}
+echo "[justavps] Tunnel connected."
+` : '# No tunnel token — skipping cloudflared'}
 
 systemctl enable --now opencode-web
 ${dockerBlock}

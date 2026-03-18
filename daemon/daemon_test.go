@@ -162,3 +162,38 @@ func TestHeartbeatPayload(t *testing.T) {
 		t.Errorf("expected token 'mt_hb', got '%s'", p.MachineToken)
 	}
 }
+
+func TestAuthProxyNoToken(t *testing.T) {
+	cfg := &Config{Slug: "test", CallbackURL: "http://localhost:4100", MachineToken: "mt_123", ProxyDomain: "kortix.cloud", ProxyAuthSecret: "test-secret"}
+	handler := NewAuthProxy(cfg, cfg.ProxyAuthSecret, 9999) // port doesn't matter — won't reach it
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Accept", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != 401 {
+		t.Errorf("expected 401 without token, got %d", w.Code)
+	}
+}
+
+func TestAuthProxyBrowserRedirect(t *testing.T) {
+	cfg := &Config{Slug: "test-slug", CallbackURL: "http://localhost:4100", MachineToken: "mt_123", ProxyDomain: "kortix.cloud", ProxyAuthSecret: "test-secret"}
+	handler := NewAuthProxy(cfg, cfg.ProxyAuthSecret, 9999)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Accept", "text/html")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != 302 {
+		t.Errorf("expected 302 redirect for browser, got %d", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if loc == "" {
+		t.Error("expected Location header")
+	}
+	if !containsStr(loc, "/api/proxy-auth") {
+		t.Errorf("expected redirect to proxy-auth, got %s", loc)
+	}
+}

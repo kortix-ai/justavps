@@ -1,9 +1,12 @@
 /**
- * Cloudflare client — KV operations for the proxy Worker.
+ * Cloudflare client — Tunnel ingress, DNS CNAME records, and KV management.
  *
- * DNS is handled by a single wildcard record (*.kortix.cloud → proxied).
- * The CF Worker reads machine:{slug} from KV to route requests to the correct VPS IP.
- * No per-machine DNS records are created — only KV entries.
+ * Architecture:
+ *   - One shared tunnel ("justavps-production") with many connectors (one per VPS)
+ *   - Each VPS runs cloudflared → connects outbound to Cloudflare
+ *   - DNS: CNAME slug.kortix.cloud → {tunnel-id}.cfargotunnel.com (proxied)
+ *   - Tunnel ingress config maps hostname → localhost:80 on the connector
+ *   - Worker handles auth, then passes through to the tunnel
  */
 
 import { config } from './config';
@@ -33,72 +36,126 @@ async function cfFetch<T = unknown>(
   return res.json() as Promise<T>;
 }
 
+// ─── Tunnel Ingress ─────────────────────────────────────────────────────────
+
+interface TunnelIngress {
+  hostname?: string;
+  service: string;
+  originRequest?: Record<string, unknown>;
+}
+
+async function getTunnelIngress(): Promise<TunnelIngress[]> {
+  const { CLOUDFLARE_ACCOUNT_ID: acct, CLOUDFLARE_TUNNEL_ID: tid } = config;
+  if (!acct || !tid) return [];
+  const result = await cfFetch<{ result: { config: { ingress: TunnelIngress[] } } }>(
+    `/accounts/${acct}/cfd_tunnel/${tid}/configurations`,
+  );
+  return result.result?.config?.ingress || [{ service: 'http_status:404' }];
+}
+
+async function setTunnelIngress(ingress: TunnelIngress[]): Promise<void> {
+  const { CLOUDFLARE_ACCOUNT_ID: acct, CLOUDFLARE_TUNNEL_ID: tid } = config;
+  if (!acct || !tid) return;
+  const rules = ingress.filter(r => r.hostname);
+  await cfFetch(`/accounts/${acct}/cfd_tunnel/${tid}/configurations`, {
+    method: 'PUT',
+    body: { config: { ingress: [...rules, { service: 'http_status:404' }] } },
+  });
+}
+
+// ─── Public API ─────────────────────────────────────────────────────────────
+
 export const cloudflareClient = {
   /**
-   * Create DNS records for a machine.
-   * Two records per machine:
-   *   - slug.kortix.cloud → VPS IP (grey cloud) — Worker route intercepts for auth
-   *   - origin.slug.kortix.cloud → VPS IP (grey cloud) — Worker fetches this for origin access
+   * Add a machine to the tunnel: ingress rule + CNAME DNS.
    */
-  async createDNSRecords(slug: string, ip: string): Promise<void> {
-    const zoneId = config.CLOUDFLARE_ZONE_ID;
-    const domain = config.PROXY_DOMAIN;
-
-    // slug.kortix.cloud → proxied (orange cloud) — Worker route intercepts, CF handles TLS
-    // origin.slug.kortix.cloud → NOT proxied (grey cloud) — Worker fetches this for origin access
-    const records = [
-      { name: `${slug}.${domain}`, proxied: true },
-      { name: `origin.${slug}.${domain}`, proxied: false },
-    ];
-
-    for (const rec of records) {
-      // Delete existing first (prevents stale records)
-      try {
-        const existing = await cfFetch<{ result: Array<{ id: string }> }>(
-          `/zones/${zoneId}/dns_records?name=${rec.name}&type=A`,
-        );
-        for (const record of existing.result) {
-          await cfFetch(`/zones/${zoneId}/dns_records/${record.id}`, { method: 'DELETE' });
-        }
-      } catch {}
-
-      await cfFetch(`/zones/${zoneId}/dns_records`, {
-        method: 'POST',
-        body: { type: 'A', name: rec.name, content: ip, proxied: rec.proxied, ttl: 1 },
-      });
+  async addMachineToTunnel(slug: string): Promise<void> {
+    const { CLOUDFLARE_TUNNEL_ID: tid, CLOUDFLARE_ZONE_ID: zid, PROXY_DOMAIN: domain } = config;
+    if (!tid || !zid) {
+      console.warn(`[CF] Tunnel not configured — skipping for ${slug}`);
+      return;
     }
 
-    console.log(`[CF DNS] Created ${slug}.${domain} + origin.${slug}.${domain} → ${ip}`);
-  },
+    const hostname = `${slug}.${domain}`;
 
-  /**
-   * Delete DNS records for a machine.
-   */
-  async deleteDNSRecords(slug: string): Promise<void> {
-    const zoneId = config.CLOUDFLARE_ZONE_ID;
-    const domain = config.PROXY_DOMAIN;
+    // Add ingress rule
+    const ingress = await getTunnelIngress();
+    if (!ingress.find(r => r.hostname === hostname)) {
+      ingress.push({ hostname, service: 'http://localhost:7777', originRequest: {} });
+      await setTunnelIngress(ingress);
+      console.log(`[CF Tunnel] Added ingress: ${hostname}`);
+    }
 
-    for (const name of [`${slug}.${domain}`, `origin.${slug}.${domain}`]) {
+    // Delete any stale DNS records (A or CNAME)
+    for (const type of ['CNAME', 'A']) {
       try {
         const existing = await cfFetch<{ result: Array<{ id: string }> }>(
-          `/zones/${zoneId}/dns_records?name=${name}&type=A`,
+          `/zones/${zid}/dns_records?name=${hostname}&type=${type}`,
         );
-        for (const record of existing.result) {
-          await cfFetch(`/zones/${zoneId}/dns_records/${record.id}`, { method: 'DELETE' });
+        for (const r of existing.result) {
+          await cfFetch(`/zones/${zid}/dns_records/${r.id}`, { method: 'DELETE' });
         }
       } catch {}
     }
+    // Also clean origin.slug records from old architecture
+    try {
+      const old = await cfFetch<{ result: Array<{ id: string }> }>(
+        `/zones/${zid}/dns_records?name=origin.${hostname}`,
+      );
+      for (const r of old.result) {
+        await cfFetch(`/zones/${zid}/dns_records/${r.id}`, { method: 'DELETE' });
+      }
+    } catch {}
 
-    console.log(`[CF DNS] Deleted DNS for ${slug}`);
+    // Create CNAME → tunnel
+    await cfFetch(`/zones/${zid}/dns_records`, {
+      method: 'POST',
+      body: {
+        type: 'CNAME',
+        name: hostname,
+        content: `${tid}.cfargotunnel.com`,
+        proxied: true,
+        ttl: 1,
+      },
+    });
+    console.log(`[CF DNS] CNAME: ${hostname} → ${tid}.cfargotunnel.com`);
   },
 
   /**
-   * Write machine info to CF KV — used by the proxy Worker for routing + auth.
-   * KV key: machine:{slug} → { owner_id, ip, status, server_type }
-   *
-   * The Worker reads this to:
-   *   1. Validate machine ownership
-   *   2. Check machine status
+   * Remove a machine from the tunnel: ingress rule + DNS.
+   */
+  async removeMachineFromTunnel(slug: string): Promise<void> {
+    const { CLOUDFLARE_TUNNEL_ID: tid, CLOUDFLARE_ZONE_ID: zid, PROXY_DOMAIN: domain } = config;
+    if (!tid || !zid) return;
+    const hostname = `${slug}.${domain}`;
+
+    // Remove ingress
+    try {
+      const ingress = await getTunnelIngress();
+      const filtered = ingress.filter(r => r.hostname !== hostname);
+      if (filtered.length !== ingress.length) {
+        await setTunnelIngress(filtered);
+        console.log(`[CF Tunnel] Removed ingress: ${hostname}`);
+      }
+    } catch (err) {
+      console.warn(`[CF Tunnel] Failed to remove ingress for ${hostname}:`, err);
+    }
+
+    // Delete DNS
+    try {
+      for (const pattern of [hostname, `origin.${hostname}`]) {
+        const records = await cfFetch<{ result: Array<{ id: string }> }>(
+          `/zones/${zid}/dns_records?name=${pattern}`,
+        );
+        for (const r of records.result) {
+          await cfFetch(`/zones/${zid}/dns_records/${r.id}`, { method: 'DELETE' });
+        }
+      }
+    } catch {}
+  },
+
+  /**
+   * Write machine to KV (Worker auth).
    */
   async writeKVMachine(slug: string, data: {
     owner_id: string;
@@ -106,54 +163,24 @@ export const cloudflareClient = {
     status: string;
     server_type: string;
   }): Promise<void> {
-    if (!config.CLOUDFLARE_ACCOUNT_ID) return;
-    const kvNamespaceId = process.env.CF_KV_NAMESPACE_ID;
-    if (!kvNamespaceId) return;
-
+    const kvNs = process.env.CF_KV_NAMESPACE_ID;
+    if (!config.CLOUDFLARE_ACCOUNT_ID || !kvNs) return;
     await cfFetch(
-      `/accounts/${config.CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${kvNamespaceId}/values/machine:${slug}`,
+      `/accounts/${config.CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${kvNs}/values/machine:${slug}`,
       { method: 'PUT', body: data },
     );
-    console.log(`[CF KV] Wrote machine:${slug} → ${data.ip}`);
+    console.log(`[CF KV] machine:${slug} → ${data.ip}`);
   },
 
   /**
-   * Update machine status in KV (e.g. provisioning → ready).
-   */
-  async updateKVMachineStatus(slug: string, status: string): Promise<void> {
-    if (!config.CLOUDFLARE_ACCOUNT_ID) return;
-    const kvNamespaceId = process.env.CF_KV_NAMESPACE_ID;
-    if (!kvNamespaceId) return;
-
-    // Read current, update status, write back
-    try {
-      const current = await cfFetch<string>(
-        `/accounts/${config.CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${kvNamespaceId}/values/machine:${slug}`,
-      );
-      const data = typeof current === 'string' ? JSON.parse(current) : current;
-      data.status = status;
-      await cfFetch(
-        `/accounts/${config.CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${kvNamespaceId}/values/machine:${slug}`,
-        { method: 'PUT', body: data },
-      );
-      console.log(`[CF KV] Updated machine:${slug} status → ${status}`);
-    } catch (err) {
-      console.warn(`[CF KV] Failed to update status for machine:${slug}:`, err);
-    }
-  },
-
-  /**
-   * Delete machine from CF KV on destroy.
+   * Delete machine from KV.
    */
   async deleteKVMachine(slug: string): Promise<void> {
-    if (!config.CLOUDFLARE_ACCOUNT_ID) return;
-    const kvNamespaceId = process.env.CF_KV_NAMESPACE_ID;
-    if (!kvNamespaceId) return;
-
+    const kvNs = process.env.CF_KV_NAMESPACE_ID;
+    if (!config.CLOUDFLARE_ACCOUNT_ID || !kvNs) return;
     await cfFetch(
-      `/accounts/${config.CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${kvNamespaceId}/values/machine:${slug}`,
+      `/accounts/${config.CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${kvNs}/values/machine:${slug}`,
       { method: 'DELETE' },
     ).catch(() => {});
-    console.log(`[CF KV] Deleted machine:${slug}`);
   },
 };

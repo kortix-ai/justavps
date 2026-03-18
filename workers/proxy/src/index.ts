@@ -1,19 +1,18 @@
 /**
- * Cloudflare Worker — *.kortix.cloud proxy gateway.
+ * Cloudflare Worker — *.kortix.cloud auth gateway.
  *
- * All machine access goes through this Worker. It handles:
- *   - Auth: JWT cookie, API key, query token
- *   - Routing: slug → VPS IP from KV
- *   - Proxying: HTTP + WebSocket to VPS
- *   - Cookie refresh: silently refreshes JWT when < 6h remaining
+ * Auth layer for all machine access. After auth, the request passes through
+ * to the Cloudflare Tunnel (cloudflared on VPS → Caddy → code-server).
+ * No origin fetch needed — Cloudflare routes via the tunnel CNAME.
  *
- * Unauthenticated browser requests → redirect to platform /api/proxy-auth
- * Unauthenticated API requests → 401
+ * Auth methods: JWT cookie, API key (SHA-256 in KV), query token
+ * Unauthenticated browser → redirect to platform login
+ * Unauthenticated API → 401
  */
 
 import { parseHostname } from './hostname';
 import { validateAuth, createUnauthorizedResponse, createLoginRedirect } from './auth';
-import { handleCORSPreflight, isWebSocketUpgrade, proxyHTTPRequest, proxyWebSocket } from './proxy';
+import { handleCORSPreflight } from './proxy';
 
 export interface Env {
   KV: KVNamespace;
@@ -26,6 +25,16 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
       const url = new URL(request.url);
+      // Detect our own subrequest (pass-through after auth).
+      // When we fetch(modifiedRequest) after auth, the Worker is re-invoked.
+      // The X-JustAVPS-Authed header means auth already passed — go to origin.
+      if (request.headers.get('X-JustAVPS-Authed') === 'true') {
+        // Strip our header and pass to the tunnel origin
+        const clean = new Request(request);
+        clean.headers.delete('X-JustAVPS-Authed');
+        return fetch(clean);
+      }
+
       const parsed = parseHostname(url.hostname, url.pathname);
 
       if (!parsed) {
@@ -58,20 +67,21 @@ export default {
         return createUnauthorizedResponse(authResult.error || 'Authentication required');
       }
 
-      // Proxy the request
-      let response: Response;
+      // Auth passed — pass through to the Cloudflare Tunnel.
+      // Add X-JustAVPS-Authed header so the Worker skips auth on the subrequest.
+      // Cloudflare routes via CNAME → tunnel → cloudflared → Caddy → code-server.
+      const headers = new Headers(request.headers);
+      headers.set('X-JustAVPS-Authed', 'true');
+      const authedRequest = new Request(request.url, {
+        method: request.method,
+        headers,
+        body: request.body,
+        redirect: 'manual',
+      });
+      let response = await fetch(authedRequest);
 
-      if (isWebSocketUpgrade(request)) {
-        response = await proxyWebSocket(request, authResult.machineInfo!, port);
-      } else {
-        response = await proxyHTTPRequest(request, authResult.machineInfo!, port);
-      }
-
-      // Silent cookie refresh — if JWT is within 6h of expiry, re-sign and set updated cookie
-      // (Only for non-WebSocket responses where we can add headers)
-      if (authResult.shouldRefresh && !isWebSocketUpgrade(request)) {
-        // We can't sign JWTs in the Worker (no jose), so we inject a refresh hint.
-        // The browser will call /api/proxy-auth to get a fresh cookie.
+      // Silent cookie refresh hint
+      if (authResult.shouldRefresh) {
         response = new Response(response.body, response);
         response.headers.set('X-Proxy-Auth-Refresh', 'true');
       }

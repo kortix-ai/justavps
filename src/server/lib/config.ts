@@ -12,6 +12,8 @@ export const config = {
   CLOUDFLARE_EMAIL: process.env.CLOUDFLARE_EMAIL || '',
   CLOUDFLARE_ZONE_ID: process.env.CLOUDFLARE_ZONE_ID || '',
   CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID || '',
+  CLOUDFLARE_TUNNEL_ID: process.env.CLOUDFLARE_TUNNEL_ID || '',
+  CLOUDFLARE_TUNNEL_TOKEN: process.env.CLOUDFLARE_TUNNEL_TOKEN || '',
 
   // Database
   DATABASE_URL: process.env.DATABASE_URL || '',

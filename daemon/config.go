@@ -8,10 +8,11 @@ import (
 
 // Config is read from /etc/justavps/config.json (written by cloud-init).
 type Config struct {
-	Slug         string `json:"slug"`
-	CallbackURL  string `json:"callback_url"`
-	MachineToken string `json:"machine_token"`
-	ProxyDomain  string `json:"proxy_domain"`
+	Slug            string `json:"slug"`
+	CallbackURL     string `json:"callback_url"`
+	MachineToken    string `json:"machine_token"`
+	ProxyDomain     string `json:"proxy_domain"`
+	ProxyAuthSecret string `json:"proxy_auth_secret"`
 }
 
 func LoadConfig(path string) (*Config, error) {
