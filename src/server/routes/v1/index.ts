@@ -13,6 +13,7 @@ import { accountApp } from './account';
 import { internalApp } from './internal';
 import { sseApp } from './sse';
 import { webhooksApp } from './webhooks';
+import { stripeWebhooksApp } from './stripe-webhooks';
 
 export const v1 = new Hono();
 
@@ -25,3 +26,4 @@ v1.route('/account', accountApp);
 v1.route('/internal', internalApp);
 v1.route('/machines', sseApp); // SSE status stream mounted under /machines/:id/status/stream
 v1.route('/webhooks', webhooksApp);
+v1.route('/stripe/webhooks', stripeWebhooksApp);

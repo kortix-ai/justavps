@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "./api-client";
-import type { Machine } from "@/lib/types";
+import { api, ApiError } from "./api-client";
+import type { Machine, CheckoutRequired } from "@/lib/types";
 
 export const machineKeys = {
   all: ["machines"] as const,
@@ -37,13 +37,47 @@ interface CreateMachineInput {
   entrypoint?: string;
 }
 
+/** Result of createMachine — either a Machine (provisioned) or a checkout redirect (needs payment) */
+export type CreateMachineResult =
+  | { kind: "machine"; machine: Machine }
+  | { kind: "checkout"; checkout: CheckoutRequired };
+
+/**
+ * Create a machine. If the user has no payment method on file, the API returns
+ * 402 with a Stripe Checkout URL. The hook catches this and returns a typed
+ * result so the caller can redirect.
+ */
 export function useCreateMachine() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: CreateMachineInput) => api.post<Machine>("/machines", input),
-    onSuccess: (machine) => {
-      qc.setQueryData(machineKeys.detail(machine.id), machine);
-      qc.invalidateQueries({ queryKey: machineKeys.all });
+    mutationFn: async (input: CreateMachineInput): Promise<CreateMachineResult> => {
+      try {
+        const machine = await api.post<Machine>("/machines", input);
+        return { kind: "machine", machine };
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 402) {
+          // Parse the checkout response from the error message
+          // The API returns { requires_checkout, checkout_url, message }
+          // We need to re-fetch the raw response to get the full body
+          const res = await fetch("/api/v1/machines", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(input),
+          });
+          if (res.status === 402) {
+            const body = await res.json() as CheckoutRequired;
+            return { kind: "checkout", checkout: body };
+          }
+        }
+        throw err;
+      }
+    },
+    onSuccess: (result) => {
+      if (result.kind === "machine") {
+        qc.setQueryData(machineKeys.detail(result.machine.id), result.machine);
+        qc.invalidateQueries({ queryKey: machineKeys.all });
+      }
     },
   });
 }

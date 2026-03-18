@@ -146,5 +146,18 @@ export interface AccountUsage {
 
 export interface BillingPortal {
   portal_url: string | null;
+  has_payment_method: boolean;
   message?: string;
+}
+
+/** Returned from POST /machines when a payment method is required (402) */
+export interface CheckoutRequired {
+  requires_checkout: true;
+  checkout_url: string;
+  message: string;
+}
+
+/** Returned from POST /account/billing/setup */
+export interface BillingSetup {
+  checkout_url: string;
 }

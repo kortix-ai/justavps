@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { api } from "./api-client";
-import type { AccountUsage, BillingPortal } from "@/lib/types";
+import type { AccountUsage, BillingPortal, BillingSetup } from "@/lib/types";
 
 export const accountKeys = {
   usage: ["account", "usage"] as const,
@@ -18,5 +18,20 @@ export function useBillingPortal() {
   return useQuery({
     queryKey: accountKeys.billing,
     queryFn: () => api.get<BillingPortal>("/account/billing"),
+  });
+}
+
+/**
+ * Mutation to create a Stripe Checkout session for adding a payment method.
+ * On success, redirects the browser to the Stripe Checkout page.
+ */
+export function useSetupPaymentMethod() {
+  return useMutation({
+    mutationFn: () => api.post<BillingSetup>("/account/billing/setup"),
+    onSuccess: (data) => {
+      if (data.checkout_url) {
+        window.location.href = data.checkout_url;
+      }
+    },
   });
 }

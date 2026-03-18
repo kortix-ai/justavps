@@ -171,7 +171,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     await eventBus.emitStageChange(machine.id, userId, 'server_creating', 'Creating server on provider...');
 
     // 7. Provision on provider (async)
-    provisionMachineAsync(machine, provider, machineConfig, slug, userId, userdata, providerKeyId, priceMonthly);
+    provisionMachineAsync(machine, provider, machineConfig, slug, userId, userdata, providerKeyId, priceMonthly, resolvedImage);
 
     console.log(`[STRIPE WEBHOOK] Machine ${slug} created and queued for provisioning`);
   } catch (err) {
@@ -191,6 +191,7 @@ function provisionMachineAsync(
   userdata: string,
   providerKeyId: string | undefined,
   priceMonthly: number,
+  resolvedImage: string,
 ) {
   // Fire-and-forget — we don't await this
   (async () => {
@@ -198,7 +199,7 @@ function provisionMachineAsync(
       const server = await provider.createServer({
         name: `justavps-${slug}`,
         serverType: machineConfig.server_type,
-        image: 'ubuntu-24.04',
+        image: resolvedImage,
         region: machineConfig.region,
         userData: userdata,
         sshKeyIds: providerKeyId ? [providerKeyId] : [],

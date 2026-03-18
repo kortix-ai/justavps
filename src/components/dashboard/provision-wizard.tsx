@@ -72,7 +72,15 @@ export function ProvisionWizard() {
     createMachine.mutate(
       { provider: selectedProvider, server_type: selectedServerType, region: selectedRegion, name: machineName || undefined },
       {
-        onSuccess: (machine) => { toast.success("Machine created!"); router.push(`/machines/${machine.id}`); },
+        onSuccess: (result) => {
+          if (result.kind === "checkout") {
+            toast.info("Redirecting to payment...");
+            window.location.href = result.checkout.checkout_url;
+            return;
+          }
+          toast.success("Machine created!");
+          router.push(`/machines/${result.machine.id}`);
+        },
         onError: (err) => toast.error(err.message),
       },
     );

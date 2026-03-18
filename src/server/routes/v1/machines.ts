@@ -20,7 +20,7 @@ import {
   uploadSSHKeyToProvider,
   buildMachineUserData,
   setupProxyKV,
-  lookupPrice,
+  lookupPriceAndSpecs,
   createMachineRecord,
   createStripeSubscription,
   cleanupMachineResources,
@@ -143,8 +143,8 @@ machinesApp.post('/', async (c) => {
     resolvedImage = img.providerImageId;
   }
 
-  // 3. Price lookup
-  const priceMonthly = await lookupPrice(provider, data.region, data.server_type);
+  // 3. Price + specs lookup
+  const { priceMonthly, specs } = await lookupPriceAndSpecs(provider, data.region, data.server_type);
 
   // 4. Payment gate — check if user has a payment method
   if (stripeClient.isConfigured()) {
@@ -175,6 +175,7 @@ machinesApp.post('/', async (c) => {
             docker_image: data.docker_image,
             entrypoint: data.entrypoint,
             env_vars: data.env_vars,
+            specs,
           },
           priceMonthlyUsd: priceMonthly,
           successUrl: `${config.APP_URL}/machines`,
@@ -255,7 +256,7 @@ machinesApp.post('/', async (c) => {
 
         // Create Stripe subscription (charges default payment method immediately)
         try {
-          createStripeSubscription(ownerId, machine.id, slug, priceMonthly, data.server_type);
+          createStripeSubscription(ownerId, machine.id, slug, priceMonthly, data.server_type, specs);
         } catch (err) {
           console.warn(`[MACHINES] Billing setup failed for ${slug}:`, err);
         }
@@ -378,7 +379,8 @@ machinesApp.post('/:id/resize', async (c) => {
       const serverTypes = await lookup.provider.listServerTypes(machine.region);
       const st = serverTypes.find(t => t.name === parsed.data.server_type);
       if (st && subItemId) {
-        await stripeClient.updateMachineSubscription(subItemId, st.priceMonthly, parsed.data.server_type, machine.id)
+        const resizeSpecs = { vcpus: st.cores, ramGb: st.memory, diskGb: st.disk, cpuType: st.cpuType } as const;
+        await stripeClient.updateMachineSubscription(subItemId, st.priceMonthly, parsed.data.server_type, machine.id, resizeSpecs)
           .catch(err => console.error('[MACHINES] Stripe resize failed:', err));
       }
     }

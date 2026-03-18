@@ -2,13 +2,52 @@
  * Stripe billing integration.
  *
  * Each machine = one Stripe subscription with a metered price based on server type.
- * We use Stripe's usage-based billing with a fixed monthly price per machine.
+ * Payment flow:
+ *   1. User creates a machine
+ *   2. If they have a payment method → subscription is created and charged immediately
+ *   3. If they DON'T have a payment method → Stripe Checkout Session is created,
+ *      user pays on Stripe, webhook provisions the machine on success
  */
 
 import Stripe from 'stripe';
 import { config } from './config';
 
 const stripe = new Stripe(config.STRIPE_SECRET_KEY);
+
+// ─── Machine specs for Stripe product naming ───────────────────────────────
+
+export interface MachineSpecs {
+  vcpus: number;
+  ramGb: number;
+  diskGb: number;
+  cpuType?: 'shared' | 'dedicated';
+}
+
+export interface CheckoutMachineConfig {
+  provider: string;
+  server_type: string;
+  region: string;
+  name?: string;
+  image_id?: string | null;
+  docker_image?: string;
+  entrypoint?: string;
+  env_vars?: Record<string, string>;
+  /** Machine specs for Stripe product display — optional, falls back to generic name */
+  specs?: MachineSpecs;
+}
+
+// ─── Product naming helpers ─────────────────────────────────────────────────
+
+/**
+ * Build a clean product name for Stripe invoices / checkout.
+ * No provider identifiers — user-facing only.
+ */
+function formatProductName(specs?: MachineSpecs): string {
+  if (!specs) return 'JustAVPS Cloud VPS';
+  return `JustAVPS — ${specs.vcpus} vCPU / ${specs.ramGb} GB RAM / ${specs.diskGb} GB SSD`;
+}
+
+// ─── Stripe client ──────────────────────────────────────────────────────────
 
 export const stripeClient = {
   /**
@@ -34,8 +73,121 @@ export const stripeClient = {
   },
 
   /**
+   * Check if a Stripe customer has a valid default payment method.
+   */
+  async hasPaymentMethod(customerId: string): Promise<boolean> {
+    const customer = await stripe.customers.retrieve(customerId);
+    if (customer.deleted) return false;
+
+    // Check for default payment method on the customer
+    if (customer.invoice_settings?.default_payment_method) return true;
+
+    // Check for any attached payment methods
+    const methods = await stripe.paymentMethods.list({
+      customer: customerId,
+      limit: 1,
+    });
+
+    return methods.data.length > 0;
+  },
+
+  /**
+   * Create a Stripe Checkout Session in subscription mode.
+   * Used when a user has no payment method and wants to create a machine.
+   * The machine config is stored in session metadata so the webhook can provision it.
+   */
+  async createCheckoutSession(params: {
+    customerId: string;
+    userId: string;
+    machineConfig: CheckoutMachineConfig;
+    priceMonthlyUsd: number;
+    successUrl: string;
+    cancelUrl: string;
+  }): Promise<{ sessionId: string; url: string }> {
+    const specs = params.machineConfig.specs;
+
+    // Create an ad-hoc price for the checkout
+    const price = await stripe.prices.create({
+      currency: 'usd',
+      unit_amount: Math.round(params.priceMonthlyUsd * 100),
+      recurring: { interval: 'month' },
+      product_data: {
+        name: formatProductName(specs),
+        metadata: {
+          platform: 'justavps',
+          server_type: params.machineConfig.server_type,
+        },
+      },
+    });
+
+    // Checkout in subscription mode — charges the full month IMMEDIATELY at checkout.
+    // No trial, no deferred billing. User pays before machine is provisioned.
+    const session = await stripe.checkout.sessions.create({
+      customer: params.customerId,
+      mode: 'subscription',
+      line_items: [{ price: price.id, quantity: 1 }],
+      success_url: `${params.successUrl}?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${params.cancelUrl}?checkout=cancelled`,
+      metadata: {
+        justavps_action: 'create_machine',
+        justavps_user_id: params.userId,
+        machine_config: JSON.stringify(params.machineConfig),
+        price_monthly: String(params.priceMonthlyUsd),
+      },
+      subscription_data: {
+        metadata: {
+          justavps_user_id: params.userId,
+          machine_provider: params.machineConfig.provider,
+          machine_server_type: params.machineConfig.server_type,
+          machine_region: params.machineConfig.region,
+        },
+      },
+      payment_method_types: ['card'],
+      payment_method_collection: 'always',
+    });
+
+    console.log(`[STRIPE] Created checkout session ${session.id} for user ${params.userId} ($${params.priceMonthlyUsd}/mo)`);
+
+    return {
+      sessionId: session.id,
+      url: session.url!,
+    };
+  },
+
+  /**
+   * Create a Stripe Checkout Session in setup mode.
+   * Used when a user wants to add a payment method from the billing page
+   * without creating a machine.
+   */
+  async createSetupCheckoutSession(params: {
+    customerId: string;
+    successUrl: string;
+    cancelUrl: string;
+  }): Promise<{ sessionId: string; url: string }> {
+    const session = await stripe.checkout.sessions.create({
+      customer: params.customerId,
+      mode: 'setup',
+      success_url: `${params.successUrl}?setup=success`,
+      cancel_url: `${params.cancelUrl}?setup=cancelled`,
+      payment_method_types: ['card'],
+    });
+
+    console.log(`[STRIPE] Created setup session ${session.id} for customer ${params.customerId}`);
+
+    return {
+      sessionId: session.id,
+      url: session.url!,
+    };
+  },
+
+  /**
    * Create a subscription for a machine.
-   * Uses a dynamic price based on the server type's monthly cost.
+   * CHARGES IMMEDIATELY for the full month — no trials, no delayed billing.
+   * Only call this when the customer HAS a valid payment method.
+   *
+   * - `error_if_incomplete` → fails fast if payment can't be collected
+   * - `charge_automatically` → charges the card on file, no manual invoicing
+   * - First invoice covers the full billing period (1 month) starting now
    */
   async createMachineSubscription(
     customerId: string,
@@ -43,6 +195,7 @@ export const stripeClient = {
     machineSlug: string,
     priceMonthlyUsd: number,
     serverType: string,
+    specs?: MachineSpecs,
   ): Promise<{ subscriptionId: string; subscriptionItemId: string }> {
     // Create an ad-hoc price for this machine
     const price = await stripe.prices.create({
@@ -50,8 +203,9 @@ export const stripeClient = {
       unit_amount: Math.round(priceMonthlyUsd * 100), // cents
       recurring: { interval: 'month' },
       product_data: {
-        name: `JustAVPS Machine (${serverType})`,
+        name: formatProductName(specs),
         metadata: {
+          platform: 'justavps',
           machine_id: machineId,
           machine_slug: machineSlug,
           server_type: serverType,
@@ -59,12 +213,15 @@ export const stripeClient = {
       },
     });
 
-    // Create subscription
+    // Create subscription — charges the default payment method RIGHT NOW
     const subscription = await stripe.subscriptions.create({
       customer: customerId,
       items: [{ price: price.id }],
-      payment_behavior: 'default_incomplete',
-      proration_behavior: 'create_prorations',
+      collection_method: 'charge_automatically',
+      payment_behavior: 'error_if_incomplete',
+      payment_settings: {
+        payment_method_types: ['card'],
+      },
       metadata: {
         machine_id: machineId,
         machine_slug: machineSlug,
@@ -73,7 +230,7 @@ export const stripeClient = {
 
     const itemId = subscription.items.data[0]?.id || '';
 
-    console.log(`[STRIPE] Created subscription ${subscription.id} for machine ${machineSlug} ($${priceMonthlyUsd}/mo)`);
+    console.log(`[STRIPE] Created subscription ${subscription.id} for machine ${machineSlug} ($${priceMonthlyUsd}/mo) — charged immediately`);
 
     return {
       subscriptionId: subscription.id,
@@ -103,6 +260,7 @@ export const stripeClient = {
     newPriceMonthlyUsd: number,
     serverType: string,
     machineId: string,
+    specs?: MachineSpecs,
   ): Promise<void> {
     if (!subscriptionItemId) return;
 
@@ -112,8 +270,12 @@ export const stripeClient = {
       unit_amount: Math.round(newPriceMonthlyUsd * 100),
       recurring: { interval: 'month' },
       product_data: {
-        name: `JustAVPS Machine (${serverType})`,
-        metadata: { machine_id: machineId, server_type: serverType },
+        name: formatProductName(specs),
+        metadata: {
+          platform: 'justavps',
+          machine_id: machineId,
+          server_type: serverType,
+        },
       },
     });
 
@@ -123,7 +285,7 @@ export const stripeClient = {
       proration_behavior: 'create_prorations',
     });
 
-    console.log(`[STRIPE] Updated subscription item ${subscriptionItemId} to $${newPriceMonthlyUsd}/mo (${serverType})`);
+    console.log(`[STRIPE] Updated subscription item ${subscriptionItemId} to $${newPriceMonthlyUsd}/mo`);
   },
 
   /**
@@ -164,6 +326,22 @@ export const stripeClient = {
       currentPeriodStart: new Date((sub as unknown as { current_period_start: number }).current_period_start * 1000),
       currentPeriodEnd: new Date((sub as unknown as { current_period_end: number }).current_period_end * 1000),
     }));
+  },
+
+  /**
+   * Retrieve a Checkout Session by ID with expanded subscription/line items.
+   */
+  async getCheckoutSession(sessionId: string): Promise<Stripe.Checkout.Session> {
+    return stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['subscription'],
+    });
+  },
+
+  /**
+   * Construct and verify a Stripe webhook event from the raw body + signature.
+   */
+  constructWebhookEvent(rawBody: string | Buffer, signature: string): Stripe.Event {
+    return stripe.webhooks.constructEvent(rawBody, signature, config.STRIPE_WEBHOOK_SECRET);
   },
 
   /**

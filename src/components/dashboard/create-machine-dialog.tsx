@@ -87,10 +87,17 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
         name: machineName || undefined,
       },
       {
-        onSuccess: (machine) => {
+        onSuccess: (result) => {
+          if (result.kind === "checkout") {
+            // User needs to add a payment method — redirect to Stripe Checkout
+            toast.info("Redirecting to payment...");
+            window.location.href = result.checkout.checkout_url;
+            return;
+          }
+          // Machine created directly
           toast.success("Machine created!");
           onOpenChange(false);
-          router.push(`/machines/${machine.id}`);
+          router.push(`/machines/${result.machine.id}`);
         },
         onError: (err) => toast.error(err.message),
       },

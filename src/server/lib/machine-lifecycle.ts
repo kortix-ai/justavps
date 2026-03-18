@@ -6,7 +6,7 @@ import { generateMachineToken, generatePassword } from './crypto';
 import { buildCloudInit } from './cloud-init';
 import { config } from './config';
 import { cloudflareClient } from './cloudflare';
-import { stripeClient } from './stripe';
+import { stripeClient, type MachineSpecs } from './stripe';
 import type { ComputeProvider } from './providers';
 
 export async function generateMachineIdentity() {
@@ -78,17 +78,21 @@ export async function setupProxyKV(
   });
 }
 
-export async function lookupPrice(
+export async function lookupPriceAndSpecs(
   provider: ComputeProvider,
   region: string,
   serverType: string,
-): Promise<number> {
+): Promise<{ priceMonthly: number; specs?: MachineSpecs }> {
   try {
     const serverTypes = await provider.listServerTypes(region);
     const st = serverTypes.find(t => t.name === serverType);
-    return st?.priceMonthly ?? 30;
+    if (!st) return { priceMonthly: 30 };
+    return {
+      priceMonthly: st.priceMonthly,
+      specs: { vcpus: st.cores, ramGb: st.memory, diskGb: st.disk, cpuType: st.cpuType },
+    };
   } catch {
-    return 30;
+    return { priceMonthly: 30 };
   }
 }
 
@@ -122,6 +126,7 @@ export async function createStripeSubscription(
   slug: string,
   priceMonthly: number,
   serverType: string,
+  specs?: MachineSpecs,
 ) {
   if (!stripeClient.isConfigured()) return;
   try {
@@ -134,7 +139,7 @@ export async function createStripeSubscription(
     }
 
     const { subscriptionId, subscriptionItemId } = await stripeClient.createMachineSubscription(
-      customerId, machineId, slug, priceMonthly, serverType,
+      customerId, machineId, slug, priceMonthly, serverType, specs,
     );
     await db.update(machines).set({
       stripeSubItemId: `${subscriptionId}|${subscriptionItemId}`,

@@ -66,25 +66,87 @@ accountApp.get('/usage', async (c) => {
   }
 });
 
+/**
+ * GET /account/billing — returns billing portal URL + payment method status.
+ * The frontend uses `has_payment_method` to decide what UI to show.
+ */
 accountApp.get('/billing', async (c) => {
   const userId = c.get('userId');
 
   if (!stripeClient.isConfigured()) {
-    return c.json({ portal_url: null, message: 'Stripe not configured' });
+    return c.json({
+      portal_url: null,
+      has_payment_method: false,
+      message: 'Stripe not configured',
+    });
   }
 
   try {
     const [user] = await db.select().from(users).where(eq(users.id, userId));
+
     if (!user?.stripeCustomerId) {
-      return c.json({ portal_url: null, message: 'No billing account yet. Create a machine to start.' });
+      // Create Stripe customer proactively so we can offer setup checkout
+      const customerId = await stripeClient.getOrCreateCustomer(userId, user?.email || '');
+      if (user) {
+        await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, userId));
+      }
+
+      return c.json({
+        portal_url: null,
+        has_payment_method: false,
+        message: 'No payment method on file.',
+      });
     }
 
-    const returnUrl = `${config.APP_URL}/settings`;
+    const hasPM = await stripeClient.hasPaymentMethod(user.stripeCustomerId);
+    const returnUrl = `${config.APP_URL}/billing`;
     const portalUrl = await stripeClient.createPortalSession(user.stripeCustomerId, returnUrl);
 
-    return c.json({ portal_url: portalUrl });
+    return c.json({
+      portal_url: portalUrl,
+      has_payment_method: hasPM,
+    });
   } catch (err) {
     console.error('[BILLING] portal error:', err);
-    return c.json({ portal_url: null, message: 'Failed to create billing portal session' });
+    return c.json({
+      portal_url: null,
+      has_payment_method: false,
+      message: 'Failed to create billing portal session',
+    });
+  }
+});
+
+/**
+ * POST /account/billing/setup — create a Stripe Checkout Session in setup mode.
+ * Used from the billing page "Add payment method" button.
+ * Returns a checkout URL the frontend redirects to.
+ */
+accountApp.post('/billing/setup', async (c) => {
+  const userId = c.get('userId');
+
+  if (!stripeClient.isConfigured()) {
+    return c.json({ error: true, message: 'Stripe not configured' }, 503);
+  }
+
+  try {
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (!user) return c.json({ error: true, message: 'User not found' }, 404);
+
+    // Ensure Stripe customer exists
+    const customerId = await stripeClient.getOrCreateCustomer(userId, user.email);
+    if (!user.stripeCustomerId) {
+      await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, userId));
+    }
+
+    const { url } = await stripeClient.createSetupCheckoutSession({
+      customerId,
+      successUrl: `${config.APP_URL}/billing`,
+      cancelUrl: `${config.APP_URL}/billing`,
+    });
+
+    return c.json({ checkout_url: url });
+  } catch (err) {
+    console.error('[BILLING] setup checkout error:', err);
+    return c.json({ error: true, message: 'Failed to create setup session' }, 500);
   }
 });
