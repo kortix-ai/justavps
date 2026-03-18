@@ -146,8 +146,8 @@ machinesApp.openapi(createMachineRoute, async (c) => {
   if (lookup.response) return lookup.response as any;
   const provider = lookup.provider;
 
-  // 2. Resolve image — either user image or default Ubuntu 24.04
-  let resolvedImage = 'ubuntu-24.04';
+  // 2. Resolve image — user image → base snapshot → fresh Ubuntu 24.04
+  let resolvedImage = config.HETZNER_BASE_SNAPSHOT_ID || 'ubuntu-24.04';
   if (data.image_id) {
     const [img] = await db.select().from(images).where(eq(images.id, data.image_id));
     if (!img || img.ownerId !== ownerId) {

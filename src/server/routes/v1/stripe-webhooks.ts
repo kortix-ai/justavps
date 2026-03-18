@@ -106,7 +106,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   try {
     const provider = getProvider(machineConfig.provider);
 
-    let resolvedImage = 'ubuntu-24.04';
+    let resolvedImage = config.HETZNER_BASE_SNAPSHOT_ID || 'ubuntu-24.04';
     if (machineConfig.image_id) {
       const { images: imagesTable } = await import('../../db/schema');
       const [img] = await db.select().from(imagesTable).where(eq(imagesTable.id, machineConfig.image_id));

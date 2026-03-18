@@ -7,6 +7,9 @@ export const config = {
   // Hetzner
   HETZNER_API_KEY: process.env.HETZNER_API_KEY || '',
   HETZNER_DEFAULT_LOCATION: process.env.HETZNER_DEFAULT_LOCATION || 'nbg1',
+  // Pre-built snapshot with all platform software (code-server, Caddy, Docker, daemon, etc.)
+  // Machines from this snapshot skip install and only do machine-specific config (~5s vs ~100s)
+  HETZNER_BASE_SNAPSHOT_ID: (process.env.HETZNER_BASE_SNAPSHOT_ID || '').trim(),
   // Cloudflare (DNS + KV only — no tunnels)
   CLOUDFLARE_API_KEY: process.env.CLOUDFLARE_GLOBAL_API_KEY || '',
   CLOUDFLARE_EMAIL: process.env.CLOUDFLARE_EMAIL || '',
