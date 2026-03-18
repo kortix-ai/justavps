@@ -312,7 +312,13 @@ ${stageCallback('cloud_init_done', 'Configuration complete, starting services')}
 systemctl daemon-reload
 systemctl enable --now justavps-daemon 2>/dev/null || true
 systemctl enable --now code-server
-systemctl enable --now caddy
+
+# Caddy: must restart (not just enable) because apt-get install auto-starts it
+# with the default Caddyfile BEFORE we write ours. Restart picks up our config
+# and triggers HTTPS cert provisioning via Let's Encrypt.
+systemctl enable caddy
+systemctl restart caddy
+
 systemctl enable --now opencode-web
 ${dockerBlock}
 echo "[justavps] Machine ${opts.slug} ready!"

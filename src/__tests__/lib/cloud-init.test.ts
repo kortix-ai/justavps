@@ -129,7 +129,7 @@ describe('cloud-init', () => {
       
       expect(script).toContain('systemctl daemon-reload');
       expect(script).toContain('systemctl enable --now code-server');
-      expect(script).toContain('systemctl enable --now caddy');
+      expect(script).toContain('systemctl restart caddy');
       expect(script).toContain('systemctl enable --now opencode-web');
     });
   });
