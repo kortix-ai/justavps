@@ -5,7 +5,6 @@ import type {
   ServerResult,
   ServerTypeInfo,
   RegionInfo,
-  ProviderSnapshot,
   SSHKeyResult,
 } from './types';
 
@@ -13,10 +12,13 @@ const HETZNER_API = 'https://api.hetzner.cloud/v1';
 const API_TIMEOUT_MS = 30_000;
 const PROVISION_TIMEOUT_MS = 600_000;
 const POLL_INTERVAL_MS = 3_000;
-const BUILDER_TIMEOUT_MS = 1_200_000;
-const BUILDER_POLL_MS = 15_000;
 
-const ALLOWED_SERVER_TYPE_PREFIXES = ['cx', 'ccx', 'cpx', 'cax'];
+// Only CPX (shared AMD) types — curated list per region
+const ALLOWED_TYPES_BY_REGION: Record<string, string[]> = {
+  hel1: ['cpx22', 'cpx32', 'cpx42', 'cpx52', 'cpx62'],
+  nbg1: ['cpx22', 'cpx32', 'cpx42', 'cpx52', 'cpx62'],
+  hil:  ['cpx11', 'cpx21', 'cpx31', 'cpx41'],
+};
 
 interface HetznerServerType {
   id: number;
@@ -56,11 +58,8 @@ interface HetznerImage {
 }
 
 const HETZNER_REGIONS: RegionInfo[] = [
-  { id: 'hel1', name: 'Helsinki, Finland', country: 'FI', city: 'Helsinki' },
-  { id: 'nbg1', name: 'Nuremberg, Germany', country: 'DE', city: 'Nuremberg' },
-  { id: 'fsn1', name: 'Falkenstein, Germany', country: 'DE', city: 'Falkenstein' },
-  { id: 'ash', name: 'Ashburn, USA (East)', country: 'US', city: 'Ashburn' },
-  { id: 'hil', name: 'Hillsboro, USA (West)', country: 'US', city: 'Hillsboro' },
+  { id: 'hel1', name: 'EU-Central', country: 'FI', city: 'Helsinki' },
+  { id: 'hil', name: 'US-West', country: 'US', city: 'Hillsboro, OR' },
 ];
 
 async function hetznerFetch<T = unknown>(
@@ -96,132 +95,45 @@ async function waitForServerStatus(serverId: number, target: string, timeoutMs =
   throw new Error(`[hetzner] Server ${serverId} did not reach '${target}' within ${timeoutMs / 1000}s`);
 }
 
-async function waitForSnapshotReady(imageId: number, timeoutMs = PROVISION_TIMEOUT_MS) {
+async function waitForImageReady(imageId: number, timeoutMs = PROVISION_TIMEOUT_MS) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const data = await hetznerFetch<{ image: HetznerImage }>(`/images/${imageId}`);
     if (data.image.status === 'available') return;
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
-  throw new Error(`[hetzner] Snapshot ${imageId} did not become available within ${timeoutMs / 1000}s`);
+  throw new Error(`[hetzner] Image ${imageId} did not become available within ${timeoutMs / 1000}s`);
 }
 
 export class HetznerProvider implements ComputeProvider {
   readonly name = 'hetzner' as const;
   readonly displayName = 'Hetzner Cloud';
 
-  private async validateDockerImage(dockerImage: string): Promise<void> {
-    const [org, rest] = dockerImage.includes('/') ? dockerImage.split('/') : ['library', dockerImage];
-    const [repo, tag] = rest.includes(':') ? rest.split(':') : [rest, 'latest'];
-    const hubUrl = org === 'library'
-      ? `https://hub.docker.com/v2/repositories/library/${repo}/tags/${tag}`
-      : `https://hub.docker.com/v2/repositories/${org}/${repo}/tags/${tag}`;
-
-    const hubCheck = await fetch(hubUrl).catch(() => null);
-    if (!hubCheck?.ok) {
-      throw new Error(`Docker image '${dockerImage}' not found on Docker Hub`);
-    }
-  }
-
-  private buildBuilderUserData(dockerImage: string): string {
-    return `#!/bin/bash
-set -e
-# Disable forced root password change on first login
-chage -d 99999 root 2>/dev/null || true
-sed -i 's/^root:.*$/root:*:19000:0:99999:7:::/' /etc/shadow 2>/dev/null || true
-apt-get update -qq
-apt-get install -y -qq ca-certificates curl
-install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-chmod a+r /etc/apt/keyrings/docker.asc
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-apt-get update -qq
-apt-get install -y -qq docker-ce docker-ce-cli containerd.io
-docker pull ${dockerImage}
-docker tag ${dockerImage} justavps-image:latest
-shutdown -h now
-`;
-  }
-
-  private async createBuilderServer(dockerImage: string): Promise<number> {
-    const userData = this.buildBuilderUserData(dockerImage);
-    const builderName = `justavps-builder-${Date.now()}`;
-    const serverResp = await hetznerFetch<{ server: HetznerServer }>('/servers', {
-      method: 'POST',
-      body: {
-        name: builderName,
-        server_type: 'cx23',
-        image: 'ubuntu-24.04',
-        location: 'nbg1',
-        user_data: userData,
-        public_net: { enable_ipv4: true, enable_ipv6: false },
-        labels: { justavps: 'true', role: 'snapshot-builder' },
-      },
-    });
-    return serverResp.server.id;
-  }
-
-  private async waitForBuilderPowerOff(builderId: number): Promise<void> {
-    const start = Date.now();
-    while (Date.now() - start < BUILDER_TIMEOUT_MS) {
-      const data = await hetznerFetch<{ server: HetznerServer }>(`/servers/${builderId}`);
-      if (data.server.status === 'off') return;
-      await new Promise((r) => setTimeout(r, BUILDER_POLL_MS));
-    }
-    throw new Error(`[hetzner] Builder server did not power off within ${BUILDER_TIMEOUT_MS / 1000}s`);
-  }
-
-  private async createSnapshotFromBuilder(builderId: number, description: string): Promise<ProviderSnapshot> {
-    const snapResp = await hetznerFetch<{ image: HetznerImage }>(
-      `/servers/${builderId}/actions/create_image`,
+  async createImage(serverId: number, description: string): Promise<{ imageId: string; diskSize: number; architecture: string }> {
+    const resp = await hetznerFetch<{ image: HetznerImage }>(
+      `/servers/${serverId}/actions/create_image`,
       { method: 'POST', body: { type: 'snapshot', description } },
     );
-    const snapshotId = snapResp.image.id;
-
-    await waitForSnapshotReady(snapshotId);
-    const finalSnap = await hetznerFetch<{ image: HetznerImage }>(`/images/${snapshotId}`);
-
-    console.log(`[hetzner] Snapshot ready: id=${snapshotId} desc=${description}`);
-
+    const imageId = resp.image.id;
+    await waitForImageReady(imageId);
+    const final = await hetznerFetch<{ image: HetznerImage }>(`/images/${imageId}`);
     return {
-      snapshotId: String(snapshotId),
-      diskSize: finalSnap.image.disk_size,
-      architecture: finalSnap.image.architecture,
+      imageId: String(imageId),
+      diskSize: final.image.disk_size,
+      architecture: final.image.architecture,
     };
   }
 
-  async buildSnapshot(
-    dockerImage: string,
-    opts?: { description?: string },
-  ): Promise<ProviderSnapshot> {
-    const description = opts?.description || `justavps-img-${Date.now()}`;
-
-    await this.validateDockerImage(dockerImage);
-
-    const builderId = await this.createBuilderServer(dockerImage);
-    console.log(`[hetzner] Snapshot builder started: server ${builderId} for image ${dockerImage}`);
-
-    try {
-      await this.waitForBuilderPowerOff(builderId);
-      console.log(`[hetzner] Builder powered off, creating snapshot...`);
-      return await this.createSnapshotFromBuilder(builderId, description);
-    } finally {
-      await hetznerFetch(`/servers/${builderId}`, { method: 'DELETE' }).catch((err) => {
-        console.error(`[hetzner] Failed to delete builder server ${builderId}:`, err);
-      });
-    }
-  }
-
-  async deleteSnapshot(snapshotId: string): Promise<void> {
-    await hetznerFetch(`/images/${snapshotId}`, { method: 'DELETE' });
-    console.log(`[hetzner] Deleted snapshot ${snapshotId}`);
+  async deleteImage(imageId: string): Promise<void> {
+    await hetznerFetch(`/images/${imageId}`, { method: 'DELETE' });
+    console.log(`[hetzner] Deleted image ${imageId}`);
   }
 
   async createServer(opts: CreateServerOpts): Promise<ServerResult> {
     const body: Record<string, unknown> = {
       name: opts.name,
       server_type: opts.serverType,
-      image: isNaN(Number(opts.snapshotId)) ? opts.snapshotId : parseInt(opts.snapshotId, 10),
+      image: isNaN(Number(opts.image)) ? opts.image : parseInt(opts.image, 10),
       location: opts.region,
       start_after_create: true,
       user_data: opts.userData,
@@ -291,21 +203,14 @@ shutdown -h now
     await hetznerFetch(`/ssh_keys/${keyId}`, { method: 'DELETE' });
   }
 
-  async listServerTypes(region: string, snapshot?: ProviderSnapshot): Promise<ServerTypeInfo[]> {
+  async listServerTypes(region: string): Promise<ServerTypeInfo[]> {
     const loc = region || config.HETZNER_DEFAULT_LOCATION;
     const data = await hetznerFetch<{ server_types: HetznerServerType[] }>('/server_types?per_page=50');
     const markup = config.COMPUTE_MARKUP;
 
     return data.server_types
-      .filter((st) => ALLOWED_SERVER_TYPE_PREFIXES.some((p) => st.name.startsWith(p)))
+      .filter((st) => (ALLOWED_TYPES_BY_REGION[loc] ?? []).includes(st.name))
       .filter((st) => st.prices.some((p) => p.location === loc))
-      .filter((st) => !snapshot || st.disk >= snapshot.diskSize)
-      .filter((st) => {
-        if (!snapshot) return true;
-        if (snapshot.architecture === 'x86') return st.architecture === 'x86';
-        if (snapshot.architecture === 'arm') return st.architecture === 'arm';
-        return true;
-      })
       .map((st) => {
         const locPrice = st.prices.find((p) => p.location === loc)!;
         const providerMonthly = parseFloat(locPrice.price_monthly.gross);
