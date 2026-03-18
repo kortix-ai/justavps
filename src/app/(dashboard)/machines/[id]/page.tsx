@@ -25,7 +25,7 @@ import { useConfirm } from "@/hooks/use-confirm";
 import {
   ArrowLeft, RotateCw, Trash2, Copy, ExternalLink,
   Cpu, MemoryStick, HardDrive, Activity, Clock,
-  Globe, Server, ChevronDown, ChevronRight, Loader2,
+  Globe, Server, Eye, EyeOff, Loader2,
   Terminal as TerminalIcon, Link2,
   AlertTriangle, Camera
 } from "lucide-react";
@@ -48,7 +48,7 @@ export default function MachineDetailPage() {
   const params = useParams();
   const router = useRouter();
   const machineId = params.id as string;
-  const [showKey, setShowKey] = useState(false);
+  const [showSecrets, setShowSecrets] = useState(false);
   const [createImageOpen, setCreateImageOpen] = useState(false);
   const [imageName, setImageName] = useState("");
 
@@ -224,88 +224,110 @@ export default function MachineDetailPage() {
               <TabsContent value="connect" className="space-y-4 mt-0">
                 <Card>
                   <CardHeader>
-                    <CardTitle>Connection Details</CardTitle>
-                    <CardDescription>Methods to connect to your machine</CardDescription>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle>Connection Details</CardTitle>
+                        <CardDescription>Methods to connect to your machine</CardDescription>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowSecrets(s => !s)}
+                      >
+                        {showSecrets ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                        {showSecrets ? "Hide" : "Reveal"}
+                      </Button>
+                    </div>
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                    {/* SSH Setup */}
-                    {machine.ssh_key?.setup_command && (
-                      <div className="space-y-2">
-                        <div className="text-sm font-medium flex items-center justify-between">
-                          <span>SSH Setup (Run once)</span>
-                          <Badge variant="secondary" className="text-[10px]">1-click</Badge>
-                        </div>
-                        <div className="relative group">
-                          <pre className="text-xs font-mono text-muted-foreground bg-muted/50 p-4 rounded-lg overflow-x-auto">{machine.ssh_key.setup_command}</pre>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="absolute top-2 right-2 h-7 px-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                            onClick={() => copy(machine.ssh_key!.setup_command!, "Setup command")}
-                          >
-                            <Copy className="size-3.5 mr-1" /> Copy
-                          </Button>
-                        </div>
+                  <CardContent className="relative">
+                    {/* Single click-to-reveal overlay */}
+                    {!showSecrets && (
+                      <div
+                        className="absolute inset-0 z-10 flex items-center justify-center cursor-pointer rounded-b-xl"
+                        onClick={() => setShowSecrets(true)}
+                      >
+                        <span className="flex items-center gap-2 text-sm text-muted-foreground bg-background/80 backdrop-blur-sm px-4 py-2 rounded-full border shadow-sm hover:bg-background hover:text-foreground transition-colors">
+                          <Eye className="size-4" />
+                          Click to reveal
+                        </span>
                       </div>
                     )}
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* SSH Command */}
-                      {machine.connect?.ssh_command && (
+                    <div className={`space-y-4 transition-[filter] duration-200 ${!showSecrets ? 'blur-[8px] select-none pointer-events-none' : ''}`}>
+                      {/* SSH Setup */}
+                      {machine.ssh_key?.setup_command && (
                         <div className="space-y-2">
-                          <label className="text-sm font-medium">SSH Command</label>
+                          <div className="text-sm font-medium flex items-center justify-between">
+                            <span>SSH Setup (Run once)</span>
+                            <Badge variant="secondary" className="text-[10px]">1-click</Badge>
+                          </div>
                           <div className="relative group">
-                            <div className="text-xs font-mono text-muted-foreground bg-muted/50 p-3 rounded-lg truncate pr-10">
-                              {machine.connect.ssh_command}
-                            </div>
+                            <pre className="text-xs font-mono text-muted-foreground bg-muted/50 p-4 rounded-lg overflow-x-auto">{machine.ssh_key.setup_command}</pre>
                             <Button
-                              size="icon"
-                              variant="ghost"
-                              className="absolute top-1 right-1 h-7 w-7"
-                              onClick={() => copy(machine.connect!.ssh_command!, "SSH command")}
+                              size="sm"
+                              variant="secondary"
+                              className="absolute top-2 right-2 h-7 px-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={() => copy(machine.ssh_key!.setup_command!, "Setup command")}
                             >
-                              <Copy className="size-3.5" />
+                              <Copy className="size-3.5 mr-1" /> Copy
                             </Button>
                           </div>
                         </div>
                       )}
 
-                      {/* Browser IDE */}
-                      {machine.connect && (
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">Browser IDE</label>
-                          <div className="flex gap-2">
-                            <div className="relative group flex-1">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* SSH Command */}
+                        {machine.connect?.ssh_command && (
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">SSH Command</label>
+                            <div className="relative group">
                               <div className="text-xs font-mono text-muted-foreground bg-muted/50 p-3 rounded-lg truncate pr-10">
-                                {machine.connect.vscode_url}
+                                {machine.connect.ssh_command}
                               </div>
                               <Button
                                 size="icon"
                                 variant="ghost"
                                 className="absolute top-1 right-1 h-7 w-7"
-                                onClick={() => copy(machine.connect!.vscode_url, "IDE URL")}
+                                onClick={() => copy(machine.connect!.ssh_command!, "SSH command")}
                               >
                                 <Copy className="size-3.5" />
                               </Button>
                             </div>
-                            <Button variant="outline" size="icon" onClick={() => window.open(machine.connect!.vscode_url, "_blank")}>
-                              <ExternalLink className="size-4" />
-                            </Button>
                           </div>
-                          <div className="text-xs text-muted-foreground">Password: <span className="font-mono">{machine.connect.vscode_password}</span></div>
-                        </div>
-                      )}
-                    </div>
+                        )}
 
-                    {/* Private Key */}
-                    {machine.ssh_key?.private_key && (
-                      <div className="pt-2">
-                        <button onClick={() => setShowKey(!showKey)} className="flex items-center gap-2 text-sm font-medium hover:text-primary transition-colors">
-                          {showKey ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-                          SSH Private Key
-                        </button>
-                        {showKey && (
-                          <div className="mt-3 relative group">
+                        {/* Browser IDE */}
+                        {machine.connect && (
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">Browser IDE</label>
+                            <div className="flex gap-2">
+                              <div className="relative group flex-1">
+                                <div className="text-xs font-mono text-muted-foreground bg-muted/50 p-3 rounded-lg truncate pr-10">
+                                  {machine.connect.vscode_url}
+                                </div>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="absolute top-1 right-1 h-7 w-7"
+                                  onClick={() => copy(machine.connect!.vscode_url, "IDE URL")}
+                                >
+                                  <Copy className="size-3.5" />
+                                </Button>
+                              </div>
+                              <Button variant="outline" size="icon" onClick={() => window.open(machine.connect!.vscode_url, "_blank")}>
+                                <ExternalLink className="size-4" />
+                              </Button>
+                            </div>
+                            <div className="text-xs text-muted-foreground">Password: <span className="font-mono">{machine.connect.vscode_password}</span></div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Private Key */}
+                      {machine.ssh_key?.private_key && (
+                        <div className="space-y-2 pt-2">
+                          <div className="text-sm font-medium">SSH Private Key</div>
+                          <div className="relative group">
                             <pre className="text-xs font-mono text-muted-foreground bg-muted/50 p-4 rounded-lg overflow-x-auto max-h-60">{machine.ssh_key.private_key}</pre>
                             <Button
                               size="sm"
@@ -316,9 +338,9 @@ export default function MachineDetailPage() {
                               <Copy className="size-3.5 mr-1" /> Copy
                             </Button>
                           </div>
-                        )}
-                      </div>
-                    )}
+                        </div>
+                      )}
+                    </div>
                   </CardContent>
                 </Card>
               </TabsContent>

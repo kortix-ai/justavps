@@ -93,10 +93,26 @@ https://justavps.com/api/v1
   ],
 });
 
+// Proxy the sandboxagent OpenAPI spec to avoid CORS issues in the browser
+app.get('/docs/openapi-sandboxagent.json', async (c) => {
+  const res = await fetch('https://sandboxagent.dev/docs/openapi.json');
+  const json = await res.json();
+  return c.json(json);
+});
+
 app.get(
   '/docs',
   Scalar({
-    url: '/api/docs/openapi.json',
+    sources: [
+      {
+        title: 'JustAVPS REST API',
+        url: '/api/docs/openapi.json',
+      },
+      {
+        title: 'SANDBOXAGENT REST API & SDK',
+        url: '/api/docs/openapi-sandboxagent.json',
+      },
+    ],
     theme: 'kepler',
   }),
 );

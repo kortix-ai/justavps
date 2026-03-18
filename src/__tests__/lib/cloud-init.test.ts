@@ -90,7 +90,7 @@ describe('cloud-init', () => {
     it('should install Claude Code inside the if block', () => {
       const script = buildCloudInit(defaultOpts);
       
-      expect(script).toContain('npm install -g @anthropic-ai/claude-code');
+      expect(script).toContain('https://claude.ai/install.sh');
     });
     
     it('should install OpenCode and create systemd service', () => {
