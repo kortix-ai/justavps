@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useTheme } from "@/hooks/use-theme";
+import { Logo } from "@/components/logo";
 import {
   Server,
   HardDrive,
@@ -54,13 +55,12 @@ export function AppSidebar() {
   return (
     <Sidebar variant="inset" collapsible="icon">
       <SidebarHeader>
-        <div className="flex items-center gap-2.5 px-2 py-1 group-data-[collapsible=icon]:justify-center">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
-            <Server className="size-4" />
+        <div className="flex items-center px-2 py-1 group-data-[collapsible=icon]:justify-center">
+          <Logo className="group-data-[collapsible=icon]:hidden" />
+          <div className="hidden group-data-[collapsible=icon]:flex shrink-0 items-center justify-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/kortix-symbol.svg" alt="Kortix" className="h-[14px] w-auto dark:invert flex-shrink-0" />
           </div>
-          <span className="text-[15px] font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
-            JustAVPS.
-          </span>
         </div>
       </SidebarHeader>
       <SidebarContent>

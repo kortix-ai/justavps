@@ -11,6 +11,14 @@ import { cn } from "@/lib/utils";
 import { ArrowLeft, Check, Loader2, Cpu, MemoryStick, HardDrive, ChevronDown, Zap, Star, Rocket } from "lucide-react";
 import Link from "next/link";
 
+const REGION_MAP: Record<string, { flag: string; label: string }> = {
+  hel1: { flag: "🇪🇺", label: "Europe" },
+  fsn1: { flag: "🇪🇺", label: "Europe" },
+  nbg1: { flag: "🇪🇺", label: "Europe" },
+  hil:  { flag: "🇺🇸", label: "USA" },
+  ash:  { flag: "🇺🇸", label: "USA" },
+};
+
 /* ─── Featured plans per region — 3 curated picks from the allowed list ─── */
 const FEATURED_BY_REGION: Record<string, string[]> = {
   hel1: ["cpx22", "cpx32", "cpx42"],
@@ -180,7 +188,7 @@ export function ProvisionWizard() {
                 <div className="flex flex-wrap gap-1.5">
                   {regions.map((r) => (
                     <Chip key={r.id} selected={selectedRegion === r.id} onClick={() => setSelectedRegion(r.id)}>
-                      {r.city}
+                      <span className="mr-1">{REGION_MAP[r.id]?.flag ?? "🌍"}</span>{REGION_MAP[r.id]?.label ?? r.city}
                     </Chip>
                   ))}
                 </div>
