@@ -123,8 +123,8 @@ async function waitForImageReady(imageId: number, timeoutMs = PROVISION_TIMEOUT_
 }
 
 export class HetznerProvider implements ComputeProvider {
-  readonly name = 'hetzner' as const;
-  readonly displayName = 'Hetzner Cloud';
+  readonly name = 'cloud' as const;
+  readonly displayName = 'JustAVPS Cloud';
 
   async createImage(serverId: number, description: string): Promise<{ imageId: string; diskSize: number; architecture: string }> {
     const resp = await hetznerFetch<{ image: HetznerImage }>(
@@ -176,13 +176,24 @@ export class HetznerProvider implements ComputeProvider {
     });
 
     const serverId = result.server.id;
-    await waitForServerStatus(serverId, 'running');
+    // IP is assigned immediately at creation — don't wait for "running" status
+    // (waiting takes 60-90s on snapshot boot, which exceeds Vercel's serverless timeout)
+    const publicIp = result.server.public_net.ipv4.ip;
 
-    const info = await hetznerFetch<{ server: HetznerServer }>(`/servers/${serverId}`);
-    const publicIp = info.server.public_net.ipv4.ip;
+    if (!publicIp) {
+      // Fallback: poll briefly for IP assignment (shouldn't be needed)
+      for (let i = 0; i < 5; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const info = await hetznerFetch<{ server: HetznerServer }>(`/servers/${serverId}`);
+        if (info.server.public_net.ipv4.ip) {
+          console.log(`[hetzner] Created server ${opts.name} (ID: ${serverId}, IP: ${info.server.public_net.ipv4.ip})`);
+          return { serverId: String(serverId), publicIp: info.server.public_net.ipv4.ip };
+        }
+      }
+      throw new Error(`[hetzner] Server ${serverId} created but no IP assigned`);
+    }
 
     console.log(`[hetzner] Created server ${opts.name} (ID: ${serverId}, IP: ${publicIp})`);
-
     return { serverId: String(serverId), publicIp };
   }
 
@@ -259,10 +270,12 @@ export class HetznerProvider implements ComputeProvider {
     }
 
     // Return canonical plan definitions — specs & prices are region-independent
+    // Hetzner charges 20% of the server price for backups
     return PLAN_TIERS
       .filter((tier) => tier.sku[loc])
       .map((tier) => {
         const skuName = tier.sku[loc];
+        const providerPrice = providerCosts[skuName] ?? 0;
         return {
           name: skuName,
           description: `${tier.vcpu} vCPU / ${tier.memory} GB RAM / ${tier.disk} GB SSD`,
@@ -271,8 +284,9 @@ export class HetznerProvider implements ComputeProvider {
           disk: tier.disk,
           cpuType: 'shared' as const,
           architecture: 'x86' as const,
-          providerPriceMonthly: providerCosts[skuName] ?? 0,
+          providerPriceMonthly: providerPrice,
           priceMonthly: tier.price,
+          backupPriceMonthly: Math.round(providerPrice * 0.2 * 100) / 100,
           region: loc,
         };
       });
