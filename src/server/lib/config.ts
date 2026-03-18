@@ -7,13 +7,11 @@ export const config = {
   // Hetzner
   HETZNER_API_KEY: process.env.HETZNER_API_KEY || '',
   HETZNER_DEFAULT_LOCATION: process.env.HETZNER_DEFAULT_LOCATION || 'nbg1',
-  // Cloudflare
+  // Cloudflare (DNS + KV only — no tunnels)
   CLOUDFLARE_API_KEY: process.env.CLOUDFLARE_GLOBAL_API_KEY || '',
   CLOUDFLARE_EMAIL: process.env.CLOUDFLARE_EMAIL || '',
   CLOUDFLARE_ZONE_ID: process.env.CLOUDFLARE_ZONE_ID || '',
   CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID || '',
-  CLOUDFLARE_TUNNEL_ID: process.env.CLOUDFLARE_TUNNEL_ID || '',
-  CLOUDFLARE_TUNNEL_TOKEN: process.env.CLOUDFLARE_TUNNEL_TOKEN || '',
 
   // Database
   DATABASE_URL: process.env.DATABASE_URL || '',
@@ -24,17 +22,17 @@ export const config = {
   STRIPE_COMPUTE_PRODUCT_ID: process.env.STRIPE_COMPUTE_PRODUCT_ID || '',
 
   // Platform
-  PLATFORM_URL: process.env.PLATFORM_URL || 'https://api.kortix.cloud',
-  PROXY_DOMAIN: process.env.PROXY_DOMAIN || 'kortix.cloud',
-  APP_URL: process.env.NEXT_PUBLIC_APP_URL || 'https://justavps.com',
-  API_URL: process.env.NEXT_PUBLIC_API_URL || 'https://api.kortix.cloud',
+  PLATFORM_URL: (process.env.PLATFORM_URL || 'https://justavps.com').trim(),
+  PROXY_DOMAIN: (process.env.PROXY_DOMAIN || 'kortix.cloud').trim(),
+  APP_URL: (process.env.NEXT_PUBLIC_APP_URL || 'https://justavps.com').trim(),
+  API_URL: (process.env.NEXT_PUBLIC_API_URL || 'https://justavps.com/api').trim(),
 
   // Pricing
   COMPUTE_MARKUP: parseFloat(process.env.COMPUTE_MARKUP || '2.5'),
 
   // Auth
-  AUTH_SECRET: process.env.AUTH_SECRET || '',
-  PROXY_AUTH_SECRET: process.env.PROXY_AUTH_SECRET || process.env.AUTH_SECRET || '',
+  AUTH_SECRET: (process.env.AUTH_SECRET || '').trim(),
+  PROXY_AUTH_SECRET: (process.env.PROXY_AUTH_SECRET || process.env.AUTH_SECRET || '').trim(),
 
   // Helpers
   isHetznerConfigured(): boolean {

@@ -1,82 +1,110 @@
 /**
- * Tests for Cloudflare KV client.
- * DNS is handled by a single wildcard *.kortix.cloud record (no per-machine DNS).
- * The client only manages KV entries for the proxy Worker.
+ * Tests for Cloudflare client — DNS A records and KV management.
+ * Architecture: direct IP proxy (no tunnels).
  */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { cloudflareClient } from '@/server/lib/cloudflare';
 
-// Mock fetch globally
-global.fetch = vi.fn();
-
 describe('cloudflareClient', () => {
+  let mockFetch: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
-    vi.clearAllMocks();
-    (fetch as any).mockReset();
+    mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ result: [] }),
+      text: async () => '',
+    });
+    global.fetch = mockFetch as unknown as typeof fetch;
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  describe('writeKVMachine', () => {
-    it('should write machine info to KV', async () => {
-      (fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true }),
+  describe('addMachineDNS', () => {
+    it('should create proxied A, wildcard A, and DNS-only origin A', async () => {
+      mockFetch.mockImplementation(async (_url: string, opts?: any) => {
+        const method = opts?.method || 'GET';
+        if (method === 'GET') return { ok: true, json: async () => ({ result: [] }) };
+        if (method === 'POST') return { ok: true, json: async () => ({ result: { id: 'dns-id' } }) };
+        if (method === 'DELETE') return { ok: true, json: async () => ({ result: null }) };
+        return { ok: true, json: async () => ({}) };
       });
 
-      await cloudflareClient.writeKVMachine('test-slug', {
-        owner_id: 'user-123',
-        ip: '10.0.0.1',
-        status: 'provisioning',
-        server_type: 'cpx22',
-      });
+      await cloudflareClient.addMachineDNS('test-slug', '10.0.0.1');
 
-      expect(fetch).toHaveBeenCalledTimes(1);
-      const [url, opts] = (fetch as any).mock.calls[0];
-      expect(url).toContain('/storage/kv/namespaces/');
-      expect(url).toContain('/values/machine:test-slug');
-      expect(opts.method).toBe('PUT');
+      const postCalls = mockFetch.mock.calls.filter((c: any) => c[1]?.method === 'POST');
+      expect(postCalls.length).toBe(3);
+
+      // 1: Proxied A record (triggers Worker route)
+      const body1 = JSON.parse(postCalls[0][1].body);
+      expect(body1.type).toBe('A');
+      expect(body1.name).toContain('test-slug');
+      expect(body1.content).toBe('10.0.0.1');
+      expect(body1.proxied).toBe(true);
+
+      // 2: Wildcard A (port subdomains)
+      const body2 = JSON.parse(postCalls[1][1].body);
+      expect(body2.type).toBe('A');
+      expect(body2.name).toContain('*.test-slug');
+      expect(body2.proxied).toBe(true);
+
+      // 3: Origin A (DNS-only — Worker fetches this to bypass CF proxy)
+      const body3 = JSON.parse(postCalls[2][1].body);
+      expect(body3.type).toBe('A');
+      expect(body3.name).toContain('origin-test-slug');
+      expect(body3.content).toBe('10.0.0.1');
+      expect(body3.proxied).toBe(false);
     });
+  });
 
-    it('should include machine slug in KV key path', async () => {
-      (fetch as any).mockResolvedValueOnce({
+  describe('removeMachineDNS', () => {
+    it('should delete all DNS records for slug, wildcard, and origin', async () => {
+      mockFetch.mockResolvedValue({
         ok: true,
-        json: () => Promise.resolve({ success: true }),
+        json: async () => ({ result: [] }),
       });
 
-      await cloudflareClient.writeKVMachine('my-special-slug', {
-        owner_id: 'user-456',
-        ip: '10.0.0.2',
+      await cloudflareClient.removeMachineDNS('test-slug');
+
+      // Should query for CNAME, A, AAAA for slug + wildcard + origin.slug
+      expect(mockFetch).toHaveBeenCalled();
+      const getCalls = mockFetch.mock.calls.filter((c: any) => !c[1]?.method || c[1]?.method === 'GET');
+      // 3 hostnames × 3 types = 9 GET calls
+      expect(getCalls.length).toBeGreaterThanOrEqual(9);
+    });
+  });
+
+  describe('writeKVMachine', () => {
+    it('should PUT machine data to KV with correct key', async () => {
+      await cloudflareClient.writeKVMachine('my-slug', {
+        owner_id: 'user-123',
+        ip: '1.2.3.4',
+        origin_hostname: 'origin-my-slug.kortix.cloud',
         status: 'ready',
-        server_type: 'ccx13',
+        server_type: 'cx22',
       });
 
-      const [url] = (fetch as any).mock.calls[0];
-      expect(url).toContain('machine:my-special-slug');
+      const putCalls = mockFetch.mock.calls.filter((c: any) => c[1]?.method === 'PUT');
+      expect(putCalls.length).toBe(1);
+      const url = putCalls[0][0] as string;
+      expect(url).toContain('machine:my-slug');
     });
   });
 
   describe('deleteKVMachine', () => {
-    it('should delete machine from KV', async () => {
-      (fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true }),
-      });
+    it('should DELETE machine from KV', async () => {
+      await cloudflareClient.deleteKVMachine('my-slug');
 
-      await cloudflareClient.deleteKVMachine('test-slug');
-
-      // May or may not call fetch depending on config
-      // The important thing is it doesn't throw
+      const deleteCalls = mockFetch.mock.calls.filter((c: any) => c[1]?.method === 'DELETE');
+      expect(deleteCalls.length).toBe(1);
+      const url = deleteCalls[0][0] as string;
+      expect(url).toContain('machine:my-slug');
     });
 
-    it('should not throw on failure', async () => {
-      (fetch as any).mockRejectedValueOnce(new Error('Network error'));
-
-      // Should swallow errors gracefully
-      await expect(cloudflareClient.deleteKVMachine('test-slug')).resolves.toBeUndefined();
+    it('should swallow errors on delete failure', async () => {
+      mockFetch.mockRejectedValue(new Error('KV Error'));
+      await expect(cloudflareClient.deleteKVMachine('slug')).resolves.toBeUndefined();
     });
   });
 });

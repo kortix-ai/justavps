@@ -19,7 +19,7 @@ import {
   generateMachineIdentity,
   uploadSSHKeyToProvider,
   buildMachineUserData,
-  setupProxyKV,
+  setupProxyDNS,
   lookupPriceAndSpecs,
   createMachineRecord,
   createStripeSubscription,
@@ -42,6 +42,7 @@ import {
 export const machinesApp = new OpenAPIHono<{ Variables: AuthVariables }>();
 
 machinesApp.use('*', apiGuard);
+
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -262,7 +263,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
         await eventBus.emitStageChange(machine.id, ownerId, 'server_created', `Server created (IP: ${server.publicIp})`, { ip: server.publicIp });
 
         try {
-          await setupProxyKV(slug, server.publicIp, ownerId, data.server_type);
+          await setupProxyDNS(slug, server.publicIp, ownerId, data.server_type);
         } catch (err) {
           console.warn(`[MACHINES] KV setup failed for ${slug}:`, err);
         }

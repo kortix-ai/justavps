@@ -2,15 +2,24 @@ export interface ParsedHostname {
   slug: string;
   port: number;
   isPty: boolean;
+  rewrittenPath?: string; // Set when path-based port routing rewrites the path
 }
 
 /**
- * Parse hostname to extract slug and port information
- * 
+ * Parse hostname and pathname to extract slug and port information.
+ *
+ * Supports two routing modes:
+ *   1. Subdomain-based: 3000.slug.kortix.cloud → port 3000
+ *   2. Path-based:      slug.kortix.cloud/_port/3000/path → port 3000
+ *
+ * Path-based routing is the reliable fallback when two-level subdomain DNS
+ * isn't configured (requires per-machine wildcard A records).
+ *
  * Examples:
- * - abc123.kortix.cloud → { slug: 'abc123', port: 8080, isPty: false }
+ * - abc123.kortix.cloud → { slug: 'abc123', port: 80, isPty: false }
  * - 3000.abc123.kortix.cloud → { slug: 'abc123', port: 3000, isPty: false }
- * - abc123.kortix.cloud with /_pty path → { slug: 'abc123', port: 8080, isPty: true }
+ * - abc123.kortix.cloud/_port/3000/ → { slug: 'abc123', port: 3000, isPty: false, rewrittenPath: '/' }
+ * - abc123.kortix.cloud/_pty → { slug: 'abc123', port: 80, isPty: true }
  */
 export function parseHostname(hostname: string, pathname?: string): ParsedHostname | null {
   if (!hostname) return null;
@@ -55,13 +64,27 @@ export function parseHostname(hostname: string, pathname?: string): ParsedHostna
   // Normalize slug to lowercase
   slug = slug.toLowerCase();
   
+  // Check for path-based port routing: /_port/3000/rest/of/path
+  let rewrittenPath: string | undefined;
+  if (pathname && port === 80) {
+    const portMatch = pathname.match(/^\/_port\/(\d+)(\/.*)?$/);
+    if (portMatch) {
+      const pathPort = parseInt(portMatch[1], 10);
+      if (pathPort > 0 && pathPort <= 65535) {
+        port = pathPort;
+        rewrittenPath = portMatch[2] || '/';
+      }
+    }
+  }
+
   // Check if this is a PTY WebSocket request
   const isPty = pathname === '/_pty';
   
   return {
     slug,
     port,
-    isPty
+    isPty,
+    ...(rewrittenPath !== undefined ? { rewrittenPath } : {}),
   };
 }
 

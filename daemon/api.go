@@ -131,7 +131,6 @@ func (s *APIServer) handleInfo(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, 200, map[string]any{
 		"slug":           s.cfg.Slug,
-		"proxy_domain":   s.cfg.ProxyDomain,
 		"ip":             ip,
 		"daemon_version": version,
 	})

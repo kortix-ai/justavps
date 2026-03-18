@@ -1,13 +1,14 @@
 // justavps-daemon — The on-machine platform agent.
 //
 // Responsibilities:
-//   - Auth gateway: JWT cookie verification → reverse proxy to code-server
-//   - Heartbeat reporting (POST to platform every 30s)
 //   - Health monitoring (CPU, memory, disk, services)
-//   - Local API on /health, /services, /info
+//   - Heartbeat reporting (POST to platform every 30s)
+//   - Local API on /health, /services, /info, /services/{name}/restart
 //
-// Traffic flow:
-//   cloudflared tunnel → daemon :7777 → auth check → code-server :8080
+// Traffic flow (direct IP proxy — no tunnels):
+//   CF Worker authenticates all requests and proxies to VPS_IP:port directly.
+//   The daemon does NOT handle auth or proxy traffic.
+//   Port 7777 is only accessible from platform IPs (Hetzner Firewall).
 //
 // Usage:
 //   justavps-daemon --config /etc/justavps/config.json
@@ -33,8 +34,7 @@ var (
 
 func main() {
 	configPath := flag.String("config", "/etc/justavps/config.json", "Path to config file")
-	port := flag.Int("port", 7777, "Proxy + API port")
-	codeServerPort := flag.Int("code-server-port", 8080, "code-server port to proxy to")
+	port := flag.Int("port", 7777, "API port")
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
 
@@ -55,19 +55,14 @@ func main() {
 	health := NewHealthChecker()
 	heartbeat := NewHeartbeater(cfg, health)
 
-	// Build the HTTP handler: daemon API routes + auth proxy for everything else
+	// HTTP handler: daemon API routes only (no auth, no proxy)
 	mux := http.NewServeMux()
 
-	// Daemon API routes (no auth required — internal use)
 	apiServer := NewAPIServer(cfg, health, *port)
 	mux.HandleFunc("GET /health", apiServer.handleHealth)
 	mux.HandleFunc("GET /services", apiServer.handleServices)
 	mux.HandleFunc("POST /services/{name}/restart", apiServer.handleServiceRestart)
 	mux.HandleFunc("GET /info", apiServer.handleInfo)
-
-	// Auth reverse proxy for everything else → code-server
-	authProxy := NewAuthProxy(cfg, cfg.ProxyAuthSecret, *codeServerPort)
-	mux.Handle("/", authProxy)
 
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", *port),
@@ -80,13 +75,7 @@ func main() {
 	go heartbeat.Run(ctx)
 
 	go func() {
-		log.Printf("Listening on :%d (proxy → localhost:%d, auth: %s)",
-			*port, *codeServerPort, func() string {
-				if cfg.ProxyAuthSecret != "" {
-					return "JWT"
-				}
-				return "DISABLED"
-			}())
+		log.Printf("Listening on :%d (health + heartbeat only, no auth/proxy)", *port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server error: %v", err)
 		}

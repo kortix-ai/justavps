@@ -4,547 +4,338 @@
 #  JustAVPS — Full End-to-End Test
 # ═══════════════════════════════════════════════════════════════════════
 #
-# Tests the COMPLETE user journey from account creation to machine access:
-#
-#   1. Register a new account
-#   2. Create an API key
-#   3. Deploy a machine (Hetzner cpx22, Europe)
-#   4. Wait for provisioning (cloud-init + cloudflared tunnel)
-#   5. Test SSH connectivity
-#   6. Test cloud-init completed (services running)
-#   7. Test Cloudflare Tunnel (DNS CNAME resolves)
-#   8. Test proxy auth (JWT cookie → code-server via tunnel)
-#   9. Test auth rejection (no cookie, wrong user)
-#   10. Test /api/proxy-auth endpoint (cookie issuance)
-#   11. Cleanup (delete machine + Hetzner server + DNS)
-#
-# Requirements:
-#   - Dev server running on $BASE_URL (default: http://localhost:4100)
-#   - PostgreSQL running (for account creation)
-#   - Hetzner API key configured
-#   - Cloudflare configured (tunnel, DNS)
-#   - PROXY_AUTH_SECRET set in .env
+# Tests the core flow: deploy machine → provision → SSH → tunnel → auth → cleanup
 #
 # Usage:
-#   ./scripts/e2e-full.sh                    # full test
-#   SKIP_CLEANUP=1 ./scripts/e2e-full.sh     # keep machine after test
+#   E2E_API_KEY=sk_live_xxx ./scripts/e2e-full.sh
+#   SKIP_CLEANUP=1 E2E_API_KEY=sk_live_xxx ./scripts/e2e-full.sh
 #
-# Cost: ~$0.01 per run (cpx22 for ~5-10 minutes)
+# Cost: ~$0.01 (cpx22 for ~5 min)
 # Time: ~5-8 minutes
 #
-# ═══════════════════════════════════════════════════════════════════════
 
 set -euo pipefail
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 
-BASE_URL="${BASE_URL:-http://localhost:4100}"
-HETZNER_TOKEN="${HETZNER_API_KEY:-}"
-PROXY_AUTH_SECRET="${PROXY_AUTH_SECRET:-}"
-SKIP_CLEANUP="${SKIP_CLEANUP:-0}"
-
-# Load .env if available
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-if [ -f "$PROJECT_DIR/.env" ]; then
-  set -a
-  source "$PROJECT_DIR/.env"
-  set +a
-  HETZNER_TOKEN="${HETZNER_API_KEY:-$HETZNER_TOKEN}"
-  PROXY_AUTH_SECRET="${PROXY_AUTH_SECRET:-}"
+[ -f "$PROJECT_DIR/.env" ] && { set -a; source "$PROJECT_DIR/.env"; set +a; }
+
+BASE="${BASE_URL:-http://localhost:4100}/api"
+API_KEY="${E2E_API_KEY:-}"
+SKIP_CLEANUP="${SKIP_CLEANUP:-0}"
+HETZNER_TOKEN="${HETZNER_API_KEY:-}"
+
+if [ -z "$API_KEY" ]; then
+  echo "ERROR: Set E2E_API_KEY=sk_live_xxx"
+  echo "Create one: curl -X POST $BASE/v1/api-keys -H 'Authorization: Bearer ...' -d '{\"name\":\"e2e\"}'"
+  exit 1
 fi
 
-# Test identity
-TEST_ID="e2e$(date +%s | tail -c 7)"
-TEST_EMAIL="${TEST_ID}@test.justavps.com"
-TEST_PASSWORD="TestPass123!${TEST_ID}"
-
 # State
-API_KEY=""
-MACHINE_ID=""
-MACHINE_SLUG=""
-MACHINE_IP=""
-SSH_KEY_FILE=""
-PASS=0
-FAIL=0
-TOTAL=0
+MACHINE_ID="" MACHINE_SLUG="" MACHINE_IP="" SSH_KEY_FILE=""
+PASS=0 FAIL=0 TOTAL=0
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+R='\033[0;31m' G='\033[0;32m' Y='\033[1;33m' C='\033[0;36m' N='\033[0m'
+log()  { echo -e "${C}[E2E]${N} $*"; }
+pass() { TOTAL=$((TOTAL+1)); PASS=$((PASS+1)); echo -e "  ${G}✓${N} $*"; }
+fail() { TOTAL=$((TOTAL+1)); FAIL=$((FAIL+1)); echo -e "  ${R}✗${N} $*"; }
+skip() { TOTAL=$((TOTAL+1)); echo -e "  ${Y}⊘${N} $* (skipped)"; }
 
-log() { echo -e "${CYAN}[E2E]${NC} $*"; }
-pass() { TOTAL=$((TOTAL+1)); PASS=$((PASS+1)); echo -e "  ${GREEN}✓${NC} $*"; }
-fail() { TOTAL=$((TOTAL+1)); FAIL=$((FAIL+1)); echo -e "  ${RED}✗${NC} $*"; }
-skip() { TOTAL=$((TOTAL+1)); echo -e "  ${YELLOW}⊘${NC} $* (skipped)"; }
+assert_eq()       { [ "$2" = "$3" ] && pass "$1" || fail "$1 (expected='$2' got='$3')"; }
+assert_contains() { echo "$2" | grep -q "$3" && pass "$1" || fail "$1 (missing '$3')"; }
+assert_not_empty(){ [ -n "$2" ] && pass "$1" || fail "$1 (empty)"; }
 
-assert_eq() {
-  local name="$1" expected="$2" actual="$3"
-  if [ "$expected" = "$actual" ]; then
-    pass "$name"
-  else
-    fail "$name (expected='$expected' got='$actual')"
-  fi
-}
+H="Authorization: Bearer $API_KEY"
+api()    { curl -s -H "$H" -H "Content-Type: application/json" "$BASE$1" ${2:+-X POST -d "$2"}; }
+apidel() { curl -s -o /dev/null -w "%{http_code}" -H "$H" -X DELETE "$BASE$1"; }
 
-assert_contains() {
-  local name="$1" haystack="$2" needle="$3"
-  if echo "$haystack" | grep -q "$needle"; then
-    pass "$name"
-  else
-    fail "$name (expected to contain '$needle')"
-  fi
-}
-
-assert_not_empty() {
-  local name="$1" value="$2"
-  if [ -n "$value" ]; then
-    pass "$name"
-  else
-    fail "$name (empty)"
-  fi
-}
-
-api_get() { curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api$1"; }
-api_post() { curl -s -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" -X POST "$BASE_URL/api$1" -d "$2"; }
-api_delete() { curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $API_KEY" -X DELETE "$BASE_URL/api$1"; }
-http_code() { curl -s -o /dev/null -w "%{http_code}" "$@"; }
+py() { python3 -c "import json,sys; d=json.loads(sys.stdin.read()); $1" 2>/dev/null; }
 
 ssh_cmd() {
-  if [ -z "$SSH_KEY_FILE" ] || [ -z "$MACHINE_IP" ]; then return 1; fi
+  [ -z "$SSH_KEY_FILE" ] || [ -z "$MACHINE_IP" ] && return 1
   ssh -i "$SSH_KEY_FILE" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
     -o ConnectTimeout=10 root@"$MACHINE_IP" "$@" 2>/dev/null
 }
 
 cleanup() {
-  log "Cleaning up..."
-  
-  # Delete machine via API
   if [ -n "$MACHINE_ID" ] && [ "$SKIP_CLEANUP" != "1" ]; then
-    api_delete "/v1/machines/$MACHINE_ID" > /dev/null 2>&1 || true
-  fi
-  
-  # Fallback: delete Hetzner server directly
-  if [ -n "$MACHINE_SLUG" ] && [ -n "$HETZNER_TOKEN" ] && [ "$SKIP_CLEANUP" != "1" ]; then
-    SRV_ID=$(curl -s -H "Authorization: Bearer $HETZNER_TOKEN" \
-      "https://api.hetzner.cloud/v1/servers?label_selector=slug=$MACHINE_SLUG" | \
-      python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print(d['servers'][0]['id'] if d.get('servers') else '')" 2>/dev/null)
-    if [ -n "$SRV_ID" ]; then
-      curl -s -X DELETE "https://api.hetzner.cloud/v1/servers/$SRV_ID" \
-        -H "Authorization: Bearer $HETZNER_TOKEN" > /dev/null 2>&1 || true
-      log "  Deleted Hetzner server $SRV_ID"
+    log "Cleaning up machine $MACHINE_SLUG..."
+    apidel "/v1/machines/$MACHINE_ID" > /dev/null 2>&1 || true
+    # Fallback: delete Hetzner server directly
+    if [ -n "$MACHINE_SLUG" ] && [ -n "$HETZNER_TOKEN" ]; then
+      SID=$(curl -s -H "Authorization: Bearer $HETZNER_TOKEN" \
+        "https://api.hetzner.cloud/v1/servers?label_selector=slug=$MACHINE_SLUG" | \
+        py "print(d.get('servers',[{}])[0].get('id',''))" 2>/dev/null)
+      [ -n "$SID" ] && curl -s -X DELETE "https://api.hetzner.cloud/v1/servers/$SID" \
+        -H "Authorization: Bearer $HETZNER_TOKEN" > /dev/null 2>&1
     fi
   fi
-  
-  # Clean SSH key
   [ -n "$SSH_KEY_FILE" ] && rm -f "$SSH_KEY_FILE"
-  
-  log "Done."
 }
-
 trap cleanup EXIT
 
-# ─── Verify Prerequisites ───────────────────────────────────────────────────
+# ─── Preflight ───────────────────────────────────────────────────────────────
 
 echo ""
-echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}  JustAVPS — Full End-to-End Test${NC}"
-echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo ""
-log "Base URL: $BASE_URL"
-log "Test ID:  $TEST_ID"
-log "Email:    $TEST_EMAIL"
+echo -e "${C}═══════════════════════════════════════════════════════════${N}"
+echo -e "${C}  JustAVPS — Full End-to-End Test${N}"
+echo -e "${C}═══════════════════════════════════════════════════════════${N}"
 echo ""
 
-# Check dev server is running
-DEV_STATUS=$(http_code "$BASE_URL/")
-if [ "$DEV_STATUS" != "200" ]; then
-  echo -e "${RED}ERROR: Dev server not running at $BASE_URL (got HTTP $DEV_STATUS)${NC}"
-  echo "Start it with: npm run dev"
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/v1/machines" -H "$H")
+if [ "$STATUS" != "200" ]; then
+  echo -e "${R}ERROR: API key invalid or server not running (HTTP $STATUS)${N}"
   exit 1
 fi
+log "API key valid, server running"
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  PHASE 1: Account Setup
-# ═════════════════════════════════════════════════════════════════════════════
-
-log "Phase 1: Account Setup"
-
-# 1.1 Register
-REGISTER_RESP=$(curl -s -X POST "$BASE_URL/api/auth/register" \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"$TEST_EMAIL\",\"password\":\"$TEST_PASSWORD\"}")
-USER_ID=$(echo "$REGISTER_RESP" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('id',''))" 2>/dev/null)
-assert_not_empty "Register account ($TEST_EMAIL)" "$USER_ID"
-
-# 1.2 Create API key (need to do this via DB since register doesn't return a session)
-API_KEY=$(cd "$PROJECT_DIR" && npx tsx -e "
-import 'dotenv/config';
-import { db } from './src/server/db/index.ts';
-import { apiKeys, users } from './src/server/db/schema.ts';
-import { generateApiKey } from './src/server/lib/crypto.ts';
-import { eq } from 'drizzle-orm';
-async function main() {
-  const [user] = await db.select().from(users).where(eq(users.email, '$TEST_EMAIL'));
-  if (!user) { process.exit(1); }
-  const { key, hash, prefix } = await generateApiKey();
-  await db.insert(apiKeys).values({ ownerId: user.id, name: 'e2e', keyPrefix: prefix, keyHash: hash });
-  console.log(key);
-}
-main().catch(() => process.exit(1));
-" 2>/dev/null)
-assert_not_empty "Create API key" "$API_KEY"
-
-# 1.3 Verify API key works
-AUTH_TEST=$(api_get "/v1/machines" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print('ok' if 'machines' in d else 'fail')" 2>/dev/null)
-assert_eq "API key authenticates" "ok" "$AUTH_TEST"
-
-# ═════════════════════════════════════════════════════════════════════════════
-#  PHASE 2: Machine Deployment
+#  PHASE 1: Deploy Machine
 # ═════════════════════════════════════════════════════════════════════════════
 
 echo ""
-log "Phase 2: Machine Deployment"
+log "Phase 1: Deploy Machine"
 
-# 2.1 Deploy machine
-MACHINE_RESP=$(api_post "/v1/machines" '{"provider":"hetzner","server_type":"cpx22","region":"hel1","name":"e2e-full-test"}')
-MACHINE_ID=$(echo "$MACHINE_RESP" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('id',''))" 2>/dev/null)
-MACHINE_SLUG=$(echo "$MACHINE_RESP" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('slug',''))" 2>/dev/null)
-MACHINE_STATUS=$(echo "$MACHINE_RESP" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('status',''))" 2>/dev/null)
+RESP=$(api "/v1/machines" '{"provider":"hetzner","server_type":"cpx22","region":"hel1","name":"e2e-full-test"}')
 
-if [ -z "$MACHINE_ID" ]; then
-  # Might be a Stripe checkout redirect
-  CHECKOUT=$(echo "$MACHINE_RESP" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('requires_checkout',''))" 2>/dev/null)
-  if [ "$CHECKOUT" = "True" ]; then
-    skip "Machine deployment (Stripe checkout required — skip with STRIPE_SECRET_KEY='')"
-    echo ""
-    echo -e "${YELLOW}═══════════════════════════════════════════════════════════${NC}"
-    echo -e "${YELLOW}  Stripe payment gate active — cannot create machine.${NC}"
-    echo -e "${YELLOW}  Set STRIPE_SECRET_KEY='' in .env to bypass for testing.${NC}"
-    echo -e "${YELLOW}═══════════════════════════════════════════════════════════${NC}"
-    exit 0
-  fi
-  fail "Deploy machine (no ID returned)"
-  echo "$MACHINE_RESP"
-  exit 1
+# Check for Stripe checkout redirect
+CHECKOUT=$(echo "$RESP" | py "print(d.get('requires_checkout',''))")
+if [ "$CHECKOUT" = "True" ]; then
+  echo -e "${Y}Stripe payment required — disable with STRIPE_SECRET_KEY='' in .env${N}"
+  exit 0
 fi
 
-assert_not_empty "Machine ID" "$MACHINE_ID"
+MACHINE_ID=$(echo "$RESP" | py "print(d.get('id',''))")
+MACHINE_SLUG=$(echo "$RESP" | py "print(d.get('slug',''))")
+assert_not_empty "Machine created" "$MACHINE_ID"
 assert_not_empty "Machine slug" "$MACHINE_SLUG"
-assert_eq "Machine status (provisioning)" "provisioning" "$MACHINE_STATUS"
+assert_eq "Status = provisioning" "provisioning" "$(echo "$RESP" | py "print(d.get('status',''))")"
 
-log "  Machine: slug=$MACHINE_SLUG id=${MACHINE_ID:0:8}..."
+log "  slug=$MACHINE_SLUG id=${MACHINE_ID:0:8}..."
 
-# 2.2 Extract SSH key
+# Extract SSH key
 SSH_KEY_FILE="/tmp/e2e_ssh_${MACHINE_SLUG}"
-echo "$MACHINE_RESP" | python3 -c "
-import json, sys
-d = json.loads(sys.stdin.read())
-pk = d.get('ssh_key', {}).get('private_key', '')
+echo "$RESP" | py "
+pk = d.get('ssh_key',{}).get('private_key','')
 if pk:
     if not pk.endswith('\n'): pk += '\n'
-    with open('$SSH_KEY_FILE', 'w') as f: f.write(pk)
-    print('saved')
+    open('$SSH_KEY_FILE','w').write(pk)
+    print('ok')
 else:
     print('')
-" 2>/dev/null
-if [ -f "$SSH_KEY_FILE" ]; then
-  chmod 600 "$SSH_KEY_FILE"
-  pass "SSH key extracted"
-else
-  # Try GET endpoint
-  MACHINE_DETAIL=$(api_get "/v1/machines/$MACHINE_ID")
-  echo "$MACHINE_DETAIL" | python3 -c "
-import json, sys
-d = json.loads(sys.stdin.read())
-pk = d.get('ssh_key', {}).get('private_key', '')
-if pk:
-    if not pk.endswith('\n'): pk += '\n'
-    with open('$SSH_KEY_FILE', 'w') as f: f.write(pk)
-    print('saved')
-" 2>/dev/null
-  if [ -f "$SSH_KEY_FILE" ]; then
-    chmod 600 "$SSH_KEY_FILE"
-    pass "SSH key extracted (from GET)"
-  else
-    fail "SSH key extraction"
-  fi
-fi
+"
+[ -f "$SSH_KEY_FILE" ] && chmod 600 "$SSH_KEY_FILE" && pass "SSH key saved" || fail "SSH key extraction"
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  PHASE 3: Wait for Provisioning
+#  PHASE 2: Wait for Ready
 # ═════════════════════════════════════════════════════════════════════════════
 
 echo ""
-log "Phase 3: Waiting for provisioning (up to 5 min)..."
+log "Phase 2: Provisioning (up to 5 min)..."
 
-START_TIME=$(date +%s)
-MAX_WAIT=300
-READY=0
-
-while [ $(($(date +%s) - START_TIME)) -lt $MAX_WAIT ]; do
-  DETAIL=$(api_get "/v1/machines/$MACHINE_ID")
-  STATUS=$(echo "$DETAIL" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('status',''))" 2>/dev/null)
-  IP=$(echo "$DETAIL" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('ip',''))" 2>/dev/null)
-  ELAPSED=$(($(date +%s) - START_TIME))
-  
-  if [ -n "$IP" ] && [ -z "$MACHINE_IP" ]; then
-    MACHINE_IP="$IP"
-    log "  Got IP: $MACHINE_IP (${ELAPSED}s)"
-  fi
-  
-  if [ "$STATUS" = "ready" ]; then
-    READY=1
-    log "  Machine ready! (${ELAPSED}s)"
-    break
-  elif [ "$STATUS" = "error" ]; then
-    fail "Machine provisioning (status=error)"
-    break
-  fi
-  
-  printf "\r  [%3ds] status=%s" "$ELAPSED" "$STATUS"
+START=$(date +%s)
+while [ $(($(date +%s) - START)) -lt 300 ]; do
+  D=$(api "/v1/machines/$MACHINE_ID")
+  S=$(echo "$D" | py "print(d.get('status',''))")
+  IP=$(echo "$D" | py "print(d.get('ip',''))")
+  [ -n "$IP" ] && [ -z "$MACHINE_IP" ] && { MACHINE_IP="$IP"; log "  IP: $MACHINE_IP"; }
+  [ "$S" = "ready" ] && break
+  [ "$S" = "error" ] && { fail "Provisioning (error)"; break; }
+  printf "\r  [%3ds] %s " "$(($(date +%s)-START))" "$S"
   sleep 10
 done
 echo ""
 
-assert_eq "Machine reaches ready status" "1" "$READY"
-assert_not_empty "Machine has IP" "$MACHINE_IP"
+assert_eq "Machine ready" "ready" "$S"
+assert_not_empty "Has IP" "$MACHINE_IP"
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  PHASE 4: SSH Connectivity + Cloud-Init
+#  PHASE 3: SSH + Cloud-Init
 # ═════════════════════════════════════════════════════════════════════════════
 
 echo ""
-log "Phase 4: SSH + Cloud-Init (waiting up to 6 min for cloud-init)..."
+log "Phase 3: SSH + Cloud-Init (up to 6 min)..."
 
-# 4.1 Wait for SSH
+# Wait for SSH
 SSH_OK=0
 for i in $(seq 1 36); do
-  if ssh_cmd "echo OK" 2>/dev/null | grep -q "OK"; then
-    SSH_OK=1
-    log "  SSH connected after $((i*10))s"
-    break
-  fi
+  ssh_cmd "echo OK" | grep -q OK && { SSH_OK=1; log "  SSH up (${i}0s)"; break; }
   sleep 10
 done
 assert_eq "SSH connects" "1" "$SSH_OK"
 
 if [ "$SSH_OK" = "1" ]; then
-  # 4.2 Wait for cloud-init
-  CLOUD_INIT_OK=0
+  # Wait for cloud-init
+  CI_OK=0
   for i in $(seq 1 36); do
-    CI_STATUS=$(ssh_cmd "cloud-init status 2>/dev/null | grep -o 'done\|running\|error'" 2>/dev/null || echo "unknown")
-    if [ "$CI_STATUS" = "done" ]; then
-      CLOUD_INIT_OK=1
-      log "  Cloud-init done after $((i*10))s"
-      break
-    elif [ "$CI_STATUS" = "error" ]; then
-      fail "Cloud-init (status=error)"
-      ssh_cmd "tail -20 /var/log/cloud-init-output.log" 2>/dev/null || true
-      break
-    fi
+    CS=$(ssh_cmd "cloud-init status 2>/dev/null | grep -o 'done\|running\|error'" || echo "?")
+    [ "$CS" = "done" ] && { CI_OK=1; log "  Cloud-init done (${i}0s)"; break; }
+    [ "$CS" = "error" ] && { fail "Cloud-init error"; break; }
     sleep 10
   done
-  assert_eq "Cloud-init completes" "1" "$CLOUD_INIT_OK"
+  assert_eq "Cloud-init done" "1" "$CI_OK"
 
-  # 4.3 Services running
-  CS_STATUS=$(ssh_cmd "systemctl is-active code-server" 2>/dev/null || echo "inactive")
-  assert_eq "code-server running" "active" "$CS_STATUS"
+  # Services
+  for svc in code-server docker justavps-daemon cloudflared; do
+    ST=$(ssh_cmd "systemctl is-active $svc" || echo "inactive")
+    assert_eq "$svc running" "active" "$ST"
+  done
 
-  DOCKER_STATUS=$(ssh_cmd "systemctl is-active docker" 2>/dev/null || echo "inactive")
-  assert_eq "Docker running" "active" "$DOCKER_STATUS"
+  # Daemon health
+  DH=$(ssh_cmd "curl -sf http://localhost:7777/health" | py "print(d.get('status',''))" || echo "")
+  assert_eq "Daemon /health" "ok" "$DH"
 
-  DAEMON_STATUS=$(ssh_cmd "systemctl is-active justavps-daemon" 2>/dev/null || echo "inactive")
-  assert_eq "justavps-daemon running" "active" "$DAEMON_STATUS"
+  # code-server local
+  CS=$(ssh_cmd "curl -sf -o /dev/null -w '%{http_code}' http://localhost:8080/" || echo "000")
+  assert_contains "code-server local" "$CS" "302"
 
-  TUNNEL_STATUS=$(ssh_cmd "systemctl is-active cloudflared" 2>/dev/null || echo "inactive")
-  assert_eq "cloudflared tunnel running" "active" "$TUNNEL_STATUS"
+  # Config
+  CFG_SLUG=$(ssh_cmd "cat /etc/justavps/config.json" | py "print(d.get('slug',''))" || echo "")
+  assert_eq "Config slug" "$MACHINE_SLUG" "$CFG_SLUG"
 
-  # 4.4 Daemon responds locally
-  DAEMON_HEALTH=$(ssh_cmd "curl -sf http://localhost:7777/health | python3 -c \"import json,sys; print(json.loads(sys.stdin.read()).get('status',''))\"" 2>/dev/null || echo "")
-  assert_eq "Daemon /health responds" "ok" "$DAEMON_HEALTH"
-
-  # 4.5 code-server responds locally
-  CS_LOCAL=$(ssh_cmd "curl -sf -o /dev/null -w '%{http_code}' http://localhost:8080/" 2>/dev/null || echo "000")
-  assert_contains "code-server responds locally" "$CS_LOCAL" "302"
-
-  # 4.6 Platform config written
-  CONFIG_SLUG=$(ssh_cmd "cat /etc/justavps/config.json | python3 -c \"import json,sys; print(json.loads(sys.stdin.read()).get('slug',''))\"" 2>/dev/null || echo "")
-  assert_eq "Platform config slug matches" "$MACHINE_SLUG" "$CONFIG_SLUG"
-
-  # 4.7 Firewall active
-  UFW_STATUS=$(ssh_cmd "ufw status | head -1" 2>/dev/null || echo "")
-  assert_contains "Firewall active" "$UFW_STATUS" "active"
+  # Firewall
+  UFW=$(ssh_cmd "ufw status | head -1" || echo "")
+  assert_contains "Firewall active" "$UFW" "active"
 else
-  skip "Cloud-init check (SSH failed)"
-  skip "code-server running"
-  skip "Docker running"
-  skip "justavps-daemon running"
-  skip "cloudflared tunnel running"
-  skip "Daemon /health"
-  skip "code-server local"
-  skip "Platform config"
-  skip "Firewall"
+  for t in "Cloud-init" "code-server" "docker" "justavps-daemon" "cloudflared" "Daemon /health" "code-server local" "Config slug" "Firewall"; do
+    skip "$t"
+  done
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  PHASE 5: Cloudflare Tunnel + DNS
+#  PHASE 4: Tunnel + DNS
 # ═════════════════════════════════════════════════════════════════════════════
 
 echo ""
-log "Phase 5: Cloudflare Tunnel + DNS"
+log "Phase 4: Tunnel + DNS"
 
-# 5.1 DNS CNAME resolves
-DNS_RESOLVED=0
+DNS_OK=0
 for i in $(seq 1 12); do
-  DNS_RESULT=$(dig +short "$MACHINE_SLUG.kortix.cloud" 2>/dev/null | head -1)
-  if [ -n "$DNS_RESULT" ]; then
-    DNS_RESOLVED=1
-    pass "DNS resolves: $MACHINE_SLUG.kortix.cloud → $DNS_RESULT"
-    break
-  fi
+  R=$(dig +short "$MACHINE_SLUG.kortix.cloud" 2>/dev/null | head -1)
+  [ -n "$R" ] && { DNS_OK=1; pass "DNS resolves ($R)"; break; }
   sleep 5
 done
-if [ "$DNS_RESOLVED" = "0" ]; then
-  fail "DNS resolution (CNAME not propagated after 60s)"
-fi
+[ "$DNS_OK" = "0" ] && fail "DNS not resolved after 60s"
 
-# 5.2 Tunnel health (check via Cloudflare API)
-if [ -n "$CLOUDFLARE_TUNNEL_ID" ] && [ -n "$CLOUDFLARE_GLOBAL_API_KEY" ]; then
-  TUNNEL_STATUS=$(curl -s -H "X-Auth-Key: $CLOUDFLARE_GLOBAL_API_KEY" -H "X-Auth-Email: $CLOUDFLARE_EMAIL" \
+# Tunnel health
+if [ -n "${CLOUDFLARE_TUNNEL_ID:-}" ]; then
+  TS=$(curl -s -H "X-Auth-Key: $CLOUDFLARE_GLOBAL_API_KEY" -H "X-Auth-Email: $CLOUDFLARE_EMAIL" \
     "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/cfd_tunnel/$CLOUDFLARE_TUNNEL_ID" | \
-    python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('result',{}).get('status',''))" 2>/dev/null)
-  assert_eq "Tunnel status (healthy)" "healthy" "$TUNNEL_STATUS"
+    py "print(d.get('result',{}).get('status',''))" || echo "")
+  assert_eq "Tunnel healthy" "healthy" "$TS"
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  PHASE 6: Proxy Auth
+#  PHASE 5: Proxy Auth
 # ═════════════════════════════════════════════════════════════════════════════
 
 echo ""
-log "Phase 6: Proxy Auth (via tunnel + daemon)"
+log "Phase 5: Proxy Auth"
 
-PROXY_URL="https://$MACHINE_SLUG.kortix.cloud"
+URL="https://$MACHINE_SLUG.kortix.cloud"
 
-# Generate a valid JWT for this user
-if [ -n "$PROXY_AUTH_SECRET" ]; then
-  JWT=$(cd "$PROJECT_DIR" && npx tsx -e "
+# Generate JWT
+USER_ID=$(api "/v1/machines/$MACHINE_ID" | py "print('')")  # We need user_id — get from DB
+USER_ID=$(PGPASSWORD=justavps123 psql -h localhost -p 54330 -U justavps -d justavps -t -A -c \
+  "SELECT owner_id FROM machines WHERE id='$MACHINE_ID';" 2>/dev/null || echo "")
+
+if [ -n "$USER_ID" ] && [ -n "${PROXY_AUTH_SECRET:-}" ]; then
+  JWT=$(cd "$PROJECT_DIR" && timeout 10 npx tsx -e "
 import 'dotenv/config';
 import { signProxyToken } from './src/server/lib/proxy-token.ts';
-signProxyToken('$USER_ID').then(console.log);
-" 2>/dev/null)
+signProxyToken('$USER_ID').then(t => { console.log(t); process.exit(0); });
+" 2>/dev/null || echo "")
 fi
 
-if [ -z "$JWT" ]; then
-  skip "Proxy auth tests (no PROXY_AUTH_SECRET or JWT generation failed)"
-  skip "All proxy tests"
-else
-  # 6.1 No auth → 401 or redirect
-  NO_AUTH_CODE=$(http_code --max-time 10 "$PROXY_URL/" 2>/dev/null)
-  if [ "$NO_AUTH_CODE" = "401" ] || [ "$NO_AUTH_CODE" = "302" ]; then
-    pass "No auth → $NO_AUTH_CODE (blocked)"
-  elif [ "$NO_AUTH_CODE" = "000" ]; then
-    fail "No auth → connection failed (tunnel may not be ready)"
+if [ -n "${JWT:-}" ]; then
+  # No auth → blocked
+  NA=$(curl -s -o /dev/null --max-time 10 -w "%{http_code}" "$URL/" 2>/dev/null || echo "000")
+  if [ "$NA" = "401" ] || [ "$NA" = "302" ]; then
+    pass "No auth → blocked ($NA)"
+  elif [ "$NA" = "000" ]; then
+    fail "No auth → connection failed (tunnel not ready?)"
   else
-    fail "No auth → HTTP $NO_AUTH_CODE (expected 401 or 302)"
+    fail "No auth → HTTP $NA (expected 401/302)"
   fi
 
-  # 6.2 Valid JWT cookie → code-server
-  AUTH_CODE=$(http_code --max-time 10 -b "__justavps_proxy=$JWT" "$PROXY_URL/login" 2>/dev/null)
-  assert_eq "JWT cookie → code-server (200)" "200" "$AUTH_CODE"
+  # JWT cookie → code-server
+  AC=$(curl -s -o /dev/null --max-time 10 -w "%{http_code}" -b "__justavps_proxy=$JWT" "$URL/login" 2>/dev/null || echo "000")
+  assert_eq "JWT cookie → 200" "200" "$AC"
 
-  # 6.3 Code-server page title
-  CS_TITLE=$(curl -s --max-time 10 -b "__justavps_proxy=$JWT" "$PROXY_URL/login" 2>/dev/null | grep -o "<title>.*</title>" || echo "")
-  assert_contains "Code-server login page served" "$CS_TITLE" "code-server"
+  # Page title
+  TITLE=$(curl -s --max-time 10 -b "__justavps_proxy=$JWT" "$URL/login" 2>/dev/null | grep -o "<title>.*</title>" || echo "")
+  assert_contains "code-server page" "$TITLE" "code-server"
 
-  # 6.4 Wrong user JWT → 401
-  WRONG_JWT=$(cd "$PROJECT_DIR" && npx tsx -e "
-import 'dotenv/config';
-import { signProxyToken } from './src/server/lib/proxy-token.ts';
-signProxyToken('00000000-0000-0000-0000-000000000000').then(console.log);
-" 2>/dev/null)
-  if [ -n "$WRONG_JWT" ]; then
-    # The daemon doesn't check ownership (no KV) — it just verifies the JWT is valid
-    # So wrong user will still get through. This is by design — daemon doesn't have KV access.
-    # Ownership check would need to happen at a different layer.
-    pass "Wrong user JWT test (daemon validates signature only — ownership is platform-level)"
-  fi
+  # Auth header
+  AH=$(curl -s -o /dev/null --max-time 10 -w "%{http_code}" -H "Authorization: Bearer $JWT" "$URL/login" 2>/dev/null || echo "000")
+  assert_eq "Auth header → 200" "200" "$AH"
 
-  # 6.5 Authorization header
-  HEADER_CODE=$(http_code --max-time 10 -H "Authorization: Bearer $JWT" "$PROXY_URL/login" 2>/dev/null)
-  assert_eq "Auth header → code-server (200)" "200" "$HEADER_CODE"
-
-  # 6.6 Token query param
-  TOKEN_CODE=$(http_code --max-time 10 "$PROXY_URL/login?token=$JWT" 2>/dev/null)
-  assert_eq "Token query param → code-server (200)" "200" "$TOKEN_CODE"
+  # Token param
+  TP=$(curl -s -o /dev/null --max-time 10 -w "%{http_code}" "$URL/login?token=$JWT" 2>/dev/null || echo "000")
+  assert_eq "Token param → 200" "200" "$TP"
+else
+  for t in "No auth" "JWT cookie" "code-server page" "Auth header" "Token param"; do
+    skip "$t (no JWT — set PROXY_AUTH_SECRET)"
+  done
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  PHASE 7: Platform API
+#  PHASE 6: Platform API
 # ═════════════════════════════════════════════════════════════════════════════
 
 echo ""
-log "Phase 7: Platform API"
+log "Phase 6: Platform API"
 
-# 7.1 GET /machines lists our machine
-MACHINES_LIST=$(api_get "/v1/machines")
-LIST_CONTAINS=$(echo "$MACHINES_LIST" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print('yes' if any(m['slug']=='$MACHINE_SLUG' for m in d.get('machines',[])) else 'no')" 2>/dev/null)
-assert_eq "GET /machines lists our machine" "yes" "$LIST_CONTAINS"
+# List machines
+LM=$(api "/v1/machines" | py "print('yes' if any(m['slug']=='$MACHINE_SLUG' for m in d.get('machines',[])) else 'no')")
+assert_eq "GET /machines lists machine" "yes" "$LM"
 
-# 7.2 GET /machines/:id returns our machine
-MACHINE_GET=$(api_get "/v1/machines/$MACHINE_ID")
-GET_SLUG=$(echo "$MACHINE_GET" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('slug',''))" 2>/dev/null)
-assert_eq "GET /machines/:id returns correct slug" "$MACHINE_SLUG" "$GET_SLUG"
+# Get machine
+GS=$(api "/v1/machines/$MACHINE_ID" | py "print(d.get('slug',''))")
+assert_eq "GET /machines/:id correct" "$MACHINE_SLUG" "$GS"
 
-# 7.3 GET /images (empty)
-IMAGES_LIST=$(api_get "/v1/images")
-IMAGES_COUNT=$(echo "$IMAGES_LIST" | python3 -c "import json,sys; print(len(json.loads(sys.stdin.read()).get('images',[])))" 2>/dev/null)
-assert_eq "GET /images returns empty list" "0" "$IMAGES_COUNT"
+# Images empty
+IC=$(api "/v1/images" | py "print(len(d.get('images',[])))")
+assert_eq "GET /images empty" "0" "$IC"
 
-# 7.4 GET /images/:nonexistent → 404
-IMAGES_404=$(http_code -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/images/00000000-0000-0000-0000-000000000000")
-assert_eq "GET /images/:nonexistent → 404" "404" "$IMAGES_404"
+# 404
+F=$(curl -s -o /dev/null -w "%{http_code}" -H "$H" "$BASE/v1/images/00000000-0000-0000-0000-000000000000")
+assert_eq "Images 404" "404" "$F"
 
-# 7.5 Unauthenticated → 401
-UNAUTH=$(http_code "$BASE_URL/api/v1/machines")
-assert_eq "Unauthenticated API → 401" "401" "$UNAUTH"
+# Unauth
+U=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/v1/machines")
+assert_eq "Unauth → 401" "401" "$U"
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  PHASE 8: Cleanup
+#  PHASE 7: Cleanup
 # ═════════════════════════════════════════════════════════════════════════════
 
 echo ""
 if [ "$SKIP_CLEANUP" = "1" ]; then
-  log "Phase 8: Cleanup SKIPPED (SKIP_CLEANUP=1)"
-  log "  Machine: $MACHINE_SLUG ($MACHINE_IP)"
+  log "Cleanup SKIPPED"
   log "  SSH: ssh -i $SSH_KEY_FILE root@$MACHINE_IP"
-  log "  URL: https://$MACHINE_SLUG.kortix.cloud"
+  log "  URL: $URL"
+  MACHINE_ID=""  # prevent trap cleanup
 else
-  log "Phase 8: Cleanup"
-
-  DELETE_CODE=$(api_delete "/v1/machines/$MACHINE_ID")
-  assert_contains "DELETE /machines/:id succeeds" "$DELETE_CODE" "20"
-
-  # Clear machine ID so trap doesn't double-delete
+  log "Phase 7: Cleanup"
+  DC=$(apidel "/v1/machines/$MACHINE_ID")
+  assert_contains "Delete machine" "$DC" "20"
   MACHINE_ID=""
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  Results
-# ═════════════════════════════════════════════════════════════════════════════
 
 echo ""
-echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
+echo -e "${C}═══════════════════════════════════════════════════════════${N}"
 if [ "$FAIL" -eq 0 ]; then
-  echo -e "  ${GREEN}ALL $PASS TESTS PASSED${NC} ($TOTAL total)"
+  echo -e "  ${G}ALL $PASS TESTS PASSED${N} ($TOTAL total)"
 else
-  echo -e "  ${RED}$FAIL FAILED${NC}, ${GREEN}$PASS passed${NC} ($TOTAL total)"
+  echo -e "  ${R}$FAIL FAILED${N}, ${G}$PASS passed${N} ($TOTAL total)"
 fi
-echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
+echo -e "${C}═══════════════════════════════════════════════════════════${N}"
 echo ""
-
 exit "$FAIL"

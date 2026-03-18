@@ -77,6 +77,7 @@ internalApp.openapi(heartbeatRoute, async (c) => {
       cloudflareClient.writeKVMachine(slug, {
         owner_id: machine.ownerId,
         ip: machine.ip,
+        origin_hostname: `origin-${slug}.${config.PROXY_DOMAIN}`,
         status: 'ready',
         server_type: machine.serverType,
       }).catch(() => {});

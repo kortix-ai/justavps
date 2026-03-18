@@ -14,6 +14,12 @@
  *   - code-server password
  *   - Docker workload startup (if configured)
  *   - Service enablement
+ *
+ * Security model (direct IP proxy — no tunnels):
+ *   - All web traffic enters via Cloudflare Worker (auth at edge)
+ *   - Hetzner Firewall (external, tamper-proof) allows only CF IPs on port 80 + user ports
+ *   - ufw on VPS is defense-in-depth (same rules)
+ *   - No cloudflared needed — CF Worker proxies to VPS IP directly
  */
 
 interface CloudInitOpts {
@@ -23,8 +29,6 @@ interface CloudInitOpts {
   machineToken: string;
   platformCallbackUrl: string;
   proxyDomain: string;
-  tunnelToken?: string;
-  proxyAuthSecret?: string;
   envVars?: Record<string, string>;
   dockerImage?: string;
   entrypoint?: string;
@@ -151,12 +155,6 @@ if ! command -v code-server &>/dev/null; then
   apt-get update -qq
   apt-get install -y -qq docker-ce docker-ce-cli containerd.io
 
-  # ── cloudflared (Cloudflare Tunnel connector) ───────────────────────────
-  curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | gpg --dearmor -o /usr/share/keyrings/cloudflare-main.gpg
-  echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' | tee /etc/apt/sources.list.d/cloudflared.list
-  apt-get update -qq
-  apt-get install -y -qq cloudflared
-
   # ── Node.js 22 LTS ─────────────────────────────────────────────────────
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
   apt-get install -y -qq nodejs
@@ -164,7 +162,7 @@ if ! command -v code-server &>/dev/null; then
   # ── code-server ─────────────────────────────────────────────────────────
   curl -fsSL https://code-server.dev/install.sh | sh
 
-  # ── Caddy (reverse proxy + auto HTTPS) ─────────────────────────────────
+  # ── Caddy (reverse proxy) ──────────────────────────────────────────────
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
   apt-get update -qq && apt-get install -y -qq -o Dpkg::Options::="--force-confold" caddy
@@ -268,10 +266,10 @@ DSEOF
 fi
 
 # ── justavps-daemon (ALWAYS update to latest — runs outside install guard) ─
-DAEMON_URL="${opts.platformCallbackUrl}/downloads/justavps-daemon-linux-amd64"
-echo "[justavps] Updating justavps-daemon..."
-curl -fsSL -o /usr/local/bin/justavps-daemon "$DAEMON_URL" 2>/dev/null \\
-  || echo "[justavps] WARNING: Failed to download daemon, using existing binary if available"
+DAEMON_URL="https://pub-caf7762051b942d5a801397d750a0dc3.r2.dev/daemon/latest/justavps-daemon-linux-amd64"
+echo "[justavps] Downloading justavps-daemon..."
+curl -fsSL -o /usr/local/bin/justavps-daemon "$DAEMON_URL" \\
+  || echo "[justavps] WARNING: Failed to download daemon"
 chmod +x /usr/local/bin/justavps-daemon 2>/dev/null || true
 
 # Systemd service for daemon (idempotent — safe to overwrite)
@@ -309,19 +307,17 @@ cat > /etc/justavps/config.json << 'CONFIGEOF'
 {
   "slug": "${opts.slug}",
   "callback_url": "${opts.platformCallbackUrl}",
-  "machine_token": "${opts.machineToken}",
-  "proxy_domain": "${opts.proxyDomain}",
-  "proxy_auth_secret": "${opts.proxyAuthSecret || ''}"
+  "machine_token": "${opts.machineToken}"
 }
 CONFIGEOF
 
 # ── Environment variables ─────────────────────────────────────────────────
 echo '${envLinesBase64}' | base64 -d > /etc/justavps/env
 
-# ── Caddy config (HTTP reverse proxy — Cloudflare handles TLS) ─────────────
-# The CF Worker proxies HTTPS → VPS:8080 (code-server directly).
-# Caddy runs on :80 as a local reverse proxy for path-based routing to
-# other services. Cloudflare connects to the origin over HTTP.
+# ── Caddy config (HTTP reverse proxy — Cloudflare Worker handles TLS) ──────
+# CF Worker authenticates all requests, then proxies to VPS_IP:port.
+# For the default route (slug.kortix.cloud), Worker hits VPS_IP:80 → Caddy.
+# For port subdomains (3000.slug.kortix.cloud), Worker hits VPS_IP:3000 directly.
 mkdir -p /etc/caddy
 cat > /etc/caddy/Caddyfile << CADDYEOF
 :80 {
@@ -355,16 +351,23 @@ CSEOF
 cp /home/user/.config/code-server/config.yaml /root/.config/code-server/config.yaml
 chown -R user:user /home/user/.config
 
-# ── Firewall: deny ALL inbound except SSH ──────────────────────────────────
-# cloudflared tunnel is outbound-only — no inbound ports needed for web traffic.
-# Only SSH (22) is open for direct access.
-echo "[justavps] Configuring firewall (outbound tunnel, SSH only inbound)..."
+# ── Firewall: allow SSH + Cloudflare IPs ───────────────────────────────────
+# Security model:
+#   - Hetzner Firewall (external, tamper-proof) is the primary boundary
+#   - ufw on VPS is defense-in-depth (same rules)
+#   - CF Worker authenticates all requests before they reach the VPS
+#   - No tunnels needed — CF proxies directly to VPS IP
+echo "[justavps] Configuring firewall (SSH + Cloudflare IPs)..."
 ufw --force reset >/dev/null 2>&1
 ufw default deny incoming >/dev/null 2>&1
 ufw default allow outgoing >/dev/null 2>&1
 ufw allow 22/tcp >/dev/null 2>&1
+# Port 80 (Caddy) — open to all, Hetzner FW restricts to CF IPs
+ufw allow 80/tcp >/dev/null 2>&1
+# User service ports — open to all, Hetzner FW restricts to CF IPs
+ufw allow 1024:65535/tcp >/dev/null 2>&1
 ufw --force enable >/dev/null 2>&1
-echo "[justavps] Firewall active: SSH only inbound, all web via tunnel."
+echo "[justavps] Firewall active: SSH + ports 80 + 1024-65535 (Hetzner FW restricts to CF IPs)."
 
 ${stageCallback('cloud_init_done', 'Configuration complete, starting services')}
 
@@ -377,14 +380,6 @@ systemctl enable --now sandbox-agent 2>/dev/null || true
 # Caddy: restart to pick up our Caddyfile (apt-get install auto-starts with default)
 systemctl enable caddy
 systemctl restart caddy
-
-# ── Cloudflare Tunnel (connects VPS to Cloudflare edge) ───────────────────
-# cloudflared was installed in the install phase. Now connect to the shared tunnel.
-${opts.tunnelToken ? `
-echo "[justavps] Starting Cloudflare Tunnel..."
-cloudflared service install ${opts.tunnelToken}
-echo "[justavps] Tunnel connected."
-` : '# No tunnel token — skipping cloudflared'}
 
 systemctl enable --now opencode-web
 ${dockerBlock}
