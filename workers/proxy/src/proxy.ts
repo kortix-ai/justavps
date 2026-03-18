@@ -78,10 +78,14 @@ export async function proxyHTTPRequest(
 
     // Use origin hostname (DNS-only, grey-cloud) to bypass CF proxy
     // origin-slug.kortix.cloud → VPS_IP (not proxied)
+    // ALL traffic goes through Caddy on port 80 — Caddy proxies to localhost:PORT
+    // This handles services that bind to 127.0.0.1 (not 0.0.0.0)
     const originHost = machineInfo.origin_hostname || machineInfo.ip;
     const path = rewrittenPath || url.pathname;
     const search = rewrittenPath ? '' : url.search;
-    const targetUrl = `http://${originHost}:${port}${path}${search}`;
+    const targetPort = port === 80 ? 80 : 80; // Always through Caddy
+    const targetPath = port === 80 ? `${path}${search}` : `/_caddy_port/${port}${path}${search}`;
+    const targetUrl = `http://${originHost}:${targetPort}${targetPath}`;
 
     // Build forwarded headers
     const headers = stripHopByHopHeaders(new Headers(request.headers));
@@ -145,7 +149,9 @@ export async function proxyWebSocket(
   try {
     const url = new URL(request.url);
     const originHost = machineInfo.origin_hostname || machineInfo.ip;
-    const targetUrl = `http://${originHost}:${port}${url.pathname}${url.search}`;
+    // Route WebSocket through Caddy on port 80 too (same as HTTP)
+    const wsPath = port === 80 ? url.pathname : `/_caddy_port/${port}${url.pathname}`;
+    const targetUrl = `http://${originHost}:80${wsPath}${url.search}`;
 
     // Connect to origin WebSocket (CF Workers pattern: fetch with Upgrade header)
     const originResp = await fetch(targetUrl, {

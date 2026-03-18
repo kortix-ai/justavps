@@ -17,7 +17,7 @@
  *
  * Security model (direct IP proxy — no tunnels):
  *   - All web traffic enters via Cloudflare Worker (auth at edge)
- *   - Hetzner Firewall (external, tamper-proof) allows only CF IPs on port 80 + user ports
+ *   - Provider firewall (external, tamper-proof) allows only CF IPs on port 80 + user ports
  *   - ufw on VPS is defense-in-depth (same rules)
  *   - No cloudflared needed — CF Worker proxies to VPS IP directly
  */
@@ -369,8 +369,15 @@ echo '${envLinesBase64}' | base64 -d > /etc/justavps/env
 mkdir -p /etc/caddy
 cat > /etc/caddy/Caddyfile << CADDYEOF
 :80 {
-    # PTY WebSocket for dashboard terminal (must be before code-server catch-all)
+    # PTY WebSocket for dashboard terminal
     handle /_pty {
+        reverse_proxy localhost:7777
+    }
+
+    # Port forwarding: /_caddy_port/* → daemon port proxy handler
+    # CF Worker routes all port requests through Caddy → daemon
+    # Daemon proxies to localhost:PORT (handles 127.0.0.1-bound services)
+    handle_path /_caddy_port/* {
         reverse_proxy localhost:7777
     }
 
@@ -406,7 +413,7 @@ chown -R user:user /home/user/.config
 
 # ── Firewall: allow SSH + Cloudflare IPs ───────────────────────────────────
 # Security model:
-#   - Hetzner Firewall (external, tamper-proof) is the primary boundary
+#   - Provider firewall (external, tamper-proof) is the primary boundary
 #   - ufw on VPS is defense-in-depth (same rules)
 #   - CF Worker authenticates all requests before they reach the VPS
 #   - No tunnels needed — CF proxies directly to VPS IP
@@ -415,12 +422,12 @@ ufw --force reset >/dev/null 2>&1
 ufw default deny incoming >/dev/null 2>&1
 ufw default allow outgoing >/dev/null 2>&1
 ufw allow 22/tcp >/dev/null 2>&1
-# Port 80 (Caddy) — open to all, Hetzner FW restricts to CF IPs
+# Port 80 (Caddy) — open to all, provider FW restricts to CF IPs
 ufw allow 80/tcp >/dev/null 2>&1
-# User service ports — open to all, Hetzner FW restricts to CF IPs
+# User service ports — open to all, provider FW restricts to CF IPs
 ufw allow 1024:65535/tcp >/dev/null 2>&1
 ufw --force enable >/dev/null 2>&1
-echo "[justavps] Firewall active: SSH + ports 80 + 1024-65535 (Hetzner FW restricts to CF IPs)."
+echo "[justavps] Firewall active: SSH + ports 80 + 1024-65535 (provider FW restricts to CF IPs)."
 
 ${stageCallback('cloud_init_done', 'Configuration complete, starting services')}
 

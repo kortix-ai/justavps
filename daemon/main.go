@@ -63,7 +63,8 @@ func main() {
 	mux.HandleFunc("GET /services", apiServer.handleServices)
 	mux.HandleFunc("POST /services/{name}/restart", apiServer.handleServiceRestart)
 	mux.HandleFunc("GET /info", apiServer.handleInfo)
-	mux.HandleFunc("GET /_pty", handlePTY) // WebSocket PTY for dashboard terminal
+	mux.HandleFunc("GET /_pty", handlePTY)           // WebSocket PTY for dashboard terminal
+	mux.HandleFunc("/_caddy_port/", handlePortProxy) // Port forwarding: /PORT/path → localhost:PORT
 
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", *port),
