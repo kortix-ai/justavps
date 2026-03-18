@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { OpenAPIHono } from '@hono/zod-openapi';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { prettyJSON } from 'hono/pretty-json';
@@ -6,11 +6,7 @@ import { Scalar } from '@scalar/hono-api-reference';
 
 import { v1 } from './routes/v1';
 
-// The OpenAPI spec is generated at build time from Zod schemas (pnpm sdk:generate).
-// At runtime we serve the pre-built JSON — no runtime spec generation needed.
-import specJson from '../sdk/openapi.json';
-
-export const app = new Hono().basePath('/api');
+export const app = new OpenAPIHono().basePath('/api');
 
 app.use('*', cors({
   origin: [
@@ -39,10 +35,62 @@ app.get('/health', (c) => {
 
 app.route('/v1', v1);
 
-// ─── OpenAPI Spec + Scalar API Docs ─────────────────────────────────────────
+// ─── Security Scheme Registration ─────────────────────────────────────────
 
-app.get('/docs/openapi.json', (c) => {
-  return c.json(specJson);
+app.openAPIRegistry.registerComponent('securitySchemes', 'bearerAuth', {
+  type: 'http',
+  scheme: 'bearer',
+  description: 'API key (e.g. `sk_live_abc123...`). Create at justavps.com/settings.',
+});
+
+app.openAPIRegistry.registerComponent('securitySchemes', 'cookieAuth', {
+  type: 'apiKey',
+  in: 'cookie',
+  name: 'authjs.session-token',
+  description: 'Session cookie set by the dashboard login flow.',
+});
+
+// ─── OpenAPI Spec (auto-generated from route definitions) ───────────────────
+
+app.doc('/docs/openapi.json', {
+  openapi: '3.1.0',
+  info: {
+    title: 'JustAVPS API',
+    version: '1.0.0',
+    description: `The JustAVPS API lets you programmatically manage VPS machines, images, SSH keys, API keys, webhooks, and billing.
+
+## Authentication
+
+All authenticated endpoints accept either:
+- **Bearer token**: \`Authorization: Bearer sk_live_xxx\` — your API key
+- **Session cookie**: \`authjs.session-token\` — set by the dashboard login
+
+## Base URL
+\`\`\`
+https://justavps.com/api/v1
+\`\`\`
+
+## SDKs
+- **TypeScript**: \`npm install @justavps/sdk\`
+- **Python**: \`pip install justavps\`
+`,
+    contact: { name: 'JustAVPS', url: 'https://justavps.com', email: 'support@justavps.com' },
+  },
+  servers: [
+    { url: '/api/v1', description: 'API v1' },
+    { url: 'https://justavps.com/api/v1', description: 'Production' },
+  ],
+  tags: [
+    { name: 'Machines', description: 'Create, manage, and destroy VPS machines' },
+    { name: 'Images', description: 'Point-in-time captures of running machines' },
+    { name: 'SSH Keys', description: 'Manage SSH public keys for machine access' },
+    { name: 'API Keys', description: 'Create and manage API keys for programmatic access' },
+    { name: 'Webhooks', description: 'Subscribe to machine lifecycle events via webhooks' },
+    { name: 'Server Types', description: 'Discover available providers, regions, and server types' },
+    { name: 'Account', description: 'Account info, usage stats, and billing' },
+    { name: 'Events', description: 'Real-time machine status via Server-Sent Events' },
+    { name: 'Internal', description: 'Internal endpoints used by machine agents and infrastructure' },
+  ],
 });
 
 app.get(

@@ -1,9 +1,9 @@
 /**
  * Machine routes — CRUD + lifecycle operations.
- * Machines are created from user images or default Ubuntu 24.04.
+ * Uses @hono/zod-openapi: each route declares its schemas inline → spec is auto-generated.
  */
 
-import { Hono } from 'hono';
+import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db';
 import { machines, images, users } from '../../db/schema';
@@ -26,28 +26,22 @@ import {
   cleanupMachineResources,
   syncMachineStatus,
 } from '../../lib/machine-lifecycle';
-import { z } from 'zod';
+import {
+  CreateMachineSchema,
+  ResizeMachineSchema,
+  CreateImageSchema,
+  MachineResponseSchema,
+  MachineListResponseSchema,
+  CheckoutRequiredSchema,
+  ActionResponseSchema,
+  ResizeResponseSchema,
+  ImageResponseSchema,
+  ErrorResponseSchema,
+} from '@/lib/schemas';
 
-export const machinesApp = new Hono<{ Variables: AuthVariables }>();
+export const machinesApp = new OpenAPIHono<{ Variables: AuthVariables }>();
 
 machinesApp.use('*', apiGuard);
-
-// ─── Schemas ────────────────────────────────────────────────────────────────
-
-const CreateMachineSchema = z.object({
-  image_id: z.string().uuid().optional().nullable(),
-  provider: z.string().min(1).describe('Cloud provider (e.g. "hetzner")'),
-  server_type: z.string().min(1).describe('Provider-specific server type (e.g. "cpx22")'),
-  region: z.string().min(1).describe('Provider-specific region (e.g. "nbg1")'),
-  name: z.string().min(1).max(64).optional().describe('Human-readable name'),
-  env_vars: z.record(z.string()).optional().describe('Extra environment variables written to /etc/justavps/env on the machine'),
-  docker_image: z.string().optional().describe('Docker image to run on boot (e.g. "myapp:latest"). Starts with --env-file /etc/justavps/env'),
-  entrypoint: z.string().optional().describe('Entrypoint for the Docker container'),
-});
-
-const ResizeMachineSchema = z.object({
-  server_type: z.string().min(1).describe('New server type'),
-});
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -101,30 +95,54 @@ function serializeMachine(m: typeof machines.$inferSelect) {
   };
 }
 
+const bearerSecurity = [{ bearerAuth: [] as string[] }, { cookieAuth: [] as string[] }] as Record<string, string[]>[];
+
 // ─── POST / — Create Machine ────────────────────────────────────────────────
-//
-// Payment flow:
-//   1. Validate input + provider
-//   2. Ensure Stripe customer exists
-//   3. Check if customer has a payment method on file
-//      - YES → provision machine immediately, subscription charges default PM
-//      - NO  → create Stripe Checkout Session, return 402 with checkout_url
-//              Machine is provisioned by the webhook after successful payment
 
-machinesApp.post('/', async (c) => {
-  const body = await c.req.json();
-  const parsed = CreateMachineSchema.safeParse(body);
+const createMachineRoute = createRoute({
+  method: 'post',
+  path: '/',
+  tags: ['Machines'],
+  security: bearerSecurity,
+  summary: 'Create a machine',
+  description: 'Provisions a new VPS machine. If `image_id` is provided, boots from that image. If omitted, boots from Ubuntu 24.04.\n\nReturns 202 if provisioning starts immediately (user has payment method), or 402 with a `checkout_url` if payment is required first.',
+  request: {
+    body: {
+      required: true,
+      content: { 'application/json': { schema: CreateMachineSchema } },
+    },
+  },
+  responses: {
+    202: {
+      description: 'Machine provisioning started',
+      content: { 'application/json': { schema: MachineResponseSchema } },
+    },
+    402: {
+      description: 'Payment required — redirect to checkout',
+      content: { 'application/json': { schema: CheckoutRequiredSchema } },
+    },
+    400: {
+      description: 'Bad Request',
+      content: { 'application/json': { schema: ErrorResponseSchema } },
+    },
+    404: {
+      description: 'Not Found',
+      content: { 'application/json': { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: 'Unauthorized',
+      content: { 'application/json': { schema: ErrorResponseSchema } },
+    },
+  },
+});
 
-  if (!parsed.success) {
-    return errorResponse(c, 400, parsed.error.message);
-  }
-
-  const data = parsed.data;
+machinesApp.openapi(createMachineRoute, async (c) => {
+  const data = c.req.valid('json');
   const ownerId = c.get('userId');
 
   // 1. Validate provider
   const lookup = requireProvider(c, data.provider);
-  if (lookup.response) return lookup.response;
+  if (lookup.response) return lookup.response as any;
   const provider = lookup.provider;
 
   // 2. Resolve image — either user image or default Ubuntu 24.04
@@ -132,13 +150,13 @@ machinesApp.post('/', async (c) => {
   if (data.image_id) {
     const [img] = await db.select().from(images).where(eq(images.id, data.image_id));
     if (!img || img.ownerId !== ownerId) {
-      return errorResponse(c, 404, 'Image not found');
+      return errorResponse(c, 404, 'Image not found') as any;
     }
     if (img.status !== 'ready') {
-      return errorResponse(c, 400, `Image is not ready (status: ${img.status})`);
+      return errorResponse(c, 400, `Image is not ready (status: ${img.status})`) as any;
     }
     if (!img.providerImageId) {
-      return errorResponse(c, 400, 'Image has no provider image ID');
+      return errorResponse(c, 400, 'Image has no provider image ID') as any;
     }
     resolvedImage = img.providerImageId;
   }
@@ -146,23 +164,20 @@ machinesApp.post('/', async (c) => {
   // 3. Price + specs lookup
   const { priceMonthly, specs } = await lookupPriceAndSpecs(provider, data.region, data.server_type);
 
-  // 4. Payment gate — check if user has a payment method
+  // 4. Payment gate
   if (stripeClient.isConfigured()) {
     try {
       const [user] = await db.select().from(users).where(eq(users.id, ownerId));
-      if (!user) return errorResponse(c, 404, 'User not found');
+      if (!user) return errorResponse(c, 404, 'User not found') as any;
 
-      // Ensure Stripe customer exists
       const customerId = await stripeClient.getOrCreateCustomer(ownerId, user.email);
       if (!user.stripeCustomerId) {
         await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, ownerId));
       }
 
-      // Check for payment method
       const hasPM = await stripeClient.hasPaymentMethod(customerId);
 
       if (!hasPM) {
-        // No payment method → redirect to Stripe Checkout
         const { url: checkoutUrl } = await stripeClient.createCheckoutSession({
           customerId,
           userId: ownerId,
@@ -185,18 +200,17 @@ machinesApp.post('/', async (c) => {
         console.log(`[MACHINES] User ${ownerId} has no payment method — redirecting to Stripe Checkout`);
 
         return c.json({
-          requires_checkout: true,
+          requires_checkout: true as const,
           checkout_url: checkoutUrl,
           message: 'Payment method required. Complete checkout to provision your machine.',
         }, 402);
       }
     } catch (err) {
       console.error('[MACHINES] Payment check failed:', err);
-      // Fall through — don't block machine creation if Stripe check fails
     }
   }
 
-  // 5. User has a payment method (or Stripe is not configured) → provision immediately
+  // 5. Provision immediately
   try {
     const { slug, machineToken, codeServerPassword, keyPair } = await generateMachineIdentity();
     const providerKeyId = await uploadSSHKeyToProvider(provider, slug, keyPair.publicKey);
@@ -223,7 +237,6 @@ machinesApp.post('/', async (c) => {
 
     await eventBus.emitStageChange(machine.id, ownerId, 'server_creating', 'Creating server on provider...');
 
-    // Background: provider creation + Stripe subscription
     after(async () => {
       try {
         const server = await provider.createServer({
@@ -254,7 +267,6 @@ machinesApp.post('/', async (c) => {
           console.warn(`[MACHINES] KV setup failed for ${slug}:`, err);
         }
 
-        // Create Stripe subscription (charges default payment method immediately)
         try {
           createStripeSubscription(ownerId, machine.id, slug, priceMonthly, data.server_type, specs);
         } catch (err) {
@@ -273,32 +285,71 @@ machinesApp.post('/', async (c) => {
 
     return c.json(serializeMachine(machine), 202);
   } catch (err) {
-    return handleRouteError(c, err, 'MACHINES');
+    return handleRouteError(c, err, 'MACHINES') as any;
   }
 });
 
 // ─── GET / — List Machines ──────────────────────────────────────────────────
 
-machinesApp.get('/', async (c) => {
+const listMachinesRoute = createRoute({
+  method: 'get',
+  path: '/',
+  tags: ['Machines'],
+  security: bearerSecurity,
+  summary: 'List machines',
+  description: 'Returns all non-deleted machines owned by the authenticated user.',
+  responses: {
+    200: {
+      description: 'List of machines',
+      content: { 'application/json': { schema: MachineListResponseSchema } },
+    },
+    401: {
+      description: 'Unauthorized',
+      content: { 'application/json': { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+// @ts-expect-error — DB returns string status, schema expects enum; runtime values are always valid
+machinesApp.openapi(listMachinesRoute, async (c) => {
   const ownerId = c.get('userId');
   const result = await db.select().from(machines).where(
     eq(machines.ownerId, ownerId),
   ).then(rows => rows.filter(r => r.status !== 'deleted'));
 
-  // Auto-transition provisioning machines to ready if provider says running
   const synced = await Promise.all(result.map(syncMachineStatus));
 
-  return c.json({ machines: synced.map(m => serializeMachine(m)) });
+  return c.json({ machines: synced.map(m => serializeMachine(m)) }, 200);
 });
 
 // ─── GET /:id — Get Machine ────────────────────────────────────────────────
 
-machinesApp.get('/:id', async (c) => {
-  const id = c.req.param('id');
+const getMachineRoute = createRoute({
+  method: 'get',
+  path: '/{id}',
+  tags: ['Machines'],
+  security: bearerSecurity,
+  summary: 'Get a machine',
+  description: 'Returns full details of a machine including connection info, health metrics, and SSH keys.',
+  request: {
+    params: z.object({ id: z.string().uuid().openapi({ description: 'Machine ID' }) }),
+  },
+  responses: {
+    200: {
+      description: 'Machine details',
+      content: { 'application/json': { schema: MachineResponseSchema } },
+    },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+machinesApp.openapi(getMachineRoute, async (c) => {
+  const { id } = c.req.valid('param');
   const ownerId = c.get('userId');
 
   const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
-  if (owned.response) return owned.response;
+  if (owned.response) return owned.response as any;
 
   const machine = await syncMachineStatus(owned.resource);
 
@@ -307,39 +358,76 @@ machinesApp.get('/:id', async (c) => {
 
 // ─── DELETE /:id — Destroy Machine ──────────────────────────────────────────
 
-machinesApp.delete('/:id', async (c) => {
-  const id = c.req.param('id');
+const destroyMachineRoute = createRoute({
+  method: 'delete',
+  path: '/{id}',
+  tags: ['Machines'],
+  security: bearerSecurity,
+  summary: 'Delete a machine',
+  description: 'Permanently destroys the machine, removes DNS records, cancels billing, and deletes the provider server. **Irreversible.**',
+  request: {
+    params: z.object({ id: z.string().uuid().openapi({ description: 'Machine ID' }) }),
+  },
+  responses: {
+    204: { description: 'Machine deleted' },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+machinesApp.openapi(destroyMachineRoute, async (c) => {
+  const { id } = c.req.valid('param');
   const ownerId = c.get('userId');
 
   const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
-  if (owned.response) return owned.response;
+  if (owned.response) return owned.response as any;
 
   try {
     const lookup = requireProvider(c, owned.resource.provider);
-    if (lookup.response) return lookup.response;
+    if (lookup.response) return lookup.response as any;
 
     await cleanupMachineResources(owned.resource, lookup.provider);
     return c.body(null, 204);
   } catch (err) {
-    return handleRouteError(c, err, 'MACHINES');
+    return handleRouteError(c, err, 'MACHINES') as any;
   }
 });
 
 // ─── POST /:id/reboot ───────────────────────────────────────────────────────
 
-machinesApp.post('/:id/reboot', async (c) => {
-  const id = c.req.param('id');
+const rebootMachineRoute = createRoute({
+  method: 'post',
+  path: '/{id}/reboot',
+  tags: ['Machines'],
+  security: bearerSecurity,
+  summary: 'Reboot a machine',
+  description: 'Initiates a hard reboot via the provider API (~30s downtime).',
+  request: {
+    params: z.object({ id: z.string().uuid().openapi({ description: 'Machine ID' }) }),
+  },
+  responses: {
+    202: {
+      description: 'Reboot initiated',
+      content: { 'application/json': { schema: ActionResponseSchema } },
+    },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+machinesApp.openapi(rebootMachineRoute, async (c) => {
+  const { id } = c.req.valid('param');
   const ownerId = c.get('userId');
 
   const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
-  if (owned.response) return owned.response;
+  if (owned.response) return owned.response as any;
 
   if (!owned.resource.providerServerId) {
-    return errorResponse(c, 404, 'Machine not found');
+    return errorResponse(c, 404, 'Machine not found') as any;
   }
 
   const lookup = requireProvider(c, owned.resource.provider);
-  if (lookup.response) return lookup.response;
+  if (lookup.response) return lookup.response as any;
 
   await lookup.provider.rebootServer(owned.resource.providerServerId);
   return c.json({ action: 'reboot', status: 'initiated' }, 202);
@@ -347,93 +435,130 @@ machinesApp.post('/:id/reboot', async (c) => {
 
 // ─── POST /:id/resize ───────────────────────────────────────────────────────
 
-machinesApp.post('/:id/resize', async (c) => {
-  const id = c.req.param('id');
+const resizeMachineRoute = createRoute({
+  method: 'post',
+  path: '/{id}/resize',
+  tags: ['Machines'],
+  security: bearerSecurity,
+  summary: 'Resize a machine',
+  description: 'Changes the machine to a different server type. Requires reboot (~30s downtime). Billing is prorated.',
+  request: {
+    params: z.object({ id: z.string().uuid().openapi({ description: 'Machine ID' }) }),
+    body: {
+      required: true,
+      content: { 'application/json': { schema: ResizeMachineSchema } },
+    },
+  },
+  responses: {
+    202: {
+      description: 'Resize initiated',
+      content: { 'application/json': { schema: ResizeResponseSchema } },
+    },
+    400: { description: 'Bad Request', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+machinesApp.openapi(resizeMachineRoute, async (c) => {
+  const { id } = c.req.valid('param');
+  const { server_type } = c.req.valid('json');
   const ownerId = c.get('userId');
-  const body = await c.req.json();
-  const parsed = ResizeMachineSchema.safeParse(body);
-  if (!parsed.success) {
-    return errorResponse(c, 400, 'Invalid request');
-  }
 
   const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
-  if (owned.response) return owned.response;
+  if (owned.response) return owned.response as any;
 
   const machine = owned.resource;
   if (!machine.providerServerId) {
-    return errorResponse(c, 404, 'Machine not found');
+    return errorResponse(c, 404, 'Machine not found') as any;
   }
 
   try {
     const lookup = requireProvider(c, machine.provider);
-    if (lookup.response) return lookup.response;
+    if (lookup.response) return lookup.response as any;
 
-    await lookup.provider.resizeServer(machine.providerServerId, parsed.data.server_type);
+    await lookup.provider.resizeServer(machine.providerServerId, server_type);
     await db.update(machines)
-      .set({ serverType: parsed.data.server_type })
+      .set({ serverType: server_type })
       .where(eq(machines.id, id));
 
-    // Update Stripe subscription price
     if (stripeClient.isConfigured() && machine.stripeSubItemId) {
       const subItemId = machine.stripeSubItemId.split('|')[1];
       const serverTypes = await lookup.provider.listServerTypes(machine.region);
-      const st = serverTypes.find(t => t.name === parsed.data.server_type);
+      const st = serverTypes.find(t => t.name === server_type);
       if (st && subItemId) {
         const resizeSpecs = { vcpus: st.cores, ramGb: st.memory, diskGb: st.disk, cpuType: st.cpuType } as const;
-        await stripeClient.updateMachineSubscription(subItemId, st.priceMonthly, parsed.data.server_type, machine.id, resizeSpecs)
+        await stripeClient.updateMachineSubscription(subItemId, st.priceMonthly, server_type, machine.id, resizeSpecs)
           .catch(err => console.error('[MACHINES] Stripe resize failed:', err));
       }
     }
 
     return c.json({
-      action: 'resize',
+      action: 'resize' as const,
       old_type: machine.serverType,
-      new_type: parsed.data.server_type,
+      new_type: server_type,
       status: 'initiated',
     }, 202);
   } catch (err) {
-    return handleRouteError(c, err, 'MACHINES');
+    return handleRouteError(c, err, 'MACHINES') as any;
   }
 });
 
 // ─── POST /:id/image — Create image from running machine ────────────────────
 
-const CreateImageSchema = z.object({
-  name: z.string().min(1).max(128).describe('Name for the image'),
+const createImageFromMachineRoute = createRoute({
+  method: 'post',
+  path: '/{id}/image',
+  tags: ['Machines', 'Images'],
+  security: bearerSecurity,
+  summary: 'Create image from machine',
+  description: 'Creates a point-in-time image (snapshot) from a running machine. Machine must be in `ready` status. Returns 202 — poll `GET /images/{id}` until status is `ready`.',
+  request: {
+    params: z.object({ id: z.string().uuid().openapi({ description: 'Machine ID' }) }),
+    body: {
+      required: true,
+      content: { 'application/json': { schema: CreateImageSchema } },
+    },
+  },
+  responses: {
+    202: {
+      description: 'Image creation started',
+      content: { 'application/json': { schema: ImageResponseSchema } },
+    },
+    400: { description: 'Bad Request', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
 });
 
-machinesApp.post('/:id/image', async (c) => {
-  const id = c.req.param('id');
+machinesApp.openapi(createImageFromMachineRoute, async (c) => {
+  const { id } = c.req.valid('param');
+  const { name } = c.req.valid('json');
   const ownerId = c.get('userId');
-  const body = await c.req.json();
-  const parsed = CreateImageSchema.safeParse(body);
-  if (!parsed.success) return errorResponse(c, 400, parsed.error.message);
 
   const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
-  if (owned.response) return owned.response;
+  if (owned.response) return owned.response as any;
 
   const machine = owned.resource;
-  if (machine.status !== 'ready') return errorResponse(c, 400, `Machine must be ready (current: ${machine.status})`);
-  if (!machine.providerServerId) return errorResponse(c, 400, 'Machine has no provider server');
+  if (machine.status !== 'ready') return errorResponse(c, 400, `Machine must be ready (current: ${machine.status})`) as any;
+  if (!machine.providerServerId) return errorResponse(c, 400, 'Machine has no provider server') as any;
 
   const lookup = requireProvider(c, machine.provider);
-  if (lookup.response) return lookup.response;
+  if (lookup.response) return lookup.response as any;
 
-  // Insert image record
   const [image] = await db.insert(images).values({
     ownerId,
-    name: parsed.data.name,
+    name,
     status: 'creating',
     sourceMachineId: machine.id,
     provider: machine.provider,
   }).returning();
 
-  // Async: create image on provider
   (async () => {
     try {
       const result = await lookup.provider.createImage(
         Number(machine.providerServerId),
-        `justavps-img-${parsed.data.name.replace(/[^a-z0-9-]/gi, '-').slice(0, 50)}`,
+        `justavps-img-${name.replace(/[^a-z0-9-]/gi, '-').slice(0, 50)}`,
       );
       await db.update(images).set({
         status: 'ready',
@@ -457,6 +582,10 @@ machinesApp.post('/:id/image', async (c) => {
     status: image.status,
     source_machine_id: image.sourceMachineId,
     provider: image.provider,
+    provider_image_id: image.providerImageId,
+    disk_size_gb: image.diskSizeGb,
+    architecture: image.architecture,
     created_at: image.createdAt.toISOString(),
+    updated_at: image.updatedAt.toISOString(),
   }, 202);
 });

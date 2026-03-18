@@ -1,47 +1,58 @@
-import { Hono } from 'hono';
+import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { eq, and } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
-import { z } from 'zod';
 import { db } from '../../db';
 import { webhooks } from '../../db/schema';
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 import { errorResponse, handleRouteError } from '../../lib/route-helpers';
+import {
+  CreateWebhookSchema,
+  WebhookResponseSchema,
+  WebhookListResponseSchema,
+  ErrorResponseSchema,
+} from '@/lib/schemas';
 
-export const webhooksApp = new Hono<{ Variables: AuthVariables }>();
+export const webhooksApp = new OpenAPIHono<{ Variables: AuthVariables }>();
 webhooksApp.use('*', apiGuard);
 
-const VALID_EVENTS = [
-  '*',
-  'machine.stage_changed',
-  'machine.status_changed',
-  'machine.heartbeat',
-] as const;
+const bearerSecurity = [{ bearerAuth: [] as string[] }, { cookieAuth: [] as string[] }] as Record<string, string[]>[];
 
-type ValidEvent = typeof VALID_EVENTS[number];
+// ─── POST / — Create Webhook ────────────────────────────────────────────────
 
-const CreateWebhookSchema = z.object({
-  url: z.string().url().describe('HTTPS URL to receive webhook POSTs'),
-  events: z.array(z.enum(VALID_EVENTS)).min(1).describe('Event types to subscribe to (e.g. ["machine.stage_changed", "*"])'),
-  secret: z.string().min(16).optional().describe('HMAC secret for signature verification (auto-generated if omitted)'),
+const createWebhookRoute = createRoute({
+  method: 'post',
+  path: '/',
+  tags: ['Webhooks'],
+  security: bearerSecurity,
+  summary: 'Create a webhook',
+  description: 'Subscribes a URL to receive POST requests for specified events. Payloads are signed with HMAC-SHA256 (`X-Signature-256` header).\n\n**Events:** `*`, `machine.stage_changed`, `machine.status_changed`, `machine.heartbeat`',
+  request: {
+    body: {
+      required: true,
+      content: { 'application/json': { schema: CreateWebhookSchema } },
+    },
+  },
+  responses: {
+    201: {
+      description: 'Webhook created (secret shown once)',
+      content: { 'application/json': { schema: WebhookResponseSchema } },
+    },
+    400: { description: 'Bad Request', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
 });
 
-webhooksApp.post('/', async (c) => {
-  const body = await c.req.json();
-  const parsed = CreateWebhookSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return errorResponse(c, 400, parsed.error.message);
-  }
-
+webhooksApp.openapi(createWebhookRoute, async (c) => {
+  const parsed = c.req.valid('json');
   const ownerId = c.get('userId');
-  const secret = parsed.data.secret || `whsec_${randomBytes(24).toString('hex')}`;
+  const secret = parsed.secret || `whsec_${randomBytes(24).toString('hex')}`;
 
   try {
     const [webhook] = await db.insert(webhooks).values({
       ownerId,
-      url: parsed.data.url,
+      url: parsed.url,
       secret,
-      events: parsed.data.events,
+      events: parsed.events,
       active: true,
     }).returning();
 
@@ -54,11 +65,28 @@ webhooksApp.post('/', async (c) => {
       created_at: webhook.createdAt.toISOString(),
     }, 201);
   } catch (err) {
-    return handleRouteError(c, err, 'WEBHOOKS');
+    return handleRouteError(c, err, 'WEBHOOKS') as any;
   }
 });
 
-webhooksApp.get('/', async (c) => {
+// ─── GET / — List Webhooks ──────────────────────────────────────────────────
+
+const listWebhooksRoute = createRoute({
+  method: 'get',
+  path: '/',
+  tags: ['Webhooks'],
+  security: bearerSecurity,
+  summary: 'List webhooks',
+  responses: {
+    200: {
+      description: 'List of webhooks',
+      content: { 'application/json': { schema: WebhookListResponseSchema } },
+    },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+webhooksApp.openapi(listWebhooksRoute, async (c) => {
   const ownerId = c.get('userId');
 
   try {
@@ -83,12 +111,30 @@ webhooksApp.get('/', async (c) => {
       })),
     });
   } catch (err) {
-    return handleRouteError(c, err, 'WEBHOOKS');
+    return handleRouteError(c, err, 'WEBHOOKS') as any;
   }
 });
 
-webhooksApp.delete('/:id', async (c) => {
-  const id = c.req.param('id');
+// ─── DELETE /:id — Delete Webhook ───────────────────────────────────────────
+
+const deleteWebhookRoute = createRoute({
+  method: 'delete',
+  path: '/{id}',
+  tags: ['Webhooks'],
+  security: bearerSecurity,
+  summary: 'Delete a webhook',
+  request: {
+    params: z.object({ id: z.string().uuid().openapi({ description: 'Webhook ID' }) }),
+  },
+  responses: {
+    204: { description: 'Webhook deleted' },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+webhooksApp.openapi(deleteWebhookRoute, async (c) => {
+  const { id } = c.req.valid('param');
   const ownerId = c.get('userId');
 
   try {
@@ -98,11 +144,11 @@ webhooksApp.delete('/:id', async (c) => {
       .returning();
 
     if (deleted.length === 0) {
-      return errorResponse(c, 404, 'Webhook not found');
+      return errorResponse(c, 404, 'Webhook not found') as any;
     }
 
     return c.body(null, 204);
   } catch (err) {
-    return handleRouteError(c, err, 'WEBHOOKS');
+    return handleRouteError(c, err, 'WEBHOOKS') as any;
   }
 });

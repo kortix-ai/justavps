@@ -12,7 +12,7 @@
 import Stripe from 'stripe';
 import { config } from './config';
 
-const stripe = new Stripe(config.STRIPE_SECRET_KEY);
+const stripe = new Stripe(config.STRIPE_SECRET_KEY || 'sk_test_placeholder_not_configured');
 
 // ─── Machine specs for Stripe product naming ───────────────────────────────
 

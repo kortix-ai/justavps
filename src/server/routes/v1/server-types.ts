@@ -1,32 +1,67 @@
 /**
  * Server types + provider discovery routes.
- * Provider-agnostic — fetches types/regions from whichever provider is requested.
+ * Uses @hono/zod-openapi: routes declare schemas inline → spec auto-generated.
  */
 
-import { Hono } from 'hono';
+import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { listProviders } from '../../lib/providers';
 import { requireProvider, handleRouteError } from '../../lib/route-helpers';
+import {
+  ServerTypeListResponseSchema,
+  ProviderListResponseSchema,
+  RegionListResponseSchema,
+  ErrorResponseSchema,
+} from '@/lib/schemas';
 
-export const serverTypesApp = new Hono();
+export const serverTypesApp = new OpenAPIHono();
 
 // ─── GET /providers — List available providers ─────────────────────────────
 
-serverTypesApp.get('/providers', async (c) => {
+const listProvidersRoute = createRoute({
+  method: 'get',
+  path: '/providers',
+  tags: ['Server Types'],
+  summary: 'List providers',
+  responses: {
+    200: {
+      description: 'Available providers',
+      content: { 'application/json': { schema: ProviderListResponseSchema } },
+    },
+  },
+});
+
+serverTypesApp.openapi(listProvidersRoute, async (c) => {
   return c.json({ providers: listProviders() });
 });
 
-// ─── GET / — List server types for a provider + region ─────────────────────
+// ─── GET / — List server types ──────────────────────────────────────────────
 
-serverTypesApp.get('/', async (c) => {
-  const providerName = c.req.query('provider') || 'hetzner';
-  const region = c.req.query('region');
+const listServerTypesRoute = createRoute({
+  method: 'get',
+  path: '/',
+  tags: ['Server Types'],
+  summary: 'List server types',
+  description: 'Returns available server types for a provider + region, with pricing.',
+  request: {
+    query: z.object({
+      provider: z.string().default('hetzner').openapi({ description: 'Cloud provider' }),
+      region: z.string().openapi({ description: 'Region ID (e.g. nbg1)' }),
+    }),
+  },
+  responses: {
+    200: {
+      description: 'Available server types',
+      content: { 'application/json': { schema: ServerTypeListResponseSchema } },
+    },
+    400: { description: 'Bad Request', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+serverTypesApp.openapi(listServerTypesRoute, async (c) => {
+  const { provider: providerName, region } = c.req.valid('query');
 
   const lookup = requireProvider(c, providerName);
-  if (lookup.response) return lookup.response;
-
-  if (!region) {
-    return c.json({ error: true, message: 'region query param is required', status: 400 }, 400);
-  }
+  if (lookup.response) return lookup.response as any;
 
   try {
     const types = await lookup.provider.listServerTypes(region);
@@ -40,30 +75,49 @@ serverTypesApp.get('/', async (c) => {
         vcpu: t.cores,
         ram_gb: t.memory,
         disk_gb: t.disk,
-        cpu_type: t.cpuType,
-        architecture: t.architecture,
+        cpu_type: t.cpuType as 'shared' | 'dedicated',
+        architecture: t.architecture as 'x86' | 'arm',
         price_monthly: t.priceMonthly,
         provider_price_monthly: t.providerPriceMonthly,
         available: true,
       })),
     });
   } catch (err) {
-    return handleRouteError(c, err, 'SERVER-TYPES');
+    return handleRouteError(c, err, 'SERVER-TYPES') as any;
   }
 });
 
-// ─── GET /regions — List regions for a provider ────────────────────────────
+// ─── GET /regions — List regions ────────────────────────────────────────────
 
-serverTypesApp.get('/regions', async (c) => {
-  const providerName = c.req.query('provider') || 'hetzner';
+const listRegionsRoute = createRoute({
+  method: 'get',
+  path: '/regions',
+  tags: ['Server Types'],
+  summary: 'List regions',
+  request: {
+    query: z.object({
+      provider: z.string().default('hetzner').openapi({ description: 'Cloud provider' }),
+    }),
+  },
+  responses: {
+    200: {
+      description: 'Available regions',
+      content: { 'application/json': { schema: RegionListResponseSchema } },
+    },
+    400: { description: 'Bad Request', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+serverTypesApp.openapi(listRegionsRoute, async (c) => {
+  const { provider: providerName } = c.req.valid('query');
 
   const lookup = requireProvider(c, providerName);
-  if (lookup.response) return lookup.response;
+  if (lookup.response) return lookup.response as any;
 
   try {
     const regions = await lookup.provider.listRegions();
     return c.json({ provider: providerName, regions });
   } catch (err) {
-    return handleRouteError(c, err, 'REGIONS');
+    return handleRouteError(c, err, 'REGIONS') as any;
   }
 });
