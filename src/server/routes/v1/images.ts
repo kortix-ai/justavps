@@ -9,7 +9,7 @@ import { db } from '../../db';
 import { images } from '../../db/schema';
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 import { getProvider } from '../../lib/providers';
-import { requireOwnedResource } from '../../lib/route-helpers';
+import { requireOwnedResource, errorResponse } from '../../lib/route-helpers';
 import {
   ImageResponseSchema,
   ImageListResponseSchema,
@@ -123,6 +123,11 @@ imagesApp.openapi(deleteImageRoute, async (c) => {
   if (owned.response) return owned.response as any;
 
   const img = owned.resource;
+
+  // Prevent deletion of public/template images
+  if (img.isPublic) {
+    return errorResponse(c, 403, 'Cannot delete a public template image') as any;
+  }
   if (img.providerImageId) {
     try {
       const provider = getProvider(img.provider);
