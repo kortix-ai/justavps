@@ -289,6 +289,10 @@ Environment=JUSTAVPS_PORT=7777
 WantedBy=multi-user.target
 DAEMONEOF
 
+# ── Ensure 'user' account exists (may already exist from snapshot) ─────────
+id -u user &>/dev/null || useradd -m -s /bin/bash -G sudo,docker user
+echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/user
+
 # ── SSH keys for root + user ──────────────────────────────────────────────
 mkdir -p /root/.ssh
 echo '${opts.sshPublicKey}' >> /root/.ssh/authorized_keys
