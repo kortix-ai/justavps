@@ -37,7 +37,7 @@ jobs:
         with: { python-version: "3.13" }
       - run: pnpm install --frozen-lockfile
       - run: pip install openapi-python-client
-      - run: pnpm sdk:generate
+      - run: SDK_URL=https://justavps.com pnpm sdk:generate
       - name: Fail if SDK is stale
         run: |
           if [ -n "$(git diff --name-only)" ]; then

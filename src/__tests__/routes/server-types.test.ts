@@ -9,7 +9,7 @@ import * as providers from '@/server/lib/providers';
 
 vi.mock('@/server/lib/providers', () => ({
   getProvider: vi.fn(),
-  listProviders: vi.fn(() => [{ name: 'hetzner', displayName: 'Hetzner Cloud' }]),
+  listProviders: vi.fn(() => [{ name: 'cloud', displayName: 'JustAVPS Cloud' }]),
   isProviderAvailable: vi.fn(() => true),
 }));
 
@@ -20,8 +20,8 @@ describe('server-types API', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (providers.getProvider as any).mockReturnValue({
-      name: 'hetzner',
-      displayName: 'Hetzner Cloud',
+      name: 'cloud',
+      displayName: 'JustAVPS Cloud',
       listServerTypes: mockListServerTypes,
       listRegions: mockListRegions,
     });
@@ -109,7 +109,7 @@ describe('server-types API', () => {
       const res = await serverTypesApp.request(req);
       const data = await res.json();
       expect(data.region).toBe('nbg1');
-      expect(data.provider).toBe('hetzner');
+      expect(data.provider).toBe('cloud');
     });
   });
 });
