@@ -106,13 +106,22 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   try {
     const provider = getProvider(machineConfig.provider);
 
-    let resolvedImage = config.HETZNER_BASE_SNAPSHOT_ID || 'ubuntu-24.04';
+    let resolvedImage = 'ubuntu-24.04';
     if (machineConfig.image_id) {
       const { images: imagesTable } = await import('../../db/schema');
       const [img] = await db.select().from(imagesTable).where(eq(imagesTable.id, machineConfig.image_id));
       if (img?.status === 'ready' && img.providerImageId) {
         resolvedImage = img.providerImageId;
       }
+    } else {
+      // Use latest public base image from DB
+      const { images: imagesTable } = await import('../../db/schema');
+      const { and, desc } = await import('drizzle-orm');
+      const [baseImage] = await db.select().from(imagesTable)
+        .where(and(eq(imagesTable.isPublic, true), eq(imagesTable.status, 'ready')))
+        .orderBy(desc(imagesTable.createdAt))
+        .limit(1);
+      if (baseImage?.providerImageId) resolvedImage = baseImage.providerImageId;
     }
 
     const { slug, machineToken, codeServerPassword, keyPair } = await generateMachineIdentity();

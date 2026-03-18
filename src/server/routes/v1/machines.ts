@@ -4,7 +4,7 @@
  */
 
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
-import { eq } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { db } from '../../db';
 import { machines, images, users } from '../../db/schema';
 import { config } from '../../lib/config';
@@ -69,6 +69,7 @@ function serializeMachine(m: typeof machines.$inferSelect) {
     region: m.region,
     ip: m.ip,
     price_monthly: m.priceMonthly || null,
+    backups_enabled: m.backupsEnabled,
     created_at: m.createdAt.toISOString(),
     ready_at: m.readyAt?.toISOString() ?? null,
     urls: m.ip ? {
@@ -146,11 +147,12 @@ machinesApp.openapi(createMachineRoute, async (c) => {
   if (lookup.response) return lookup.response as any;
   const provider = lookup.provider;
 
-  // 2. Resolve image — user image → base snapshot → fresh Ubuntu 24.04
-  let resolvedImage = config.HETZNER_BASE_SNAPSHOT_ID || 'ubuntu-24.04';
+  // 2. Resolve image — user image → latest public base image → fresh Ubuntu 24.04
+  let resolvedImage = 'ubuntu-24.04';
   if (data.image_id) {
+    // User specified an image — must own it or it must be public
     const [img] = await db.select().from(images).where(eq(images.id, data.image_id));
-    if (!img || img.ownerId !== ownerId) {
+    if (!img || (img.ownerId !== ownerId && !img.isPublic)) {
       return errorResponse(c, 404, 'Image not found') as any;
     }
     if (img.status !== 'ready') {
@@ -160,6 +162,15 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       return errorResponse(c, 400, 'Image has no provider image ID') as any;
     }
     resolvedImage = img.providerImageId;
+  } else {
+    // No image specified — use latest public base image from DB
+    const [baseImage] = await db.select().from(images)
+      .where(and(eq(images.isPublic, true), eq(images.status, 'ready')))
+      .orderBy(desc(images.createdAt))
+      .limit(1);
+    if (baseImage?.providerImageId) {
+      resolvedImage = baseImage.providerImageId;
+    }
   }
 
   // 3. Price + specs lookup
