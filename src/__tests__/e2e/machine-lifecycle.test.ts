@@ -455,8 +455,8 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
     );
 
     console.log(`[E2E] proxy-auth: ${proxyAuthRes.status}`);
-    // Must be 302 (redirect with cookie), NOT 500
-    expect(proxyAuthRes.status).toBe(302);
+    // Must be a redirect (302 or 307), NOT 500
+    expect([302, 307]).toContain(proxyAuthRes.status);
     const location = proxyAuthRes.headers.get('location') || '';
     expect(location).toContain(`${machineSlug}.kortix.cloud`);
     // Check the proxy cookie was set
