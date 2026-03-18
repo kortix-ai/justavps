@@ -2,69 +2,65 @@ export interface ParsedHostname {
   slug: string;
   port: number;
   isPty: boolean;
-  rewrittenPath?: string; // Set when path-based port routing rewrites the path
+  rewrittenPath?: string;
 }
 
 /**
  * Parse hostname and pathname to extract slug and port information.
  *
- * Supports two routing modes:
- *   1. Subdomain-based: 3000.slug.kortix.cloud → port 3000
- *   2. Path-based:      slug.kortix.cloud/_port/3000/path → port 3000
+ * Port forwarding formats (all single-level subdomain = *.kortix.cloud cert):
+ *   1. SLUG.kortix.cloud           → default port 80 (Caddy → code-server)
+ *   2. PORT--SLUG.kortix.cloud     → port PORT (e.g. 4096--abc123.kortix.cloud)
+ *   3. SLUG.kortix.cloud/_port/PORT/path → path-based fallback
  *
- * Path-based routing is the reliable fallback when two-level subdomain DNS
- * isn't configured (requires per-machine wildcard A records).
- *
- * Examples:
- * - abc123.kortix.cloud → { slug: 'abc123', port: 80, isPty: false }
- * - 3000.abc123.kortix.cloud → { slug: 'abc123', port: 3000, isPty: false }
- * - abc123.kortix.cloud/_port/3000/ → { slug: 'abc123', port: 3000, isPty: false, rewrittenPath: '/' }
- * - abc123.kortix.cloud/_pty → { slug: 'abc123', port: 80, isPty: true }
+ * The PORT--SLUG format uses double-dash as separator because:
+ *   - Single level subdomain = covered by *.kortix.cloud wildcard cert (no ACM needed)
+ *   - Double-dash won't appear in slugs (generated alphanumeric)
+ *   - Works with existing CF Worker route *.kortix.cloud/*
  */
 export function parseHostname(hostname: string, pathname?: string): ParsedHostname | null {
-  if (!hostname) return null;
+  if (!hostname || !hostname.endsWith('.kortix.cloud')) return null;
 
-  // Check if it's a kortix.cloud domain
-  if (!hostname.endsWith('.kortix.cloud')) return null;
+  const subdomain = hostname.replace('.kortix.cloud', '').toLowerCase();
+  if (!subdomain) return null;
 
-  // Remove the .kortix.cloud suffix
-  const subdomain = hostname.replace('.kortix.cloud', '');
-  
-  // Split by dots to handle port.slug format
-  const parts = subdomain.split('.');
-  
-  if (parts.length === 0) return null;
-  
   let slug: string;
-  let port = 80; // Caddy on port 80 → reverse proxies to code-server localhost:8080
-  
-  if (parts.length === 1) {
-    // Simple case: slug.kortix.cloud
-    slug = parts[0];
-  } else if (parts.length === 2) {
-    // Port case: port.slug.kortix.cloud
-    const portStr = parts[0];
-    const portNum = parseInt(portStr, 10);
-    
-    // Validate port number
-    if (isNaN(portNum) || portNum <= 0 || portNum > 65535) {
+  let port = 80;
+
+  // Check for PORT--SLUG format (e.g. 4096--abc123)
+  const dashMatch = subdomain.match(/^(\d+)--(.+)$/);
+  if (dashMatch) {
+    const portNum = parseInt(dashMatch[1], 10);
+    if (portNum > 0 && portNum <= 65535) {
+      port = portNum;
+      slug = dashMatch[2];
+    } else {
       return null;
     }
-    
-    port = portNum;
-    slug = parts[1];
-  } else {
-    // Too many parts, invalid
-    return null;
   }
-  
-  // Validate slug
-  if (!isValidSlug(slug)) return null;
-  
-  // Normalize slug to lowercase
-  slug = slug.toLowerCase();
-  
-  // Check for path-based port routing: /_port/3000/rest/of/path
+  // Legacy: PORT.SLUG format (two-level subdomain — works if ACM cert exists)
+  else if (subdomain.includes('.')) {
+    const parts = subdomain.split('.');
+    if (parts.length === 2) {
+      const portNum = parseInt(parts[0], 10);
+      if (!isNaN(portNum) && portNum > 0 && portNum <= 65535) {
+        port = portNum;
+        slug = parts[1];
+      } else {
+        return null;
+      }
+    } else {
+      return null;
+    }
+  }
+  // Simple: SLUG only
+  else {
+    slug = subdomain;
+  }
+
+  if (!isValidSlug(slug!)) return null;
+
+  // Path-based port routing: /_port/PORT/path
   let rewrittenPath: string | undefined;
   if (pathname && port === 80) {
     const portMatch = pathname.match(/^\/_port\/(\d+)(\/.*)?$/);
@@ -77,33 +73,18 @@ export function parseHostname(hostname: string, pathname?: string): ParsedHostna
     }
   }
 
-  // Check if this is a PTY WebSocket request
   const isPty = pathname === '/_pty';
-  
+
   return {
-    slug,
+    slug: slug!,
     port,
     isPty,
     ...(rewrittenPath !== undefined ? { rewrittenPath } : {}),
   };
 }
 
-/**
- * Validate that a slug meets our requirements
- */
 function isValidSlug(slug: string): boolean {
-  if (!slug) return false;
-  
-  // Reject reserved subdomains
-  const reservedSlugs = ['www', 'api', 'mail', 'ftp', 'admin'];
-  if (reservedSlugs.includes(slug.toLowerCase())) return false;
-  
-  // Must be at least 3 characters
-  if (slug.length < 3) return false;
-  
-  // Must be alphanumeric with hyphens allowed
-  const slugPattern = /^[a-zA-Z0-9-]+$/;
-  if (!slugPattern.test(slug)) return false;
-  
-  return true;
+  if (!slug || slug.length < 3) return false;
+  if (['www', 'api', 'mail', 'ftp', 'admin', 'origin'].includes(slug)) return false;
+  return /^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(slug) || /^[a-z0-9]{3,}$/.test(slug);
 }

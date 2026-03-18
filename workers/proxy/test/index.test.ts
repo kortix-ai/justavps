@@ -113,7 +113,7 @@ describe('Worker integration — direct IP proxy', () => {
       );
     });
 
-    it('should proxy port subdomain to correct VPS port', async () => {
+    it('should proxy port subdomain to correct VPS port via Caddy', async () => {
       await setupTestData();
 
       globalThis.fetch = vi.fn().mockResolvedValue(
@@ -127,20 +127,21 @@ describe('Worker integration — direct IP proxy', () => {
       const response = await worker.fetch(request, mockEnv, mockCtx);
 
       expect(response.status).toBe(200);
+      // All port traffic routes through Caddy on :80 via /_caddy_port/PORT/path
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://10.0.0.1:3000/app',
+        'http://10.0.0.1:80/_caddy_port/3000/app',
         expect.objectContaining({ method: 'GET' }),
       );
     });
 
-    it('should proxy OpenCode port 3456 correctly', async () => {
+    it('should proxy PORT--SLUG format correctly', async () => {
       await setupTestData();
 
       globalThis.fetch = vi.fn().mockResolvedValue(
         new Response('opencode ui', { status: 200 }),
       );
 
-      const request = new Request('https://3456.abc123.kortix.cloud/', {
+      const request = new Request('https://3456--abc123.kortix.cloud/', {
         headers: { 'Authorization': 'Bearer sk_live_test123' },
       });
 
@@ -148,7 +149,7 @@ describe('Worker integration — direct IP proxy', () => {
 
       expect(response.status).toBe(200);
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://10.0.0.1:3456/',
+        'http://10.0.0.1:80/_caddy_port/3456/',
         expect.objectContaining({ method: 'GET' }),
       );
     });

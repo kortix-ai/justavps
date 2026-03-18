@@ -75,6 +75,7 @@ function serializeMachine(m: typeof machines.$inferSelect) {
     urls: m.ip ? {
       vscode: `https://${m.slug}.${proxyDomain}`,
       pty: `wss://${m.slug}.${proxyDomain}/_pty`,
+      port_template: `https://{port}--${m.slug}.${proxyDomain}`,
     } : null,
     ssh: sshCommand,
     ssh_key: m.sshPrivateKey ? {
