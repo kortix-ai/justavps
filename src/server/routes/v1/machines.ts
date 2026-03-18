@@ -161,6 +161,8 @@ machinesApp.post('/', async (c) => {
       sshPublicKey: keyPair.publicKey,
       sshPrivateKey: keyPair.privateKey,
       priceMonthly: null,
+      dockerImage: data.docker_image || null,
+      entrypoint: data.entrypoint || null,
     });
 
     // Emit initial stage

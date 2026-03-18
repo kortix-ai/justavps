@@ -1,0 +1,6 @@
+{
+  "slug": "test-machine",
+  "callback_url": "http://localhost:4100",
+  "machine_token": "mt_test_token_123",
+  "proxy_domain": "kortix.cloud"
+}

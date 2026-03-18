@@ -101,6 +101,8 @@ interface CreateMachineInput {
   sshPublicKey: string;
   sshPrivateKey: string;
   priceMonthly: number | null;
+  dockerImage?: string | null;
+  entrypoint?: string | null;
 }
 
 export async function createMachineRecord(input: CreateMachineInput) {

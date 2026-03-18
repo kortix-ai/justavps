@@ -237,6 +237,30 @@ DSEOF
   echo "[justavps] Platform software installed."
 fi
 
+# ── justavps-daemon (ALWAYS update to latest — runs outside install guard) ─
+DAEMON_URL="https://github.com/heyagi/justavps-daemon/releases/latest/download/justavps-daemon-linux-amd64"
+echo "[justavps] Updating justavps-daemon..."
+curl -fsSL -o /usr/local/bin/justavps-daemon "$DAEMON_URL" 2>/dev/null \\
+  || echo "[justavps] WARNING: Failed to download daemon, using existing binary if available"
+chmod +x /usr/local/bin/justavps-daemon 2>/dev/null || true
+
+# Systemd service for daemon (idempotent — safe to overwrite)
+cat > /etc/systemd/system/justavps-daemon.service << 'DAEMONEOF'
+[Unit]
+Description=JustAVPS Platform Daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/justavps-daemon --config /etc/justavps/config.json
+Restart=always
+RestartSec=5
+Environment=JUSTAVPS_PORT=7777
+
+[Install]
+WantedBy=multi-user.target
+DAEMONEOF
+
 # ── SSH keys for root + user ──────────────────────────────────────────────
 mkdir -p /root/.ssh
 echo '${opts.sshPublicKey}' >> /root/.ssh/authorized_keys
@@ -286,6 +310,7 @@ ${stageCallback('cloud_init_done', 'Configuration complete, starting services')}
 
 # ── Start pre-installed services ──────────────────────────────────────────
 systemctl daemon-reload
+systemctl enable --now justavps-daemon 2>/dev/null || true
 systemctl enable --now code-server
 systemctl enable --now caddy
 systemctl enable --now opencode-web
