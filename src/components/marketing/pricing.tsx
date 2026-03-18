@@ -30,7 +30,7 @@ export function Pricing() {
 
   // Fetch regions on mount
   useEffect(() => {
-    fetch("/api/v1/server-types/regions?provider=hetzner")
+    fetch("/api/v1/server-types/regions")
       .then((r) => r.json())
       .then((d) => {
         if (d.regions?.length) setRegions(d.regions);
@@ -41,7 +41,7 @@ export function Pricing() {
   // Fetch server types when region changes
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/v1/server-types?provider=hetzner&region=${region}`)
+    fetch(`/api/v1/server-types?region=${region}`)
       .then((r) => r.json())
       .then((d) => setServerTypes(d.server_types || []))
       .catch(() => {})

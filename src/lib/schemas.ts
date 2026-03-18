@@ -11,9 +11,9 @@ import { z } from '@hono/zod-openapi';
 
 export const CreateMachineSchema = z.object({
   image_id: z.string().uuid().optional().nullable().describe('Image to boot from. Null = Ubuntu 24.04'),
-  provider: z.string().min(1).describe('Cloud provider (e.g. "hetzner")'),
-  server_type: z.string().min(1).describe('Provider-specific server type (e.g. "cpx22", "t3.medium")'),
-  region: z.string().min(1).describe('Provider-specific region (e.g. "nbg1", "us-east-1")'),
+  provider: z.string().min(1).default('cloud').describe('Cloud provider'),
+  server_type: z.string().min(1).describe('Server type (e.g. "cpx32")'),
+  region: z.string().min(1).describe('Region (e.g. "hel1", "hil")'),
   name: z.string().min(1).max(64).optional().describe('Human-readable name'),
   env_vars: z.record(z.string(), z.string()).optional().describe('Extra environment variables written to /etc/justavps/env on the machine'),
   docker_image: z.string().optional().describe('Docker image to run on boot (e.g. "myapp:latest")'),
@@ -48,6 +48,7 @@ export const MachineResponseSchema = z.object({
   region: z.string(),
   ip: z.string().nullable(),
   price_monthly: z.number().nullable(),
+  backups_enabled: z.boolean(),
   created_at: z.string(),
   ready_at: z.string().nullable(),
   urls: z.object({
@@ -184,8 +185,9 @@ export const ServerTypeResponseSchema = z.object({
   disk_gb: z.number(),
   cpu_type: z.enum(['shared', 'dedicated']),
   architecture: z.enum(['x86', 'arm']),
-  price_monthly: z.number().describe('Our price after markup'),
+  price_monthly: z.number().describe('Our price after markup (includes backups)'),
   provider_price_monthly: z.number().describe('Raw provider price'),
+  backup_price_monthly: z.number().describe('Provider backup cost (20% of provider price)'),
   available: z.boolean(),
 });
 

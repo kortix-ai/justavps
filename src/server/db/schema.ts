@@ -43,8 +43,8 @@ export const images = pgTable('images', {
   // creating | ready | failed | deleted
   isPublic: boolean('is_public').default(false).notNull(), // public = visible to all users (base images)
   sourceMachineId: uuid('source_machine_id'), // which machine was captured (no FK — machine may be deleted)
-  provider: text('provider').notNull().default('hetzner'),
-  providerImageId: text('provider_image_id'), // Hetzner snapshot ID
+  provider: text('provider').notNull().default('cloud'),
+  providerImageId: text('provider_image_id'), // Provider snapshot ID
   diskSizeGb: integer('disk_size_gb'),
   architecture: text('architecture').default('x86'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -62,7 +62,7 @@ export const machines = pgTable('machines', {
   // provisioning | ready | error | stopped | deleted
 
   // Provider-agnostic fields
-  provider: text('provider').notNull(), // "hetzner" | "aws" | "azure" | ...
+  provider: text('provider').notNull(), // "cloud" | future providers...
   imageId: uuid('image_id'), // nullable, no FK
   dockerImage: text('docker_image'),
   entrypoint: text('entrypoint'),
@@ -71,7 +71,7 @@ export const machines = pgTable('machines', {
   ip: text('ip'),
 
   // Provider-specific (generic storage)
-  providerServerId: text('provider_server_id'), // Hetzner server ID, AWS instance ID, etc.
+  providerServerId: text('provider_server_id'), // Provider-specific server ID
   providerMeta: jsonb('provider_meta').$type<Record<string, unknown>>().default({}),
 
   // Machine credentials
@@ -79,6 +79,9 @@ export const machines = pgTable('machines', {
   codeServerPassword: text('code_server_password').notNull(),
   sshPublicKey: text('ssh_public_key'),
   sshPrivateKey: text('ssh_private_key'),
+
+  // Backups
+  backupsEnabled: boolean('backups_enabled').default(true).notNull(),
 
   // Billing
   priceMonthly: integer('price_monthly'),

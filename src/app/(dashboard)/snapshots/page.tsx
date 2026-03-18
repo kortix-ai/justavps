@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { cn, timeAgo } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
+
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { useImages, useDeleteImage } from "@/hooks/use-images";
@@ -110,7 +110,7 @@ function ImageCard({ image, onDelete }: { image: Image; onDelete: () => void }) 
           </div>
           <div>
             <div className="font-medium text-sm">{image.name}</div>
-            <div className="font-mono text-xs text-muted-foreground">{image.provider}</div>
+            <div className="font-mono text-xs text-muted-foreground">{image.architecture || "x86"}</div>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -132,9 +132,8 @@ function ImageCard({ image, onDelete }: { image: Image; onDelete: () => void }) 
         <span>Created {timeAgo(image.created_at)}</span>
       </div>
 
-      {/* Provider + Delete */}
-      <div className="flex items-center justify-between mt-3">
-        <Badge variant="outline" className="text-[10px]">{image.provider}</Badge>
+      {/* Delete */}
+      <div className="flex items-center justify-end mt-3">
         <Button
           variant="ghost"
           size="sm"

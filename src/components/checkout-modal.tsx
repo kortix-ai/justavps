@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useProviders, useRegions, useServerTypes } from "@/hooks/use-server-types";
 import { useCreateMachine } from "@/hooks/use-machines";
 import { toast } from "sonner";
-import { X, Loader2, ArrowRight } from "lucide-react";
+import { X, Loader2, ArrowRight, Shield } from "lucide-react";
 import { PlanPicker } from "@/components/plan-picker";
 
 /* ═══ Component ═══ */
@@ -18,23 +18,14 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
 
   const { data: allProviders } = useProviders();
   const providers = allProviders ?? [];
-  const [selectedProvider, setSelectedProvider] = useState("");
+  const selectedProvider = providers[0]?.name || "";
   const { data: regions } = useRegions(selectedProvider || undefined);
-  const [selectedRegion, setSelectedRegion] = useState("");
+  const [regionOverride, setRegionOverride] = useState("");
+  const selectedRegion = regionOverride || regions?.[0]?.id || "";
   const { data: serverTypes } = useServerTypes(selectedProvider || undefined, selectedRegion || undefined);
-  const [selectedServerType, setSelectedServerType] = useState("");
+  const [serverTypeOverride, setServerTypeOverride] = useState("");
+  const selectedServerType = serverTypeOverride || serverTypes?.[Math.min(1, (serverTypes?.length ?? 1) - 1)]?.name || "";
   const createMachine = useCreateMachine();
-
-  // Auto-select first provider
-  useEffect(() => { if (providers.length >= 1 && !selectedProvider) setSelectedProvider(providers[0].name); }, [providers, selectedProvider]);
-  // Auto-select first region
-  useEffect(() => { if (regions?.length && !selectedRegion) setSelectedRegion(regions[0].id); }, [regions, selectedRegion]);
-  // Auto-select second plan (Pro / most popular)
-  useEffect(() => {
-    if (serverTypes?.length && !selectedServerType) {
-      setSelectedServerType(serverTypes[Math.min(1, serverTypes.length - 1)].name);
-    }
-  }, [serverTypes, selectedServerType]);
 
   // Lock body scroll when open
   useEffect(() => {
@@ -95,8 +86,8 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
               serverTypes={serverTypes ?? undefined}
               selectedRegion={selectedRegion}
               selectedServerType={selectedServerType}
-              onRegionChange={(r) => { setSelectedRegion(r); setSelectedServerType(""); }}
-              onServerTypeChange={setSelectedServerType}
+              onRegionChange={(r) => { setRegionOverride(r); setServerTypeOverride(""); }}
+              onServerTypeChange={setServerTypeOverride}
             />
           </div>
 
@@ -123,9 +114,10 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                 </>
               )}
             </Button>
-            <p className="text-[10px] text-muted-foreground text-center mt-2">
-              Billed monthly · Cancel anytime · No setup fees
-            </p>
+            <div className="flex items-center justify-center gap-1.5 text-[10px] text-muted-foreground mt-2">
+              <Shield className="size-2.5 text-green-600 dark:text-green-400" />
+              <span>Daily backups included &middot; Cancel anytime &middot; No setup fees</span>
+            </div>
           </div>
         </div>
       </div>

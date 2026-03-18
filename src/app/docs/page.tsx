@@ -450,8 +450,6 @@ ssh -i ~/.ssh/justavps_{slug} -L 3000:localhost:3000 root@{ip}`}</CodeBlock>
   -H "Authorization: Bearer sk_live_xxx" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "snapshot_id": "...",
-    "provider": "hetzner",
     "server_type": "cpx32",
     "region": "hel1",
     "name": "my-machine"
@@ -474,12 +472,12 @@ ssh -i ~/.ssh/justavps_{slug} -L 3000:localhost:3000 root@{ip}`}</CodeBlock>
 
         <H3 id="api-server-types">Server Types</H3>
         <div className="space-y-2 my-4">
-          <Endpoint method="GET" path="/v1/server-types?provider=hetzner&region=hel1" description="List server types with pricing" />
+          <Endpoint method="GET" path="/v1/server-types?region=hel1" description="List server types with pricing" />
           <Endpoint method="GET" path="/v1/server-types/providers" description="List available providers" />
-          <Endpoint method="GET" path="/v1/server-types/regions?provider=hetzner" description="List available regions" />
+          <Endpoint method="GET" path="/v1/server-types/regions" description="List available regions" />
         </div>
         <CodeBlock lang="json" title="Response">{`{
-  "provider": "hetzner",
+  "provider": "cloud",
   "region": "hel1",
   "server_types": [
     {
@@ -543,8 +541,7 @@ ssh -i ~/.ssh/justavps_{slug} -L 3000:localhost:3000 root@{ip}`}</CodeBlock>
   -H "Content-Type: application/json" \\
   -d '{
     "name": "my-node-app",
-    "docker_image": "node:20-slim",
-    "provider": "hetzner"
+    "docker_image": "node:20-slim"
   }'`}</CodeBlock>
 
         <H3 id="provision-from-snapshot">Provision from Snapshot</H3>
@@ -554,7 +551,6 @@ ssh -i ~/.ssh/justavps_{slug} -L 3000:localhost:3000 root@{ip}`}</CodeBlock>
   -H "Content-Type: application/json" \\
   -d '{
     "snapshot_id": "...",
-    "provider": "hetzner",
     "server_type": "cpx32",
     "region": "hel1"
   }'`}</CodeBlock>
@@ -608,7 +604,7 @@ ssh -i ~/.ssh/justavps_{slug} -L 3000:localhost:3000 root@{ip}`}</CodeBlock>
         <Ul>
           <Li><Strong>Cloudflare DNS</Strong> — your subdomain (<InlineCode>&#123;slug&#125;.kortix.cloud</InlineCode>) is proxied through Cloudflare</Li>
           <Li><Strong>TLS</Strong> — Caddy handles automatic HTTPS via ACME / Let&apos;s Encrypt</Li>
-          <Li><Strong>Daily backups</Strong> — Hetzner automatic backups are enabled on every machine</Li>
+          <Li><Strong>Daily backups</Strong> — automatic backups are enabled on every machine</Li>
           <Li><Strong>Static IP</Strong> — each machine gets a dedicated public IPv4 address</Li>
         </Ul>
 

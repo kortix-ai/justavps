@@ -84,11 +84,11 @@ export type PostApiV1MachinesData = {
          */
         image_id?: string;
         /**
-         * Cloud provider (e.g. "hetzner")
+         * Cloud provider
          */
-        provider: string;
+        provider?: string;
         /**
-         * Provider-specific server type (e.g. "cpx22", "t3.medium")
+         * Server type (e.g. "cpx32")
          */
         server_type: string;
         /**

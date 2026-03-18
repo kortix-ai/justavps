@@ -2,7 +2,6 @@
 
 import { Button } from "@/components/ui/button";
 import { timeAgo } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { useImages, useDeleteImage } from "@/hooks/use-images";
@@ -134,13 +133,11 @@ function ImageCard({ image, onDelete }: { image: Image; onDelete: () => void }) 
         <span>Created {timeAgo(image.created_at)}</span>
       </div>
 
-      {/* Provider + Delete */}
+      {/* Status + Delete */}
       <div className="flex items-center justify-between mt-3">
         <div className="flex gap-1">
-          {image.provider ? (
-            <Badge variant="outline" className="text-[10px]">{image.provider}</Badge>
-          ) : (
-            <span className="text-xs text-muted-foreground">{isCreating ? "Creating..." : "No provider"}</span>
+          {isCreating && (
+            <span className="text-xs text-muted-foreground">Creating...</span>
           )}
         </div>
         <Button

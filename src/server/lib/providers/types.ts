@@ -8,6 +8,7 @@ export interface ServerTypeInfo {
   architecture: 'x86' | 'arm';
   providerPriceMonthly: number;
   priceMonthly: number;
+  backupPriceMonthly: number;
   region: string;
 }
 

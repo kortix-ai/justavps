@@ -12,7 +12,7 @@
  *
  * const { machines } = await client.machines.list();
  * const machine = await client.machines.create({
- *   snapshot_id: 'uuid', provider: 'hetzner', server_type: 'cpx22', region: 'nbg1',
+ *   snapshot_id: 'uuid', server_type: 'cpx32', region: 'hel1',
  * });
  * const ready = await client.machines.waitForReady(machine.id);
  * ```
@@ -306,9 +306,9 @@ class WebhooksResource {
 
 class ServerTypesResource {
   constructor(private readonly http: HttpClient) {}
-  list(region: string, provider = 'hetzner') { return this.http.get<{ provider: string; region: string; server_types: ServerType[] }>(`/server-types?provider=${provider}&region=${region}`); }
+  list(region: string, provider = 'cloud') { return this.http.get<{ provider: string; region: string; server_types: ServerType[] }>(`/server-types?provider=${provider}&region=${region}`); }
   providers() { return this.http.get<{ providers: Provider[] }>('/server-types/providers'); }
-  regions(provider = 'hetzner') { return this.http.get<{ provider: string; regions: Region[] }>(`/server-types/regions?provider=${provider}`); }
+  regions(provider = 'cloud') { return this.http.get<{ provider: string; regions: Region[] }>(`/server-types/regions?provider=${provider}`); }
 }
 
 class AccountResource {

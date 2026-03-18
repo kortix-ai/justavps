@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Trash2 } from "lucide-react";
+import { Trash2, Shield } from "lucide-react";
 import type { Machine } from "@/lib/types";
 
 const statusConfig = {
@@ -56,10 +56,18 @@ export function MachineCard({ machine, onDelete }: MachineCardProps) {
             </div>
           </div>
 
-          <div className="mt-4 pt-4 border-t text-xs text-muted-foreground">
-            Created {new Date(machine.created_at).toLocaleDateString()}
-            {machine.ready_at && (
-              <> &middot; Ready {new Date(machine.ready_at).toLocaleDateString()}</>
+          <div className="mt-4 pt-4 border-t flex items-center justify-between text-xs text-muted-foreground">
+            <span>
+              Created {new Date(machine.created_at).toLocaleDateString()}
+              {machine.ready_at && (
+                <> &middot; Ready {new Date(machine.ready_at).toLocaleDateString()}</>
+              )}
+            </span>
+            {machine.backups_enabled && (
+              <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
+                <Shield className="size-3" />
+                Backups
+              </span>
             )}
           </div>
         </CardContent>

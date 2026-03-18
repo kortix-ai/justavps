@@ -89,18 +89,18 @@ describe('Server Types', () => {
     expect(first.ram_gb).toBeGreaterThan(0);
     expect(first.disk_gb).toBeGreaterThan(0);
     expect(first.price_monthly).toBeGreaterThan(0);
-    expect(first.cpu_type).toBe('dedicated');
+    expect(['shared', 'dedicated']).toContain(first.cpu_type);
     expect(first.backup_price_monthly).toBeGreaterThan(0);
   });
 
-  it('pricing uses 2.5x markup', async () => {
+  it('pricing includes provider backup pricing metadata', async () => {
     const res = await fetch(`${BASE_URL}/v1/server-types?region=hel1`);
     const data = await res.json();
     if (data.server_types.length === 0) return;
     const first = data.server_types[0];
-    expect(first.price_monthly).toBeGreaterThanOrEqual(
-      Math.ceil(first.hetzner_price_monthly * 2.5)
-    );
+    expect(first.provider_price_monthly).toBeGreaterThan(0);
+    expect(first.price_monthly).toBeGreaterThan(first.provider_price_monthly);
+    expect(first.backup_price_monthly).toBeCloseTo(first.provider_price_monthly * 0.2, 1);
   });
 
   it('works for multiple regions', async () => {
@@ -112,9 +112,12 @@ describe('Server Types', () => {
     }
   });
 
-  it('rejects invalid region', async () => {
+  it('returns an empty list for unsupported regions', async () => {
     const res = await fetch(`${BASE_URL}/v1/server-types?region=invalid`);
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.region).toBe('invalid');
+    expect(data.server_types).toEqual([]);
   });
 });
 

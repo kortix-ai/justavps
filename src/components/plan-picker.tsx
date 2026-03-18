@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { Check, Zap, Star, Rocket, Crown } from "lucide-react";
+import { Check, Zap, Star, Rocket, Crown, Shield } from "lucide-react";
 import type { Region, ServerType } from "@/lib/types";
 
 /* ═══ Shared plan constants — single source of truth ═══ */
@@ -47,6 +47,10 @@ export function PlanPicker({
   onServerTypeChange,
   showIncluded = true,
 }: PlanPickerProps) {
+  const formatMoney = (amount: number) => {
+    return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+  };
+
   return (
     <div className="space-y-6">
       {/* Region picker */}
@@ -136,6 +140,12 @@ export function PlanPicker({
               <div className="text-right shrink-0">
                 <span className="text-lg font-medium">${s.price_monthly}</span>
                 <span className="text-xs text-muted-foreground">/mo</span>
+                <div className="flex items-center justify-end gap-1 mt-0.5">
+                  <Shield className="size-2.5 text-green-600 dark:text-green-400" />
+                  <span className="text-[10px] text-green-600 dark:text-green-400">
+                    includes ${formatMoney(s.backup_price_monthly)} backups
+                  </span>
+                </div>
               </div>
             </button>
           );

@@ -7,16 +7,18 @@ const providers = new Map<string, ComputeProvider>();
 function init() {
   if (providers.size > 0) return;
   if (config.HETZNER_API_KEY) {
-    providers.set('hetzner', new HetznerProvider());
+    providers.set('cloud', new HetznerProvider());
   }
 }
 
 export function getProvider(name: string): ComputeProvider {
   init();
-  const provider = providers.get(name);
+  // Resolve legacy alias — existing DB records store 'hetzner'
+  const resolved = name === 'hetzner' ? 'cloud' : name;
+  const provider = providers.get(resolved);
   if (!provider) {
     const available = Array.from(providers.keys()).join(', ') || 'none';
-    throw new Error(`Unknown provider '${name}'. Available: ${available}`);
+    throw new Error(`Unknown provider '${resolved}'. Available: ${available}`);
   }
   return provider;
 }

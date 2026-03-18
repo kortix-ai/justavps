@@ -21,6 +21,7 @@ export interface Machine {
   region: string;
   ip: string | null;
   price_monthly: number | null;
+  backups_enabled: boolean;
   created_at: string;
   ready_at: string | null;
   urls: { vscode: string; pty: string } | null;
@@ -86,6 +87,7 @@ export interface ServerType {
   architecture: string;
   price_monthly: number;
   provider_price_monthly: number;
+  backup_price_monthly: number;
   available: boolean;
 }
 

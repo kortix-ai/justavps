@@ -27,7 +27,7 @@ import {
   Cpu, MemoryStick, HardDrive, Activity, Clock,
   Globe, Server, Eye, EyeOff, Loader2,
   Terminal as TerminalIcon, Link2,
-  AlertTriangle, Camera
+  AlertTriangle, Camera, Shield
 } from "lucide-react";
 import Link from "next/link";
 import { timeAgo } from "@/lib/utils";
@@ -433,6 +433,22 @@ export default function MachineDetailPage() {
                     )}
                   </div>
                 </div>
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">Backups</div>
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant="outline"
+                      className={`gap-1.5 py-0.5 text-xs ${
+                        machine.backups_enabled
+                          ? "border-green-500/30 bg-green-500/5 text-green-600 dark:text-green-400"
+                          : "border-muted text-muted-foreground"
+                      }`}
+                    >
+                      <Shield className="size-3" />
+                      {machine.backups_enabled ? "Daily backups enabled" : "Backups disabled"}
+                    </Badge>
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -487,10 +503,7 @@ export default function MachineDetailPage() {
                 <span className="text-muted-foreground">Price</span>
                 <span>${machine.price_monthly}/mo</span>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Provider</span>
-                <span className="capitalize">{machine.provider}</span>
-              </div>
+
             </CardContent>
           </Card>
         </div>

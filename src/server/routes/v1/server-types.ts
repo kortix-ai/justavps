@@ -44,8 +44,8 @@ const listServerTypesRoute = createRoute({
   description: 'Returns available server types for a provider + region, with pricing.',
   request: {
     query: z.object({
-      provider: z.string().default('hetzner').openapi({ description: 'Cloud provider' }),
-      region: z.string().openapi({ description: 'Region ID (e.g. nbg1)' }),
+      provider: z.string().default('cloud').openapi({ description: 'Cloud provider' }),
+      region: z.string().openapi({ description: 'Region ID (e.g. hel1)' }),
     }),
   },
   responses: {
@@ -79,6 +79,7 @@ serverTypesApp.openapi(listServerTypesRoute, async (c) => {
         architecture: t.architecture as 'x86' | 'arm',
         price_monthly: t.priceMonthly,
         provider_price_monthly: t.providerPriceMonthly,
+        backup_price_monthly: t.backupPriceMonthly,
         available: true,
       })),
     });
@@ -96,7 +97,7 @@ const listRegionsRoute = createRoute({
   summary: 'List regions',
   request: {
     query: z.object({
-      provider: z.string().default('hetzner').openapi({ description: 'Cloud provider' }),
+      provider: z.string().default('cloud').openapi({ description: 'Cloud provider' }),
     }),
   },
   responses: {

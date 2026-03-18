@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { useProviders, useRegions, useServerTypes } from "@/hooks/use-server-types";
 import { useCreateMachine } from "@/hooks/use-machines";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2, Shield } from "lucide-react";
 import Link from "next/link";
 import { PlanPicker } from "@/components/plan-picker";
 
@@ -16,27 +16,18 @@ export function ProvisionWizard() {
 
   const { data: allProviders } = useProviders();
   const providers = allProviders ?? [];
-  const [selectedProvider, setSelectedProvider] = useState("");
+  const selectedProvider = providers[0]?.name || "";
 
   const { data: regions } = useRegions(selectedProvider || undefined);
-  const [selectedRegion, setSelectedRegion] = useState("");
+  const [regionOverride, setRegionOverride] = useState("");
+  const selectedRegion = regionOverride || regions?.[0]?.id || "";
 
   const { data: serverTypes } = useServerTypes(selectedProvider || undefined, selectedRegion || undefined);
-  const [selectedServerType, setSelectedServerType] = useState("");
+  const [serverTypeOverride, setServerTypeOverride] = useState("");
+  const selectedServerType = serverTypeOverride || serverTypes?.[Math.min(1, (serverTypes?.length ?? 1) - 1)]?.name || "";
   const [machineName, setMachineName] = useState("");
 
   const createMachine = useCreateMachine();
-
-  // Auto-select first provider
-  useEffect(() => { if (providers.length >= 1 && !selectedProvider) setSelectedProvider(providers[0].name); }, [providers, selectedProvider]);
-  // Auto-select first region
-  useEffect(() => { if (regions?.length && !selectedRegion) setSelectedRegion(regions[0].id); }, [regions, selectedRegion]);
-  // Auto-select second plan (Pro / most popular)
-  useEffect(() => {
-    if (serverTypes?.length && !selectedServerType) {
-      setSelectedServerType(serverTypes[Math.min(1, serverTypes.length - 1)].name);
-    }
-  }, [serverTypes, selectedServerType]);
 
   const selectedST = serverTypes?.find((s) => s.name === selectedServerType);
   const canCreate = selectedProvider && selectedRegion && selectedServerType;
@@ -77,8 +68,8 @@ export function ProvisionWizard() {
           serverTypes={serverTypes ?? undefined}
           selectedRegion={selectedRegion}
           selectedServerType={selectedServerType}
-          onRegionChange={(r) => { setSelectedRegion(r); setSelectedServerType(""); }}
-          onServerTypeChange={setSelectedServerType}
+          onRegionChange={(r) => { setRegionOverride(r); setServerTypeOverride(""); }}
+          onServerTypeChange={setServerTypeOverride}
           showIncluded={false}
         />
       </div>
@@ -103,9 +94,10 @@ export function ProvisionWizard() {
               {createMachine.isPending ? <><Loader2 className="size-4 animate-spin" />Deploying...</> : "Deploy Machine"}
             </Button>
           </div>
-          <p className="text-[11px] text-muted-foreground/50 text-center">
-            Running in 60 seconds. Daily backups included. Cancel anytime.
-          </p>
+          <div className="flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground/70">
+            <Shield className="size-3 text-green-600 dark:text-green-400" />
+            <span>Daily backups included &middot; Running in 60s &middot; Cancel anytime</span>
+          </div>
         </div>
       )}
     </div>
