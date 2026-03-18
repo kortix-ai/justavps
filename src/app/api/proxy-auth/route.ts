@@ -21,33 +21,41 @@ import { signProxyToken, buildProxyCookieHeader } from '@/server/lib/proxy-token
 const ALLOWED_REDIRECT_PATTERN = /^https:\/\/[a-z0-9-]+\.kortix\.cloud(\/.*)?$/;
 
 export async function GET(request: NextRequest) {
-  // 1. Validate session
-  const session = await auth();
-  if (!session?.user?.id) {
-    // Not logged in — redirect to login page with the proxy redirect chained
-    const redirect = request.nextUrl.searchParams.get('redirect') || '';
-    const loginUrl = new URL('/login', request.nextUrl.origin);
-    loginUrl.searchParams.set('callbackUrl', `/api/proxy-auth?redirect=${encodeURIComponent(redirect)}`);
-    return NextResponse.redirect(loginUrl);
-  }
+  try {
+    // 1. Validate session
+    const session = await auth();
+    if (!session?.user?.id) {
+      // Not logged in — redirect to login page with the proxy redirect chained
+      const redirect = request.nextUrl.searchParams.get('redirect') || '';
+      const loginUrl = new URL('/login', request.nextUrl.origin);
+      loginUrl.searchParams.set('callbackUrl', `/api/proxy-auth?redirect=${encodeURIComponent(redirect)}`);
+      return NextResponse.redirect(loginUrl);
+    }
 
-  // 2. Validate redirect URL (must be *.kortix.cloud)
-  const redirect = request.nextUrl.searchParams.get('redirect');
-  if (!redirect || !ALLOWED_REDIRECT_PATTERN.test(redirect)) {
+    // 2. Validate redirect URL (must be *.kortix.cloud)
+    const redirect = request.nextUrl.searchParams.get('redirect');
+    if (!redirect || !ALLOWED_REDIRECT_PATTERN.test(redirect)) {
+      return NextResponse.json(
+        { error: 'Invalid or missing redirect URL. Must be https://<slug>.kortix.cloud/...' },
+        { status: 400 },
+      );
+    }
+
+    // 3. Sign proxy JWT (user-scoped)
+    const token = await signProxyToken(session.user.id);
+
+    // 4. Redirect back with cookie set on .kortix.cloud
+    const response = NextResponse.redirect(redirect);
+    response.headers.append('Set-Cookie', buildProxyCookieHeader(token));
+
+    return response;
+  } catch (error) {
+    console.error('[proxy-auth] Error:', error);
     return NextResponse.json(
-      { error: 'Invalid or missing redirect URL. Must be https://<slug>.kortix.cloud/...' },
-      { status: 400 },
+      { error: 'Failed to issue proxy auth token', details: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 },
     );
   }
-
-  // 3. Sign proxy JWT (user-scoped)
-  const token = await signProxyToken(session.user.id);
-
-  // 4. Redirect back with cookie set on .kortix.cloud
-  const response = NextResponse.redirect(redirect);
-  response.headers.append('Set-Cookie', buildProxyCookieHeader(token));
-
-  return response;
 }
 
 /**
