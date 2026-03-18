@@ -268,10 +268,10 @@ DSEOF
 fi
 
 # ── justavps-daemon (ALWAYS update to latest — runs outside install guard) ─
-DAEMON_URL="${opts.platformCallbackUrl}/downloads/justavps-daemon-linux-amd64"
-echo "[justavps] Updating justavps-daemon..."
-curl -fsSL -o /usr/local/bin/justavps-daemon "$DAEMON_URL" 2>/dev/null \\
-  || echo "[justavps] WARNING: Failed to download daemon, using existing binary if available"
+DAEMON_URL="https://pub-caf7762051b942d5a801397d750a0dc3.r2.dev/daemon/latest/justavps-daemon-linux-amd64"
+echo "[justavps] Downloading justavps-daemon..."
+curl -fsSL -o /usr/local/bin/justavps-daemon "$DAEMON_URL" \\
+  || echo "[justavps] WARNING: Failed to download daemon"
 chmod +x /usr/local/bin/justavps-daemon 2>/dev/null || true
 
 # Systemd service for daemon (idempotent — safe to overwrite)
