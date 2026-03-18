@@ -168,10 +168,10 @@ if ! command -v code-server &>/dev/null; then
   apt-get update -qq && apt-get install -y -qq -o Dpkg::Options::="--force-confold" caddy
 
   # ── Claude Code ─────────────────────────────────────────────────────────
-  npm install -g @anthropic-ai/claude-code 2>/dev/null || true
+  curl -fsSL https://claude.ai/install.sh | bash 2>/dev/null || true
 
   # ── OpenCode ────────────────────────────────────────────────────────────
-  curl -fsSL -o /tmp/opencode.deb https://github.com/opencode-ai/opencode/releases/download/v0.0.55/opencode-linux-amd64.deb && dpkg -i /tmp/opencode.deb && rm /tmp/opencode.deb || true
+  curl -fsSL https://opencode.ai/install | bash 2>/dev/null || true
 
   # ── Sandbox Agent (universal coding agent API by Rivet) ────────────────
   curl -fsSL https://releases.rivet.dev/sandbox-agent/0.3.x/install.sh | sh
