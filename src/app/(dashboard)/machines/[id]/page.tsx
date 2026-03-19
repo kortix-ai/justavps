@@ -391,55 +391,60 @@ export default function MachineDetailPage() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <p className="text-sm text-muted-foreground">
-                      Remote SSH gives you a local-feeling dev experience with full port forwarding. Your machine feels identical to local.
+                      Remote SSH gives you a local-feeling dev experience with automatic port forwarding.
                     </p>
 
-                    <div className="space-y-3">
-                      <div className="flex items-start gap-3">
-                        <div className="size-6 rounded-full bg-muted flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">1</div>
-                        <div className="space-y-1 min-w-0">
-                          <p className="text-sm font-medium">Install the Remote-SSH extension</p>
-                          <p className="text-xs text-muted-foreground">Already built into Cursor. For VS Code: install <code className="bg-muted px-1 rounded">ms-vscode-remote.remote-ssh</code></p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-start gap-3">
-                        <div className="size-6 rounded-full bg-muted flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">2</div>
-                        <div className="space-y-1.5 min-w-0 flex-1">
-                          <p className="text-sm font-medium">Add to your SSH config</p>
-                          <p className="text-xs text-muted-foreground">
-                            Append this to <code className="bg-muted px-1 rounded">~/.ssh/config</code>:
-                          </p>
-                          <div className="relative group">
-                            <pre className="bg-zinc-950 text-zinc-300 p-3 rounded-lg text-xs font-mono leading-relaxed border border-zinc-800">{`Host ${machine.slug}
-  HostName ${machine.ip}
-  User root
-  IdentityFile ${sshKeyPath}
-  StrictHostKeyChecking no`}</pre>
-                            <CopyButton
-                              text={`Host ${machine.slug}\n  HostName ${machine.ip}\n  User root\n  IdentityFile ${sshKeyPath}\n  StrictHostKeyChecking no`}
-                              label="SSH config"
-                              className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-start gap-3">
-                        <div className="size-6 rounded-full bg-muted flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">3</div>
-                        <div className="space-y-1 min-w-0">
-                          <p className="text-sm font-medium">Connect</p>
-                          <p className="text-xs text-muted-foreground">
-                            <kbd className="bg-muted px-1.5 py-0.5 rounded text-[11px] border">Cmd+Shift+P</kbd> → <strong>Remote-SSH: Connect to Host</strong> → select <code className="bg-muted px-1 rounded">{machine.slug}</code>
-                          </p>
-                        </div>
+                    {/* 1-click add to SSH config */}
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Add to SSH config</p>
+                      <p className="text-xs text-muted-foreground">Run this to add the host to your SSH config (safe to run multiple times):</p>
+                      <div className="relative group">
+                        <pre className="bg-zinc-950 text-green-400 p-3 rounded-lg text-xs font-mono leading-relaxed overflow-x-auto border border-zinc-800">{`grep -q "Host ${machine.slug}" ~/.ssh/config 2>/dev/null || printf '\\nHost ${machine.slug}\\n  HostName ${machine.ip}\\n  User root\\n  IdentityFile ${sshKeyPath}\\n  StrictHostKeyChecking no\\n' >> ~/.ssh/config`}</pre>
+                        <CopyButton
+                          text={`grep -q "Host ${machine.slug}" ~/.ssh/config 2>/dev/null || printf '\\nHost ${machine.slug}\\n  HostName ${machine.ip}\\n  User root\\n  IdentityFile ${sshKeyPath}\\n  StrictHostKeyChecking no\\n' >> ~/.ssh/config`}
+                          label="SSH config command"
+                          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                        />
                       </div>
                     </div>
 
-                    <div className="pt-2 border-t">
+                    {/* Connect */}
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">Then connect</p>
                       <p className="text-xs text-muted-foreground">
-                        Port forwarding is automatic — any server you start on the remote machine is accessible locally. Run <code className="bg-muted px-1 rounded">npm run dev</code> on port 3000 and open <code className="bg-muted px-1 rounded">localhost:3000</code> in your browser.
+                        <kbd className="bg-muted px-1.5 py-0.5 rounded text-[11px] border">Cmd+Shift+P</kbd> → <strong>Remote-SSH: Connect to Host</strong> → select <code className="bg-muted px-1 rounded">{machine.slug}</code>
                       </p>
+                    </div>
+
+                    <div className="pt-3 border-t space-y-3">
+                      <p className="text-xs text-muted-foreground">
+                        Port forwarding is automatic — start a server on port 3000 and open <code className="bg-muted px-1 rounded">localhost:3000</code> locally.
+                      </p>
+
+                      {/* AI Agent Prompt */}
+                      <div className="space-y-1.5">
+                        <p className="text-xs font-medium text-muted-foreground">Or give this to your AI agent:</p>
+                        <div className="relative group">
+                          <pre className="bg-zinc-950 text-zinc-400 p-3 rounded-lg text-[11px] font-mono leading-relaxed overflow-x-auto border border-zinc-800 max-h-32">{`Set up SSH access to my remote VPS and connect via Remote-SSH.
+
+1. Save the SSH key:
+${machine.ssh_key?.setup_command?.split('&&').slice(0, 2).join('&&').trim()}
+
+2. Add to ~/.ssh/config:
+Host ${machine.slug}
+  HostName ${machine.ip}
+  User root
+  IdentityFile ${sshKeyPath}
+  StrictHostKeyChecking no
+
+3. Connect via Remote-SSH to host "${machine.slug}"`}</pre>
+                          <CopyButton
+                            text={`Set up SSH access to my remote VPS and connect via Remote-SSH.\n\n1. Save the SSH key:\n${machine.ssh_key?.setup_command?.split('&&').slice(0, 2).join('&&').trim() ?? ''}\n\n2. Add to ~/.ssh/config:\nHost ${machine.slug}\n  HostName ${machine.ip}\n  User root\n  IdentityFile ${sshKeyPath}\n  StrictHostKeyChecking no\n\n3. Connect via Remote-SSH to host "${machine.slug}"`}
+                            label="AI agent prompt"
+                            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                          />
+                        </div>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
