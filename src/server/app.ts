@@ -77,8 +77,8 @@ https://justavps.com/api/v1
     contact: { name: 'JustAVPS', url: 'https://justavps.com', email: 'support@justavps.com' },
   },
   servers: [
-    { url: '/api/v1', description: 'API v1' },
-    { url: 'https://justavps.com/api/v1', description: 'Production' },
+    { url: '/', description: 'Current' },
+    { url: 'https://justavps.com', description: 'Production' },
   ],
   tags: [
     { name: 'Machines', description: 'Create, manage, and destroy VPS machines' },
@@ -89,6 +89,8 @@ https://justavps.com/api/v1
     { name: 'Server Types', description: 'Discover available providers, regions, and server types' },
     { name: 'Account', description: 'Account info, usage stats, and billing' },
     { name: 'Events', description: 'Real-time machine status via Server-Sent Events' },
+    { name: 'Toolbox: Filesystem', description: 'Read, write, search, and manage files on a machine' },
+    { name: 'Toolbox: Process', description: 'Execute commands, run code, and manage processes on a machine' },
     { name: 'Internal', description: 'Internal endpoints used by machine agents and infrastructure' },
   ],
 });

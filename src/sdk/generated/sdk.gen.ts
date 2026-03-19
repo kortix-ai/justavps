@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { DeleteApiV1ApiKeysByIdData, DeleteApiV1ApiKeysByIdErrors, DeleteApiV1ApiKeysByIdResponses, DeleteApiV1ImagesByIdData, DeleteApiV1ImagesByIdErrors, DeleteApiV1ImagesByIdResponses, DeleteApiV1MachinesByIdData, DeleteApiV1MachinesByIdErrors, DeleteApiV1MachinesByIdResponses, DeleteApiV1SshKeysByIdData, DeleteApiV1SshKeysByIdErrors, DeleteApiV1SshKeysByIdResponses, DeleteApiV1WebhooksByIdData, DeleteApiV1WebhooksByIdErrors, DeleteApiV1WebhooksByIdResponses, GetApiV1AccountBillingData, GetApiV1AccountBillingErrors, GetApiV1AccountBillingResponses, GetApiV1AccountData, GetApiV1AccountErrors, GetApiV1AccountResponses, GetApiV1AccountUsageData, GetApiV1AccountUsageErrors, GetApiV1AccountUsageResponses, GetApiV1ApiKeysData, GetApiV1ApiKeysErrors, GetApiV1ApiKeysResponses, GetApiV1ImagesByIdData, GetApiV1ImagesByIdErrors, GetApiV1ImagesByIdResponses, GetApiV1ImagesData, GetApiV1ImagesErrors, GetApiV1ImagesResponses, GetApiV1InternalValidateKeyData, GetApiV1InternalValidateKeyErrors, GetApiV1InternalValidateKeyResponses, GetApiV1MachinesByIdData, GetApiV1MachinesByIdErrors, GetApiV1MachinesByIdResponses, GetApiV1MachinesByIdStatusStreamData, GetApiV1MachinesByIdStatusStreamErrors, GetApiV1MachinesByIdStatusStreamResponses, GetApiV1MachinesData, GetApiV1MachinesErrors, GetApiV1MachinesResponses, GetApiV1ServerTypesData, GetApiV1ServerTypesErrors, GetApiV1ServerTypesProvidersData, GetApiV1ServerTypesProvidersResponses, GetApiV1ServerTypesRegionsData, GetApiV1ServerTypesRegionsErrors, GetApiV1ServerTypesRegionsResponses, GetApiV1ServerTypesResponses, GetApiV1SshKeysData, GetApiV1SshKeysErrors, GetApiV1SshKeysResponses, GetApiV1WebhooksData, GetApiV1WebhooksErrors, GetApiV1WebhooksResponses, PostApiV1AccountBillingSetupData, PostApiV1AccountBillingSetupErrors, PostApiV1AccountBillingSetupResponses, PostApiV1ApiKeysData, PostApiV1ApiKeysErrors, PostApiV1ApiKeysResponses, PostApiV1InternalHeartbeatData, PostApiV1InternalHeartbeatErrors, PostApiV1InternalHeartbeatResponses, PostApiV1InternalStageData, PostApiV1InternalStageErrors, PostApiV1InternalStageResponses, PostApiV1MachinesByIdImageData, PostApiV1MachinesByIdImageErrors, PostApiV1MachinesByIdImageResponses, PostApiV1MachinesByIdRebootData, PostApiV1MachinesByIdRebootErrors, PostApiV1MachinesByIdRebootResponses, PostApiV1MachinesByIdResizeData, PostApiV1MachinesByIdResizeErrors, PostApiV1MachinesByIdResizeResponses, PostApiV1MachinesData, PostApiV1MachinesErrors, PostApiV1MachinesResponses, PostApiV1SshKeysData, PostApiV1SshKeysErrors, PostApiV1SshKeysResponses, PostApiV1WebhooksData, PostApiV1WebhooksErrors, PostApiV1WebhooksResponses } from './types.gen';
+import type { DeleteApiV1ApiKeysByIdData, DeleteApiV1ApiKeysByIdErrors, DeleteApiV1ApiKeysByIdResponses, DeleteApiV1ImagesByIdData, DeleteApiV1ImagesByIdErrors, DeleteApiV1ImagesByIdResponses, DeleteApiV1MachinesByIdData, DeleteApiV1MachinesByIdErrors, DeleteApiV1MachinesByIdResponses, DeleteApiV1MachinesByMachineIdToolboxFilesData, DeleteApiV1MachinesByMachineIdToolboxFilesErrors, DeleteApiV1MachinesByMachineIdToolboxFilesResponses, DeleteApiV1SshKeysByIdData, DeleteApiV1SshKeysByIdErrors, DeleteApiV1SshKeysByIdResponses, DeleteApiV1WebhooksByIdData, DeleteApiV1WebhooksByIdErrors, DeleteApiV1WebhooksByIdResponses, GetApiV1AccountBillingData, GetApiV1AccountBillingErrors, GetApiV1AccountBillingResponses, GetApiV1AccountData, GetApiV1AccountErrors, GetApiV1AccountResponses, GetApiV1AccountUsageData, GetApiV1AccountUsageErrors, GetApiV1AccountUsageResponses, GetApiV1ApiKeysData, GetApiV1ApiKeysErrors, GetApiV1ApiKeysResponses, GetApiV1ImagesByIdData, GetApiV1ImagesByIdErrors, GetApiV1ImagesByIdResponses, GetApiV1ImagesData, GetApiV1ImagesErrors, GetApiV1ImagesResponses, GetApiV1InternalValidateKeyData, GetApiV1InternalValidateKeyErrors, GetApiV1InternalValidateKeyResponses, GetApiV1MachinesByIdBackupsData, GetApiV1MachinesByIdBackupsErrors, GetApiV1MachinesByIdBackupsResponses, GetApiV1MachinesByIdData, GetApiV1MachinesByIdErrors, GetApiV1MachinesByIdResponses, GetApiV1MachinesByIdStatusStreamData, GetApiV1MachinesByIdStatusStreamErrors, GetApiV1MachinesByIdStatusStreamResponses, GetApiV1MachinesByMachineIdToolboxFilesData, GetApiV1MachinesByMachineIdToolboxFilesDownloadData, GetApiV1MachinesByMachineIdToolboxFilesDownloadErrors, GetApiV1MachinesByMachineIdToolboxFilesDownloadResponses, GetApiV1MachinesByMachineIdToolboxFilesErrors, GetApiV1MachinesByMachineIdToolboxFilesExistsData, GetApiV1MachinesByMachineIdToolboxFilesExistsErrors, GetApiV1MachinesByMachineIdToolboxFilesExistsResponses, GetApiV1MachinesByMachineIdToolboxFilesFindData, GetApiV1MachinesByMachineIdToolboxFilesFindErrors, GetApiV1MachinesByMachineIdToolboxFilesFindResponses, GetApiV1MachinesByMachineIdToolboxFilesInfoData, GetApiV1MachinesByMachineIdToolboxFilesInfoErrors, GetApiV1MachinesByMachineIdToolboxFilesInfoResponses, GetApiV1MachinesByMachineIdToolboxFilesResponses, GetApiV1MachinesByMachineIdToolboxProcessListData, GetApiV1MachinesByMachineIdToolboxProcessListErrors, GetApiV1MachinesByMachineIdToolboxProcessListResponses, GetApiV1MachinesData, GetApiV1MachinesErrors, GetApiV1MachinesResponses, GetApiV1ServerTypesData, GetApiV1ServerTypesErrors, GetApiV1ServerTypesProvidersData, GetApiV1ServerTypesProvidersResponses, GetApiV1ServerTypesRegionsData, GetApiV1ServerTypesRegionsErrors, GetApiV1ServerTypesRegionsResponses, GetApiV1ServerTypesResponses, GetApiV1SshKeysData, GetApiV1SshKeysErrors, GetApiV1SshKeysResponses, GetApiV1WebhooksData, GetApiV1WebhooksErrors, GetApiV1WebhooksResponses, PostApiV1AccountBillingSetupData, PostApiV1AccountBillingSetupErrors, PostApiV1AccountBillingSetupResponses, PostApiV1ApiKeysData, PostApiV1ApiKeysErrors, PostApiV1ApiKeysResponses, PostApiV1InternalHeartbeatData, PostApiV1InternalHeartbeatErrors, PostApiV1InternalHeartbeatResponses, PostApiV1InternalStageData, PostApiV1InternalStageErrors, PostApiV1InternalStageResponses, PostApiV1MachinesByIdBackupsData, PostApiV1MachinesByIdBackupsDisableData, PostApiV1MachinesByIdBackupsDisableErrors, PostApiV1MachinesByIdBackupsDisableResponses, PostApiV1MachinesByIdBackupsEnableData, PostApiV1MachinesByIdBackupsEnableErrors, PostApiV1MachinesByIdBackupsEnableResponses, PostApiV1MachinesByIdBackupsErrors, PostApiV1MachinesByIdBackupsResponses, PostApiV1MachinesByIdImageData, PostApiV1MachinesByIdImageErrors, PostApiV1MachinesByIdImageResponses, PostApiV1MachinesByIdRebootData, PostApiV1MachinesByIdRebootErrors, PostApiV1MachinesByIdRebootResponses, PostApiV1MachinesByIdResizeData, PostApiV1MachinesByIdResizeErrors, PostApiV1MachinesByIdResizeResponses, PostApiV1MachinesByMachineIdToolboxFilesBulkDownloadData, PostApiV1MachinesByMachineIdToolboxFilesBulkDownloadErrors, PostApiV1MachinesByMachineIdToolboxFilesBulkDownloadResponses, PostApiV1MachinesByMachineIdToolboxFilesFolderData, PostApiV1MachinesByMachineIdToolboxFilesFolderErrors, PostApiV1MachinesByMachineIdToolboxFilesFolderResponses, PostApiV1MachinesByMachineIdToolboxFilesMoveData, PostApiV1MachinesByMachineIdToolboxFilesMoveErrors, PostApiV1MachinesByMachineIdToolboxFilesMoveResponses, PostApiV1MachinesByMachineIdToolboxFilesPermissionsData, PostApiV1MachinesByMachineIdToolboxFilesPermissionsErrors, PostApiV1MachinesByMachineIdToolboxFilesPermissionsResponses, PostApiV1MachinesByMachineIdToolboxFilesReplaceData, PostApiV1MachinesByMachineIdToolboxFilesReplaceErrors, PostApiV1MachinesByMachineIdToolboxFilesReplaceResponses, PostApiV1MachinesByMachineIdToolboxFilesUploadData, PostApiV1MachinesByMachineIdToolboxFilesUploadErrors, PostApiV1MachinesByMachineIdToolboxFilesUploadResponses, PostApiV1MachinesByMachineIdToolboxProcessCodeRunData, PostApiV1MachinesByMachineIdToolboxProcessCodeRunErrors, PostApiV1MachinesByMachineIdToolboxProcessCodeRunResponses, PostApiV1MachinesByMachineIdToolboxProcessExecuteData, PostApiV1MachinesByMachineIdToolboxProcessExecuteErrors, PostApiV1MachinesByMachineIdToolboxProcessExecuteResponses, PostApiV1MachinesByMachineIdToolboxProcessExecuteStreamData, PostApiV1MachinesByMachineIdToolboxProcessExecuteStreamErrors, PostApiV1MachinesByMachineIdToolboxProcessExecuteStreamResponses, PostApiV1MachinesByMachineIdToolboxProcessKillData, PostApiV1MachinesByMachineIdToolboxProcessKillErrors, PostApiV1MachinesByMachineIdToolboxProcessKillResponses, PostApiV1MachinesData, PostApiV1MachinesErrors, PostApiV1MachinesResponses, PostApiV1SshKeysData, PostApiV1SshKeysErrors, PostApiV1SshKeysResponses, PostApiV1WebhooksData, PostApiV1WebhooksErrors, PostApiV1WebhooksResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<TData, ThrowOnError> & {
     /**
@@ -135,6 +135,62 @@ export const postApiV1MachinesByIdImage = <ThrowOnError extends boolean = false>
         'Content-Type': 'application/json',
         ...options.headers
     }
+});
+
+/**
+ * List machine backups
+ */
+export const getApiV1MachinesByIdBackups = <ThrowOnError extends boolean = false>(options: Options<GetApiV1MachinesByIdBackupsData, ThrowOnError>) => (options.client ?? client).get<GetApiV1MachinesByIdBackupsResponses, GetApiV1MachinesByIdBackupsErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{id}/backups',
+    ...options
+});
+
+/**
+ * Create a manual backup
+ */
+export const postApiV1MachinesByIdBackups = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByIdBackupsData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByIdBackupsResponses, PostApiV1MachinesByIdBackupsErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{id}/backups',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Enable automatic backups
+ */
+export const postApiV1MachinesByIdBackupsEnable = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByIdBackupsEnableData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByIdBackupsEnableResponses, PostApiV1MachinesByIdBackupsEnableErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{id}/backups/enable',
+    ...options
+});
+
+/**
+ * Disable automatic backups
+ */
+export const postApiV1MachinesByIdBackupsDisable = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByIdBackupsDisableData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByIdBackupsDisableResponses, PostApiV1MachinesByIdBackupsDisableErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{id}/backups/disable',
+    ...options
 });
 
 /**
@@ -405,6 +461,281 @@ export const getApiV1MachinesByIdStatusStream = <ThrowOnError extends boolean = 
         }],
     url: '/api/v1/machines/{id}/status/stream',
     ...options
+});
+
+/**
+ * Delete a file or directory
+ *
+ * Deletes a file or directory. For non-empty directories, `recursive=true` is required.
+ */
+export const deleteApiV1MachinesByMachineIdToolboxFiles = <ThrowOnError extends boolean = false>(options: Options<DeleteApiV1MachinesByMachineIdToolboxFilesData, ThrowOnError>) => (options.client ?? client).delete<DeleteApiV1MachinesByMachineIdToolboxFilesResponses, DeleteApiV1MachinesByMachineIdToolboxFilesErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{machineId}/toolbox/files',
+    ...options
+});
+
+/**
+ * List files in a directory
+ *
+ * Lists files and directories at the given path on the machine. Supports recursive listing via `depth` parameter.
+ */
+export const getApiV1MachinesByMachineIdToolboxFiles = <ThrowOnError extends boolean = false>(options: Options<GetApiV1MachinesByMachineIdToolboxFilesData, ThrowOnError>) => (options.client ?? client).get<GetApiV1MachinesByMachineIdToolboxFilesResponses, GetApiV1MachinesByMachineIdToolboxFilesErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{machineId}/toolbox/files',
+    ...options
+});
+
+/**
+ * Get file or directory info
+ *
+ * Returns metadata about a file or directory: name, size, permissions, owner, group, modification time.
+ */
+export const getApiV1MachinesByMachineIdToolboxFilesInfo = <ThrowOnError extends boolean = false>(options: Options<GetApiV1MachinesByMachineIdToolboxFilesInfoData, ThrowOnError>) => (options.client ?? client).get<GetApiV1MachinesByMachineIdToolboxFilesInfoResponses, GetApiV1MachinesByMachineIdToolboxFilesInfoErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{machineId}/toolbox/files/info',
+    ...options
+});
+
+/**
+ * Check if file or directory exists
+ */
+export const getApiV1MachinesByMachineIdToolboxFilesExists = <ThrowOnError extends boolean = false>(options: Options<GetApiV1MachinesByMachineIdToolboxFilesExistsData, ThrowOnError>) => (options.client ?? client).get<GetApiV1MachinesByMachineIdToolboxFilesExistsResponses, GetApiV1MachinesByMachineIdToolboxFilesExistsErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{machineId}/toolbox/files/exists',
+    ...options
+});
+
+/**
+ * Download a file
+ *
+ * Downloads the raw content of a file. Returns the file with appropriate Content-Type and Content-Disposition headers.
+ */
+export const getApiV1MachinesByMachineIdToolboxFilesDownload = <ThrowOnError extends boolean = false>(options: Options<GetApiV1MachinesByMachineIdToolboxFilesDownloadData, ThrowOnError>) => (options.client ?? client).get<GetApiV1MachinesByMachineIdToolboxFilesDownloadResponses, GetApiV1MachinesByMachineIdToolboxFilesDownloadErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{machineId}/toolbox/files/download',
+    ...options
+});
+
+/**
+ * Upload a file
+ *
+ * Uploads content to a file on the machine. Creates parent directories automatically. Supports raw body or multipart form upload.
+ */
+export const postApiV1MachinesByMachineIdToolboxFilesUpload = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByMachineIdToolboxFilesUploadData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByMachineIdToolboxFilesUploadResponses, PostApiV1MachinesByMachineIdToolboxFilesUploadErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{machineId}/toolbox/files/upload',
+    ...options
+});
+
+/**
+ * Create a directory
+ *
+ * Creates a directory recursively (like `mkdir -p`).
+ */
+export const postApiV1MachinesByMachineIdToolboxFilesFolder = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByMachineIdToolboxFilesFolderData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByMachineIdToolboxFilesFolderResponses, PostApiV1MachinesByMachineIdToolboxFilesFolderErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{machineId}/toolbox/files/folder',
+    ...options
+});
+
+/**
+ * Move or rename a file/directory
+ */
+export const postApiV1MachinesByMachineIdToolboxFilesMove = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByMachineIdToolboxFilesMoveData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByMachineIdToolboxFilesMoveResponses, PostApiV1MachinesByMachineIdToolboxFilesMoveErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{machineId}/toolbox/files/move',
+    ...options
+});
+
+/**
+ * Search text in files
+ *
+ * Recursively searches for a regex pattern in files under the given path. Like `grep -rn`.
+ */
+export const getApiV1MachinesByMachineIdToolboxFilesFind = <ThrowOnError extends boolean = false>(options: Options<GetApiV1MachinesByMachineIdToolboxFilesFindData, ThrowOnError>) => (options.client ?? client).get<GetApiV1MachinesByMachineIdToolboxFilesFindResponses, GetApiV1MachinesByMachineIdToolboxFilesFindErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{machineId}/toolbox/files/find',
+    ...options
+});
+
+/**
+ * Find and replace text in files
+ */
+export const postApiV1MachinesByMachineIdToolboxFilesReplace = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByMachineIdToolboxFilesReplaceData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByMachineIdToolboxFilesReplaceResponses, PostApiV1MachinesByMachineIdToolboxFilesReplaceErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{machineId}/toolbox/files/replace',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Set file permissions
+ *
+ * Change mode (chmod), owner, and/or group of a file or directory.
+ */
+export const postApiV1MachinesByMachineIdToolboxFilesPermissions = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByMachineIdToolboxFilesPermissionsData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByMachineIdToolboxFilesPermissionsResponses, PostApiV1MachinesByMachineIdToolboxFilesPermissionsErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{machineId}/toolbox/files/permissions',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Download multiple files as zip
+ */
+export const postApiV1MachinesByMachineIdToolboxFilesBulkDownload = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByMachineIdToolboxFilesBulkDownloadData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByMachineIdToolboxFilesBulkDownloadResponses, PostApiV1MachinesByMachineIdToolboxFilesBulkDownloadErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{machineId}/toolbox/files/bulk-download',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Execute a shell command
+ *
+ * Runs a shell command synchronously on the machine and returns stdout, stderr, exit code, and duration.
+ */
+export const postApiV1MachinesByMachineIdToolboxProcessExecute = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByMachineIdToolboxProcessExecuteData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByMachineIdToolboxProcessExecuteResponses, PostApiV1MachinesByMachineIdToolboxProcessExecuteErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{machineId}/toolbox/process/execute',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Execute command with streaming output
+ *
+ * Runs a shell command and streams stdout/stderr as Server-Sent Events in real-time. Final event contains exit code.
+ */
+export const postApiV1MachinesByMachineIdToolboxProcessExecuteStream = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByMachineIdToolboxProcessExecuteStreamData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByMachineIdToolboxProcessExecuteStreamResponses, PostApiV1MachinesByMachineIdToolboxProcessExecuteStreamErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{machineId}/toolbox/process/execute/stream',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Run a code snippet
+ *
+ * Executes a code snippet in the specified language (python, node, bash, ruby, go). Auto-detects language if omitted.
+ */
+export const postApiV1MachinesByMachineIdToolboxProcessCodeRun = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByMachineIdToolboxProcessCodeRunData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByMachineIdToolboxProcessCodeRunResponses, PostApiV1MachinesByMachineIdToolboxProcessCodeRunErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{machineId}/toolbox/process/code-run',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * List running processes
+ *
+ * Returns all running processes on the machine with PID, command, state, memory usage, and user.
+ */
+export const getApiV1MachinesByMachineIdToolboxProcessList = <ThrowOnError extends boolean = false>(options: Options<GetApiV1MachinesByMachineIdToolboxProcessListData, ThrowOnError>) => (options.client ?? client).get<GetApiV1MachinesByMachineIdToolboxProcessListResponses, GetApiV1MachinesByMachineIdToolboxProcessListErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{machineId}/toolbox/process/list',
+    ...options
+});
+
+/**
+ * Kill a process
+ *
+ * Sends a signal to a process by PID. Supports SIGTERM, SIGKILL, SIGINT, SIGHUP.
+ */
+export const postApiV1MachinesByMachineIdToolboxProcessKill = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByMachineIdToolboxProcessKillData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByMachineIdToolboxProcessKillResponses, PostApiV1MachinesByMachineIdToolboxProcessKillErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{machineId}/toolbox/process/kill',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
 });
 
 /**

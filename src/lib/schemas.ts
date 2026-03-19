@@ -284,6 +284,154 @@ export const ValidateKeyResponseSchema = z.object({
   message: z.string().optional(),
 });
 
+// ─── Toolbox: Filesystem Schemas ────────────────────────────────────────────
+
+export const FileEntrySchema = z.object({
+  name: z.string(),
+  path: z.string(),
+  type: z.enum(['file', 'dir']),
+  size: z.number(),
+  mode: z.string().describe('Human-readable mode string, e.g. "-rw-r--r--"'),
+  mode_bits: z.string().describe('Octal permission bits, e.g. "644"'),
+  owner: z.string(),
+  group: z.string(),
+  mod_time: z.string(),
+  symlink_target: z.string().nullable(),
+});
+
+export const ListFilesResponseSchema = z.object({
+  entries: z.array(FileEntrySchema),
+});
+
+export const FileExistsResponseSchema = z.object({
+  exists: z.boolean(),
+  type: z.enum(['file', 'dir']).nullable(),
+});
+
+export const UploadFileResponseSchema = z.object({
+  path: z.string(),
+  name: z.string(),
+  type: z.literal('file'),
+  size: z.number(),
+});
+
+export const BulkUploadResponseSchema = z.object({
+  uploaded: z.array(z.object({ path: z.string(), size: z.number() })),
+  errors: z.array(z.object({ path: z.string(), error: z.string() })),
+});
+
+export const CreateFolderResponseSchema = z.object({
+  path: z.string(),
+  created: z.boolean(),
+});
+
+export const DeleteFileResponseSchema = z.object({
+  deleted: z.boolean(),
+  path: z.string(),
+});
+
+export const MoveFileResponseSchema = z.object({
+  source: z.string(),
+  destination: z.string(),
+});
+
+export const FindTextMatchSchema = z.object({
+  file: z.string(),
+  line: z.number(),
+  content: z.string(),
+});
+
+export const FindTextResponseSchema = z.object({
+  matches: z.array(FindTextMatchSchema),
+  truncated: z.boolean(),
+  total: z.number(),
+});
+
+export const ReplaceTextRequestSchema = z.object({
+  files: z.array(z.string()).min(1).describe('Absolute file paths to search'),
+  pattern: z.string().min(1).describe('Regex pattern to match'),
+  new_value: z.string().describe('Replacement string'),
+});
+
+export const ReplaceTextResponseSchema = z.object({
+  results: z.array(z.object({
+    file: z.string(),
+    replacements: z.number(),
+  })),
+});
+
+export const SetPermissionsRequestSchema = z.object({
+  mode: z.string().optional().describe('Octal permission bits, e.g. "755"'),
+  owner: z.string().optional().describe('File owner username'),
+  group: z.string().optional().describe('File group name'),
+});
+
+export const SetPermissionsResponseSchema = z.object({
+  path: z.string(),
+  mode: z.string(),
+  owner: z.string(),
+  group: z.string(),
+});
+
+// ─── Toolbox: Process/Exec Schemas ──────────────────────────────────────────
+
+export const ExecuteCommandRequestSchema = z.object({
+  command: z.string().min(1).describe('Shell command to execute'),
+  cwd: z.string().optional().describe('Working directory (default: /root)'),
+  timeout: z.number().int().min(1).max(3600).optional().describe('Timeout in seconds (default: 60)'),
+  env: z.record(z.string(), z.string()).optional().describe('Additional environment variables'),
+  user: z.string().optional().describe('User to run as (default: root)'),
+});
+
+export const ExecuteCommandResponseSchema = z.object({
+  exit_code: z.number().int(),
+  stdout: z.string(),
+  stderr: z.string(),
+  duration_ms: z.number(),
+});
+
+export const CodeRunRequestSchema = z.object({
+  code: z.string().min(1).describe('Code to execute'),
+  language: z.enum(['python', 'python3', 'node', 'javascript', 'typescript', 'bash', 'shell', 'ruby', 'go']).optional().describe('Language (auto-detected if omitted)'),
+  timeout: z.number().int().min(1).max(3600).optional().describe('Timeout in seconds (default: 30)'),
+  env: z.record(z.string(), z.string()).optional().describe('Additional environment variables'),
+});
+
+export const ProcessInfoSchema = z.object({
+  pid: z.number().int(),
+  command: z.string(),
+  args: z.string(),
+  cwd: z.string().optional(),
+  user: z.string().optional(),
+  state: z.string().optional(),
+  memory_rss_bytes: z.number().optional(),
+  started_at: z.string().optional(),
+});
+
+export const ListProcessesResponseSchema = z.object({
+  processes: z.array(ProcessInfoSchema),
+});
+
+export const KillProcessRequestSchema = z.object({
+  pid: z.number().int().min(1).describe('Process ID to kill'),
+  signal: z.enum(['SIGTERM', 'SIGKILL', 'SIGINT', 'SIGHUP', 'TERM', 'KILL', 'INT', 'HUP']).optional().describe('Signal to send (default: SIGTERM)'),
+});
+
+export const KillProcessResponseSchema = z.object({
+  killed: z.boolean(),
+  pid: z.number().int(),
+  signal: z.string(),
+});
+
+export const ToolboxErrorSchema = z.object({
+  error: z.string(),
+  code: z.string(),
+});
+
+export const BulkDownloadRequestSchema = z.object({
+  paths: z.array(z.string()).min(1).describe('Absolute file paths to include in the zip'),
+});
+
 // ─── Error Schema ───────────────────────────────────────────────────────────
 
 export const ErrorResponseSchema = z.object({
