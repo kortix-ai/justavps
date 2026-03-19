@@ -2,6 +2,8 @@
 //
 // Replaces Caddy entirely. Routes all inbound traffic:
 //   /_pty              → WebSocket PTY handler (in-process)
+//   /toolbox/files/*   → Filesystem API (in-process)
+//   /toolbox/process/* → Process/Exec API (in-process)
 //   /_port/PORT/path   → localhost:PORT/path (dynamic port forwarding)
 //   /agent/*           → localhost:2468 (sandbox-agent, strip /agent prefix)
 //   /daemon/*          → localhost:7777 (internal API, strip /daemon prefix)
@@ -38,16 +40,20 @@ var sharedTransport = &http.Transport{
 
 // ProxyRouter implements http.Handler. Single ServeHTTP with path-based routing.
 type ProxyRouter struct {
-	opencode *httputil.ReverseProxy
-	agent    *httputil.ReverseProxy
-	daemon   *httputil.ReverseProxy
+	opencode    *httputil.ReverseProxy
+	agent       *httputil.ReverseProxy
+	daemon      *httputil.ReverseProxy
+	toolboxFS   http.Handler
+	toolboxExec http.Handler
 }
 
 func NewProxyRouter() *ProxyRouter {
 	return &ProxyRouter{
-		opencode: newUpstreamProxy(opencodeAddr, ""),
-		agent:    newUpstreamProxy(sandboxAgentAddr, "/agent"),
-		daemon:   newUpstreamProxy(internalAPIAddr, "/daemon"),
+		opencode:    newUpstreamProxy(opencodeAddr, ""),
+		agent:       newUpstreamProxy(sandboxAgentAddr, "/agent"),
+		daemon:      newUpstreamProxy(internalAPIAddr, "/daemon"),
+		toolboxFS:   NewToolboxFS(),
+		toolboxExec: NewToolboxProcess(),
 	}
 }
 
@@ -58,6 +64,14 @@ func (p *ProxyRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// WebSocket PTY — dashboard terminal
 	case path == "/_pty":
 		handlePTY(w, r)
+
+	// Toolbox Filesystem API (in-process)
+	case strings.HasPrefix(path, "/toolbox/files"):
+		p.toolboxFS.ServeHTTP(w, r)
+
+	// Toolbox Process/Exec API (in-process)
+	case strings.HasPrefix(path, "/toolbox/process"):
+		p.toolboxExec.ServeHTTP(w, r)
 
 	// Dynamic port forwarding: /_port/PORT/rest or /_caddy_port/PORT/rest (legacy)
 	case strings.HasPrefix(path, "/_port/") || strings.HasPrefix(path, "/_caddy_port/"):
