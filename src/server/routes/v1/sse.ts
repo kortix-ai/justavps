@@ -25,7 +25,7 @@ sseApp.use('*', apiGuard);
 const streamMachineStatusRoute = createRoute({
   method: 'get',
   path: '/{id}/status/stream',
-  tags: ['Events'],
+  tags: ['Machines'],
   security: [{ bearerAuth: [] }, { cookieAuth: [] }] as const,
   summary: 'Stream machine status (SSE)',
   description: 'Opens a Server-Sent Events stream for real-time provisioning updates.\n\n**Event types:** `status`, `stage`, `done`, `ping`, `error`\n\nAuto-closes on terminal state or after 10 minutes.',
