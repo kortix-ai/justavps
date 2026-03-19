@@ -88,5 +88,5 @@ jobs:
           echo "### 📦 SDK v${V}" >> $GITHUB_STEP_SUMMARY
           echo "| Package | Install |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|---------|" >> $GITHUB_STEP_SUMMARY
-          echo "| [\`@justavps/sdk\`](https://www.npmjs.com/package/@justavps/sdk) | \`npm i @justavps/sdk\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| [\`justavps\`](https://pypi.org/project/justavps/) | \`pip install justavps\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| [\`@kortix/justavps\`](https://www.npmjs.com/package/@kortix/justavps) | \`npm i @kortix/justavps\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| [\`kortix-justavps\`](https://pypi.org/project/kortix-justavps/) | \`pip install kortix-justavps\` |" >> $GITHUB_STEP_SUMMARY

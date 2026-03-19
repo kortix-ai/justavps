@@ -1,15 +1,15 @@
-# @justavps/sdk
+# @kortix/justavps
 
 Official TypeScript SDK for the [JustAVPS API](https://justavps.com/api/docs).
 
 ```bash
-npm install @justavps/sdk
+npm install @kortix/justavps
 ```
 
 ## Quick Start
 
 ```typescript
-import { JustAVPS } from '@justavps/sdk';
+import { JustAVPS } from '@kortix/justavps';
 
 const client = new JustAVPS({ apiKey: 'sk_live_...' });
 ```
@@ -185,7 +185,7 @@ The ergonomic wrapper above delegates to an auto-generated client. You can use i
 import {
   getApiV1Machines,
   postApiV1MachinesByMachineIdToolboxProcessExecute,
-} from '@justavps/sdk/generated';
+} from '@kortix/justavps/generated';
 ```
 
 ## API Reference

@@ -1,5 +1,5 @@
 /**
- * @justavps/sdk — TypeScript SDK for the JustAVPS API.
+ * @kortix/justavps — TypeScript SDK for the JustAVPS API.
  *
  * 100% auto-generated from the OpenAPI spec. Do not edit manually.
  * Regenerate with: pnpm sdk:generate

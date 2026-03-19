@@ -6,7 +6,7 @@
  *
  * @example
  * ```ts
- * import { JustAVPS } from '@justavps/sdk';
+ * import { JustAVPS } from '@kortix/justavps';
  *
  * const client = new JustAVPS({ apiKey: 'sk_live_...' });
  *

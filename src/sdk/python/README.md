@@ -3,7 +3,7 @@
 Official Python client for the [JustAVPS API](https://justavps.com/api/docs).
 
 ```
-pip install justavps
+pip install kortix-justavps
 ```
 
 ## Quick Start

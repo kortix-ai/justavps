@@ -143,7 +143,7 @@ export default function Home() {
                 </div>
               </div>
               <div className="border-t border-border bg-muted p-4 font-mono text-xs leading-relaxed">
-                <div className="text-muted-foreground"># pip install justavps</div>
+                <div className="text-muted-foreground"># pip install kortix-justavps</div>
                 <div className="mt-1"><span className="text-blue-600 dark:text-blue-400">from</span> <span className="text-foreground">justavps</span> <span className="text-blue-600 dark:text-blue-400">import</span> <span className="text-foreground">JustAVPS</span></div>
                 <div className="mt-1 text-foreground">vps = JustAVPS(api_key=<span className="text-amber-600 dark:text-amber-400">&quot;sk-...&quot;</span>)</div>
                 <div className="mt-1 text-foreground">sandbox = vps.create(type=<span className="text-amber-600 dark:text-amber-400">&quot;cpx32&quot;</span>)</div>

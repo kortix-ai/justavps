@@ -20,7 +20,7 @@ function opKey(method: string, path: string): string {
 const SDK_SAMPLES: Record<string, CodeSample[]> = {
   // ── Machines ──────────────────────────────────────────────────────
   'GET /api/v1/machines': [
-    { lang: 'JavaScript', label: 'TypeScript SDK', source: `import { JustAVPS } from "@justavps/sdk";
+    { lang: 'JavaScript', label: 'TypeScript SDK', source: `import { JustAVPS } from "@kortix/justavps";
 
 const client = new JustAVPS({ apiKey: "sk_live_..." });
 const { machines } = await client.machines.list();
@@ -362,12 +362,12 @@ export function enrichOpenAPISpec(spec: any): any {
     {
       lang: 'Node',
       description: 'Install the official **TypeScript SDK**:',
-      source: 'npm install @justavps/sdk',
+      source: 'npm install @kortix/justavps',
     },
     {
       lang: 'Python',
       description: 'Install the official **Python SDK**:',
-      source: 'pip install justavps',
+      source: 'pip install kortix-justavps',
     },
   ];
 

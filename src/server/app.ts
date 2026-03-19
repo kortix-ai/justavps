@@ -76,14 +76,14 @@ https://justavps.com/api/v1
 
 \`\`\`bash
 # TypeScript / Node.js
-npm install @justavps/sdk
+npm install @kortix/justavps
 
 # Python
-pip install justavps
+pip install kortix-justavps
 \`\`\`
 
 \`\`\`typescript
-import { JustAVPS } from "@justavps/sdk";
+import { JustAVPS } from "@kortix/justavps";
 const client = new JustAVPS({ apiKey: "sk_live_..." });
 
 // Create a machine

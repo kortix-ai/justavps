@@ -323,8 +323,8 @@ export default function DocsPage() {
         <P>Official TypeScript and Python SDKs for the JustAVPS API.</P>
 
         <H3 id="sdk-typescript">TypeScript</H3>
-        <CodeBlock title="Install">{`npm install @justavps/sdk`}</CodeBlock>
-        <CodeBlock title="Usage">{`import { JustAVPS } from "@justavps/sdk";
+        <CodeBlock title="Install">{`npm install @kortix/justavps`}</CodeBlock>
+        <CodeBlock title="Usage">{`import { JustAVPS } from "@kortix/justavps";
 
 const client = new JustAVPS("sk_live_xxx");
 
@@ -341,7 +341,7 @@ const machines = await client.machines.list();
 await client.machines.delete(machine.id);`}</CodeBlock>
 
         <H3 id="sdk-python">Python</H3>
-        <CodeBlock title="Install">{`pip install justavps`}</CodeBlock>
+        <CodeBlock title="Install">{`pip install kortix-justavps`}</CodeBlock>
         <CodeBlock title="Usage">{`from justavps import JustAVPS
 
 client = JustAVPS("sk_live_xxx")
