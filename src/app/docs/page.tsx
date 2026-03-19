@@ -4,108 +4,51 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import {
-  Book, Server, Globe, Code2, CreditCard, HardDrive, Search, Package,
-  ChevronRight, Copy, Check, ArrowRight, Shield, Zap, Menu, X, LifeBuoy,
+  Book, Code2, CreditCard, HardDrive,
+  Copy, Check, Shield, Zap, Menu, X, LifeBuoy,
+  Monitor, Wrench, ExternalLink,
+  Server, Image as ImageIcon, Cpu, FolderOpen, Terminal,
+  Key, KeyRound, Webhook, User,
 } from "lucide-react";
+import { SiPython, SiTypescript } from "react-icons/si";
+import { TbApi } from "react-icons/tb";
 
 /* ------------------------------------------------------------------ */
-/*  Types                                                              */
+/*  Navigation                                                         */
 /* ------------------------------------------------------------------ */
 
-interface DocSection {
-  id: string;
-  title: string;
-  icon: React.ElementType;
-  subsections: { id: string; title: string }[];
-}
+const NAV = [
+  { id: "getting-started", title: "Getting Started", icon: Zap },
+  { id: "personal-use",    title: "Personal Use",    icon: Monitor },
+  { id: "infrastructure",  title: "Infrastructure Use", icon: Wrench },
+  { id: "snapshots",       title: "Snapshots",       icon: HardDrive },
+  { id: "security",        title: "Security",        icon: Shield },
+  { id: "billing",         title: "Billing",         icon: CreditCard },
+  { id: "support",         title: "Support",         icon: LifeBuoy },
+];
 
-/* ------------------------------------------------------------------ */
-/*  Navigation tree                                                    */
-/* ------------------------------------------------------------------ */
-
-const sections: DocSection[] = [
-  {
-    id: "getting-started",
-    title: "Getting Started",
-    icon: Zap,
-    subsections: [
-      { id: "create-machine", title: "Create a Machine" },
-      { id: "connect-ssh", title: "Connect via SSH" },
-      { id: "connect-ide", title: "Connect from IDE" },
-    ],
-  },
-  {
-    id: "proxy",
-    title: "Networking",
-    icon: Globe,
-    subsections: [
-      { id: "how-proxy-works", title: "How It Works" },
-      { id: "port-forwarding", title: "Port Forwarding" },
-      { id: "web-terminal", title: "Web Terminal" },
-    ],
-  },
-  {
-    id: "api-reference",
-    title: "REST API",
-    icon: Code2,
-    subsections: [],
-  },
-  {
-    id: "sdks",
-    title: "SDKs",
-    icon: Package,
-    subsections: [
-      { id: "sdk-typescript", title: "TypeScript" },
-      { id: "sdk-python", title: "Python" },
-      { id: "sdk-toolbox", title: "Toolbox (FS + Process)" },
-    ],
-  },
-  {
-    id: "snapshots",
-    title: "Snapshots",
-    icon: HardDrive,
-    subsections: [
-      { id: "default-snapshot", title: "Default Snapshot" },
-      { id: "custom-snapshots", title: "Custom Snapshots" },
-    ],
-  },
-  {
-    id: "whats-installed",
-    title: "What's Installed",
-    icon: Server,
-    subsections: [
-      { id: "base-software", title: "Software" },
-      { id: "architecture", title: "Architecture" },
-    ],
-  },
-  {
-    id: "security",
-    title: "Security",
-    icon: Shield,
-    subsections: [
-      { id: "network-security", title: "Network" },
-      { id: "auth-model", title: "Auth Model" },
-    ],
-  },
-  {
-    id: "billing",
-    title: "Billing",
-    icon: CreditCard,
-    subsections: [
-      { id: "pricing", title: "Pricing" },
-      { id: "billing-cycle", title: "Billing Cycle" },
-    ],
-  },
-  {
-    id: "support",
-    title: "Support",
-    icon: LifeBuoy,
-    subsections: [],
-  },
+const API_REF = [
+  { label: "Machines & Infrastructure", items: [
+    { title: "Machines",   icon: Server,     href: "/api/docs#tag/machines" },
+    { title: "Images",     icon: ImageIcon,   href: "/api/docs#tag/images" },
+    { title: "Server Types", icon: Cpu,       href: "/api/docs#tag/server-types" },
+  ]},
+  { label: "Toolbox", items: [
+    { title: "Filesystem", icon: FolderOpen,  href: "/api/docs#tag/toolbox:-filesystem" },
+    { title: "Process",    icon: Terminal,    href: "/api/docs#tag/toolbox:-process" },
+  ]},
+  { label: "Auth & Access", items: [
+    { title: "API Keys",   icon: Key,        href: "/api/docs#tag/api-keys" },
+    { title: "SSH Keys",   icon: KeyRound,   href: "/api/docs#tag/ssh-keys" },
+  ]},
+  { label: "Integrations", items: [
+    { title: "Webhooks",   icon: Webhook,    href: "/api/docs#tag/webhooks" },
+    { title: "Account",    icon: User,       href: "/api/docs#tag/account" },
+  ]},
 ];
 
 /* ------------------------------------------------------------------ */
-/*  Components                                                         */
+/*  Primitives                                                         */
 /* ------------------------------------------------------------------ */
 
 function CopyButton({ text, className }: { text: string; className?: string }) {
@@ -134,28 +77,24 @@ function CodeBlock({ children, title }: { children: string; title?: string }) {
   );
 }
 
-function InlineCode({ children }: { children: React.ReactNode }) {
+function IC({ children }: { children: React.ReactNode }) {
   return <code className={cn("rounded-md px-1.5 py-0.5 text-[13px] font-mono border", "bg-zinc-100 text-zinc-800 border-zinc-200", "dark:bg-zinc-800/60 dark:text-zinc-200 dark:border-zinc-700/60")}>{children}</code>;
 }
-
 function H2({ id, children }: { id: string; children: React.ReactNode }) {
-  return <h2 id={id} className="group scroll-mt-6 text-xl font-semibold tracking-tight mt-12 mb-4 first:mt-0"><a href={`#${id}`} className="flex items-center gap-2 hover:text-foreground/80 transition-colors">{children}<span className="opacity-0 group-hover:opacity-40 transition-opacity text-sm">#</span></a></h2>;
+  return <h2 id={id} className="group scroll-mt-20 text-xl font-semibold tracking-tight mt-14 mb-4 first:mt-0"><a href={`#${id}`} className="flex items-center gap-2 hover:text-foreground/80 transition-colors">{children}<span className="opacity-0 group-hover:opacity-40 transition-opacity text-sm">#</span></a></h2>;
 }
 function H3({ id, children }: { id: string; children: React.ReactNode }) {
-  return <h3 id={id} className="group scroll-mt-6 text-base font-semibold tracking-tight mt-8 mb-3"><a href={`#${id}`} className="flex items-center gap-2 hover:text-foreground/80 transition-colors">{children}<span className="opacity-0 group-hover:opacity-40 transition-opacity text-xs">#</span></a></h3>;
+  return <h3 id={id} className="group scroll-mt-20 text-base font-semibold tracking-tight mt-8 mb-3"><a href={`#${id}`} className="flex items-center gap-2 hover:text-foreground/80 transition-colors">{children}<span className="opacity-0 group-hover:opacity-40 transition-opacity text-xs">#</span></a></h3>;
 }
-
 function P({ children }: { children: React.ReactNode }) { return <p className="text-[14.5px] leading-relaxed text-muted-foreground mb-4">{children}</p>; }
 function Ul({ children }: { children: React.ReactNode }) { return <ul className="mb-4 ml-1 space-y-2 text-[14.5px] leading-relaxed text-muted-foreground">{children}</ul>; }
 function Li({ children }: { children: React.ReactNode }) { return <li className="flex gap-2"><span className="mt-[7px] size-1.5 shrink-0 rounded-full bg-muted-foreground/40" /><span>{children}</span></li>; }
-function Strong({ children }: { children: React.ReactNode }) { return <strong className="font-medium text-foreground">{children}</strong>; }
-
+function B({ children }: { children: React.ReactNode }) { return <strong className="font-medium text-foreground">{children}</strong>; }
 function Callout({ children, type = "info" }: { children: React.ReactNode; type?: "info" | "tip" | "warning" }) {
   const styles = { info: cn("border-blue-400/40 bg-blue-50 text-blue-900", "dark:border-blue-500/20 dark:bg-blue-950/30 dark:text-blue-200/90"), tip: cn("border-emerald-400/40 bg-emerald-50 text-emerald-900", "dark:border-emerald-500/20 dark:bg-emerald-950/30 dark:text-emerald-200/90"), warning: cn("border-amber-400/40 bg-amber-50 text-amber-900", "dark:border-amber-500/20 dark:bg-amber-950/30 dark:text-amber-200/90") };
   const labels = { info: "Note", tip: "Tip", warning: "Warning" };
   return <div className={cn("my-4 rounded-lg border-l-2 px-4 py-3 text-[14px]", styles[type])}><span className="mb-1 block text-xs font-semibold uppercase tracking-wider opacity-60">{labels[type]}</span>{children}</div>;
 }
-
 function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
   return (
     <div className={cn("my-4 overflow-x-auto rounded-lg border", "border-zinc-200 dark:border-zinc-800/60")}>
@@ -166,17 +105,27 @@ function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
     </div>
   );
 }
+function Hr() { return <hr className="my-10 border-zinc-200 dark:border-zinc-800/50" />; }
 
-function QuickLink({ icon: Icon, title, description, href }: { icon: React.ElementType; title: string; description: string; href: string }) {
+function ImagePlaceholder({ alt }: { alt: string }) {
   return (
-    <a href={`#${href}`} className={cn("group flex flex-col gap-2 rounded-lg border p-4 transition-all", "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50", "dark:border-zinc-800/60 dark:bg-zinc-900/20 dark:hover:border-zinc-700 dark:hover:bg-zinc-900/50")}>
-      <div className="flex items-center gap-2"><Icon className="size-4 text-muted-foreground group-hover:text-foreground transition-colors" /><span className="text-sm font-medium text-foreground">{title}</span><ArrowRight className="size-3 ml-auto text-transparent group-hover:text-muted-foreground transition-all group-hover:translate-x-0.5" /></div>
-      <span className="text-xs text-muted-foreground leading-relaxed">{description}</span>
-    </a>
+    <div className={cn("my-4 rounded-lg border-2 border-dashed flex items-center justify-center py-16 px-6", "border-zinc-300 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900/30")}>
+      <span className="text-xs text-muted-foreground/60 text-center">{alt}</span>
+    </div>
   );
 }
 
-function DocSeparator() { return <hr className="my-10 border-zinc-200 dark:border-zinc-800/50" />; }
+function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
+  return (
+    <div className="flex gap-4 mb-6 last:mb-0">
+      <div className={cn("size-7 rounded-full flex items-center justify-center shrink-0 text-xs font-semibold", "bg-foreground text-background")}>{n}</div>
+      <div className="flex-1 min-w-0 -mt-0.5">
+        <p className="text-sm font-medium text-foreground mb-1.5">{title}</p>
+        <div className="text-[14px] text-muted-foreground leading-relaxed">{children}</div>
+      </div>
+    </div>
+  );
+}
 
 /* ------------------------------------------------------------------ */
 /*  Page                                                               */
@@ -184,21 +133,24 @@ function DocSeparator() { return <hr className="my-10 border-zinc-200 dark:borde
 
 export default function DocsPage() {
   const [activeSection, setActiveSection] = useState("getting-started");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchFocused, setSearchFocused] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
-    const observer = new IntersectionObserver((entries) => { for (const entry of entries) { if (entry.isIntersecting) setActiveSection(entry.target.id); } }, { rootMargin: "-20px 0px -70% 0px", threshold: 0 });
-    const allIds = sections.flatMap((s) => [s.id, ...s.subsections.map((sub) => sub.id)]);
-    for (const id of allIds) { const el = document.getElementById(id); if (el) observer.observe(el); }
+    const observer = new IntersectionObserver(
+      (entries) => { for (const entry of entries) { if (entry.isIntersecting) setActiveSection(entry.target.id); } },
+      { rootMargin: "-20% 0px -75% 0px", threshold: 0 }
+    );
+    for (const item of NAV) {
+      const el = document.getElementById(item.id);
+      if (el) observer.observe(el);
+    }
     return () => observer.disconnect();
   }, []);
 
-  const q = searchQuery.toLowerCase();
-  const filteredSections = q ? sections.filter((s) => s.title.toLowerCase().includes(q) || s.subsections.some((sub) => sub.title.toLowerCase().includes(q))) : sections;
-  const scrollTo = (id: string) => { setSearchQuery(""); const el = document.getElementById(id); if (el) { el.scrollIntoView({ behavior: "smooth", block: "start" }); setMobileNavOpen(false); } };
-  const activeParent = sections.find((s) => s.id === activeSection || s.subsections.some((sub) => sub.id === activeSection));
+  const scrollTo = (id: string) => {
+    const el = document.getElementById(id);
+    if (el) { el.scrollIntoView({ behavior: "smooth", block: "start" }); setMobileNavOpen(false); }
+  };
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -206,289 +158,256 @@ export default function DocsPage() {
       {mobileNavOpen && <div className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm lg:hidden" onClick={() => setMobileNavOpen(false)} />}
 
       {/* Sidebar */}
-      <aside className={cn("fixed inset-y-0 left-0 z-40 w-64 overflow-y-auto transition-transform duration-200 lg:transition-none", mobileNavOpen ? "translate-x-0" : "-translate-x-full", "lg:static lg:translate-x-0 lg:w-64 lg:shrink-0 lg:overflow-y-auto", "border-r border-zinc-200 bg-white/95 backdrop-blur-sm dark:border-zinc-800/60 dark:bg-zinc-950/95", "lg:bg-transparent lg:dark:bg-transparent lg:backdrop-blur-none")}>
-        <div className="px-4 pt-6 pb-3">
-          <div className="flex items-center gap-2 mb-5 px-1"><Book className="size-4 text-foreground/70" /><span className="text-sm font-semibold tracking-tight">Documentation</span></div>
-          <div className="relative mb-4">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground/60" />
-            <input type="text" placeholder="Search docs..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onFocus={() => setSearchFocused(true)} onBlur={() => setSearchFocused(false)} className={cn("w-full rounded-md border py-1.5 pl-8 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/50", searchFocused ? "border-zinc-300 bg-white dark:border-zinc-600 dark:bg-zinc-800/60" : "border-zinc-200 bg-zinc-100/50 dark:border-zinc-800 dark:bg-zinc-900/40")} />
+      <aside className={cn("fixed inset-y-0 left-0 z-40 w-56 overflow-y-auto transition-transform duration-200 lg:transition-none", mobileNavOpen ? "translate-x-0" : "-translate-x-full", "lg:static lg:translate-x-0 lg:w-56 lg:shrink-0", "border-r border-zinc-200 bg-white/95 backdrop-blur-sm dark:border-zinc-800/60 dark:bg-zinc-950/95", "lg:border-r-0 lg:bg-transparent lg:dark:bg-transparent lg:backdrop-blur-none")}>
+        <div className="flex flex-col h-full">
+          {/* Top: docs nav */}
+          <div className="px-4 pt-6 pb-2">
+            <div className="flex items-center gap-2 mb-4 px-1"><Book className="size-4 text-foreground/70" /><span className="text-sm font-semibold tracking-tight">Docs</span></div>
+          </div>
+          <nav className="px-3 flex-shrink-0">
+            {NAV.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button key={item.id} onClick={() => scrollTo(item.id)} className={cn("flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] transition-colors mb-px", activeSection === item.id ? "text-foreground font-medium bg-zinc-100 dark:bg-zinc-800/50" : "text-muted-foreground hover:text-foreground/80 hover:bg-zinc-50 dark:hover:bg-zinc-800/30")}>
+                  <Icon className="size-3.5 shrink-0" />{item.title}
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* Bottom: API reference links */}
+          <div className="mt-auto px-3 pt-3 pb-6">
+            <Link href="/api/docs" className="flex items-center gap-2 px-2.5 py-1.5 mb-2 text-[13px] font-medium text-foreground hover:underline underline-offset-2">
+              <Code2 className="size-3.5 shrink-0" />API Reference<ExternalLink className="size-3 ml-auto text-muted-foreground/50" />
+            </Link>
+            {API_REF.map((group) => (
+              <div key={group.label} className="mb-2 last:mb-0">
+                <p className="px-2.5 pt-1 pb-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/40">{group.label}</p>
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <Link key={item.title} href={item.href} className="flex items-center gap-2 rounded-md px-2.5 py-1 text-[12px] text-muted-foreground/60 hover:text-muted-foreground transition-colors">
+                      <Icon className="size-3 shrink-0" />{item.title}
+                    </Link>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         </div>
-        <nav className="px-3 pb-8">
-          {filteredSections.length === 0 && <p className="px-2.5 py-4 text-xs text-muted-foreground/60">No results for &ldquo;{searchQuery}&rdquo;</p>}
-          {filteredSections.map((section) => {
-            const Icon = section.icon;
-            const isActive = activeSection === section.id || section.subsections.some((sub) => sub.id === activeSection);
-            const isExpanded = q ? true : isActive;
-            return (
-              <div key={section.id} className="mb-1">
-                <button onClick={() => scrollTo(section.id)} className={cn("flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] transition-colors", isActive ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground/80")}><Icon className="size-3.5 shrink-0" />{section.title}</button>
-                {isExpanded && (
-                  <div className={cn("ml-[22px] border-l pl-2.5 mt-0.5 mb-2", "border-zinc-200 dark:border-zinc-800")}>
-                    {section.subsections.filter((sub) => !q || section.title.toLowerCase().includes(q) || sub.title.toLowerCase().includes(q)).map((sub) => (
-                      <button key={sub.id} onClick={() => scrollTo(sub.id)} className={cn("block w-full text-left rounded-md px-2 py-1 text-[12.5px] transition-colors", activeSection === sub.id ? "text-foreground font-medium" : "text-muted-foreground/70 hover:text-muted-foreground")}>{sub.title}</button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </nav>
       </aside>
 
       {/* Content */}
       <div className="flex-1 min-w-0 overflow-y-auto">
       <div className="max-w-3xl mx-auto px-6 py-8 lg:px-10">
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground/60 mb-6">
-          <span>Docs</span>{activeParent && <><ChevronRight className="size-3" /><span className="text-muted-foreground">{activeParent.title}</span></>}
-        </div>
 
         <div className="mb-10">
-          <h1 className="text-3xl font-bold tracking-tight mb-3">JustAVPS Documentation</h1>
-          <P>Always-on VPS machines with SSH, a web terminal, and Docker pre-installed.</P>
+          <h1 className="text-3xl font-bold tracking-tight mb-3">JustAVPS Docs</h1>
+          <P>24/7 always-on sandboxes for AI agents. Use it as your personal dev machine, or provision sandboxes programmatically as infrastructure.</P>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-12">
-          <QuickLink icon={Zap} title="Getting Started" description="Create a machine and connect in under 60 seconds" href="getting-started" />
-          <QuickLink icon={Globe} title="Networking" description="Subdomains, port forwarding, and web terminal" href="proxy" />
-          <QuickLink icon={Code2} title="REST API" description="Programmatic machine management" href="api-reference" />
-          <QuickLink icon={HardDrive} title="Snapshots" description="Bootable images from Docker containers" href="snapshots" />
-        </div>
-
-        <DocSeparator />
-
-        {/* ── GETTING STARTED ── */}
+        {/* ──────────────────────────────────────────────────────────── */}
+        {/*  GETTING STARTED                                            */}
+        {/* ──────────────────────────────────────────────────────────── */}
         <H2 id="getting-started">Getting Started</H2>
-        <P>Get a VPS running in under 60 seconds.</P>
+        <P>Get a machine running in under 60 seconds.</P>
 
-        <H3 id="create-machine">Create a Machine</H3>
-        <P>Go to <Strong>Machines → New Machine</Strong> in the dashboard:</P>
+        <Step n={1} title="Choose a machine">
+          <p>Pick a plan from the landing page or dashboard. Starter (2 vCPU / 4 GB), Pro (4 vCPU / 8 GB), Power (8 vCPU / 16 GB), or Ultra (16 vCPU / 32 GB). Choose your region (EU or US).</p>
+          <ImagePlaceholder alt="📸 Screenshot: plan picker modal showing the 4 plans with specs and pricing" />
+        </Step>
+
+        <Step n={2} title="Deploy">
+          <p>Click <B>Deploy</B>. Your machine provisions in ~60 seconds. You get a dedicated IP, SSH key, and an authenticated subdomain for every port.</p>
+          <ImagePlaceholder alt="📸 Screenshot: machine detail page showing status 'Running', IP address, and connection options" />
+        </Step>
+
+        <Step n={3} title="Connect">
+          <p>Copy the one-click SSH command from the dashboard and paste it into your terminal. That&apos;s it — you&apos;re in.</p>
+          <CodeBlock title="One-click connect (from dashboard)">{`mkdir -p ~/.ssh && echo '<key>' > ~/.ssh/justavps_mybox && chmod 600 ~/.ssh/justavps_mybox && ssh -i ~/.ssh/justavps_mybox root@95.217.x.x`}</CodeBlock>
+          <p>After the first connect, reconnect anytime:</p>
+          <CodeBlock>{`ssh -i ~/.ssh/justavps_mybox root@95.217.x.x`}</CodeBlock>
+        </Step>
+
+        <Callout type="tip">You can also connect from the <B>web terminal</B> in the dashboard — zero setup, works from any browser.</Callout>
+
+        <Hr />
+
+        {/* ──────────────────────────────────────────────────────────── */}
+        {/*  PERSONAL USE                                               */}
+        {/* ──────────────────────────────────────────────────────────── */}
+        <H2 id="personal-use">Personal Use</H2>
+        <P>Use your machine as a remote dev environment. SSH in, connect your IDE, and let your AI agents run 24/7 while you close your laptop. Come back tomorrow — everything&apos;s still there.</P>
+
+        <H3 id="ide-connect">Connect from Cursor / VS Code</H3>
+        <P>Use <B>Remote-SSH</B> for a local-feeling experience with automatic port forwarding:</P>
         <Ul>
-          <Li>Pick a plan (Starter, Pro, or Power) or expand custom options for the full catalog</Li>
-          <Li>Choose a region — auto-detected or pick manually</Li>
-          <Li>Optionally give it a name, then click <Strong>Deploy Machine</Strong></Li>
+          <Li>Run the one-click setup command from the dashboard (saves your SSH key)</Li>
+          <Li>Add the host to <IC>~/.ssh/config</IC> — the dashboard shows the exact config block to copy</Li>
+          <Li><B>Cmd+Shift+P</B> → <B>Remote-SSH: Connect to Host</B> → select your machine</Li>
         </Ul>
-        <P>Your machine is ready in ~60 seconds. You get an IP address, SSH key, and a dedicated subdomain.</P>
+        <ImagePlaceholder alt="📸 Screenshot: VS Code connected via Remote-SSH, showing the file explorer on the remote machine" />
+        <Callout type="tip">Port forwarding is automatic. Start a server on port 3000 on your machine, and it appears at <IC>localhost:3000</IC> on your laptop.</Callout>
 
-        <H3 id="connect-ssh">Connect via SSH</H3>
-        <P>The dashboard shows a one-time setup command that saves the SSH key and connects:</P>
-        <CodeBlock title="Run once (from your terminal)">{`mkdir -p ~/.ssh && echo '<private-key>' > ~/.ssh/justavps_{slug} && chmod 600 ~/.ssh/justavps_{slug} && ssh -i ~/.ssh/justavps_{slug} root@{ip}`}</CodeBlock>
-        <P>After that, reconnect anytime:</P>
-        <CodeBlock title="Reconnect">{`ssh -i ~/.ssh/justavps_{slug} root@{ip}`}</CodeBlock>
+        <H3 id="run-agents">Run AI Agents</H3>
+        <P>Your machine comes with <B>Claude Code</B> and <B>OpenCode</B> ready to go. Just SSH in and run them:</P>
+        <CodeBlock title="Claude Code">{`claude "build a REST API with authentication"`}</CodeBlock>
+        <CodeBlock title="OpenCode">{`opencode`}</CodeBlock>
+        <P>We recommend <B>OpenCode</B> for personal use — it includes a web UI that you can access from any browser, including your phone. Check on your agents from anywhere.</P>
+        <Callout type="info">OpenCode web UI runs on port 1337 by default. Access it at <IC>1337-&#123;id&#125;.justavps.com</IC> with your API key, or use SSH port forwarding for <IC>localhost:1337</IC>.</Callout>
 
-        <H3 id="connect-ide">Connect from Cursor / VS Code</H3>
-        <P>Use <Strong>Remote-SSH</Strong> for a local-feeling dev experience with automatic port forwarding.</P>
+        <H3 id="mobile-access">Access from Mobile</H3>
+        <P>You can check on your agents from your phone:</P>
         <Ul>
-          <Li>Run the setup command from the dashboard to save your SSH key</Li>
-          <Li>Add the host to <InlineCode>~/.ssh/config</InlineCode> (the dashboard shows the exact config block)</Li>
-          <Li><kbd>Cmd+Shift+P</kbd> → <Strong>Remote-SSH: Connect to Host</Strong> → select your machine</Li>
-        </Ul>
-        <Callout type="tip">Port forwarding is automatic. Start a server on port 3000 on your VPS, and it&apos;s available at <InlineCode>localhost:3000</InlineCode> locally.</Callout>
+          <Li><B>OpenCode Web UI</B> — works in any mobile browser via the authenticated proxy</Li>
+          <Li><B>SSH apps</B> — we recommend <a href="https://termius.com" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2">Termius</a> (iOS &amp; Android) or <a href="https://blink.sh" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2">Blink Shell</a> (iOS) for a proper terminal experience</Li>
 
-        <DocSeparator />
-
-        {/* ── NETWORKING ── */}
-        <H2 id="proxy">Networking</H2>
-        <P>Every machine gets a dedicated subdomain, a web terminal, and port forwarding.</P>
-
-        <H3 id="how-proxy-works">How It Works</H3>
-        <Ul>
-          <Li>Each machine gets a subdomain: <InlineCode>&#123;slug&#125;.kortix.cloud</InlineCode></Li>
-          <Li>All web traffic is authenticated at the Cloudflare edge</Li>
-          <Li>TLS is handled by Cloudflare — you don&apos;t need to configure certificates</Li>
         </Ul>
 
-        <H3 id="port-forwarding">Port Forwarding</H3>
-        <P><Strong>SSH tunnel</Strong> (recommended with Cursor / VS Code):</P>
-        <CodeBlock title="Forward port 3000">{`ssh -i ~/.ssh/justavps_{slug} -L 3000:localhost:3000 root@{ip}`}</CodeBlock>
-        <P><Strong>Subdomain</Strong> — access any port via <InlineCode>&#123;port&#125;--&#123;slug&#125;.kortix.cloud</InlineCode>:</P>
-        <CodeBlock>{`https://3000--abc123.kortix.cloud`}</CodeBlock>
+        <Hr />
 
-        <H3 id="web-terminal">Web Terminal</H3>
-        <P>The dashboard includes a browser-based terminal. No setup needed — it connects automatically when your machine is running.</P>
+        {/* ──────────────────────────────────────────────────────────── */}
+        {/*  INFRASTRUCTURE                                             */}
+        {/* ──────────────────────────────────────────────────────────── */}
+        <H2 id="infrastructure">Infrastructure Use</H2>
+        <P>Build on JustAVPS as a platform. Create machines, manage files, run bash, and launch coding agents — all programmatically. One REST API, Python SDK, and TypeScript SDK.</P>
 
-        <DocSeparator />
+        <H3 id="api-sdks">API & SDKs</H3>
+        <P>One REST API with full coverage — machines, filesystem, process execution, snapshots, and coding agents. Available via REST, TypeScript SDK (<IC>@kortix/justavps</IC>), and Python SDK (<IC>kortix-justavps</IC>).</P>
+        <P>Generate an API key in the dashboard under <B>Keys</B> (prefix <IC>sk_live_</IC>). Quick test:</P>
+        <CodeBlock>{`curl https://justavps.com/api/v1/machines -H "Authorization: Bearer sk_live_xxx"`}</CodeBlock>
 
-        {/* ── API ── */}
-        <H2 id="api-reference">REST API</H2>
-        <P>Full programmatic access to manage machines, snapshots, and keys. All endpoints require an API key.</P>
-        <CodeBlock title="Quick start">{`curl https://justavps.com/api/v1/machines \\
-  -H "Authorization: Bearer sk_live_xxx"`}</CodeBlock>
-        <P>Generate API keys in <Strong>Keys</Strong> in the dashboard. Keys use the <InlineCode>sk_live_</InlineCode> prefix and are shown once at creation.</P>
-        <div className="my-4">
-          <Link href="/api/docs" className={cn("inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium transition-all", "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50", "dark:border-zinc-800/60 dark:bg-zinc-900/20 dark:hover:border-zinc-700 dark:hover:bg-zinc-900/50")}>
-            <Code2 className="size-4 text-muted-foreground" />
-            Open API Reference →
+        <Table headers={["API Surface", "What You Can Do"]} rows={[
+          ["Machines", "Create, list, get, resize, rebuild, delete"],
+          ["Filesystem", "Read, write, upload, download, search, replace, mkdir, move"],
+          ["Process", "Exec commands, stream output (SSE), run code snippets, list, kill"],
+          ["Snapshots", "Create from Docker images, list, delete"],
+          ["Coding Agents", "Run Claude Code, OpenCode, Codex — unified API with session management"],
+        ]} />
+
+        <P>The API reference has everything — full endpoint docs, request/response schemas, and interactive SDK examples in both TypeScript and Python:</P>
+        <div className="my-4 grid sm:grid-cols-3 gap-2">
+          <Link href="/api/docs" className={cn("flex flex-col items-center gap-1.5 rounded-lg border px-4 py-4 text-center transition-all", "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50", "dark:border-zinc-800/60 dark:bg-zinc-900/20 dark:hover:border-zinc-700 dark:hover:bg-zinc-900/50")}>
+            <TbApi className="size-5 text-muted-foreground" />
+            <span className="text-sm font-medium">REST API</span>
+            <span className="text-[11px] text-muted-foreground">Full reference</span>
           </Link>
+          <a href="https://www.npmjs.com/package/@kortix/justavps" target="_blank" rel="noopener noreferrer" className={cn("flex flex-col items-center gap-1.5 rounded-lg border px-4 py-4 text-center transition-all", "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50", "dark:border-zinc-800/60 dark:bg-zinc-900/20 dark:hover:border-zinc-700 dark:hover:bg-zinc-900/50")}>
+            <SiTypescript className="size-5 text-muted-foreground" />
+            <span className="text-sm font-medium">TypeScript SDK</span>
+            <span className="text-[11px] text-muted-foreground font-mono">@kortix/justavps</span>
+          </a>
+          <a href="https://pypi.org/project/kortix-justavps/" target="_blank" rel="noopener noreferrer" className={cn("flex flex-col items-center gap-1.5 rounded-lg border px-4 py-4 text-center transition-all", "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50", "dark:border-zinc-800/60 dark:bg-zinc-900/20 dark:hover:border-zinc-700 dark:hover:bg-zinc-900/50")}>
+            <SiPython className="size-5 text-muted-foreground" />
+            <span className="text-sm font-medium">Python SDK</span>
+            <span className="text-[11px] text-muted-foreground font-mono">kortix-justavps</span>
+          </a>
         </div>
 
-        <DocSeparator />
+        <Hr />
 
-        {/* ── SDKs ── */}
-        <H2 id="sdks">SDKs</H2>
-        <P>Official TypeScript and Python SDKs for the JustAVPS API.</P>
-
-        <H3 id="sdk-typescript">TypeScript</H3>
-        <CodeBlock title="Install">{`npm install @kortix/justavps`}</CodeBlock>
-        <CodeBlock title="Usage">{`import { JustAVPS } from "@kortix/justavps";
-
-const client = new JustAVPS("sk_live_xxx");
-
-// Create a machine
-const machine = await client.machines.create({
-  server_type: "cpx32",
-  region: "hel1",
-});
-
-// List all machines
-const machines = await client.machines.list();
-
-// Delete a machine
-await client.machines.delete(machine.id);`}</CodeBlock>
-
-        <H3 id="sdk-python">Python</H3>
-        <CodeBlock title="Install">{`pip install kortix-justavps`}</CodeBlock>
-        <CodeBlock title="Usage">{`from justavps import JustAVPS
-
-client = JustAVPS("sk_live_xxx")
-
-# Create a machine
-machine = client.machines.create(server_type="cpx32", region="hel1")
-
-# List all machines
-machines = client.machines.list()
-
-# Delete a machine
-client.machines.delete(machine["id"])`}</CodeBlock>
-
-        <H3 id="sdk-toolbox">Toolbox (Filesystem + Process)</H3>
-        <P>Every machine has a built-in toolbox for file management and command execution. Access it via <InlineCode>client.toolbox(machineId)</InlineCode>.</P>
-        <CodeBlock title="TypeScript — Files">{`const tb = client.toolbox(machine.id);
-
-// Upload, download, search, replace
-await tb.files.upload("/root/app.py", 'print("hello")');
-const content = await tb.files.download("/root/app.py");
-const { matches } = await tb.files.find("/root", "TODO");
-await tb.files.replace(["/root/app.py"], "hello", "goodbye");
-
-// Directories, permissions, move
-await tb.files.mkdir("/root/project/src");
-await tb.files.chmod("/root/script.sh", "755");
-await tb.files.move("/root/old.py", "/root/new.py");`}</CodeBlock>
-        <CodeBlock title="TypeScript — Process">{`// Execute commands
-const result = await tb.process.exec("npm install", {
-  cwd: "/root/project",
-  timeout: 120,
-  env: { NODE_ENV: "production" },
-});
-console.log(result.stdout, result.exit_code);
-
-// Run code snippets (Python, Node, Bash, Ruby, Go)
-const py = await tb.process.codeRun("print(6 * 7)", "python");
-
-// Stream output (SSE)
-for await (const event of tb.process.stream("npm run build")) {
-  if (event.type === "stdout") process.stdout.write(event.data.data);
-}
-
-// List and kill processes
-const { processes } = await tb.process.list();
-await tb.process.kill(1234, "SIGTERM");`}</CodeBlock>
-        <CodeBlock title="Python — Files + Process">{`tb = client.toolbox(machine_id)
-
-# Files
-tb.files.upload("/root/app.py", 'print("hello")')
-content = tb.files.download("/root/app.py")
-tb.files.mkdir("/root/project")
-
-# Process
-result = tb.process.exec("ls -la /root", cwd="/root")
-print(result["stdout"])
-
-py = tb.process.code_run("print(6 * 7)", language="python")
-print(py["stdout"])  # "42"`}</CodeBlock>
-        <Callout type="tip">Full interactive API reference with SDK code samples for every endpoint: <a href="/api/docs">justavps.com/api/docs</a></Callout>
-
-        <DocSeparator />
-
-        {/* ── SNAPSHOTS ── */}
+        {/* ──────────────────────────────────────────────────────────── */}
+        {/*  SNAPSHOTS                                                  */}
+        {/* ──────────────────────────────────────────────────────────── */}
         <H2 id="snapshots">Snapshots</H2>
-        <P>Snapshots are bootable machine images. Every machine is provisioned from one.</P>
+        <P>Every machine boots from a snapshot — a bootable image. Use the default or create your own from any Docker image.</P>
 
-        <H3 id="default-snapshot">Default Snapshot</H3>
-        <P>Includes Ubuntu 24.04, Docker, Node.js 22, Python 3, and dev tools. Most users provision from this.</P>
-
-        <H3 id="custom-snapshots">Custom Snapshots</H3>
-        <P>Create snapshots from any Docker image via the dashboard or API:</P>
-        <CodeBlock title="Create via API">{`curl -X POST https://justavps.com/api/v1/snapshots \\
-  -H "Authorization: Bearer sk_live_xxx" \\
-  -H "Content-Type: application/json" \\
-  -d '{ "name": "my-app", "docker_image": "node:20-slim" }'`}</CodeBlock>
-        <P>Then pass <InlineCode>snapshot_id</InlineCode> when creating a machine to boot from it.</P>
-
-        <DocSeparator />
-
-        {/* ── WHAT'S INSTALLED ── */}
-        <H2 id="whats-installed">What&apos;s Installed</H2>
-        <P>The default snapshot includes:</P>
-
-        <H3 id="base-software">Software</H3>
+        <H3 id="default-image">Default Image</H3>
+        <P>The default snapshot is a full dev environment ready for AI agents:</P>
         <Table headers={["Software", "Details"]} rows={[
           ["Ubuntu 24.04 LTS", "Base OS"],
-          ["Docker CE", "Container runtime"],
+          ["Docker CE", "Container runtime, ready to use"],
           ["Node.js 22 LTS", "System-wide via nodesource"],
           ["Python 3 + pip", "Python toolchain"],
+          ["Claude Code + OpenCode", "AI coding agents, pre-installed"],
           ["git, tmux, vim, nano, htop", "Dev tools"],
           ["curl, wget, jq, unzip", "Utilities"],
           ["build-essential", "C/C++ compiler toolchain"],
         ]} />
+        <P>Storage is NVMe SSD, persistent across reboots. Daily backups are enabled by default.</P>
 
-        <DocSeparator />
+        <H3 id="coding-agents-api">Coding Agents API</H3>
+        <P>Every machine ships with <a href="https://sandboxagent.dev" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2">sandbox-agent</a> pre-installed — a unified API for running Claude Code, OpenCode, Codex, and other coding agents. It provides:</P>
+        <Ul>
+          <Li><B>Universal Agent API</B> — one interface to run any supported coding agent</Li>
+          <Li><B>Session management</B> — create, resume, and manage agent sessions</Li>
+          <Li><B>Streaming events</B> — real-time output via SSE</Li>
+        </Ul>
+        <P>sandbox-agent runs on port 2468 by default. See the full docs at <a href="https://sandboxagent.dev" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2">sandboxagent.dev</a>.</P>
 
-        {/* ── SECURITY ── */}
+        <H3 id="custom-snapshots">Custom Snapshots</H3>
+        <P>Create snapshots from any Docker image. Useful for pre-installing dependencies, custom toolchains, or per-customer environments.</P>
+        <CodeBlock title="Create via API">{`curl -X POST https://justavps.com/api/v1/snapshots \\
+  -H "Authorization: Bearer sk_live_xxx" \\
+  -H "Content-Type: application/json" \\
+  -d '{"name": "my-app", "docker_image": "node:20-slim"}'`}</CodeBlock>
+        <P>You can also define an entry point command that runs on boot. Pass <IC>snapshot_id</IC> when creating a machine to boot from your custom snapshot.</P>
+
+        <Hr />
+
+        {/* ──────────────────────────────────────────────────────────── */}
+        {/*  SECURITY                                                   */}
+        {/* ──────────────────────────────────────────────────────────── */}
         <H2 id="security">Security</H2>
+        <P>Secure by default. Every machine ships with zero open ports, authenticated proxies, and SSH-key-only access. No config needed.</P>
+
+        <H3 id="authenticated-proxy">Authenticated Proxy</H3>
+        <P>Every port on your machine is accessible via <IC>&#123;port&#125;-&#123;id&#125;.justavps.com</IC> — authenticated automatically. For example, if your app runs on port 8000:</P>
+        <CodeBlock>{`https://8000-abc123.justavps.com`}</CodeBlock>
+        <P>Three ways to authenticate:</P>
+        <CodeBlock title="API key — header">{`curl https://8000-abc123.justavps.com \\
+  -H "Authorization: Bearer sk_live_xxx"`}</CodeBlock>
+        <CodeBlock title="API key — query param">{`https://8000-abc123.justavps.com?api_key=sk_live_xxx`}</CodeBlock>
+        <P>Or just log in to the dashboard — the proxy recognizes your session cookie automatically.</P>
+
+        <H3 id="auth-model">Authentication</H3>
+        <Table headers={["Method", "Use Case", "Details"]} rows={[
+          ["SSH Key", "Personal — terminal, IDE", "Key-based only, password login disabled. Key generated per machine."],
+          ["API Key", "Infrastructure — programmatic", "Bearer sk_live_* header or query param. Manage in dashboard → Keys."],
+          ["Web Session", "Personal — dashboard, proxy", "Session cookie set on login. Auth proxy recognizes it automatically."],
+        ]} />
 
         <H3 id="network-security">Network</H3>
         <Ul>
-          <Li><Strong>TLS</Strong> — handled by Cloudflare</Li>
-          <Li><Strong>Firewall</Strong> — only Cloudflare IPs and SSH (port 22) allowed inbound</Li>
-          <Li><Strong>Static IP</Strong> — dedicated public IPv4 per machine</Li>
-          <Li><Strong>Daily backups</Strong> — enabled by default</Li>
+          <Li><B>TLS</B> — handled at the edge, no certificate config needed</Li>
+          <Li><B>Firewall</B> — only Cloudflare IPs and SSH (port 22) allowed inbound</Li>
+          <Li><B>Static IP</B> — dedicated public IPv4 per machine</Li>
+          <Li><B>Daily backups</B> — enabled by default, automatic</Li>
         </Ul>
 
-        <H3 id="auth-model">Auth Model</H3>
-        <Ul>
-          <Li><Strong>Web</Strong> — authenticated at Cloudflare edge before reaching your machine</Li>
-          <Li><Strong>SSH</Strong> — key-based only, password login disabled</Li>
-          <Li><Strong>API</Strong> — <InlineCode>Bearer sk_live_*</InlineCode> token required</Li>
-        </Ul>
+        <Hr />
 
-        <DocSeparator />
-
-        {/* ── BILLING ── */}
+        {/* ──────────────────────────────────────────────────────────── */}
+        {/*  BILLING                                                    */}
+        {/* ──────────────────────────────────────────────────────────── */}
         <H2 id="billing">Billing</H2>
-        <P>Per-machine monthly billing through Stripe.</P>
+        <P>Fixed monthly pricing per machine. No per-second billing, no usage surprises.</P>
 
-        <H3 id="pricing">Pricing</H3>
-        <P>Each machine has a fixed monthly price based on its server type. Expand <Strong>Custom size &amp; region</Strong> in the provisioning wizard to see all options with exact specs and pricing.</P>
+        <Table headers={["Plan", "Specs", "Price"]} rows={[
+          ["Starter", "2 vCPU / 4 GB / 40 GB SSD", "$15/mo"],
+          ["Pro", "4 vCPU / 8 GB / 80 GB SSD", "$27/mo"],
+          ["Power", "8 vCPU / 16 GB / 160 GB SSD", "$49/mo"],
+          ["Ultra", "16 vCPU / 32 GB / 320 GB SSD", "$97/mo"],
+        ]} />
+
+        <Ul>
+          <Li><B>Machine created</B> → Stripe subscription starts immediately</Li>
+          <Li><B>Machine deleted</B> → subscription cancelled, prorated credit applied</Li>
+          <Li><B>Machine resized</B> → price updated with proration</Li>
+        </Ul>
+        <P>Cancel anytime — no contracts, no lock-in. Manage billing, update payment methods, and view invoices in <B>Billing</B> in the dashboard.</P>
         <Callout type="info">Available regions: Helsinki (EU) and Hillsboro, OR (US).</Callout>
 
-        <H3 id="billing-cycle">Billing Cycle</H3>
-        <Ul>
-          <Li><Strong>Machine created</Strong> → Stripe subscription starts</Li>
-          <Li><Strong>Machine deleted</Strong> → subscription cancelled, prorated credit</Li>
-          <Li><Strong>Machine resized</Strong> → price updated with proration</Li>
-        </Ul>
-        <P>Manage billing, update payment methods, and view invoices in <Strong>Billing</Strong> in the dashboard.</P>
+        <Hr />
 
-        <DocSeparator />
-
-        {/* ── SUPPORT ── */}
+        {/* ──────────────────────────────────────────────────────────── */}
+        {/*  SUPPORT                                                    */}
+        {/* ──────────────────────────────────────────────────────────── */}
         <H2 id="support">Support</H2>
-        <P>Need help? Reach out and we&apos;ll get back to you as soon as possible.</P>
         <Ul>
-          <Li><Strong>Email</Strong> — <a href="mailto:support@justavps.com" className="text-foreground underline underline-offset-2 hover:opacity-80 transition-opacity">support@justavps.com</a></Li>
-          <Li><Strong>Built by</Strong> — <a href="https://kortix.com" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2 hover:opacity-80 transition-opacity">Kortix</a></Li>
+          <Li><B>Email</B> — <a href="mailto:support@justavps.com" className="text-foreground underline underline-offset-2 hover:opacity-80 transition-opacity">support@justavps.com</a></Li>
+          <Li><B>API Reference</B> — <Link href="/api/docs" className="text-foreground underline underline-offset-2 hover:opacity-80 transition-opacity">justavps.com/api/docs</Link></Li>
+          <Li><B>Built by</B> — <a href="https://kortix.com" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2 hover:opacity-80 transition-opacity">Kortix</a></Li>
         </Ul>
 
         <div className="h-20" />
