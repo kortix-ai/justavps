@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import {
   Book, Server, Globe, Code2, CreditCard, HardDrive, Search,
@@ -47,14 +48,7 @@ const sections: DocSection[] = [
     id: "api-reference",
     title: "REST API",
     icon: Code2,
-    subsections: [
-      { id: "api-auth", title: "Authentication" },
-      { id: "api-machines", title: "Machines" },
-      { id: "api-server-types", title: "Server Types" },
-      { id: "api-snapshots", title: "Snapshots" },
-      { id: "api-ssh-keys", title: "SSH Keys" },
-      { id: "api-keys-endpoint", title: "API Keys" },
-    ],
+    subsections: [],
   },
   {
     id: "snapshots",
@@ -146,22 +140,6 @@ function Callout({ children, type = "info" }: { children: React.ReactNode; type?
   return <div className={cn("my-4 rounded-lg border-l-2 px-4 py-3 text-[14px]", styles[type])}><span className="mb-1 block text-xs font-semibold uppercase tracking-wider opacity-60">{labels[type]}</span>{children}</div>;
 }
 
-function Endpoint({ method, path, description }: { method: "GET" | "POST" | "DELETE" | "PUT" | "PATCH"; path: string; description: string }) {
-  const colors: Record<string, string> = {
-    GET: cn("bg-emerald-100 text-emerald-700 border-emerald-200", "dark:bg-emerald-500/15 dark:text-emerald-400 dark:border-emerald-500/20"),
-    POST: cn("bg-blue-100 text-blue-700 border-blue-200", "dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/20"),
-    DELETE: cn("bg-red-100 text-red-700 border-red-200", "dark:bg-red-500/15 dark:text-red-400 dark:border-red-500/20"),
-    PUT: cn("bg-amber-100 text-amber-700 border-amber-200", "dark:bg-amber-500/15 dark:text-amber-400 dark:border-amber-500/20"),
-    PATCH: cn("bg-purple-100 text-purple-700 border-purple-200", "dark:bg-purple-500/15 dark:text-purple-400 dark:border-purple-500/20"),
-  };
-  return (
-    <div className={cn("flex items-start gap-3 rounded-lg border px-4 py-3 mb-2", "border-zinc-200 bg-zinc-50/50", "dark:border-zinc-800/60 dark:bg-zinc-900/30")}>
-      <span className={cn("shrink-0 rounded-md border px-2 py-0.5 text-xs font-semibold font-mono", colors[method])}>{method}</span>
-      <div className="min-w-0"><code className="text-[13px] font-mono text-foreground/90">{path}</code><p className="text-xs text-muted-foreground mt-0.5">{description}</p></div>
-    </div>
-  );
-}
-
 function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
   return (
     <div className={cn("my-4 overflow-x-auto rounded-lg border", "border-zinc-200 dark:border-zinc-800/60")}>
@@ -251,7 +229,7 @@ export default function DocsPage() {
 
         <div className="mb-10">
           <h1 className="text-3xl font-bold tracking-tight mb-3">JustAVPS Documentation</h1>
-          <P>Provision always-on VPS machines with SSH, a web terminal, and Docker pre-installed. Connect from your local IDE and develop like it&apos;s local.</P>
+          <P>Always-on VPS machines with SSH, a web terminal, and Docker pre-installed.</P>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-12">
@@ -265,7 +243,7 @@ export default function DocsPage() {
 
         {/* ── GETTING STARTED ── */}
         <H2 id="getting-started">Getting Started</H2>
-        <P>Get a VPS running in under 60 seconds. Every machine runs Ubuntu 24.04 with Docker, Node.js, Python, and SSH access.</P>
+        <P>Get a VPS running in under 60 seconds.</P>
 
         <H3 id="create-machine">Create a Machine</H3>
         <P>Go to <Strong>Machines → New Machine</Strong> in the dashboard:</P>
@@ -283,13 +261,13 @@ export default function DocsPage() {
         <CodeBlock title="Reconnect">{`ssh -i ~/.ssh/justavps_{slug} root@{ip}`}</CodeBlock>
 
         <H3 id="connect-ide">Connect from Cursor / VS Code</H3>
-        <P>We recommend connecting via <Strong>Remote-SSH</Strong> — it gives you a local-feeling development experience with automatic port forwarding.</P>
+        <P>Use <Strong>Remote-SSH</Strong> for a local-feeling dev experience with automatic port forwarding.</P>
         <Ul>
           <Li>Run the setup command from the dashboard to save your SSH key</Li>
           <Li>Add the host to <InlineCode>~/.ssh/config</InlineCode> (the dashboard shows the exact config block)</Li>
           <Li><kbd>Cmd+Shift+P</kbd> → <Strong>Remote-SSH: Connect to Host</Strong> → select your machine</Li>
         </Ul>
-        <Callout type="tip">Port forwarding is automatic with Remote-SSH. Start a server on port 3000 on your VPS, and it&apos;s instantly available at <InlineCode>localhost:3000</InlineCode> in your browser. The experience is identical to local development.</Callout>
+        <Callout type="tip">Port forwarding is automatic. Start a server on port 3000 on your VPS, and it&apos;s available at <InlineCode>localhost:3000</InlineCode> locally.</Callout>
 
         <DocSeparator />
 
@@ -298,81 +276,36 @@ export default function DocsPage() {
         <P>Every machine gets a dedicated subdomain, a web terminal, and port forwarding.</P>
 
         <H3 id="how-proxy-works">How It Works</H3>
-        <P>When a machine is provisioned:</P>
         <Ul>
-          <Li>A Cloudflare DNS record is created: <InlineCode>&#123;slug&#125;.kortix.cloud</InlineCode> → your machine&apos;s IP</Li>
-          <Li>A Cloudflare Worker authenticates all web requests at the edge</Li>
-          <Li>The <InlineCode>justavps-daemon</InlineCode> on port 80 handles reverse proxying, the web terminal, and port forwarding — it&apos;s a single Go binary, no external reverse proxy</Li>
+          <Li>Each machine gets a subdomain: <InlineCode>&#123;slug&#125;.kortix.cloud</InlineCode></Li>
+          <Li>All web traffic is authenticated at the Cloudflare edge</Li>
+          <Li>TLS is handled by Cloudflare — you don&apos;t need to configure certificates</Li>
         </Ul>
-        <P>TLS is terminated at the Cloudflare edge. Traffic between CF and your machine travels over the provider&apos;s network on port 80.</P>
 
         <H3 id="port-forwarding">Port Forwarding</H3>
-        <P>Two options to access services running on your VPS:</P>
-        <P><Strong>1. SSH tunnel</Strong> (recommended with Cursor / VS Code):</P>
+        <P><Strong>SSH tunnel</Strong> (recommended with Cursor / VS Code):</P>
         <CodeBlock title="Forward port 3000">{`ssh -i ~/.ssh/justavps_{slug} -L 3000:localhost:3000 root@{ip}`}</CodeBlock>
-        <P><Strong>2. Subdomain</Strong> — access any port via <InlineCode>&#123;port&#125;--&#123;slug&#125;.kortix.cloud</InlineCode>:</P>
+        <P><Strong>Subdomain</Strong> — access any port via <InlineCode>&#123;port&#125;--&#123;slug&#125;.kortix.cloud</InlineCode>:</P>
         <CodeBlock>{`https://3000--abc123.kortix.cloud`}</CodeBlock>
-        <P>Both support HTTP, WebSocket, and SSE.</P>
 
         <H3 id="web-terminal">Web Terminal</H3>
-        <P>The dashboard includes a browser-based terminal (xterm.js over WebSocket). It connects via the daemon&apos;s PTY handler on port 80 — no additional software needed on the machine.</P>
+        <P>The dashboard includes a browser-based terminal. No setup needed — it connects automatically when your machine is running.</P>
 
         <DocSeparator />
 
-        {/* ── API REFERENCE ── */}
+        {/* ── API ── */}
         <H2 id="api-reference">REST API</H2>
-        <P>Full programmatic access. All endpoints require an API key.</P>
-        <CodeBlock title="Base URL">{`https://justavps.com/api/v1`}</CodeBlock>
-
-        <H3 id="api-auth">Authentication</H3>
-        <CodeBlock title="Example">{`curl https://justavps.com/api/v1/machines \\
+        <P>Full programmatic access to manage machines, snapshots, and keys. All endpoints require an API key.</P>
+        <CodeBlock title="Quick start">{`curl https://justavps.com/api/v1/machines \\
   -H "Authorization: Bearer sk_live_xxx"`}</CodeBlock>
         <P>Generate API keys in <Strong>Keys</Strong> in the dashboard. Keys use the <InlineCode>sk_live_</InlineCode> prefix and are shown once at creation.</P>
-
-        <H3 id="api-machines">Machines</H3>
-        <div className="space-y-2 my-4">
-          <Endpoint method="POST" path="/v1/machines" description="Provision a new machine (202)" />
-          <Endpoint method="GET" path="/v1/machines" description="List all machines" />
-          <Endpoint method="GET" path="/v1/machines/:id" description="Get machine details + connection info" />
-          <Endpoint method="DELETE" path="/v1/machines/:id" description="Destroy a machine (204)" />
-          <Endpoint method="POST" path="/v1/machines/:id/reboot" description="Reboot (202)" />
-          <Endpoint method="POST" path="/v1/machines/:id/resize" description="Resize — body: { server_type }" />
-          <Endpoint method="GET" path="/v1/machines/:id/status/stream" description="SSE stream of provisioning events" />
+        <div className="my-4">
+          <Link href="/api/docs" className={cn("inline-flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium transition-all", "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50", "dark:border-zinc-800/60 dark:bg-zinc-900/20 dark:hover:border-zinc-700 dark:hover:bg-zinc-900/50")}>
+            <Code2 className="size-4 text-muted-foreground" />
+            Open API Reference →
+          </Link>
         </div>
-        <CodeBlock title="Create a machine">{`curl -X POST https://justavps.com/api/v1/machines \\
-  -H "Authorization: Bearer sk_live_xxx" \\
-  -H "Content-Type: application/json" \\
-  -d '{ "server_type": "cpx32", "region": "hel1", "name": "my-machine" }'`}</CodeBlock>
-        <P>Optional fields: <InlineCode>env_vars</InlineCode>, <InlineCode>docker_image</InlineCode>, <InlineCode>entrypoint</InlineCode>, <InlineCode>snapshot_id</InlineCode>.</P>
-
-        <H3 id="api-server-types">Server Types</H3>
-        <div className="space-y-2 my-4">
-          <Endpoint method="GET" path="/v1/server-types?region=hel1" description="List server types with pricing" />
-          <Endpoint method="GET" path="/v1/server-types/providers" description="List providers" />
-          <Endpoint method="GET" path="/v1/server-types/regions" description="List regions" />
-        </div>
-
-        <H3 id="api-snapshots">Snapshots</H3>
-        <div className="space-y-2 my-4">
-          <Endpoint method="POST" path="/v1/snapshots" description="Create a snapshot from a Docker image" />
-          <Endpoint method="GET" path="/v1/snapshots" description="List snapshots" />
-          <Endpoint method="GET" path="/v1/snapshots/:id" description="Get snapshot details" />
-          <Endpoint method="DELETE" path="/v1/snapshots/:id" description="Delete a snapshot" />
-        </div>
-
-        <H3 id="api-ssh-keys">SSH Keys</H3>
-        <div className="space-y-2 my-4">
-          <Endpoint method="POST" path="/v1/ssh-keys" description="Add an SSH public key" />
-          <Endpoint method="GET" path="/v1/ssh-keys" description="List SSH keys" />
-          <Endpoint method="DELETE" path="/v1/ssh-keys/:id" description="Remove an SSH key" />
-        </div>
-
-        <H3 id="api-keys-endpoint">API Keys</H3>
-        <div className="space-y-2 my-4">
-          <Endpoint method="POST" path="/v1/api-keys" description="Create a new API key (shown once)" />
-          <Endpoint method="GET" path="/v1/api-keys" description="List API keys (prefix only)" />
-          <Endpoint method="DELETE" path="/v1/api-keys/:id" description="Revoke an API key" />
-        </div>
+        <P>The interactive API reference has full endpoint documentation, request/response schemas, and a try-it-out playground.</P>
 
         <DocSeparator />
 
@@ -381,10 +314,10 @@ export default function DocsPage() {
         <P>Snapshots are bootable machine images. Every machine is provisioned from one.</P>
 
         <H3 id="default-snapshot">Default Snapshot</H3>
-        <P>Every account has a default snapshot with the full platform pre-installed: Ubuntu 24.04, Docker, Node.js 22, Python 3, and all dev tools. Most users provision from this.</P>
+        <P>Includes Ubuntu 24.04, Docker, Node.js 22, Python 3, and dev tools. Most users provision from this.</P>
 
         <H3 id="custom-snapshots">Custom Snapshots</H3>
-        <P>Create snapshots from any Docker image. The platform bakes your image into a bootable VPS snapshot with the JustAVPS daemon pre-installed.</P>
+        <P>Create snapshots from any Docker image via the dashboard or API:</P>
         <CodeBlock title="Create via API">{`curl -X POST https://justavps.com/api/v1/snapshots \\
   -H "Authorization: Bearer sk_live_xxx" \\
   -H "Content-Type: application/json" \\
@@ -395,7 +328,7 @@ export default function DocsPage() {
 
         {/* ── WHAT'S INSTALLED ── */}
         <H2 id="whats-installed">What&apos;s Installed</H2>
-        <P>The default snapshot ships with:</P>
+        <P>The default snapshot includes:</P>
 
         <H3 id="base-software">Software</H3>
         <Table headers={["Software", "Details"]} rows={[
@@ -408,37 +341,24 @@ export default function DocsPage() {
           ["build-essential", "C/C++ compiler toolchain"],
         ]} />
 
-        <H3 id="architecture">Architecture</H3>
-        <P>Each machine runs a single Go binary — <InlineCode>justavps-daemon</InlineCode> — that handles everything:</P>
-        <Table headers={["Function", "Details"]} rows={[
-          ["Reverse proxy", "Listens on :80, routes traffic to local services"],
-          ["Web terminal", "WebSocket PTY at /_pty"],
-          ["Port forwarding", "Dynamic proxy to any localhost port"],
-          ["Health monitoring", "CPU, memory, disk — reported to dashboard"],
-          ["Heartbeat", "Reports status to platform every 30s"],
-        ]} />
-        <P>No Nginx, no Caddy, no external reverse proxy. One binary, one systemd service.</P>
-
         <DocSeparator />
 
         {/* ── SECURITY ── */}
         <H2 id="security">Security</H2>
-        <P>Every machine is a full Linux VPS with root access.</P>
 
         <H3 id="network-security">Network</H3>
         <Ul>
-          <Li><Strong>TLS</Strong> — terminated at Cloudflare edge (not on the VPS itself)</Li>
-          <Li><Strong>Provider firewall</Strong> — only Cloudflare IPs and SSH (port 22) are allowed inbound</Li>
-          <Li><Strong>ufw</Strong> — defense-in-depth firewall on the VPS (same rules as provider firewall)</Li>
-          <Li><Strong>Static IP</Strong> — each machine gets a dedicated public IPv4</Li>
-          <Li><Strong>Daily backups</Strong> — enabled on every machine</Li>
+          <Li><Strong>TLS</Strong> — handled by Cloudflare</Li>
+          <Li><Strong>Firewall</Strong> — only Cloudflare IPs and SSH (port 22) allowed inbound</Li>
+          <Li><Strong>Static IP</Strong> — dedicated public IPv4 per machine</Li>
+          <Li><Strong>Daily backups</Strong> — enabled by default</Li>
         </Ul>
 
         <H3 id="auth-model">Auth Model</H3>
         <Ul>
-          <Li><Strong>Web access</Strong> — Cloudflare Worker authenticates all requests before they reach the VPS</Li>
-          <Li><Strong>SSH</Strong> — key-based auth only, password login disabled</Li>
-          <Li><Strong>API</Strong> — <InlineCode>Bearer sk_live_*</InlineCode> token required on all endpoints</Li>
+          <Li><Strong>Web</Strong> — authenticated at Cloudflare edge before reaching your machine</Li>
+          <Li><Strong>SSH</Strong> — key-based only, password login disabled</Li>
+          <Li><Strong>API</Strong> — <InlineCode>Bearer sk_live_*</InlineCode> token required</Li>
         </Ul>
 
         <DocSeparator />

@@ -38,7 +38,7 @@ const navigation = [
   { name: "Machines", href: "/machines", icon: Server },
   { name: "Snapshots", href: "/snapshots", icon: HardDrive },
   { name: "Keys", href: "/keys", icon: KeyRound },
-  { name: "API Reference", href: "/docs#api-reference", icon: Code2 },
+  { name: "API Reference", href: "/api/docs", icon: Code2 },
   // { name: "Webhooks", href: "/webhooks", icon: Globe }, // hidden — no active consumers yet
   { name: "Billing", href: "/billing", icon: CreditCard },
   { name: "Docs", href: "/docs", icon: FileText },
