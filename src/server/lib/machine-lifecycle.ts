@@ -109,6 +109,7 @@ export async function setupProxyDNS(
     origin_hostname: `origin-${slug}.${config.PROXY_DOMAIN}`,
     status: 'provisioning',
     server_type: serverType,
+    platform_url: config.PLATFORM_URL,
   }).catch((err: unknown) => {
     console.warn(`[CF KV] Failed to write machine:${slug}:`, err);
   });

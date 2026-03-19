@@ -21,7 +21,9 @@ ENVIRONMENT = "production"
 PLATFORM_URL = "https://justavps.com"
 
 # Secrets (set via `wrangler secret put`):
-#   PROXY_AUTH_SECRET — same value as the platform's PROXY_AUTH_SECRET env var
+#   PROXY_AUTH_SECRET — MUST match across ALL platform environments (dev + prod).
+#   This single Worker verifies JWT tokens from both dev.justavps.com and justavps.com.
+#   If they differ, proxy auth will fail for one environment.
 
 [placement]
 mode = "smart"

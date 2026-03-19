@@ -135,6 +135,7 @@ export const cloudflareClient = {
     origin_hostname: string;
     status: string;
     server_type: string;
+    platform_url?: string;
   }): Promise<void> {
     const kvNs = process.env.CF_KV_NAMESPACE_ID;
     if (!config.CLOUDFLARE_ACCOUNT_ID || !kvNs) return;

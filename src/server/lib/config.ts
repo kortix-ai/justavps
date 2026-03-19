@@ -43,6 +43,9 @@ export const config = {
 
   // Auth
   AUTH_SECRET: (process.env.AUTH_SECRET || '').trim(),
+  // IMPORTANT: PROXY_AUTH_SECRET MUST be identical across all environments (dev + prod).
+  // A single CF Worker (kortix-cloud-proxy) verifies JWT tokens from both dev.justavps.com
+  // and justavps.com — different secrets = broken proxy auth for one environment.
   PROXY_AUTH_SECRET: (process.env.PROXY_AUTH_SECRET || process.env.AUTH_SECRET || '').trim(),
 
   // Kortix OAuth

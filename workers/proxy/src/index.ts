@@ -18,7 +18,9 @@ import { handleCORSPreflight, proxyHTTPRequest, proxyWebSocket, isWebSocketUpgra
 
 export interface Env {
   KV: KVNamespace;
+  // MUST be identical across all platform environments (dev + prod) — single Worker verifies all JWTs
   PROXY_AUTH_SECRET: string;
+  // Fallback only — per-machine platform_url from KV takes precedence for login redirects
   PLATFORM_URL: string; // e.g. https://justavps.com
   ENVIRONMENT?: string;
 }
@@ -83,11 +85,21 @@ export default {
         const error = authResult.error || 'Authentication required';
         const isAccessDenied = error === 'Access denied' || error === 'Machine is deleted';
 
+        // Resolve platform URL: check KV for per-machine platform_url, fall back to env
+        let platformUrl = env.PLATFORM_URL;
+        try {
+          const raw = await env.KV.get(`machine:${slug}`);
+          if (raw) {
+            const info = JSON.parse(raw) as { platform_url?: string };
+            if (info.platform_url) platformUrl = info.platform_url;
+          }
+        } catch { /* fall back to env */ }
+
         // If user IS authenticated but doesn't own the machine → show error, don't redirect
         // (redirecting causes infinite loop: login → proxy-auth → JWT → ownership fail → redirect)
         if (isAccessDenied) {
           if (isBrowserRequest(request)) {
-            return new Response(accessDeniedHTML(env.PLATFORM_URL), {
+            return new Response(accessDeniedHTML(platformUrl), {
               status: 403,
               headers: { 'Content-Type': 'text/html; charset=utf-8' },
             });
@@ -97,7 +109,7 @@ export default {
 
         // Not authenticated at all → redirect to login
         if (isBrowserRequest(request) && request.method === 'GET') {
-          return createLoginRedirect(request, env.PLATFORM_URL);
+          return createLoginRedirect(request, platformUrl);
         }
         return createUnauthorizedResponse(error);
       }

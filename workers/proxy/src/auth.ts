@@ -23,6 +23,7 @@ export interface MachineInfo {
   origin_hostname?: string; // DNS-only hostname: origin.slug.kortix.cloud
   status: string;
   server_type: string;
+  platform_url?: string; // Which platform provisioned this machine (e.g. https://dev.justavps.com)
 }
 
 const COOKIE_NAME = '__justavps_proxy';
