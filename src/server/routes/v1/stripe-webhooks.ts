@@ -18,7 +18,7 @@ import { OpenAPIHono } from '@hono/zod-openapi';
 import { eq, and, like } from 'drizzle-orm';
 import Stripe from 'stripe';
 import { db } from '../../db';
-import { users, machines, images } from '../../db/schema';
+import { users, machines, images, stripeEvents } from '../../db/schema';
 import { stripeClient, type CheckoutMachineConfig } from '../../lib/stripe';
 import { config } from '../../lib/config';
 import { getProvider } from '../../lib/providers';
@@ -40,22 +40,24 @@ import { desc } from 'drizzle-orm';
 
 export const stripeWebhooksApp = new OpenAPIHono();
 
-// ─── In-memory idempotency set (survives for process lifetime) ──────────────
-// For production, this should be a DB table or Redis set. In-memory is fine for
-// single-process deployments and prevents duplicate processing within a restart cycle.
-const processedEventIds = new Set<string>();
-const MAX_PROCESSED_IDS = 10_000;
+// ─── DB-based idempotency ────────────────────────────────────────────────────
+// Uses unique constraint on stripe_events.event_id to prevent duplicate processing.
+// INSERT fails silently if event was already processed (even across server restarts).
 
-function markEventProcessed(eventId: string) {
-  if (processedEventIds.size >= MAX_PROCESSED_IDS) {
-    // Evict oldest entries (Set iterates in insertion order)
-    const iter = processedEventIds.values();
-    for (let i = 0; i < 1000; i++) iter.next();
-    // Can't efficiently delete first N from Set, so just clear and accept re-processing
-    // of very old events (which the DB-level idempotency check will catch anyway)
-    processedEventIds.clear();
+async function isEventProcessed(eventId: string): Promise<boolean> {
+  const [existing] = await db.select({ id: stripeEvents.id })
+    .from(stripeEvents)
+    .where(eq(stripeEvents.eventId, eventId))
+    .limit(1);
+  return !!existing;
+}
+
+async function markEventProcessed(eventId: string, eventType: string): Promise<void> {
+  try {
+    await db.insert(stripeEvents).values({ eventId, eventType }).onConflictDoNothing();
+  } catch {
+    // Unique constraint violation = already processed, safe to ignore
   }
-  processedEventIds.add(eventId);
 }
 
 /**
@@ -83,7 +85,7 @@ stripeWebhooksApp.post('/', async (c) => {
   }
 
   // Idempotency check — skip already-processed events
-  if (processedEventIds.has(event.id)) {
+  if (await isEventProcessed(event.id)) {
     console.log(`[STRIPE WEBHOOK] Skipping already-processed event ${event.id}`);
     return c.json({ received: true, skipped: true });
   }
@@ -117,7 +119,7 @@ stripeWebhooksApp.post('/', async (c) => {
     // Still return 200 so Stripe doesn't retry (we logged the error)
   }
 
-  markEventProcessed(event.id);
+  await markEventProcessed(event.id, event.type);
   return c.json({ received: true });
 });
 
@@ -396,28 +398,34 @@ async function handlePaymentFailed(invoice: Stripe.Invoice) {
   const sub = (invoice as unknown as { subscription?: string | { id: string } }).subscription;
   const subscriptionId = typeof sub === 'string' ? sub : sub?.id || '';
   const amountDue = (invoice.amount_due ?? 0) / 100;
+  const attemptCount = invoice.attempt_count ?? 0;
 
-  console.warn(`[STRIPE WEBHOOK] Payment failed for customer ${customerId}, subscription ${subscriptionId}, amount $${amountDue}`);
+  console.warn(`[STRIPE WEBHOOK] Payment failed for customer ${customerId}, subscription ${subscriptionId}, amount $${amountDue}, attempt #${attemptCount}`);
 
-  if (customerId) {
-    const [user] = await db.select().from(users).where(eq(users.stripeCustomerId, customerId));
-    if (user) {
-      console.warn(`[STRIPE WEBHOOK] Payment failed for user ${user.email} (${user.id})`);
+  if (!customerId) return;
 
-      // Find machines linked to this subscription and mark them
-      if (subscriptionId) {
-        const affected = await db.select().from(machines)
-          .where(and(
-            eq(machines.ownerId, user.id),
-            like(machines.stripeSubItemId, `${subscriptionId}|%`),
-          ));
+  const [user] = await db.select().from(users).where(eq(users.stripeCustomerId, customerId));
+  if (!user) return;
 
-        for (const m of affected) {
-          console.warn(`[STRIPE WEBHOOK] Machine ${m.slug} has failed payment — subscription ${subscriptionId}`);
-          // Don't suspend yet — Stripe may retry. Just log for now.
-          // Stripe's built-in dunning will handle escalation.
-        }
-      }
+  console.warn(`[STRIPE WEBHOOK] Payment failed for user ${user.email} (${user.id})`);
+
+  if (!subscriptionId) return;
+
+  const affected = await db.select().from(machines)
+    .where(and(
+      eq(machines.ownerId, user.id),
+      like(machines.stripeSubItemId, `${subscriptionId}|%`),
+    ));
+
+  for (const m of affected) {
+    if (m.status === 'deleted') continue;
+
+    if (attemptCount >= 3 && m.status === 'ready') {
+      console.warn(`[STRIPE WEBHOOK] Stopping machine ${m.slug} after ${attemptCount} failed payment attempts`);
+      await db.update(machines).set({ status: 'stopped' }).where(eq(machines.id, m.id));
+      await eventBus.emitStatusChange(m.id, user.id, 'stopped', `Machine stopped due to failed payment (attempt #${attemptCount})`);
+    } else {
+      console.warn(`[STRIPE WEBHOOK] Machine ${m.slug} has failed payment (attempt #${attemptCount}) — Stripe will retry`);
     }
   }
 }
@@ -468,7 +476,6 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   for (const machine of affected) {
     if (machine.status === 'deleted') continue;
 
-    // Sync price from Stripe
     const priceAmount = subscription.items.data[0]?.price?.unit_amount;
     if (priceAmount != null) {
       const newPriceMonthly = priceAmount / 100;
@@ -478,9 +485,16 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
       }
     }
 
-    // If subscription went past_due or unpaid, log a warning
-    if (newStatus === 'past_due' || newStatus === 'unpaid') {
-      console.warn(`[STRIPE WEBHOOK] Machine ${machine.slug} subscription is ${newStatus} — machine may be suspended`);
+    if ((newStatus === 'past_due' || newStatus === 'unpaid') && machine.status === 'ready') {
+      console.warn(`[STRIPE WEBHOOK] Stopping machine ${machine.slug} — subscription is ${newStatus}`);
+      await db.update(machines).set({ status: 'stopped' }).where(eq(machines.id, machine.id));
+      await eventBus.emitStatusChange(machine.id, machine.ownerId, 'stopped', `Machine stopped: subscription ${newStatus}`);
+    }
+
+    if (newStatus === 'active' && machine.status === 'stopped') {
+      console.log(`[STRIPE WEBHOOK] Reactivating machine ${machine.slug} — subscription is active again`);
+      await db.update(machines).set({ status: 'ready' }).where(eq(machines.id, machine.id));
+      await eventBus.emitStatusChange(machine.id, machine.ownerId, 'ready', 'Machine reactivated: payment succeeded');
     }
   }
 }
