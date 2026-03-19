@@ -87,7 +87,7 @@ export default {
         // (redirecting causes infinite loop: login → proxy-auth → JWT → ownership fail → redirect)
         if (isAccessDenied) {
           if (isBrowserRequest(request)) {
-            return new Response(ACCESS_DENIED_HTML, {
+            return new Response(accessDeniedHTML(env.PLATFORM_URL), {
               status: 403,
               headers: { 'Content-Type': 'text/html; charset=utf-8' },
             });
@@ -170,7 +170,8 @@ export default {
   },
 };
 
-const ACCESS_DENIED_HTML = `<!DOCTYPE html>
+function accessDeniedHTML(platformUrl: string) {
+  return `<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Access Denied</title>
@@ -189,11 +190,12 @@ const ACCESS_DENIED_HTML = `<!DOCTYPE html>
   <h1>Access Denied</h1>
   <p>You don't have permission to access this machine. Make sure you're logged in with the correct account.</p>
   <div class="links">
-    <a href="https://justavps.com/machines">← Dashboard</a>
-    <a href="https://justavps.com/api/auth/signout" class="logout">Sign out & re-login</a>
+    <a href="${platformUrl}/machines">← Dashboard</a>
+    <a href="${platformUrl}/api/auth/signout" class="logout">Sign out & re-login</a>
   </div>
 </div>
 </body></html>`;
+}
 
 const PORT_NOT_LISTENING_HTML = `<!DOCTYPE html>
 <html><head>
