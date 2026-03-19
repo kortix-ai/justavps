@@ -295,4 +295,56 @@ export class HetznerProvider implements ComputeProvider {
   async listRegions(): Promise<RegionInfo[]> {
     return HETZNER_REGIONS;
   }
+
+  // ─── Backups ──────────────────────────────────────────────────────────────
+
+  async listBackups(serverId: string): Promise<BackupInfo[]> {
+    const data = await hetznerFetch<{ images: HetznerBackup[] }>(`/images?type=backup&sort=created:desc&status=available&per_page=25`);
+    // Filter to only backups for this server
+    return data.images
+      .filter((img) => img.created_from?.id === Number(serverId))
+      .map((img) => ({
+        id: String(img.id),
+        description: img.description || `Backup ${img.id}`,
+        created: img.created,
+        size: img.image_size ?? 0,
+        status: img.status,
+      }));
+  }
+
+  async createBackup(serverId: string, description?: string): Promise<{ id: string }> {
+    const result = await hetznerFetch<{ image: { id: number } }>(`/servers/${serverId}/actions/create_image`, {
+      method: 'POST',
+      body: { type: 'backup', description: description || `Manual backup` },
+    });
+    console.log(`[hetzner] Created backup for server ${serverId}: image ${result.image.id}`);
+    return { id: String(result.image.id) };
+  }
+
+  async enableBackups(serverId: string): Promise<void> {
+    await hetznerFetch(`/servers/${serverId}/actions/enable_backup`, { method: 'POST' });
+    console.log(`[hetzner] Enabled backups for server ${serverId}`);
+  }
+
+  async disableBackups(serverId: string): Promise<void> {
+    await hetznerFetch(`/servers/${serverId}/actions/disable_backup`, { method: 'POST' });
+    console.log(`[hetzner] Disabled backups for server ${serverId}`);
+  }
+}
+
+interface HetznerBackup {
+  id: number;
+  description: string | null;
+  status: string;
+  created: string;
+  image_size: number | null;
+  created_from: { id: number; name: string } | null;
+}
+
+export interface BackupInfo {
+  id: string;
+  description: string;
+  created: string;
+  size: number;
+  status: string;
 }

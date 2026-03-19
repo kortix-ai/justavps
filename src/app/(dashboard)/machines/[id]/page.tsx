@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
-import { useMachine, useDeleteMachine, useRebootMachine } from "@/hooks/use-machines";
+import { useMachine, useDeleteMachine, useRebootMachine, useBackups, useCreateBackup, useToggleBackups } from "@/hooks/use-machines";
 import { useCreateImage } from "@/hooks/use-images";
 import { useConfirm } from "@/hooks/use-confirm";
 import {
@@ -27,7 +27,7 @@ import {
   Cpu, MemoryStick, HardDrive, Clock,
   Globe, Server, Loader2, ExternalLink, Code2,
   Terminal as TerminalIcon, Link2,
-  AlertTriangle, Camera, Shield, Monitor
+  AlertTriangle, Camera, Shield, Monitor, Archive
 } from "lucide-react";
 import Link from "next/link";
 import { timeAgo, cn } from "@/lib/utils";
@@ -62,6 +62,92 @@ function CopyButton({ text, label, className }: { text: string; label: string; c
       {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
       {copied ? "Copied" : "Copy"}
     </Button>
+  );
+}
+
+function BackupsPanel({ machineId }: { machineId: string }) {
+  const { data, isLoading } = useBackups(machineId);
+  const createBackup = useCreateBackup();
+  const toggleBackups = useToggleBackups();
+
+  const backups = data?.backups ?? [];
+  const enabled = data?.backups_enabled ?? false;
+
+  return (
+    <>
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">Automatic Backups</CardTitle>
+            <Button
+              variant={enabled ? "outline" : "default"}
+              size="sm"
+              className="h-7 text-xs"
+              disabled={toggleBackups.isPending}
+              onClick={() => toggleBackups.mutate({ machineId, enable: !enabled }, {
+                onSuccess: () => toast.success(enabled ? "Backups disabled" : "Backups enabled"),
+                onError: (err) => toast.error(err.message),
+              })}
+            >
+              {toggleBackups.isPending ? <Loader2 className="size-3 animate-spin mr-1" /> : null}
+              {enabled ? "Disable" : "Enable"}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            {enabled
+              ? "Automatic daily backups are enabled. Up to 7 backups are kept — oldest is replaced when full."
+              : "Automatic backups are disabled. Enable to get daily snapshots of your machine (costs 20% of server price)."
+            }
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">Backups</CardTitle>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs gap-1.5"
+              disabled={createBackup.isPending}
+              onClick={() => createBackup.mutate({ machineId }, {
+                onSuccess: () => toast.success("Backup started — this may take a few minutes"),
+                onError: (err) => toast.error(err.message),
+              })}
+            >
+              {createBackup.isPending ? <Loader2 className="size-3 animate-spin" /> : <Camera className="size-3" />}
+              Run Manual Backup
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 rounded-lg" />)}
+            </div>
+          ) : backups.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">No backups yet. {!enabled && "Enable automatic backups or run a manual backup."}</p>
+          ) : (
+            <div className="space-y-2">
+              {backups.map((b) => (
+                <div key={b.id} className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{b.description}</p>
+                    <p className="text-xs text-muted-foreground">{timeAgo(b.created)} · {b.size > 0 ? `${b.size.toFixed(1)} GB` : "calculating..."}</p>
+                  </div>
+                  <Badge variant="outline" className={cn("text-[10px] shrink-0", b.status === "available" ? "border-green-500/30 text-green-600 dark:text-green-400" : "")}>
+                    {b.status}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </>
   );
 }
 
@@ -256,6 +342,10 @@ export default function MachineDetailPage() {
                   <Globe className="size-4" />
                   Proxy
                 </TabsTrigger>
+                <TabsTrigger value="backups" className="gap-2">
+                  <Archive className="size-4" />
+                  Backups
+                </TabsTrigger>
                 <TabsTrigger value="api" className="gap-2">
                   <Code2 className="size-4" />
                   API
@@ -434,6 +524,11 @@ export default function MachineDetailPage() {
                     </div>
                   </CardContent>
                 </Card>
+              </TabsContent>
+
+              {/* ── Backups Tab ──────────────────────────────────────── */}
+              <TabsContent value="backups" className="space-y-4 mt-0">
+                <BackupsPanel machineId={machine.id} />
               </TabsContent>
 
               {/* ── API Tab ────────────────────────────────────────── */}

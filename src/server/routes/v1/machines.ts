@@ -13,6 +13,7 @@ type Machine = typeof machines.$inferSelect;
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 import { stripeClient } from '../../lib/stripe';
 import { requireOwnedResource, requireProvider, errorResponse, handleRouteError } from '../../lib/route-helpers';
+import { HetznerProvider } from '../../lib/providers/hetzner';
 import { eventBus } from '../../lib/event-bus';
 import { after } from 'next/server';
 import {
@@ -611,4 +612,175 @@ machinesApp.openapi(createImageFromMachineRoute, async (c) => {
     created_at: image.createdAt.toISOString(),
     updated_at: image.updatedAt.toISOString(),
   }, 202);
+});
+
+// ─── GET /:id/backups — List backups ────────────────────────────────────────
+
+const BackupSchema = z.object({
+  id: z.string(),
+  description: z.string(),
+  created: z.string(),
+  size: z.number(),
+  status: z.string(),
+});
+
+const listBackupsRoute = createRoute({
+  method: 'get',
+  path: '/{id}/backups',
+  tags: ['Machines'],
+  security: bearerSecurity,
+  summary: 'List machine backups',
+  request: {
+    params: z.object({ id: z.string().uuid() }),
+  },
+  responses: {
+    200: {
+      description: 'Backup list',
+      content: { 'application/json': { schema: z.object({ backups: z.array(BackupSchema), backups_enabled: z.boolean() }) } },
+    },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+machinesApp.openapi(listBackupsRoute, async (c) => {
+  const { id } = c.req.valid('param');
+  const ownerId = c.get('userId');
+
+  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  if (owned.response) return owned.response as any;
+
+  const machine = owned.resource;
+  if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
+
+  const lookup = requireProvider(c, machine.provider);
+  if (lookup.response) return lookup.response as any;
+
+  const provider = lookup.provider as HetznerProvider;
+  const backups = await provider.listBackups(machine.providerServerId);
+
+  return c.json({ backups, backups_enabled: machine.backupsEnabled }, 200);
+});
+
+// ─── POST /:id/backups — Create manual backup ──────────────────────────────
+
+const createBackupRoute = createRoute({
+  method: 'post',
+  path: '/{id}/backups',
+  tags: ['Machines'],
+  security: bearerSecurity,
+  summary: 'Create a manual backup',
+  request: {
+    params: z.object({ id: z.string().uuid() }),
+    body: {
+      required: false,
+      content: { 'application/json': { schema: z.object({ description: z.string().optional() }).optional() } },
+    },
+  },
+  responses: {
+    202: {
+      description: 'Backup creation initiated',
+      content: { 'application/json': { schema: z.object({ backup_id: z.string(), status: z.string() }) } },
+    },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+machinesApp.openapi(createBackupRoute, async (c) => {
+  const { id } = c.req.valid('param');
+  const ownerId = c.get('userId');
+
+  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  if (owned.response) return owned.response as any;
+
+  const machine = owned.resource;
+  if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
+
+  const lookup = requireProvider(c, machine.provider);
+  if (lookup.response) return lookup.response as any;
+
+  const body = await c.req.json().catch(() => ({}));
+  const provider = lookup.provider as HetznerProvider;
+  const result = await provider.createBackup(machine.providerServerId, body?.description);
+
+  return c.json({ backup_id: result.id, status: 'creating' }, 202);
+});
+
+// ─── POST /:id/backups/enable — Enable automatic backups ────────────────────
+
+const enableBackupsRoute = createRoute({
+  method: 'post',
+  path: '/{id}/backups/enable',
+  tags: ['Machines'],
+  security: bearerSecurity,
+  summary: 'Enable automatic backups',
+  request: { params: z.object({ id: z.string().uuid() }) },
+  responses: {
+    200: {
+      description: 'Backups enabled',
+      content: { 'application/json': { schema: ActionResponseSchema } },
+    },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+machinesApp.openapi(enableBackupsRoute, async (c) => {
+  const { id } = c.req.valid('param');
+  const ownerId = c.get('userId');
+
+  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  if (owned.response) return owned.response as any;
+
+  const machine = owned.resource;
+  if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
+
+  const lookup = requireProvider(c, machine.provider);
+  if (lookup.response) return lookup.response as any;
+
+  const provider = lookup.provider as HetznerProvider;
+  await provider.enableBackups(machine.providerServerId);
+  await db.update(machines).set({ backupsEnabled: true }).where(eq(machines.id, id));
+
+  return c.json({ action: 'enable_backups', status: 'completed' }, 200);
+});
+
+// ─── POST /:id/backups/disable — Disable automatic backups ──────────────────
+
+const disableBackupsRoute = createRoute({
+  method: 'post',
+  path: '/{id}/backups/disable',
+  tags: ['Machines'],
+  security: bearerSecurity,
+  summary: 'Disable automatic backups',
+  request: { params: z.object({ id: z.string().uuid() }) },
+  responses: {
+    200: {
+      description: 'Backups disabled',
+      content: { 'application/json': { schema: ActionResponseSchema } },
+    },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+machinesApp.openapi(disableBackupsRoute, async (c) => {
+  const { id } = c.req.valid('param');
+  const ownerId = c.get('userId');
+
+  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  if (owned.response) return owned.response as any;
+
+  const machine = owned.resource;
+  if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
+
+  const lookup = requireProvider(c, machine.provider);
+  if (lookup.response) return lookup.response as any;
+
+  const provider = lookup.provider as HetznerProvider;
+  await provider.disableBackups(machine.providerServerId);
+  await db.update(machines).set({ backupsEnabled: false }).where(eq(machines.id, id));
+
+  return c.json({ action: 'disable_backups', status: 'completed' }, 200);
 });

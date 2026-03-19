@@ -125,3 +125,44 @@ export function useResizeMachine() {
     },
   });
 }
+
+// ─── Backups ────────────────────────────────────────────────────────────────
+
+interface Backup {
+  id: string;
+  description: string;
+  created: string;
+  size: number;
+  status: string;
+}
+
+export function useBackups(machineId: string) {
+  return useQuery({
+    queryKey: ["backups", machineId] as const,
+    queryFn: () => api.get<{ backups: Backup[]; backups_enabled: boolean }>(`/machines/${machineId}/backups`),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useCreateBackup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ machineId, description }: { machineId: string; description?: string }) =>
+      api.post<{ backup_id: string; status: string }>(`/machines/${machineId}/backups`, description ? { description } : {}),
+    onSuccess: (_data, { machineId }) => {
+      qc.invalidateQueries({ queryKey: ["backups", machineId] });
+    },
+  });
+}
+
+export function useToggleBackups() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ machineId, enable }: { machineId: string; enable: boolean }) =>
+      api.post(`/machines/${machineId}/backups/${enable ? 'enable' : 'disable'}`),
+    onSuccess: (_data, { machineId }) => {
+      qc.invalidateQueries({ queryKey: ["backups", machineId] });
+      qc.invalidateQueries({ queryKey: machineKeys.detail(machineId) });
+    },
+  });
+}
