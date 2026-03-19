@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Server } from "lucide-react";
+import { Logo } from "@/components/logo";
 
 type AuthMode = "login" | "register";
 
@@ -116,24 +116,12 @@ function LoginForm() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-background px-4">
       {/* Logo */}
-      <div className="mb-8 flex items-center gap-3">
-        <div className="flex items-center justify-center size-9 rounded-lg bg-foreground">
-          <Server className="size-4 text-background" />
-        </div>
-        <div>
-          <h1 className="text-base font-semibold tracking-tight leading-none">JustAVPS</h1>
-          <p className="text-[11px] text-muted-foreground leading-none mt-0.5">by Kortix</p>
-        </div>
+      <div className="mb-8">
+        <Logo />
       </div>
 
       {/* Card */}
       <div className="w-full max-w-xs">
-        <div className="text-center mb-6">
-          <h2 className="text-lg font-semibold tracking-tight">
-            {mode === "login" ? "Welcome back!" : "Create your account"}
-          </h2>
-        </div>
-
         {/* GitHub OAuth — only shown when provider is configured */}
         {githubEnabled && (
           <>
