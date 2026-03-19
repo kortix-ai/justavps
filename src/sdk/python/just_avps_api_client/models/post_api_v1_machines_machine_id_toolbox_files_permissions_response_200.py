@@ -1,0 +1,85 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any, TypeVar
+
+from attrs import define as _attrs_define
+from attrs import field as _attrs_field
+
+T = TypeVar("T", bound="PostApiV1MachinesMachineIdToolboxFilesPermissionsResponse200")
+
+
+@_attrs_define
+class PostApiV1MachinesMachineIdToolboxFilesPermissionsResponse200:
+    """
+    Attributes:
+        path (str):
+        mode (str):
+        owner (str):
+        group (str):
+    """
+
+    path: str
+    mode: str
+    owner: str
+    group: str
+    additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        path = self.path
+
+        mode = self.mode
+
+        owner = self.owner
+
+        group = self.group
+
+        field_dict: dict[str, Any] = {}
+        field_dict.update(self.additional_properties)
+        field_dict.update(
+            {
+                "path": path,
+                "mode": mode,
+                "owner": owner,
+                "group": group,
+            }
+        )
+
+        return field_dict
+
+    @classmethod
+    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        d = dict(src_dict)
+        path = d.pop("path")
+
+        mode = d.pop("mode")
+
+        owner = d.pop("owner")
+
+        group = d.pop("group")
+
+        post_api_v1_machines_machine_id_toolbox_files_permissions_response_200 = cls(
+            path=path,
+            mode=mode,
+            owner=owner,
+            group=group,
+        )
+
+        post_api_v1_machines_machine_id_toolbox_files_permissions_response_200.additional_properties = d
+        return post_api_v1_machines_machine_id_toolbox_files_permissions_response_200
+
+    @property
+    def additional_keys(self) -> list[str]:
+        return list(self.additional_properties.keys())
+
+    def __getitem__(self, key: str) -> Any:
+        return self.additional_properties[key]
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        self.additional_properties[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        del self.additional_properties[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.additional_properties

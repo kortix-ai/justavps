@@ -16,14 +16,12 @@ class GetApiV1MachinesIdResponse200ConnectType0:
         ssh_command (None | str):
         setup_command (None | str):
         vscode_url (str):
-        vscode_password (str):
         cursor_ssh (None | str):
     """
 
     ssh_command: None | str
     setup_command: None | str
     vscode_url: str
-    vscode_password: str
     cursor_ssh: None | str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -36,8 +34,6 @@ class GetApiV1MachinesIdResponse200ConnectType0:
 
         vscode_url = self.vscode_url
 
-        vscode_password = self.vscode_password
-
         cursor_ssh: None | str
         cursor_ssh = self.cursor_ssh
 
@@ -48,7 +44,6 @@ class GetApiV1MachinesIdResponse200ConnectType0:
                 "ssh_command": ssh_command,
                 "setup_command": setup_command,
                 "vscode_url": vscode_url,
-                "vscode_password": vscode_password,
                 "cursor_ssh": cursor_ssh,
             }
         )
@@ -75,8 +70,6 @@ class GetApiV1MachinesIdResponse200ConnectType0:
 
         vscode_url = d.pop("vscode_url")
 
-        vscode_password = d.pop("vscode_password")
-
         def _parse_cursor_ssh(data: object) -> None | str:
             if data is None:
                 return data
@@ -88,7 +81,6 @@ class GetApiV1MachinesIdResponse200ConnectType0:
             ssh_command=ssh_command,
             setup_command=setup_command,
             vscode_url=vscode_url,
-            vscode_password=vscode_password,
             cursor_ssh=cursor_ssh,
         )
 

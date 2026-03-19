@@ -16,6 +16,7 @@ from ...types import Response
 def _get_kwargs(
     id: UUID,
 ) -> dict[str, Any]:
+
     _kwargs: dict[str, Any] = {
         "method": "get",
         "url": "/api/v1/images/{id}".format(

@@ -1,124 +1,188 @@
-# just-avps-api-client
-A client library for accessing JustAVPS API
+# JustAVPS Python SDK
 
-## Usage
-First, create a client:
+Official Python client for the [JustAVPS API](https://justavps.com/api/docs). Auto-generated from the OpenAPI spec.
 
-```python
-from just_avps_api_client import Client
-
-client = Client(base_url="https://api.example.com")
+```
+pip install just-avps-api-client
 ```
 
-If the endpoints you're going to hit require authentication, use `AuthenticatedClient` instead:
+## Quick Start
 
 ```python
 from just_avps_api_client import AuthenticatedClient
 
-client = AuthenticatedClient(base_url="https://api.example.com", token="SuperSecretToken")
-```
-
-Now call your endpoint and use your models:
-
-```python
-from just_avps_api_client.models import MyDataModel
-from just_avps_api_client.api.my_tag import get_my_data_model
-from just_avps_api_client.types import Response
-
-with client as client:
-    my_data: MyDataModel = get_my_data_model.sync(client=client)
-    # or if you need more info (e.g. status_code)
-    response: Response[MyDataModel] = get_my_data_model.sync_detailed(client=client)
-```
-
-Or do the same thing with an async version:
-
-```python
-from just_avps_api_client.models import MyDataModel
-from just_avps_api_client.api.my_tag import get_my_data_model
-from just_avps_api_client.types import Response
-
-async with client as client:
-    my_data: MyDataModel = await get_my_data_model.asyncio(client=client)
-    response: Response[MyDataModel] = await get_my_data_model.asyncio_detailed(client=client)
-```
-
-By default, when you're calling an HTTPS API it will attempt to verify that SSL is working correctly. Using certificate verification is highly recommended most of the time, but sometimes you may need to authenticate to a server (especially an internal server) using a custom certificate bundle.
-
-```python
 client = AuthenticatedClient(
-    base_url="https://internal_api.example.com", 
-    token="SuperSecretToken",
-    verify_ssl="/path/to/certificate_bundle.pem",
+    base_url="https://justavps.com/api/v1",
+    token="sk_live_your_api_key"
 )
 ```
 
-You can also disable certificate validation altogether, but beware that **this is a security risk**.
+## Machines
 
 ```python
-client = AuthenticatedClient(
-    base_url="https://internal_api.example.com", 
-    token="SuperSecretToken", 
-    verify_ssl=False
+from just_avps_api_client.api.machines import (
+    get_api_v1_machines,
+    post_api_v1_machines,
+    get_api_v1_machines_id,
+    delete_api_v1_machines_id,
+    post_api_v1_machines_id_reboot,
 )
+
+with client as c:
+    # List all machines
+    response = get_api_v1_machines.sync_detailed(client=c)
+
+    # Create a machine
+    from just_avps_api_client.models import PostApiV1MachinesBody
+    machine = post_api_v1_machines.sync(client=c, body=PostApiV1MachinesBody(
+        provider="cloud", server_type="cpx32", region="hel1", name="my-dev-box",
+    ))
+
+    # Get / Reboot / Delete
+    machine = get_api_v1_machines_id.sync(client=c, id=machine_id)
+    post_api_v1_machines_id_reboot.sync(client=c, id=machine_id)
+    delete_api_v1_machines_id.sync(client=c, id=machine_id)
 ```
 
-Things to know:
-1. Every path/method combo becomes a Python module with four functions:
-    1. `sync`: Blocking request that returns parsed data (if successful) or `None`
-    1. `sync_detailed`: Blocking request that always returns a `Request`, optionally with `parsed` set if the request was successful.
-    1. `asyncio`: Like `sync` but async instead of blocking
-    1. `asyncio_detailed`: Like `sync_detailed` but async instead of blocking
+## Toolbox: Filesystem
 
-1. All path/query params, and bodies become method arguments.
-1. If your endpoint had any tags on it, the first tag will be used as a module name for the function (my_tag above)
-1. Any endpoint which did not have a tag will be in `just_avps_api_client.api.default`
-
-## Advanced customizations
-
-There are more settings on the generated `Client` class which let you control more runtime behavior, check out the docstring on that class for more info. You can also customize the underlying `httpx.Client` or `httpx.AsyncClient` (depending on your use-case):
+Read, write, search, and manage files on a running machine.
 
 ```python
-from just_avps_api_client import Client
-
-def log_request(request):
-    print(f"Request event hook: {request.method} {request.url} - Waiting for response")
-
-def log_response(response):
-    request = response.request
-    print(f"Response event hook: {request.method} {request.url} - Status {response.status_code}")
-
-client = Client(
-    base_url="https://api.example.com",
-    httpx_args={"event_hooks": {"request": [log_request], "response": [log_response]}},
+from just_avps_api_client.api.toolbox_filesystem import (
+    get_api_v_1_machines_machine_id_toolbox_files as list_files,
+    get_api_v_1_machines_machine_id_toolbox_files_info as file_info,
+    get_api_v_1_machines_machine_id_toolbox_files_exists as file_exists,
+    get_api_v_1_machines_machine_id_toolbox_files_download as download_file,
+    post_api_v_1_machines_machine_id_toolbox_files_upload as upload_file,
+    post_api_v_1_machines_machine_id_toolbox_files_folder as create_folder,
+    delete_api_v_1_machines_machine_id_toolbox_files as delete_file,
+    post_api_v_1_machines_machine_id_toolbox_files_move as move_file,
+    get_api_v_1_machines_machine_id_toolbox_files_find as find_text,
+    post_api_v_1_machines_machine_id_toolbox_files_replace as replace_text,
+    post_api_v_1_machines_machine_id_toolbox_files_permissions as set_permissions,
 )
 
-# Or get the underlying httpx client to modify directly with client.get_httpx_client() or client.get_async_httpx_client()
+machine_id = "your-machine-uuid"
+
+with client as c:
+    # List files
+    result = list_files.sync(client=c, machine_id=machine_id, path="/root")
+    for entry in result.entries:
+        print(f"  {entry.type:4s} {entry.mode_bits} {entry.size:>8d} {entry.name}")
+
+    # Upload a file (auto-creates parent dirs)
+    upload_file.sync(client=c, machine_id=machine_id, path="/root/app.py",
+                     body="print('Hello from JustAVPS!')")
+
+    # Download a file
+    content = download_file.sync(client=c, machine_id=machine_id, path="/root/app.py")
+
+    # Check existence
+    result = file_exists.sync(client=c, machine_id=machine_id, path="/root/app.py")
+
+    # File metadata
+    info = file_info.sync(client=c, machine_id=machine_id, path="/root/app.py")
+
+    # Create directory (mkdir -p)
+    create_folder.sync(client=c, machine_id=machine_id, path="/root/project/src")
+
+    # Search text in files (grep)
+    result = find_text.sync(client=c, machine_id=machine_id,
+                            path="/root/project", pattern="TODO|FIXME", include_="*.py")
+
+    # Find and replace
+    replace_text.sync(client=c, machine_id=machine_id,
+                      body={"files": ["/root/app.py"], "pattern": "Hello", "new_value": "Hi"})
+
+    # Move / rename
+    move_file.sync(client=c, machine_id=machine_id,
+                   source="/root/app.py", destination="/root/main.py")
+
+    # Set permissions
+    set_permissions.sync(client=c, machine_id=machine_id,
+                         path="/root/main.py", body={"mode": "755"})
+
+    # Delete
+    delete_file.sync(client=c, machine_id=machine_id, path="/root/main.py")
 ```
 
-You can even set the httpx client directly, but beware that this will override any existing settings (e.g., base_url):
+## Toolbox: Process
+
+Execute commands, run code, and manage processes on a running machine.
 
 ```python
-import httpx
-from just_avps_api_client import Client
-
-client = Client(
-    base_url="https://api.example.com",
+from just_avps_api_client.api.toolbox_process import (
+    post_api_v_1_machines_machine_id_toolbox_process_execute as execute,
+    post_api_v_1_machines_machine_id_toolbox_process_code_run as code_run,
+    get_api_v_1_machines_machine_id_toolbox_process_list as list_processes,
+    post_api_v_1_machines_machine_id_toolbox_process_kill as kill_process,
 )
-# Note that base_url needs to be re-set, as would any shared cookies, headers, etc.
-client.set_httpx_client(httpx.Client(base_url="https://api.example.com", proxies="http://localhost:8030"))
+
+with client as c:
+    # Execute a shell command
+    result = execute.sync(client=c, machine_id=machine_id,
+                          body={"command": "ls -la /root", "timeout": 30})
+    print(f"Exit: {result.exit_code}")
+    print(result.stdout)
+
+    # Execute with cwd + env vars
+    result = execute.sync(client=c, machine_id=machine_id, body={
+        "command": "npm install && npm run build",
+        "cwd": "/root/project",
+        "timeout": 120,
+        "env": {"NODE_ENV": "production"},
+    })
+
+    # Run a code snippet
+    result = code_run.sync(client=c, machine_id=machine_id,
+                           body={"code": "print(2 + 2)", "language": "python"})
+    print(result.stdout)  # "4\n"
+
+    # List processes
+    result = list_processes.sync(client=c, machine_id=machine_id)
+    for proc in result.processes:
+        print(f"  PID {proc.pid}: {proc.command}")
+
+    # Kill a process
+    kill_process.sync(client=c, machine_id=machine_id,
+                      body={"pid": 1234, "signal": "SIGTERM"})
 ```
 
-## Building / publishing this package
-This project uses [Poetry](https://python-poetry.org/) to manage dependencies  and packaging.  Here are the basics:
-1. Update the metadata in pyproject.toml (e.g. authors, version)
-1. If you're using a private repository, configure it with Poetry
-    1. `poetry config repositories.<your-repository-name> <url-to-your-repository>`
-    1. `poetry config http-basic.<your-repository-name> <username> <password>`
-1. Publish the client with `poetry publish --build -r <your-repository-name>` or, if for public PyPI, just `poetry publish --build`
+## Images, SSH Keys, API Keys, Webhooks, Server Types
 
-If you want to install this client into another project without publishing it (e.g. for development) then:
-1. If that project **is using Poetry**, you can simply do `poetry add <path-to-this-client>` from that project
-1. If that project is not using Poetry:
-    1. Build a wheel with `poetry build -f wheel`
-    1. Install that wheel from the other project `pip install <path-to-wheel>`
+```python
+# Images
+from just_avps_api_client.api.images import get_api_v1_images, delete_api_v1_images_id
+from just_avps_api_client.api.machines import post_api_v1_machines_id_image
+
+# SSH Keys
+from just_avps_api_client.api.ssh_keys import get_api_v1_ssh_keys, post_api_v1_ssh_keys
+
+# API Keys
+from just_avps_api_client.api.api_keys import get_api_v1_api_keys, post_api_v1_api_keys
+
+# Webhooks
+from just_avps_api_client.api.webhooks import get_api_v1_webhooks, post_api_v1_webhooks
+
+# Server Types
+from just_avps_api_client.api.server_types import (
+    get_api_v1_server_types,
+    get_api_v1_server_types_providers,
+    get_api_v1_server_types_regions,
+)
+```
+
+## Async
+
+Every method has an async variant:
+
+```python
+async with client as c:
+    machines = await get_api_v1_machines.asyncio(client=c)
+    result = await execute.asyncio(client=c, machine_id=mid, body={"command": "uptime"})
+```
+
+## API Reference
+
+Full interactive docs: **[justavps.com/api/docs](https://justavps.com/api/docs)**

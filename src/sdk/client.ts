@@ -168,6 +168,26 @@ class HttpClient {
   post<T>(path: string, body?: unknown) { return this.request<T>('POST', path, body); }
   delete<T = void>(path: string) { return this.request<T>('DELETE', path); }
 
+  /** Raw fetch (for binary/text downloads where JSON parsing isn't desired) */
+  async requestRaw(method: string, path: string): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeout);
+    try {
+      const res = await this.fetchFn(`${this.baseUrl}${path}`, {
+        method,
+        headers: { Authorization: this.headers.Authorization },
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
+        throw new JustAVPSError(data.message || `HTTP ${res.status}`, res.status, data);
+      }
+      return res;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /** Opens an SSE connection and yields parsed events */
   async *sse(path: string): AsyncGenerator<{ type: string; data: any }> {
     const res = await this.fetchFn(`${this.baseUrl}${path}`, {
@@ -318,6 +338,169 @@ class AccountResource {
   billing() { return this.http.get<Billing>('/account/billing'); }
 }
 
+// ─── Toolbox Types ──────────────────────────────────────────────────────────
+
+export interface FileEntry {
+  name: string;
+  path: string;
+  type: 'file' | 'dir';
+  size: number;
+  mode: string;
+  mode_bits: string;
+  owner: string;
+  group: string;
+  mod_time: string;
+  symlink_target: string | null;
+}
+
+export interface ExecResult {
+  exit_code: number;
+  stdout: string;
+  stderr: string;
+  duration_ms: number;
+}
+
+export interface ProcessInfo {
+  pid: number;
+  command: string;
+  args: string;
+  cwd?: string;
+  user?: string;
+  state?: string;
+  memory_rss_bytes?: number;
+}
+
+export interface FindMatch {
+  file: string;
+  line: number;
+  content: string;
+}
+
+// ─── Toolbox: Filesystem ────────────────────────────────────────────────────
+
+class ToolboxFilesResource {
+  constructor(private readonly http: HttpClient & { requestRaw: (method: string, path: string) => Promise<Response> }, private readonly machineId: string) {}
+
+  private get base() { return `/machines/${this.machineId}/toolbox`; }
+
+  /** List files in a directory */
+  list(path = '/root', depth = 1) {
+    return this.http.get<{ entries: FileEntry[] }>(`${this.base}/files?path=${encodeURIComponent(path)}&depth=${depth}`);
+  }
+
+  /** Get file or directory metadata */
+  info(path: string) {
+    return this.http.get<FileEntry>(`${this.base}/files/info?path=${encodeURIComponent(path)}`);
+  }
+
+  /** Check if a file or directory exists */
+  exists(path: string) {
+    return this.http.get<{ exists: boolean; type: 'file' | 'dir' | null }>(`${this.base}/files/exists?path=${encodeURIComponent(path)}`);
+  }
+
+  /** Download file content as text */
+  async download(path: string): Promise<string> {
+    const res = await this.http.requestRaw('GET', `${this.base}/files/download?path=${encodeURIComponent(path)}`);
+    return res.text();
+  }
+
+  /** Upload content to a file (creates parent directories automatically) */
+  upload(path: string, content: string, opts?: { mode?: string; overwrite?: boolean }) {
+    const params = new URLSearchParams({ path });
+    if (opts?.mode) params.set('mode', opts.mode);
+    if (opts?.overwrite === false) params.set('overwrite', 'false');
+    return this.http.post<{ path: string; name: string; type: 'file'; size: number }>(
+      `${this.base}/files/upload?${params}`, content,
+    );
+  }
+
+  /** Create a directory recursively (like mkdir -p) */
+  mkdir(path: string, mode?: string) {
+    const params = new URLSearchParams({ path });
+    if (mode) params.set('mode', mode);
+    return this.http.post<{ path: string; created: boolean }>(`${this.base}/files/folder?${params}`);
+  }
+
+  /** Delete a file or directory */
+  remove(path: string, recursive = false) {
+    return this.http.delete<{ deleted: boolean; path: string }>(`${this.base}/files?path=${encodeURIComponent(path)}${recursive ? '&recursive=true' : ''}`);
+  }
+
+  /** Move or rename a file/directory */
+  move(source: string, destination: string) {
+    return this.http.post<{ source: string; destination: string }>(
+      `${this.base}/files/move?source=${encodeURIComponent(source)}&destination=${encodeURIComponent(destination)}`,
+    );
+  }
+
+  /** Search for text in files (grep) */
+  find(path: string, pattern: string, opts?: { include?: string; maxResults?: number }) {
+    const params = new URLSearchParams({ path, pattern });
+    if (opts?.include) params.set('include', opts.include);
+    if (opts?.maxResults) params.set('max_results', String(opts.maxResults));
+    return this.http.get<{ matches: FindMatch[]; truncated: boolean; total: number }>(`${this.base}/files/find?${params}`);
+  }
+
+  /** Find and replace text across files */
+  replace(files: string[], pattern: string, newValue: string) {
+    return this.http.post<{ results: { file: string; replacements: number }[] }>(
+      `${this.base}/files/replace`, { files, pattern, new_value: newValue },
+    );
+  }
+
+  /** Set file permissions (chmod/chown) */
+  chmod(path: string, mode: string) {
+    return this.http.post<{ path: string; mode: string; owner: string; group: string }>(
+      `${this.base}/files/permissions?path=${encodeURIComponent(path)}`, { mode },
+    );
+  }
+}
+
+// ─── Toolbox: Process ───────────────────────────────────────────────────────
+
+class ToolboxProcessResource {
+  constructor(private readonly http: HttpClient, private readonly machineId: string) {}
+
+  private get base() { return `/machines/${this.machineId}/toolbox`; }
+
+  /** Execute a shell command and return stdout/stderr/exit_code */
+  exec(command: string, opts?: { cwd?: string; timeout?: number; env?: Record<string, string> }) {
+    return this.http.post<ExecResult>(`${this.base}/process/execute`, { command, ...opts });
+  }
+
+  /** Execute a command with real-time SSE streaming output */
+  stream(command: string, opts?: { cwd?: string; timeout?: number; env?: Record<string, string> }) {
+    return this.http.sse(`${this.base}/process/execute/stream`);
+  }
+
+  /** Run a code snippet in a given language */
+  codeRun(code: string, language?: string, opts?: { timeout?: number; env?: Record<string, string> }) {
+    return this.http.post<ExecResult>(`${this.base}/process/code-run`, { code, language, ...opts });
+  }
+
+  /** List all running processes on the machine */
+  list() {
+    return this.http.get<{ processes: ProcessInfo[] }>(`${this.base}/process/list`);
+  }
+
+  /** Kill a process by PID */
+  kill(pid: number, signal: 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'SIGHUP' = 'SIGTERM') {
+    return this.http.post<{ killed: boolean; pid: number; signal: string }>(`${this.base}/process/kill`, { pid, signal });
+  }
+}
+
+// ─── Toolbox (combined) ─────────────────────────────────────────────────────
+
+class ToolboxResource {
+  readonly files: ToolboxFilesResource;
+  readonly process: ToolboxProcessResource;
+
+  constructor(http: HttpClient, machineId: string) {
+    this.files = new ToolboxFilesResource(http, machineId);
+    this.process = new ToolboxProcessResource(http, machineId);
+  }
+}
+
 // ─── Main Client ────────────────────────────────────────────────────────────
 
 export class JustAVPS {
@@ -331,15 +514,22 @@ export class JustAVPS {
   readonly serverTypes: ServerTypesResource;
   readonly account: AccountResource;
 
+  private readonly _http: HttpClient;
+
   constructor(config: JustAVPSConfig) {
-    const http = new HttpClient(config);
-    this.machines = new MachinesResource(http);
-    this.snapshots = new SnapshotsResource(http);
-    this.images = new ImagesResource(http);
-    this.sshKeys = new SSHKeysResource(http);
-    this.apiKeys = new APIKeysResource(http);
-    this.webhooks = new WebhooksResource(http);
-    this.serverTypes = new ServerTypesResource(http);
-    this.account = new AccountResource(http);
+    this._http = new HttpClient(config);
+    this.machines = new MachinesResource(this._http);
+    this.snapshots = new SnapshotsResource(this._http);
+    this.images = new ImagesResource(this._http);
+    this.sshKeys = new SSHKeysResource(this._http);
+    this.apiKeys = new APIKeysResource(this._http);
+    this.webhooks = new WebhooksResource(this._http);
+    this.serverTypes = new ServerTypesResource(this._http);
+    this.account = new AccountResource(this._http);
+  }
+
+  /** Get a toolbox interface for a specific machine (filesystem + process APIs) */
+  toolbox(machineId: string): ToolboxResource {
+    return new ToolboxResource(this._http, machineId);
   }
 }

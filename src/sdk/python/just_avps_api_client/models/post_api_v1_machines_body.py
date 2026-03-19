@@ -29,6 +29,8 @@ class PostApiV1MachinesBody:
             machine
         docker_image (str | Unset): Docker image to run on boot (e.g. "myapp:latest")
         entrypoint (str | Unset): Entrypoint for the Docker container
+        ssh_key_ids (list[UUID] | Unset): IDs of user SSH keys to add to the machine. Auto-generated key is always
+            included.
     """
 
     server_type: str
@@ -39,6 +41,7 @@ class PostApiV1MachinesBody:
     env_vars: PostApiV1MachinesBodyEnvVars | Unset = UNSET
     docker_image: str | Unset = UNSET
     entrypoint: str | Unset = UNSET
+    ssh_key_ids: list[UUID] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -66,6 +69,13 @@ class PostApiV1MachinesBody:
 
         entrypoint = self.entrypoint
 
+        ssh_key_ids: list[str] | Unset = UNSET
+        if not isinstance(self.ssh_key_ids, Unset):
+            ssh_key_ids = []
+            for ssh_key_ids_item_data in self.ssh_key_ids:
+                ssh_key_ids_item = str(ssh_key_ids_item_data)
+                ssh_key_ids.append(ssh_key_ids_item)
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -86,6 +96,8 @@ class PostApiV1MachinesBody:
             field_dict["docker_image"] = docker_image
         if entrypoint is not UNSET:
             field_dict["entrypoint"] = entrypoint
+        if ssh_key_ids is not UNSET:
+            field_dict["ssh_key_ids"] = ssh_key_ids
 
         return field_dict
 
@@ -130,6 +142,15 @@ class PostApiV1MachinesBody:
 
         entrypoint = d.pop("entrypoint", UNSET)
 
+        _ssh_key_ids = d.pop("ssh_key_ids", UNSET)
+        ssh_key_ids: list[UUID] | Unset = UNSET
+        if _ssh_key_ids is not UNSET:
+            ssh_key_ids = []
+            for ssh_key_ids_item_data in _ssh_key_ids:
+                ssh_key_ids_item = UUID(ssh_key_ids_item_data)
+
+                ssh_key_ids.append(ssh_key_ids_item)
+
         post_api_v1_machines_body = cls(
             server_type=server_type,
             region=region,
@@ -139,6 +160,7 @@ class PostApiV1MachinesBody:
             env_vars=env_vars,
             docker_image=docker_image,
             entrypoint=entrypoint,
+            ssh_key_ids=ssh_key_ids,
         )
 
         post_api_v1_machines_body.additional_properties = d

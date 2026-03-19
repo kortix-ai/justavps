@@ -7,17 +7,19 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.get_api_v1_machines_id_status_stream_response_401 import GetApiV1MachinesIdStatusStreamResponse401
-from ...models.get_api_v1_machines_id_status_stream_response_404 import GetApiV1MachinesIdStatusStreamResponse404
+from ...models.post_api_v1_machines_id_backups_disable_response_200 import PostApiV1MachinesIdBackupsDisableResponse200
+from ...models.post_api_v1_machines_id_backups_disable_response_401 import PostApiV1MachinesIdBackupsDisableResponse401
+from ...models.post_api_v1_machines_id_backups_disable_response_404 import PostApiV1MachinesIdBackupsDisableResponse404
 from ...types import Response
 
 
 def _get_kwargs(
     id: UUID,
 ) -> dict[str, Any]:
+
     _kwargs: dict[str, Any] = {
-        "method": "get",
-        "url": "/api/v1/machines/{id}/status/stream".format(
+        "method": "post",
+        "url": "/api/v1/machines/{id}/backups/disable".format(
             id=quote(str(id), safe=""),
         ),
     }
@@ -27,18 +29,24 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> GetApiV1MachinesIdStatusStreamResponse401 | GetApiV1MachinesIdStatusStreamResponse404 | str | None:
+) -> (
+    PostApiV1MachinesIdBackupsDisableResponse200
+    | PostApiV1MachinesIdBackupsDisableResponse401
+    | PostApiV1MachinesIdBackupsDisableResponse404
+    | None
+):
     if response.status_code == 200:
-        response_200 = response.text
+        response_200 = PostApiV1MachinesIdBackupsDisableResponse200.from_dict(response.json())
+
         return response_200
 
     if response.status_code == 401:
-        response_401 = GetApiV1MachinesIdStatusStreamResponse401.from_dict(response.json())
+        response_401 = PostApiV1MachinesIdBackupsDisableResponse401.from_dict(response.json())
 
         return response_401
 
     if response.status_code == 404:
-        response_404 = GetApiV1MachinesIdStatusStreamResponse404.from_dict(response.json())
+        response_404 = PostApiV1MachinesIdBackupsDisableResponse404.from_dict(response.json())
 
         return response_404
 
@@ -50,7 +58,11 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[GetApiV1MachinesIdStatusStreamResponse401 | GetApiV1MachinesIdStatusStreamResponse404 | str]:
+) -> Response[
+    PostApiV1MachinesIdBackupsDisableResponse200
+    | PostApiV1MachinesIdBackupsDisableResponse401
+    | PostApiV1MachinesIdBackupsDisableResponse404
+]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -63,24 +75,22 @@ def sync_detailed(
     id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Response[GetApiV1MachinesIdStatusStreamResponse401 | GetApiV1MachinesIdStatusStreamResponse404 | str]:
-    """Stream machine status (SSE)
-
-     Opens a Server-Sent Events stream for real-time provisioning updates.
-
-    **Event types:** `status`, `stage`, `done`, `ping`, `error`
-
-    Auto-closes on terminal state or after 10 minutes.
+) -> Response[
+    PostApiV1MachinesIdBackupsDisableResponse200
+    | PostApiV1MachinesIdBackupsDisableResponse401
+    | PostApiV1MachinesIdBackupsDisableResponse404
+]:
+    """Disable automatic backups
 
     Args:
-        id (UUID): Machine ID
+        id (UUID):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[GetApiV1MachinesIdStatusStreamResponse401 | GetApiV1MachinesIdStatusStreamResponse404 | str]
+        Response[PostApiV1MachinesIdBackupsDisableResponse200 | PostApiV1MachinesIdBackupsDisableResponse401 | PostApiV1MachinesIdBackupsDisableResponse404]
     """
 
     kwargs = _get_kwargs(
@@ -98,24 +108,23 @@ def sync(
     id: UUID,
     *,
     client: AuthenticatedClient,
-) -> GetApiV1MachinesIdStatusStreamResponse401 | GetApiV1MachinesIdStatusStreamResponse404 | str | None:
-    """Stream machine status (SSE)
-
-     Opens a Server-Sent Events stream for real-time provisioning updates.
-
-    **Event types:** `status`, `stage`, `done`, `ping`, `error`
-
-    Auto-closes on terminal state or after 10 minutes.
+) -> (
+    PostApiV1MachinesIdBackupsDisableResponse200
+    | PostApiV1MachinesIdBackupsDisableResponse401
+    | PostApiV1MachinesIdBackupsDisableResponse404
+    | None
+):
+    """Disable automatic backups
 
     Args:
-        id (UUID): Machine ID
+        id (UUID):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        GetApiV1MachinesIdStatusStreamResponse401 | GetApiV1MachinesIdStatusStreamResponse404 | str
+        PostApiV1MachinesIdBackupsDisableResponse200 | PostApiV1MachinesIdBackupsDisableResponse401 | PostApiV1MachinesIdBackupsDisableResponse404
     """
 
     return sync_detailed(
@@ -128,24 +137,22 @@ async def asyncio_detailed(
     id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Response[GetApiV1MachinesIdStatusStreamResponse401 | GetApiV1MachinesIdStatusStreamResponse404 | str]:
-    """Stream machine status (SSE)
-
-     Opens a Server-Sent Events stream for real-time provisioning updates.
-
-    **Event types:** `status`, `stage`, `done`, `ping`, `error`
-
-    Auto-closes on terminal state or after 10 minutes.
+) -> Response[
+    PostApiV1MachinesIdBackupsDisableResponse200
+    | PostApiV1MachinesIdBackupsDisableResponse401
+    | PostApiV1MachinesIdBackupsDisableResponse404
+]:
+    """Disable automatic backups
 
     Args:
-        id (UUID): Machine ID
+        id (UUID):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[GetApiV1MachinesIdStatusStreamResponse401 | GetApiV1MachinesIdStatusStreamResponse404 | str]
+        Response[PostApiV1MachinesIdBackupsDisableResponse200 | PostApiV1MachinesIdBackupsDisableResponse401 | PostApiV1MachinesIdBackupsDisableResponse404]
     """
 
     kwargs = _get_kwargs(
@@ -161,24 +168,23 @@ async def asyncio(
     id: UUID,
     *,
     client: AuthenticatedClient,
-) -> GetApiV1MachinesIdStatusStreamResponse401 | GetApiV1MachinesIdStatusStreamResponse404 | str | None:
-    """Stream machine status (SSE)
-
-     Opens a Server-Sent Events stream for real-time provisioning updates.
-
-    **Event types:** `status`, `stage`, `done`, `ping`, `error`
-
-    Auto-closes on terminal state or after 10 minutes.
+) -> (
+    PostApiV1MachinesIdBackupsDisableResponse200
+    | PostApiV1MachinesIdBackupsDisableResponse401
+    | PostApiV1MachinesIdBackupsDisableResponse404
+    | None
+):
+    """Disable automatic backups
 
     Args:
-        id (UUID): Machine ID
+        id (UUID):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        GetApiV1MachinesIdStatusStreamResponse401 | GetApiV1MachinesIdStatusStreamResponse404 | str
+        PostApiV1MachinesIdBackupsDisableResponse200 | PostApiV1MachinesIdBackupsDisableResponse401 | PostApiV1MachinesIdBackupsDisableResponse404
     """
 
     return (

@@ -15,6 +15,7 @@ def _get_kwargs(
     provider: str | Unset = "cloud",
     region: str,
 ) -> dict[str, Any]:
+
     params: dict[str, Any] = {}
 
     params["provider"] = provider
