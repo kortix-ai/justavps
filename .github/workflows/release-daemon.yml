@@ -5,7 +5,7 @@ name: Release Daemon
 
 on:
   push:
-    branches: [master]
+    branches: [production]
     paths:
       - 'daemon/**'
 
