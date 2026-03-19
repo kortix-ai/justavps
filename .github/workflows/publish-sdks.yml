@@ -5,7 +5,7 @@ name: Publish SDKs
 # Example: 2026.3.0, 2026.3.1, 2026.3.2, then 2026.4.0 next month
 on:
   push:
-    branches: [master, main]
+    branches: [production]
     paths:
       - "src/sdk/**"
       - "src/server/routes/**"
