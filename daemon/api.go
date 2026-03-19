@@ -1,3 +1,7 @@
+// Internal API server on :7777 — health, services, info.
+// Used by the platform heartbeat and for debugging.
+// Also reachable via public :80 at /daemon/* (ProxyRouter strips prefix).
+
 package main
 
 import (
@@ -12,8 +16,6 @@ import (
 	"time"
 )
 
-// APIServer exposes a local HTTP API on port 7777.
-// Used by the platform and for local debugging.
 type APIServer struct {
 	cfg    *Config
 	health *HealthChecker
@@ -43,7 +45,6 @@ func NewAPIServer(cfg *Config, health *HealthChecker, port int) *APIServer {
 }
 
 func (s *APIServer) Start() error {
-	log.Printf("API server listening on %s", s.server.Addr)
 	return s.server.ListenAndServe()
 }
 
@@ -51,7 +52,7 @@ func (s *APIServer) Shutdown(ctx context.Context) {
 	s.server.Shutdown(ctx)
 }
 
-// GET /health — Quick health check
+// GET /health
 func (s *APIServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	snap := s.health.Collect()
 	writeJSON(w, 200, map[string]any{
@@ -65,7 +66,7 @@ func (s *APIServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GET /services — List managed service statuses
+// GET /services
 func (s *APIServer) handleServices(w http.ResponseWriter, r *http.Request) {
 	snap := s.health.Collect()
 
@@ -87,7 +88,7 @@ func (s *APIServer) handleServices(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"services": services})
 }
 
-// POST /services/{name}/restart — Restart a systemd service
+// POST /services/{name}/restart
 func (s *APIServer) handleServiceRestart(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" {
@@ -95,7 +96,6 @@ func (s *APIServer) handleServiceRestart(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Only allow restarting managed services
 	allowed := false
 	for _, svc := range ManagedServices {
 		if svc == name {
@@ -119,19 +119,14 @@ func (s *APIServer) handleServiceRestart(w http.ResponseWriter, r *http.Request)
 	}
 
 	log.Printf("Restarted service: %s", name)
-	writeJSON(w, 200, map[string]string{
-		"status":  "restarted",
-		"service": name,
-	})
+	writeJSON(w, 200, map[string]string{"status": "restarted", "service": name})
 }
 
-// GET /info — Machine identity and network info
+// GET /info
 func (s *APIServer) handleInfo(w http.ResponseWriter, r *http.Request) {
-	ip := getOutboundIP()
-
 	writeJSON(w, 200, map[string]any{
 		"slug":           s.cfg.Slug,
-		"ip":             ip,
+		"ip":             getOutboundIP(),
 		"daemon_version": version,
 	})
 }

@@ -11,7 +11,6 @@ import (
 	"time"
 )
 
-// HealthChecker collects system metrics and service statuses.
 type HealthChecker struct {
 	mu       sync.RWMutex
 	bootTime time.Time
@@ -19,7 +18,6 @@ type HealthChecker struct {
 	cachedAt time.Time
 }
 
-// HealthSnapshot is a point-in-time health reading.
 type HealthSnapshot struct {
 	CPU      float64         `json:"cpu"`
 	Memory   float64         `json:"memory"`
@@ -28,9 +26,9 @@ type HealthSnapshot struct {
 	Services map[string]bool `json:"services"`
 }
 
-// ManagedServices are the systemd services we monitor.
+// ManagedServices — systemd services we monitor and allow restart of.
+// Note: caddy is gone. The daemon IS the HTTP frontend now.
 var ManagedServices = []string{
-	"caddy",
 	"docker",
 	"opencode-web",
 	"sandbox-agent",
@@ -38,12 +36,10 @@ var ManagedServices = []string{
 }
 
 func NewHealthChecker() *HealthChecker {
-	return &HealthChecker{
-		bootTime: time.Now(),
-	}
+	return &HealthChecker{bootTime: time.Now()}
 }
 
-// Collect gathers current system health. Caches for 5 seconds.
+// Collect gathers system health. Cached for 5 seconds.
 func (h *HealthChecker) Collect() *HealthSnapshot {
 	h.mu.RLock()
 	if h.cached != nil && time.Since(h.cachedAt) < 5*time.Second {
@@ -69,7 +65,6 @@ func (h *HealthChecker) Collect() *HealthSnapshot {
 	return snap
 }
 
-// getCPUUsage returns CPU usage as 0.0-1.0 via /proc/loadavg.
 func getCPUUsage() float64 {
 	data, err := os.ReadFile("/proc/loadavg")
 	if err != nil {
@@ -94,7 +89,6 @@ func getCPUUsage() float64 {
 	return usage
 }
 
-// getMemoryUsage returns memory usage as 0.0-1.0 via /proc/meminfo.
 func getMemoryUsage() float64 {
 	data, err := os.ReadFile("/proc/meminfo")
 	if err != nil {
@@ -123,7 +117,6 @@ func parseMemInfoValue(line string) uint64 {
 	return val
 }
 
-// getDiskUsage returns root partition usage as 0.0-1.0.
 func getDiskUsage() float64 {
 	out, err := exec.Command("df", "--output=pcent", "/").Output()
 	if err != nil {
@@ -142,7 +135,6 @@ func getDiskUsage() float64 {
 	return val / 100
 }
 
-// getServiceStatuses checks systemd services.
 func getServiceStatuses() map[string]bool {
 	statuses := make(map[string]bool, len(ManagedServices))
 	for _, svc := range ManagedServices {

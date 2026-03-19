@@ -9,6 +9,8 @@ import (
 	"testing"
 )
 
+// ── Config tests ─────────────────────────────────────────────────────────
+
 func TestLoadConfig(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.json")
@@ -36,9 +38,7 @@ func TestLoadConfig(t *testing.T) {
 func TestLoadConfigMissingSlug(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.json")
-	data := `{"callback_url":"http://localhost","machine_token":"mt_123"}`
-	os.WriteFile(cfgPath, []byte(data), 0644)
-
+	os.WriteFile(cfgPath, []byte(`{"callback_url":"http://localhost","machine_token":"mt_123"}`), 0644)
 	_, err := LoadConfig(cfgPath)
 	if err == nil {
 		t.Error("expected error for missing slug")
@@ -55,11 +55,8 @@ func TestLoadConfigMissingFile(t *testing.T) {
 func TestLoadConfigIgnoresUnknownFields(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.json")
-	// Old configs may still have proxy_domain / proxy_auth_secret — should not fail
-	data := `{"slug":"test","callback_url":"http://localhost","machine_token":"mt_123","proxy_domain":"old.com","proxy_auth_secret":"old-secret"}`
-	if err := os.WriteFile(cfgPath, []byte(data), 0644); err != nil {
-		t.Fatal(err)
-	}
+	data := `{"slug":"test","callback_url":"http://localhost","machine_token":"mt_123","proxy_domain":"old.com"}`
+	os.WriteFile(cfgPath, []byte(data), 0644)
 
 	cfg, err := LoadConfig(cfgPath)
 	if err != nil {
@@ -69,6 +66,8 @@ func TestLoadConfigIgnoresUnknownFields(t *testing.T) {
 		t.Errorf("expected slug 'test', got '%s'", cfg.Slug)
 	}
 }
+
+// ── API tests ────────────────────────────────────────────────────────────
 
 func TestAPIHealth(t *testing.T) {
 	cfg := &Config{Slug: "test", CallbackURL: "http://localhost", MachineToken: "mt_123"}
@@ -82,10 +81,8 @@ func TestAPIHealth(t *testing.T) {
 	if w.Code != 200 {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
-
 	var result map[string]any
 	json.NewDecoder(w.Body).Decode(&result)
-
 	if result["status"] != "ok" {
 		t.Errorf("expected status 'ok', got '%v'", result["status"])
 	}
@@ -103,16 +100,13 @@ func TestAPIInfo(t *testing.T) {
 	if w.Code != 200 {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
-
 	var result map[string]any
 	json.NewDecoder(w.Body).Decode(&result)
-
 	if result["slug"] != "my-machine" {
 		t.Errorf("expected slug 'my-machine', got '%v'", result["slug"])
 	}
-	// proxy_domain no longer returned (removed — auth is at CF Worker edge)
 	if _, exists := result["proxy_domain"]; exists {
-		t.Error("proxy_domain should not be in info response (removed)")
+		t.Error("proxy_domain should not be in info response")
 	}
 }
 
@@ -128,10 +122,8 @@ func TestAPIServices(t *testing.T) {
 	if w.Code != 200 {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
-
 	var result map[string]any
 	json.NewDecoder(w.Body).Decode(&result)
-
 	services, ok := result["services"].([]any)
 	if !ok {
 		t.Fatal("expected services array")
@@ -168,7 +160,6 @@ func TestHeartbeatPayload(t *testing.T) {
 	cfg := &Config{Slug: "hb-test", CallbackURL: mock.URL, MachineToken: "mt_hb"}
 	health := NewHealthChecker()
 	hb := NewHeartbeater(cfg, health)
-
 	hb.send()
 
 	p := <-received
@@ -177,5 +168,82 @@ func TestHeartbeatPayload(t *testing.T) {
 	}
 	if p.MachineToken != "mt_hb" {
 		t.Errorf("expected token 'mt_hb', got '%s'", p.MachineToken)
+	}
+}
+
+// ── ProxyRouter tests ────────────────────────────────────────────────────
+
+func TestProxyRouterPTY(t *testing.T) {
+	router := NewProxyRouter()
+	// /_pty without WebSocket upgrade should get 400 from gorilla/websocket
+	req := httptest.NewRequest("GET", "/_pty", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("expected 400 for non-WS /_pty request, got %d", w.Code)
+	}
+}
+
+func TestProxyRouterPortProxy(t *testing.T) {
+	router := NewProxyRouter()
+	// /_port/59999/test — port not listening, expect 502 (bad gateway)
+	req := httptest.NewRequest("GET", "/_port/59999/test", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	// Port proxy returns 502 when target unreachable
+	if w.Code != 502 {
+		t.Errorf("expected 502 for unreachable port, got %d (body: %s)", w.Code, w.Body.String())
+	}
+}
+
+func TestProxyRouterLegacyCaddyPort(t *testing.T) {
+	router := NewProxyRouter()
+	// /_caddy_port/59999/test — legacy path, should also work
+	req := httptest.NewRequest("GET", "/_caddy_port/59999/test", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != 502 {
+		t.Errorf("expected 502 for unreachable port via legacy path, got %d (body: %s)", w.Code, w.Body.String())
+	}
+}
+
+func TestProxyRouterPortProxyInvalid(t *testing.T) {
+	router := NewProxyRouter()
+	// /_port/abc — invalid port number
+	req := httptest.NewRequest("GET", "/_port/abc/test", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("expected 400 for invalid port, got %d", w.Code)
+	}
+}
+
+func TestProxyRouterAgent(t *testing.T) {
+	router := NewProxyRouter()
+	// /agent/health — sandbox agent not running, expect 502
+	req := httptest.NewRequest("GET", "/agent/health", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != 502 {
+		t.Errorf("expected 502 for unreachable agent, got %d", w.Code)
+	}
+}
+
+func TestProxyRouterDefault(t *testing.T) {
+	router := NewProxyRouter()
+	// / — OpenCode not running, expect 502
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != 502 {
+		t.Errorf("expected 502 for unreachable opencode, got %d", w.Code)
+	}
+}
+
+func TestManagedServicesNoCaddy(t *testing.T) {
+	for _, svc := range ManagedServices {
+		if svc == "caddy" {
+			t.Error("caddy should not be in ManagedServices — daemon replaces it")
+		}
 	}
 }

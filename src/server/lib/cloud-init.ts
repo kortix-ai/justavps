@@ -1,27 +1,25 @@
 /**
  * Cloud-init generator for machine boot.
  *
- * This script runs when a machine boots. It has smart install detection:
- * - If booting from a pre-built image (opencode already installed), it skips
- *   all package installs and only does machine-specific configuration.
- * - If booting from fresh Ubuntu 24.04, it installs everything first.
+ * Runs on boot from a pre-built base image. ONLY does machine-specific config.
+ * All software is pre-installed in the base image.
  *
- * Machine-specific configuration (always runs):
- *   - SSH keys
- *   - Machine token, slug, callback URL
- *   - Environment variables
- *   - Caddy config (subdomain)
- *   - Docker workload startup (if configured)
- *   - Service enablement
+ * The justavps-daemon is the ONLY service that needs to run on :80.
+ * It handles reverse proxying, PTY terminal, port forwarding, health — everything.
+ * No Caddy, no Nginx, no external reverse proxy.
+ *
+ * What this script does:
+ *   1. SSH keys (unique per machine)
+ *   2. Platform config (slug, token, callback URL)
+ *   3. Environment variables
+ *   4. Update daemon binary to latest
+ *   5. Start daemon + upstream services
+ *   6. Docker workload (if configured)
  *
  * Security model (direct IP proxy — no tunnels):
- *   - All web traffic enters via Cloudflare Worker (auth at edge)
- *   - Provider firewall (external, tamper-proof) allows only CF IPs on port 80 + user ports
- *   - ufw on VPS is defense-in-depth (same rules)
- *   - No cloudflared needed — CF Worker proxies to VPS IP directly
- *
- * Default web IDE: OpenCode (via `opencode serve`) on port 3456.
- * Caddy reverse-proxies the root path to OpenCode.
+ *   - CF Worker authenticates all requests at edge
+ *   - Provider firewall allows only CF IPs on port 80
+ *   - Daemon on :80 reverse-proxies to local services
  */
 
 interface CloudInitOpts {
@@ -46,17 +44,14 @@ export function buildCloudInit(opts: CloudInitOpts): string {
     .join('\n');
   const envLinesBase64 = Buffer.from(envLines).toString('base64');
 
-  // Stage callback helper — reports provisioning progress to JustAVPS API
   const stageCallback = (stage: string, message: string) =>
     `curl -sf -X POST "${opts.platformCallbackUrl}/api/v1/internal/stage" ` +
     `-H "Content-Type: application/json" ` +
     `-d '{"slug":"${opts.slug}","machine_token":"${opts.machineToken}","stage":"${stage}","message":"${message}"}' ` +
     `>/dev/null 2>&1 || true`;
 
-  // Resolve Docker entrypoint — null means use image default CMD
   const resolvedEntrypoint = opts.entrypoint ?? '';
 
-  // Docker workload block — only if a Docker image is specified
   const dockerBlock = opts.dockerImage ? `
 # ── Configure Docker workload ─────────────────────────────────────────────
 ${stageCallback('docker_pulling', 'Configuring Docker workload...')}
@@ -94,15 +89,13 @@ exec docker run --rm --name justavps-workload \\
 DOCKERSTARTEOF
 chmod +x /usr/local/bin/justavps-docker-start.sh
 
-# Pull image if not already cached in snapshot
 if ! docker image inspect ${opts.dockerImage} >/dev/null 2>&1; then
-  echo "[justavps] Docker image not cached — pulling ${opts.dockerImage}..."
+  echo "[justavps] Pulling ${opts.dockerImage}..."
   docker pull ${opts.dockerImage}
 fi
 
 systemctl enable --now justavps-docker
 
-# Wait for Docker workload to start
 echo "[justavps] Waiting for Docker workload..."
 for i in $(seq 1 120); do
   if docker ps --format '{{.Names}}' 2>/dev/null | grep -q justavps-workload; then
@@ -112,7 +105,6 @@ for i in $(seq 1 120); do
   sleep 2
 done
 
-# Wait for port 8000 to be ready
 echo "[justavps] Waiting for services to be ready..."
 for i in $(seq 1 120); do
   if curl -sf http://localhost:8000/ >/dev/null 2>&1 || curl -sf http://localhost:8000/health >/dev/null 2>&1; then
@@ -124,198 +116,24 @@ done
 ` : '';
 
   return `#!/bin/bash
-set -e
 export HOME=/root
 export DEBIAN_FRONTEND=noninteractive
 
 echo "[justavps] Configuring machine ${opts.slug}..."
 ${stageCallback('cloud_init_running', 'Cloud-init started')}
 
-# ── Smart install: only install platform software on fresh Ubuntu ─────────
-if ! command -v opencode &>/dev/null; then
-  echo "[justavps] Fresh Ubuntu detected — installing platform software..."
-
-  # ── Disable forced root password change ─────────────────────────────────
-  chage -d 99999 root 2>/dev/null || true
-  sed -i 's/^root:.*$/root:*:19000:0:99999:7:::/' /etc/shadow 2>/dev/null || true
-
-  # ── System packages ─────────────────────────────────────────────────────
-  apt-get update -qq
-  apt-get install -y -qq \\
-    ca-certificates curl wget git build-essential unzip \\
-    tmux vim htop nano \\
-    python3 python3-pip \\
-    debian-keyring debian-archive-keyring apt-transport-https \\
-    jq
-
-  # ── Docker CE ───────────────────────────────────────────────────────────
-  install -m 0755 -d /etc/apt/keyrings
-  curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-  chmod a+r /etc/apt/keyrings/docker.asc
-  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-  apt-get update -qq
-  apt-get install -y -qq docker-ce docker-ce-cli containerd.io
-
-  # ── Node.js 22 LTS ─────────────────────────────────────────────────────
-  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-  apt-get install -y -qq nodejs
-
-  # ── Caddy (reverse proxy) ──────────────────────────────────────────────
-  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
-  apt-get update -qq && apt-get install -y -qq -o Dpkg::Options::="--force-confold" caddy
-
-  # ── Claude Code ─────────────────────────────────────────────────────────
-  curl -fsSL https://claude.ai/install.sh | bash 2>/dev/null || true
-
-  # ── OpenCode (default web IDE — runs via 'opencode serve') ─────────────
-  curl -fsSL https://opencode.ai/install | bash 2>/dev/null || true
-
-  # ── Sandbox Agent (universal coding agent API by Rivet) ────────────────
-  curl -fsSL https://releases.rivet.dev/sandbox-agent/0.3.x/install.sh | sh
-  sandbox-agent install-agent --all 2>/dev/null || true
-
-  # ── Create 'user' account ──────────────────────────────────────────────
-  id -u user &>/dev/null || useradd -m -s /bin/bash -G sudo,docker user
-  echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/user
-
-  # ── Systemd service: OpenCode Web UI (default IDE) ─────────────────────
-  cat > /etc/systemd/system/opencode-web.service << 'OCEOF'
-[Unit]
-Description=OpenCode Web UI
-After=network.target
-
-[Service]
-Type=simple
-User=user
-WorkingDirectory=/home/user
-ExecStart=/usr/local/bin/opencode serve --port 3456
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-OCEOF
-
-  # ── Systemd service: Sandbox Agent ────────────────────────────────────
-  cat > /etc/systemd/system/sandbox-agent.service << 'SAEOF'
-[Unit]
-Description=Sandbox Agent (coding agent API)
-After=network.target
-
-[Service]
-Type=simple
-User=user
-ExecStart=/usr/local/bin/sandbox-agent server --no-token --host 0.0.0.0 --port 2468
-Restart=always
-RestartSec=3
-Environment=HOME=/home/user
-
-[Install]
-WantedBy=multi-user.target
-SAEOF
-
-  # ── Systemd service: Docker workload (template — configured at boot) ──
-  cat > /etc/systemd/system/justavps-docker.service << 'DSVEOF'
-[Unit]
-Description=JustAVPS Docker Workload
-After=network.target docker.service
-Requires=docker.service
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/justavps-docker-start.sh
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-DSVEOF
-
-  # ── Docker start script placeholder ────────────────────────────────────
-  cat > /usr/local/bin/justavps-docker-start.sh << 'DSEOF'
-#!/bin/bash
-echo "[justavps] No Docker workload configured. Exiting."
-exit 0
-DSEOF
-  chmod +x /usr/local/bin/justavps-docker-start.sh
-
-  # ── Cleanup ─────────────────────────────────────────────────────────────
-  apt-get clean
-  rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-  echo "[justavps] Platform software installed."
-fi
-
-# ── justavps-daemon (ALWAYS update to latest — runs outside install guard) ─
-DAEMON_URL="https://pub-caf7762051b942d5a801397d750a0dc3.r2.dev/daemon/latest/justavps-daemon-linux-amd64"
-echo "[justavps] Downloading justavps-daemon..."
-curl -fsSL -o /usr/local/bin/justavps-daemon "$DAEMON_URL" \\
-  || echo "[justavps] WARNING: Failed to download daemon"
-chmod +x /usr/local/bin/justavps-daemon 2>/dev/null || true
-
-# Systemd service for daemon (idempotent — safe to overwrite)
-cat > /etc/systemd/system/justavps-daemon.service << 'DAEMONEOF'
-[Unit]
-Description=JustAVPS Platform Daemon
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/justavps-daemon --config /etc/justavps/config.json
-Restart=always
-RestartSec=5
-Environment=JUSTAVPS_PORT=7777
-
-[Install]
-WantedBy=multi-user.target
-DAEMONEOF
-
-# ── Systemd service files (idempotent — always write, safe for snapshot + fresh) ─
-cat > /etc/systemd/system/opencode-web.service << 'OCEOF'
-[Unit]
-Description=OpenCode Web UI
-After=network.target
-[Service]
-Type=simple
-User=user
-WorkingDirectory=/home/user
-ExecStart=/usr/local/bin/opencode serve --port 3456
-Restart=always
-RestartSec=3
-[Install]
-WantedBy=multi-user.target
-OCEOF
-
-cat > /etc/systemd/system/sandbox-agent.service << 'SAEOF'
-[Unit]
-Description=Sandbox Agent
-After=network.target
-[Service]
-Type=simple
-User=user
-ExecStart=/usr/local/bin/sandbox-agent server --no-token --host 0.0.0.0 --port 2468
-Restart=always
-RestartSec=3
-Environment=HOME=/home/user
-[Install]
-WantedBy=multi-user.target
-SAEOF
-
-# ── Ensure 'user' account exists (may already exist from snapshot) ─────────
+# ── User account ──────────────────────────────────────────────────────────
 id -u user &>/dev/null || useradd -m -s /bin/bash -G sudo,docker user
 echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/user
 
-# ── SSH keys for root + user ──────────────────────────────────────────────
+# ── SSH keys ──────────────────────────────────────────────────────────────
 mkdir -p /root/.ssh
 echo '${opts.sshPublicKey}' >> /root/.ssh/authorized_keys
-chmod 700 /root/.ssh
-chmod 600 /root/.ssh/authorized_keys
+chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys
 
 mkdir -p /home/user/.ssh
 echo '${opts.sshPublicKey}' > /home/user/.ssh/authorized_keys
-chmod 700 /home/user/.ssh
-chmod 600 /home/user/.ssh/authorized_keys
+chmod 700 /home/user/.ssh && chmod 600 /home/user/.ssh/authorized_keys
 chown -R user:user /home/user/.ssh
 
 # ── Platform config ───────────────────────────────────────────────────────
@@ -331,69 +149,23 @@ CONFIGEOF
 # ── Environment variables ─────────────────────────────────────────────────
 echo '${envLinesBase64}' | base64 -d > /etc/justavps/env
 
-# ── Caddy config (HTTP reverse proxy — Cloudflare Worker handles TLS) ──────
-# CF Worker authenticates all requests, then proxies to VPS_IP:port.
-# For the default route (slug.kortix.cloud), Worker hits VPS_IP:80 → Caddy.
-# For port subdomains (PORT--slug.kortix.cloud), Worker hits VPS_IP:80 → Caddy → daemon port proxy.
-mkdir -p /etc/caddy
-cat > /etc/caddy/Caddyfile << CADDYEOF
-:80 {
-    # PTY WebSocket for dashboard terminal
-    handle /_pty {
-        reverse_proxy localhost:7777
-    }
+# ── Update daemon to latest ───────────────────────────────────────────────
+DAEMON_URL="https://pub-caf7762051b942d5a801397d750a0dc3.r2.dev/daemon/latest/justavps-daemon-linux-amd64"
+curl -fsSL -o /usr/local/bin/justavps-daemon "$DAEMON_URL" \\
+  || echo "[justavps] WARNING: daemon download failed, using image version"
+chmod +x /usr/local/bin/justavps-daemon 2>/dev/null || true
 
-    # Port forwarding: /_caddy_port/* → daemon port proxy handler
-    # CF Worker routes all port requests through Caddy → daemon
-    # Daemon proxies to localhost:PORT (handles 127.0.0.1-bound services)
-    handle /_caddy_port/* {
-        reverse_proxy localhost:7777
-    }
+# ── Disable Caddy (daemon handles :80 now) ────────────────────────────────
+systemctl disable --now caddy 2>/dev/null || true
 
-    # Sandbox Agent API + Inspector UI
-    handle_path /agent/* {
-        reverse_proxy localhost:2468
-    }
+${stageCallback('cloud_init_done', 'Starting services')}
 
-    # justavps-daemon local API
-    handle_path /daemon/* {
-        reverse_proxy localhost:7777
-    }
-
-    # OpenCode Web UI (default — web IDE on root path)
-    reverse_proxy localhost:3456
-}
-CADDYEOF
-
-# ── Firewall: allow SSH + Cloudflare IPs ───────────────────────────────────
-# Security model:
-#   - Provider firewall (external, tamper-proof) is the primary boundary
-#   - ufw on VPS is defense-in-depth (same rules)
-#   - CF Worker authenticates all requests before they reach the VPS
-#   - No tunnels needed — CF proxies directly to VPS IP
-echo "[justavps] Configuring firewall (SSH + Cloudflare IPs)..."
-ufw --force reset >/dev/null 2>&1
-ufw default deny incoming >/dev/null 2>&1
-ufw default allow outgoing >/dev/null 2>&1
-ufw allow 22/tcp >/dev/null 2>&1
-# Port 80 (Caddy) — open to all, provider FW restricts to CF IPs
-ufw allow 80/tcp >/dev/null 2>&1
-# User service ports — open to all, provider FW restricts to CF IPs
-ufw allow 1024:65535/tcp >/dev/null 2>&1
-ufw --force enable >/dev/null 2>&1
-echo "[justavps] Firewall active: SSH + ports 80 + 1024-65535 (provider FW restricts to CF IPs)."
-
-${stageCallback('cloud_init_done', 'Configuration complete, starting services')}
-
-# ── Start pre-installed services ──────────────────────────────────────────
+# ── Start services ────────────────────────────────────────────────────────
+# justavps-daemon on :80 is the ONLY front door (reverse proxy + PTY + health)
 systemctl daemon-reload
 systemctl enable --now justavps-daemon 2>/dev/null || true
 systemctl enable --now sandbox-agent 2>/dev/null || true
-systemctl enable --now opencode-web
-
-# Caddy: restart to pick up our Caddyfile (apt-get install auto-starts with default)
-systemctl enable caddy
-systemctl restart caddy
+systemctl enable --now opencode-web 2>/dev/null || true
 ${dockerBlock}
 echo "[justavps] Machine ${opts.slug} ready!"
 `;

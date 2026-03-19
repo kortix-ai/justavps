@@ -1,14 +1,19 @@
-// justavps-daemon — The on-machine platform agent.
+// justavps-daemon — The ONLY process on a JustAVPS machine.
 //
-// Responsibilities:
-//   - Health monitoring (CPU, memory, disk, services)
-//   - Heartbeat reporting (POST to platform every 30s)
-//   - Local API on /health, /services, /info, /services/{name}/restart
+// Single binary that handles everything:
+//   - Public HTTP on :80     (reverse proxy, PTY, port forwarding)
+//   - Internal API on :7777  (health, services, info — platform only)
+//   - Health monitoring      (CPU, memory, disk, systemd services)
+//   - Heartbeat              (POST to platform every 30s)
 //
-// Traffic flow (direct IP proxy — no tunnels):
-//   CF Worker authenticates all requests and proxies to VPS_IP:port directly.
-//   The daemon does NOT handle auth or proxy traffic.
-//   Port 7777 is only accessible from platform IPs (Hetzner Firewall).
+// Replaces Caddy entirely. Zero external dependencies.
+//
+// Routing on :80:
+//   /_pty              → WebSocket PTY (dashboard terminal)
+//   /_port/PORT/path   → reverse proxy to localhost:PORT/path
+//   /agent/*           → reverse proxy to localhost:2468 (sandbox-agent)
+//   /daemon/*          → reverse proxy to localhost:7777 (internal API)
+//   /*                 → reverse proxy to localhost:3456 (OpenCode IDE)
 //
 // Usage:
 //   justavps-daemon --config /etc/justavps/config.json
@@ -23,8 +28,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -36,7 +39,8 @@ var (
 
 func main() {
 	configPath := flag.String("config", "/etc/justavps/config.json", "Path to config file")
-	port := flag.Int("port", 7777, "API port")
+	publicPort := flag.Int("port", 80, "Public HTTP port")
+	apiPort := flag.Int("api-port", 7777, "Internal API port")
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
 
@@ -46,45 +50,26 @@ func main() {
 	}
 
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmsgprefix)
-	log.SetPrefix("[justavps-daemon] ")
+	log.SetPrefix("[justavps] ")
 
 	cfg, err := LoadConfig(*configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config from %s: %v", *configPath, err)
+		log.Fatalf("Config error: %v", err)
 	}
-	log.Printf("Loaded config: slug=%s callback=%s", cfg.Slug, cfg.CallbackURL)
+	log.Printf("Machine %s starting (daemon %s)", cfg.Slug, version)
 
 	health := NewHealthChecker()
 	heartbeat := NewHeartbeater(cfg, health)
 
-	// HTTP handler: daemon API routes only (no auth, no proxy)
-	mux := http.NewServeMux()
-
-	apiServer := NewAPIServer(cfg, health, *port)
-	mux.HandleFunc("GET /health", apiServer.handleHealth)
-	mux.HandleFunc("GET /services", apiServer.handleServices)
-	mux.HandleFunc("POST /services/{name}/restart", apiServer.handleServiceRestart)
-	mux.HandleFunc("GET /info", apiServer.handleInfo)
-	mux.HandleFunc("GET /_pty", handlePTY)           // WebSocket PTY for dashboard terminal
-	mux.HandleFunc("/_caddy_port/", handlePortProxy) // Port forwarding (prefix preserved)
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Catch paths like /PORT/path when Caddy strips /_caddy_port prefix
-		// Check if the first path segment is a number (port)
-		p := strings.TrimPrefix(r.URL.Path, "/")
-		if idx := strings.Index(p, "/"); idx > 0 {
-			p = p[:idx]
-		}
-		if _, err := strconv.Atoi(p); err == nil {
-			handlePortProxy(w, r)
-			return
-		}
-		http.NotFound(w, r)
-	})
-
-	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", *port),
-		Handler: mux,
+	// ── Public server :80 — the single front door ────────────────────────
+	proxy := NewProxyRouter()
+	publicServer := &http.Server{
+		Addr:    fmt.Sprintf(":%d", *publicPort),
+		Handler: proxy,
 	}
+
+	// ── Internal API :7777 — health, services, info ──────────────────────
+	apiServer := NewAPIServer(cfg, health, *apiPort)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -92,9 +77,15 @@ func main() {
 	go heartbeat.Run(ctx)
 
 	go func() {
-		log.Printf("Listening on :%d (health + heartbeat only, no auth/proxy)", *port)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server error: %v", err)
+		log.Printf("Listening :%d (public) :%d (api)", *publicPort, *apiPort)
+		if err := publicServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Public server: %v", err)
+		}
+	}()
+
+	go func() {
+		if err := apiServer.Start(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("API server: %v", err)
 		}
 	}()
 
@@ -106,6 +97,7 @@ func main() {
 	cancel()
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutCancel()
-	server.Shutdown(shutCtx)
-	log.Println("Daemon stopped.")
+	publicServer.Shutdown(shutCtx)
+	apiServer.Shutdown(shutCtx)
+	log.Println("Stopped.")
 }
