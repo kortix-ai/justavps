@@ -380,7 +380,7 @@ export interface FindMatch {
 // ─── Toolbox: Filesystem ────────────────────────────────────────────────────
 
 class ToolboxFilesResource {
-  constructor(private readonly http: HttpClient & { requestRaw: (method: string, path: string) => Promise<Response> }, private readonly machineId: string) {}
+  constructor(private readonly http: HttpClient, private readonly machineId: string) {}
 
   private get base() { return `/machines/${this.machineId}/toolbox`; }
 
@@ -403,6 +403,12 @@ class ToolboxFilesResource {
   async download(path: string): Promise<string> {
     const res = await this.http.requestRaw('GET', `${this.base}/files/download?path=${encodeURIComponent(path)}`);
     return res.text();
+  }
+
+  /** Download file content as ArrayBuffer (for binary files) */
+  async downloadBytes(path: string): Promise<ArrayBuffer> {
+    const res = await this.http.requestRaw('GET', `${this.base}/files/download?path=${encodeURIComponent(path)}`);
+    return res.arrayBuffer();
   }
 
   /** Upload content to a file (creates parent directories automatically) */
@@ -474,8 +480,38 @@ class ToolboxProcessResource {
   }
 
   /** Execute a command with real-time SSE streaming output */
-  stream(command: string, opts?: { cwd?: string; timeout?: number; env?: Record<string, string> }) {
-    return this.http.sse(`${this.base}/process/execute/stream`);
+  async *stream(command: string, opts?: { cwd?: string; timeout?: number; env?: Record<string, string> }) {
+    const body = { command, ...opts };
+    const res = await this.http.requestRaw(
+      'POST', `${this.base}/process/execute/stream`,
+      JSON.stringify(body),
+      { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    );
+    if (!res.body) return;
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        let eventType = '', eventData = '';
+        for (const line of lines) {
+          if (line.startsWith('event:')) eventType = line.slice(6).trim();
+          else if (line.startsWith('data:')) eventData = line.slice(5).trim();
+          else if (line === '') {
+            if (eventType && eventData) {
+              try { yield { type: eventType, data: JSON.parse(eventData) }; }
+              catch { yield { type: eventType, data: eventData }; }
+            }
+            eventType = ''; eventData = '';
+          }
+        }
+      }
+    } finally { reader.releaseLock(); }
   }
 
   /** Run a code snippet in a given language */

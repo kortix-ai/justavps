@@ -192,6 +192,10 @@ class _ToolboxFiles:
     def download(self, path: str) -> str:
         return self._http.get_raw(f"{self._base}/files/download?path={quote(path)}").text
 
+    def download_bytes(self, path: str) -> bytes:
+        """Download file content as bytes (for binary files)."""
+        return self._http.get_raw(f"{self._base}/files/download?path={quote(path)}").content
+
     def upload(self, path: str, content: str | bytes, mode: str = "644") -> dict:
         return self._http.post_raw(f"{self._base}/files/upload?path={quote(path)}&mode={mode}", content)
 
