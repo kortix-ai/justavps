@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn, timeAgo } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -22,25 +21,25 @@ import { toast } from "sonner";
 import { useSSHKeys, useCreateSSHKey, useDeleteSSHKey } from "@/hooks/use-ssh-keys";
 import { useAPIKeys, useCreateAPIKey, useDeleteAPIKey } from "@/hooks/use-api-keys";
 import { useConfirm } from "@/hooks/use-confirm";
-import { Plus, Trash2, Copy, Key, KeyRound, Loader2, Clock } from "lucide-react";
+import { Plus, Trash2, Copy, Check, Key, KeyRound, Loader2, Clock, ShieldCheck } from "lucide-react";
 
 export default function KeysPage() {
   return (
     <div className="space-y-6">
       <h1 className="font-heading text-3xl tracking-tight">Keys</h1>
 
-      <Tabs defaultValue="ssh" className="space-y-6">
+      <Tabs defaultValue="api" className="space-y-6">
         <TabsList>
-          <TabsTrigger value="ssh">SSH Keys</TabsTrigger>
           <TabsTrigger value="api">API Keys</TabsTrigger>
+          <TabsTrigger value="ssh">SSH Keys</TabsTrigger>
         </TabsList>
-
-        <TabsContent value="ssh">
-          <SSHKeysSection />
-        </TabsContent>
 
         <TabsContent value="api">
           <APIKeysSection />
+        </TabsContent>
+
+        <TabsContent value="ssh">
+          <SSHKeysSection />
         </TabsContent>
       </Tabs>
     </div>
@@ -173,6 +172,15 @@ function APIKeysSection() {
   const [apiKeyName, setAPIKeyName] = useState("");
   const [newAPIKey, setNewAPIKey] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    if (!newAPIKey) return;
+    navigator.clipboard.writeText(newAPIKey);
+    setCopied(true);
+    toast.success("API key copied to clipboard");
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const handleCreate = () => {
     if (!apiKeyName) { toast.error("Provide a name"); return; }
@@ -201,18 +209,33 @@ function APIKeysSection() {
     <>
       {/* New key banner */}
       {newAPIKey && (
-        <div className="mb-4 p-4 rounded-xl bg-green-500/5 border border-green-500/20">
-          <div className="text-sm font-medium text-green-500 mb-2">API Key Created</div>
-          <p className="text-xs text-muted-foreground mb-3">Copy this key now &mdash; you won&apos;t see it again.</p>
-          <div className="flex items-center gap-2">
-            <Input value={newAPIKey} readOnly className="font-mono text-xs" />
-            <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(newAPIKey); toast.success("Copied"); }}>
-              <Copy className="size-3.5" />
-            </Button>
+        <div className="mb-6 rounded-xl border border-green-500/20 bg-green-500/5 overflow-hidden">
+          <div className="flex items-center gap-2.5 px-4 py-3 border-b border-green-500/15">
+            <ShieldCheck className="size-4 text-green-500 shrink-0" />
+            <span className="text-sm font-medium text-green-500">API Key Created</span>
+            <span className="ml-auto text-xs text-muted-foreground">Save it now — it won&apos;t be shown again</span>
           </div>
-          <Button variant="ghost" size="sm" className="mt-2 text-xs text-muted-foreground" onClick={() => setNewAPIKey(null)}>
-            Dismiss
-          </Button>
+          <div className="p-4">
+            <button
+              onClick={handleCopy}
+              className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-lg bg-background/60 border border-border/60 hover:bg-muted/60 hover:border-border transition-all cursor-pointer group"
+            >
+              <span className="font-mono text-sm text-foreground truncate">{newAPIKey}</span>
+              <span className="shrink-0 flex items-center gap-1.5 text-xs text-muted-foreground group-hover:text-foreground transition-colors">
+                {copied ? (
+                  <><Check className="size-3.5 text-green-500" /><span className="text-green-500">Copied</span></>
+                ) : (
+                  <><Copy className="size-3.5" />Copy</>
+                )}
+              </span>
+            </button>
+            <button
+              onClick={() => { setNewAPIKey(null); setCopied(false); }}
+              className="mt-3 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
         </div>
       )}
 
