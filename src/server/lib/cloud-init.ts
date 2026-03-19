@@ -31,6 +31,8 @@ interface CloudInitOpts {
   envVars?: Record<string, string>;
   dockerImage?: string;
   entrypoint?: string;
+  /** Additional SSH public keys (user-managed) to authorize on the machine */
+  extraSSHKeys?: string[];
 }
 
 export function buildCloudInit(opts: CloudInitOpts): string {
@@ -51,6 +53,11 @@ export function buildCloudInit(opts: CloudInitOpts): string {
     `>/dev/null 2>&1 || true`;
 
   const resolvedEntrypoint = opts.entrypoint ?? '';
+
+  // Build extra SSH keys block (user-managed keys to add alongside the auto-generated one)
+  const extraSSHKeysBlock = (opts.extraSSHKeys && opts.extraSSHKeys.length > 0)
+    ? opts.extraSSHKeys.map(k => `echo '${k}' >> /root/.ssh/authorized_keys\necho '${k}' >> /home/user/.ssh/authorized_keys`).join('\n')
+    : '';
 
   const dockerBlock = opts.dockerImage ? `
 # ── Configure Docker workload ─────────────────────────────────────────────
@@ -133,6 +140,7 @@ chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys
 
 mkdir -p /home/user/.ssh
 echo '${opts.sshPublicKey}' > /home/user/.ssh/authorized_keys
+${extraSSHKeysBlock}
 chmod 700 /home/user/.ssh && chmod 600 /home/user/.ssh/authorized_keys
 chown -R user:user /home/user/.ssh
 

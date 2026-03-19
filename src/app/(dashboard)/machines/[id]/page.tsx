@@ -166,7 +166,7 @@ export default function MachineDetailPage() {
           {isReady && (
             <Button variant="outline" onClick={() => setCreateImageOpen(true)} title="Create Image">
               <Camera className="size-4" />
-              <span className="sr-only sm:not-sr-only sm:ml-2">Snapshot</span>
+              <span className="sr-only sm:not-sr-only sm:ml-2">Image</span>
             </Button>
           )}
           <Button variant="outline" onClick={handleReboot} disabled={!isReady || rebootMachine.isPending} title="Reboot">
@@ -443,7 +443,7 @@ export default function MachineDetailPage() {
       {/* Create Image Dialog */}
       <Dialog open={createImageOpen} onOpenChange={setCreateImageOpen}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Create Snapshot</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Create Image</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="image-name">Name</Label>
@@ -454,7 +454,7 @@ export default function MachineDetailPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateImageOpen(false)}>Cancel</Button>
             <Button onClick={handleCreateImage} disabled={createImage.isPending || !imageName.trim()}>
-              {createImage.isPending ? <><Loader2 className="size-4 animate-spin mr-2" />Creating...</> : "Create Snapshot"}
+              {createImage.isPending ? <><Loader2 className="size-4 animate-spin mr-2" />Creating...</> : "Create Image"}
             </Button>
           </DialogFooter>
         </DialogContent>

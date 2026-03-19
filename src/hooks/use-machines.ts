@@ -35,6 +35,7 @@ interface CreateMachineInput {
   name?: string;
   docker_image?: string;
   entrypoint?: string;
+  ssh_key_ids?: string[];
 }
 
 /** Result of createMachine — either a Machine (provisioned) or a checkout redirect (needs payment) */

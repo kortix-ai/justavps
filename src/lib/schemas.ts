@@ -18,6 +18,7 @@ export const CreateMachineSchema = z.object({
   env_vars: z.record(z.string(), z.string()).optional().describe('Extra environment variables written to /etc/justavps/env on the machine'),
   docker_image: z.string().optional().describe('Docker image to run on boot (e.g. "myapp:latest")'),
   entrypoint: z.string().optional().describe('Entrypoint for the Docker container'),
+  ssh_key_ids: z.array(z.string().uuid()).optional().describe('IDs of user SSH keys to add to the machine. Auto-generated key is always included.'),
 });
 
 export const ResizeMachineSchema = z.object({

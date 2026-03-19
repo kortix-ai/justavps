@@ -1,22 +1,20 @@
-import { eq } from 'drizzle-orm';
+import { eq, inArray, and } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db';
-import { machines, users } from '../db/schema';
-import { generateMachineToken } from './crypto';
+import { machines, users, sshKeys } from '../db/schema';
+import { generateMachineToken, fingerprintSSHKey } from './crypto';
+import { generateSSHKeyPair } from './ssh-keygen';
 import { buildCloudInit } from './cloud-init';
 import { config } from './config';
 import { cloudflareClient } from './cloudflare';
 import { stripeClient, type MachineSpecs } from './stripe';
 import type { ComputeProvider } from './providers';
+import { broadcastToProviders } from './provider-sync';
 
 export async function generateMachineIdentity() {
   const slug = nanoid(8).toLowerCase().replace(/[^a-z0-9]/g, 'x');
   const machineToken = generateMachineToken();
-
-  const { generateSSHKeyPair } = await import('./ssh-keygen');
-  const keyPair = generateSSHKeyPair(`${slug}@justavps`);
-
-  return { slug, machineToken, keyPair };
+  return { slug, machineToken };
 }
 
 export async function uploadSSHKeyToProvider(
@@ -40,6 +38,7 @@ export function buildMachineUserData(
   envVars?: Record<string, string>,
   dockerImage?: string,
   entrypoint?: string,
+  extraSSHKeys?: string[],
 ) {
   return buildCloudInit({
     slug,
@@ -50,6 +49,7 @@ export function buildMachineUserData(
     envVars,
     dockerImage,
     entrypoint,
+    extraSSHKeys,
   });
 }
 
@@ -100,6 +100,50 @@ export async function lookupPriceAndSpecs(
   } catch {
     return { priceMonthly: 30 };
   }
+}
+
+/**
+ * Resolve SSH key IDs to their public keys.
+ * Only returns keys belonging to the specified owner.
+ */
+export async function resolveSSHKeyPublicKeys(
+  ownerId: string,
+  sshKeyIds: string[],
+): Promise<string[]> {
+  if (!sshKeyIds.length) return [];
+  const keys = await db.select({ publicKey: sshKeys.publicKey })
+    .from(sshKeys)
+    .where(and(eq(sshKeys.ownerId, ownerId), inArray(sshKeys.id, sshKeyIds)));
+  return keys.map(k => k.publicKey);
+}
+
+/**
+ * Auto-generate an SSH key and save it to the user's ssh_keys table.
+ * The key is named "auto-{slug}" so users can identify which machine it was created for.
+ */
+export async function autoGenerateAndSaveSSHKey(
+  ownerId: string,
+  slug: string,
+): Promise<{ publicKey: string; privateKey: string; keyId: string }> {
+  const keyPair = generateSSHKeyPair(`${slug}@justavps`);
+  const fingerprint = fingerprintSSHKey(keyPair.publicKey);
+
+  // Upload to providers (best-effort)
+  const uploaded = await broadcastToProviders(
+    (provider) => provider.uploadSSHKey(`justavps-auto-${slug}`, keyPair.publicKey),
+    'SSH-KEYS-AUTO',
+  );
+  const providerKeyId = uploaded?.result.keyId ?? null;
+
+  const [saved] = await db.insert(sshKeys).values({
+    ownerId,
+    name: `auto-${slug}`,
+    publicKey: keyPair.publicKey,
+    fingerprint,
+    providerKeyId,
+  }).returning();
+
+  return { publicKey: keyPair.publicKey, privateKey: keyPair.privateKey, keyId: saved.id };
 }
 
 interface CreateMachineInput {

@@ -24,6 +24,8 @@ import {
   buildMachineUserData,
   setupProxyDNS,
   createMachineRecord,
+  autoGenerateAndSaveSSHKey,
+  resolveSSHKeyPublicKeys,
 } from '../../lib/machine-lifecycle';
 
 export const stripeWebhooksApp = new OpenAPIHono();
@@ -124,15 +126,25 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       if (baseImage?.providerImageId) resolvedImage = baseImage.providerImageId;
     }
 
-    const { slug, machineToken, keyPair } = await generateMachineIdentity();
-    const providerKeyId = await uploadSSHKeyToProvider(provider, slug, keyPair.publicKey);
+    const { slug, machineToken } = await generateMachineIdentity();
+
+    // Auto-generate SSH key and save to user's ssh_keys table
+    const autoKey = await autoGenerateAndSaveSSHKey(userId, slug);
+
+    // Resolve any user-selected SSH keys
+    const extraSSHKeys = machineConfig.ssh_key_ids?.length
+      ? await resolveSSHKeyPublicKeys(userId, machineConfig.ssh_key_ids)
+      : [];
+
+    const providerKeyId = await uploadSSHKeyToProvider(provider, slug, autoKey.publicKey);
     const userdata = buildMachineUserData(
       slug,
-      keyPair.publicKey,
+      autoKey.publicKey,
       machineToken,
       machineConfig.env_vars,
       machineConfig.docker_image,
       machineConfig.entrypoint,
+      extraSSHKeys,
     );
 
     const machine = await createMachineRecord({
@@ -146,8 +158,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       ip: null,
       providerServerId: null,
       machineToken,
-      sshPublicKey: keyPair.publicKey,
-      sshPrivateKey: keyPair.privateKey,
+      sshPublicKey: autoKey.publicKey,
+      sshPrivateKey: autoKey.privateKey,
       priceMonthly: priceMonthly || null,
       dockerImage: machineConfig.docker_image || null,
       entrypoint: machineConfig.entrypoint || null,

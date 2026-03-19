@@ -25,6 +25,8 @@ import {
   createStripeSubscription,
   cleanupMachineResources,
   syncMachineStatus,
+  autoGenerateAndSaveSSHKey,
+  resolveSSHKeyPublicKeys,
 } from '../../lib/machine-lifecycle';
 import {
   CreateMachineSchema,
@@ -202,6 +204,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
             docker_image: data.docker_image,
             entrypoint: data.entrypoint,
             env_vars: data.env_vars,
+            ssh_key_ids: data.ssh_key_ids,
             specs,
           },
           priceMonthlyUsd: priceMonthly,
@@ -224,9 +227,18 @@ machinesApp.openapi(createMachineRoute, async (c) => {
 
   // 5. Provision immediately
   try {
-    const { slug, machineToken, keyPair } = await generateMachineIdentity();
-    const providerKeyId = await uploadSSHKeyToProvider(provider, slug, keyPair.publicKey);
-    const userdata = buildMachineUserData(slug, keyPair.publicKey, machineToken, data.env_vars, data.docker_image, data.entrypoint);
+    const { slug, machineToken } = await generateMachineIdentity();
+
+    // Auto-generate SSH key and save to user's ssh_keys table
+    const autoKey = await autoGenerateAndSaveSSHKey(ownerId, slug);
+
+    // Resolve any user-selected SSH keys to inject alongside the auto-generated one
+    const extraSSHKeys = data.ssh_key_ids?.length
+      ? await resolveSSHKeyPublicKeys(ownerId, data.ssh_key_ids)
+      : [];
+
+    const providerKeyId = await uploadSSHKeyToProvider(provider, slug, autoKey.publicKey);
+    const userdata = buildMachineUserData(slug, autoKey.publicKey, machineToken, data.env_vars, data.docker_image, data.entrypoint, extraSSHKeys);
 
     const machine = await createMachineRecord({
       ownerId,
@@ -239,8 +251,8 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       ip: null,
       providerServerId: null,
       machineToken,
-      sshPublicKey: keyPair.publicKey,
-      sshPrivateKey: keyPair.privateKey,
+      sshPublicKey: autoKey.publicKey,
+      sshPrivateKey: autoKey.privateKey,
       priceMonthly,
       dockerImage: data.docker_image || null,
       entrypoint: data.entrypoint || null,

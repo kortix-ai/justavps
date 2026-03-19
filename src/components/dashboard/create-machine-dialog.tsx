@@ -16,7 +16,8 @@ import {
 import { toast } from "sonner";
 import { useProviders, useRegions, useServerTypes } from "@/hooks/use-server-types";
 import { useCreateMachine } from "@/hooks/use-machines";
-import { ChevronRight, Loader2 } from "lucide-react";
+import { useSSHKeys } from "@/hooks/use-ssh-keys";
+import { ChevronRight, Loader2, KeyRound, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface CreateMachineDialogProps {
@@ -36,6 +37,9 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
   const [selectedRegion, setSelectedRegion] = useState("");
   const [selectedServerType, setSelectedServerType] = useState("");
   const [machineName, setMachineName] = useState("");
+  const [dockerImage, setDockerImage] = useState("");
+  const [entrypoint, setEntrypoint] = useState("");
+  const [selectedSSHKeyIds, setSelectedSSHKeyIds] = useState<string[]>([]);
   const [showMore, setShowMore] = useState(false);
 
   // Dependent queries
@@ -44,6 +48,7 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
     selectedProvider || undefined,
     selectedRegion || undefined,
   );
+  const { data: userSSHKeys } = useSSHKeys();
 
   const createMachine = useCreateMachine();
 
@@ -54,6 +59,9 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
       setSelectedRegion("");
       setSelectedServerType("");
       setMachineName("");
+      setDockerImage("");
+      setEntrypoint("");
+      setSelectedSSHKeyIds([]);
       setShowMore(false);
     }
   }, [open]);
@@ -85,16 +93,17 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
         server_type: selectedServerType,
         region: selectedRegion,
         name: machineName || undefined,
+        docker_image: dockerImage || undefined,
+        entrypoint: entrypoint || undefined,
+        ssh_key_ids: selectedSSHKeyIds.length > 0 ? selectedSSHKeyIds : undefined,
       },
       {
         onSuccess: (result) => {
           if (result.kind === "checkout") {
-            // User needs to add a payment method — redirect to Stripe Checkout
             toast.info("Redirecting to payment...");
             window.location.href = result.checkout.checkout_url;
             return;
           }
-          // Machine created directly
           toast.success("Machine created!");
           onOpenChange(false);
           router.push(`/machines/${result.machine.id}`);
@@ -204,6 +213,82 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
               />
             </div>
           )}
+
+          {/* Docker Image (optional) */}
+          {canCreate && (
+            <div className="space-y-2">
+              <Label htmlFor="docker-image" className="text-xs uppercase tracking-wider text-muted-foreground">
+                Docker Image <span className="normal-case">(optional)</span>
+              </Label>
+              <Input
+                id="docker-image"
+                placeholder="nginx:latest"
+                value={dockerImage}
+                onChange={(e) => setDockerImage(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Public Docker Hub image to auto-start on the machine. Base image runs Ubuntu 24.04 (amd64) &mdash; your Docker image must be compatible.
+              </p>
+              {dockerImage && (
+                <div className="space-y-2 pt-1">
+                  <Label htmlFor="docker-entrypoint" className="text-xs uppercase tracking-wider text-muted-foreground">
+                    Entrypoint <span className="normal-case">(optional)</span>
+                  </Label>
+                  <Input
+                    id="docker-entrypoint"
+                    placeholder="/bin/sh -c 'my-command'"
+                    value={entrypoint}
+                    onChange={(e) => setEntrypoint(e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* SSH Keys */}
+          {canCreate && (
+            <div className="space-y-2">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                SSH Keys
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                A new key is auto-generated and saved to your account. Optionally add your own keys too.
+              </p>
+              {userSSHKeys && userSSHKeys.length > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  {userSSHKeys.map((key) => {
+                    const isSelected = selectedSSHKeyIds.includes(key.id);
+                    return (
+                      <div
+                        key={key.id}
+                        onClick={() =>
+                          setSelectedSSHKeyIds((prev) =>
+                            isSelected ? prev.filter((id) => id !== key.id) : [...prev, key.id]
+                          )
+                        }
+                        className={cn(
+                          "cursor-pointer flex items-center gap-3 p-2.5 rounded-lg border transition-colors",
+                          isSelected ? "border-primary bg-primary/5" : "hover:bg-muted/30"
+                        )}
+                      >
+                        <div className={cn(
+                          "size-4 rounded border flex items-center justify-center shrink-0 transition-colors",
+                          isSelected ? "bg-primary border-primary" : "border-muted-foreground/30"
+                        )}>
+                          {isSelected && <Check className="size-3 text-primary-foreground" />}
+                        </div>
+                        <KeyRound className="size-3.5 text-muted-foreground shrink-0" />
+                        <div className="min-w-0">
+                          <div className="text-sm">{key.name}</div>
+                          <div className="text-[11px] text-muted-foreground font-mono truncate">{key.fingerprint}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -242,7 +327,7 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
   );
 }
 
-// ─── Reusable selection row ──────────────────────────────────────────────────
+// --- Reusable selection row ---
 
 function OptionRow({
   selected,

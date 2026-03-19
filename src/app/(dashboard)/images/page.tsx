@@ -1,24 +1,66 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { timeAgo } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
-import { useImages, useDeleteImage } from "@/hooks/use-images";
+import { useImages, useCreateImage, useDeleteImage } from "@/hooks/use-images";
+import { useMachines } from "@/hooks/use-machines";
 import { useConfirm } from "@/hooks/use-confirm";
 import type { Image } from "@/lib/types";
-import { HardDrive, Trash2, Loader2, Server } from "lucide-react";
+import { HardDrive, Trash2, Container, Loader2, Plus } from "lucide-react";
 
-const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; dotClass: string }> = {
-  creating: { label: "Creating", variant: "secondary", dotClass: "bg-yellow-500 animate-pulse" },
-  ready: { label: "Ready", variant: "default", dotClass: "bg-green-500" },
-  failed: { label: "Failed", variant: "destructive", dotClass: "bg-red-500" },
+const statusConfig: Record<string, { label: string; dotClass: string }> = {
+  creating: { label: "Creating", dotClass: "bg-yellow-500 animate-pulse" },
+  ready: { label: "Ready", dotClass: "bg-green-500" },
+  failed: { label: "Failed", dotClass: "bg-red-500" },
 };
 
 export default function ImagesPage() {
   const { data: images, isLoading, error } = useImages();
+  const { data: machines } = useMachines();
+  const createImage = useCreateImage();
   const deleteImage = useDeleteImage();
   const [confirm, ConfirmDialog] = useConfirm();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [imageName, setImageName] = useState("");
+  const [selectedMachineId, setSelectedMachineId] = useState("");
+
+  const readyMachines = machines?.filter((m) => m.status === "ready") ?? [];
+
+  const handleCreate = () => {
+    if (!imageName.trim() || !selectedMachineId) return;
+    createImage.mutate(
+      { machine_id: selectedMachineId, name: imageName.trim() },
+      {
+        onSuccess: () => {
+          toast.success("Image creation started");
+          setCreateOpen(false);
+          setImageName("");
+          setSelectedMachineId("");
+        },
+        onError: (err) => toast.error(err.message),
+      },
+    );
+  };
 
   const handleDelete = async (id: string, name: string) => {
     const ok = await confirm({
@@ -29,7 +71,6 @@ export default function ImagesPage() {
       icon: <Trash2 className="size-4 text-destructive" />,
     });
     if (!ok) return;
-
     deleteImage.mutate(id, {
       onSuccess: () => toast.success("Image deleted"),
       onError: (err) => toast.error(err.message),
@@ -40,6 +81,10 @@ export default function ImagesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="font-heading text-3xl tracking-tight">Images</h1>
+        <Button onClick={() => setCreateOpen(true)} disabled={readyMachines.length === 0}>
+          <Plus className="size-4 mr-2" />
+          Create Image
+        </Button>
       </div>
 
       {error && (
@@ -66,8 +111,14 @@ export default function ImagesPage() {
           <HardDrive className="mx-auto size-12 text-muted-foreground/40 mb-4" strokeWidth={1} />
           <h2 className="font-heading text-2xl mb-2">No images yet</h2>
           <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
-            Create an image from a running machine to save its state. Go to a machine&apos;s detail page and click &quot;Create Image&quot;.
+            Capture an image from a running machine to save its state and spin up identical machines later.
           </p>
+          {readyMachines.length > 0 && (
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="size-4 mr-2" />
+              Create Your First Image
+            </Button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -81,12 +132,57 @@ export default function ImagesPage() {
         </div>
       )}
 
+      {/* Create Image Dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Image</DialogTitle>
+            <DialogDescription>
+              Capture the current state of a running machine as a reusable image.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Source Machine</Label>
+              <Select value={selectedMachineId} onValueChange={(v) => setSelectedMachineId(v ?? "")}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a running machine" />
+                </SelectTrigger>
+                <SelectContent>
+                  {readyMachines.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.name} <span className="text-muted-foreground ml-1">({m.slug})</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="new-image-name">Image Name</Label>
+              <Input
+                id="new-image-name"
+                placeholder="my-dev-environment"
+                value={imageName}
+                onChange={(e) => setImageName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button onClick={handleCreate} disabled={createImage.isPending || !imageName.trim() || !selectedMachineId}>
+              {createImage.isPending ? <><Loader2 className="size-4 animate-spin mr-2" />Creating...</> : "Create Image"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <ConfirmDialog />
     </div>
   );
 }
 
-// ─── Image Card ──────────────────────────────────────────────────────────
+// --- Image Card ---
 
 function ImageCard({ image, onDelete }: { image: Image; onDelete: () => void }) {
   const status = statusConfig[image.status] || statusConfig.failed;
@@ -94,24 +190,18 @@ function ImageCard({ image, onDelete }: { image: Image; onDelete: () => void }) 
 
   return (
     <div className="group relative p-4 rounded-xl bg-card transition-colors hover:bg-muted/40">
-      {/* Header */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2.5">
           <div className="flex size-9 items-center justify-center rounded-lg bg-muted/60">
             {isCreating ? (
               <Loader2 className="size-4 text-muted-foreground animate-spin" />
             ) : (
-              <HardDrive className="size-4 text-muted-foreground" />
+              <Container className="size-4 text-muted-foreground" />
             )}
           </div>
           <div>
             <div className="font-medium text-sm">{image.name}</div>
-            {image.source_machine_id && (
-              <div className="font-mono text-xs text-muted-foreground flex items-center gap-1">
-                <Server className="size-3" />
-                Source machine
-              </div>
-            )}
+            <div className="font-mono text-xs text-muted-foreground">{image.architecture || "x86"}</div>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -120,7 +210,6 @@ function ImageCard({ image, onDelete }: { image: Image; onDelete: () => void }) 
         </div>
       </div>
 
-      {/* Details */}
       <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
         <span>{image.architecture || "x86"}</span>
         {image.disk_size_gb && (
@@ -133,13 +222,7 @@ function ImageCard({ image, onDelete }: { image: Image; onDelete: () => void }) 
         <span>Created {timeAgo(image.created_at)}</span>
       </div>
 
-      {/* Status + Delete */}
-      <div className="flex items-center justify-between mt-3">
-        <div className="flex gap-1">
-          {isCreating && (
-            <span className="text-xs text-muted-foreground">Creating...</span>
-          )}
-        </div>
+      <div className="flex items-center justify-end mt-3">
         <Button
           variant="ghost"
           size="sm"

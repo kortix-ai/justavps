@@ -5,7 +5,7 @@
  */
 export const PROTECTED_ROUTES: string[] = [
   '/machines',
-  '/snapshots',
+  '/images',
   '/keys',
   '/webhooks',
   '/billing',
