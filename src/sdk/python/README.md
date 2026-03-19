@@ -1,47 +1,37 @@
 # JustAVPS Python SDK
 
-Official Python client for the [JustAVPS API](https://justavps.com/api/docs). Auto-generated from the OpenAPI spec.
+Official Python client for the [JustAVPS API](https://justavps.com/api/docs).
 
 ```
-pip install just-avps-api-client
+pip install justavps
 ```
 
 ## Quick Start
 
 ```python
-from just_avps_api_client import AuthenticatedClient
+from justavps import JustAVPS
 
-client = AuthenticatedClient(
-    base_url="https://justavps.com/api/v1",
-    token="sk_live_your_api_key"
-)
+client = JustAVPS("sk_live_...")
 ```
 
 ## Machines
 
 ```python
-from just_avps_api_client.api.machines import (
-    get_api_v1_machines,
-    post_api_v1_machines,
-    get_api_v1_machines_id,
-    delete_api_v1_machines_id,
-    post_api_v1_machines_id_reboot,
-)
+# List machines
+machines = client.machines.list()
 
-with client as c:
-    # List all machines
-    response = get_api_v1_machines.sync_detailed(client=c)
+# Create a machine
+machine = client.machines.create(server_type="cpx32", region="hel1", name="my-box")
+print(f"Created: {machine['id']} — {machine['slug']}")
 
-    # Create a machine
-    from just_avps_api_client.models import PostApiV1MachinesBody
-    machine = post_api_v1_machines.sync(client=c, body=PostApiV1MachinesBody(
-        provider="cloud", server_type="cpx32", region="hel1", name="my-dev-box",
-    ))
+# Get details
+machine = client.machines.get(machine_id)
+print(f"Status: {machine['status']}, IP: {machine['ip']}")
 
-    # Get / Reboot / Delete
-    machine = get_api_v1_machines_id.sync(client=c, id=machine_id)
-    post_api_v1_machines_id_reboot.sync(client=c, id=machine_id)
-    delete_api_v1_machines_id.sync(client=c, id=machine_id)
+# Reboot / Resize / Delete
+client.machines.reboot(machine_id)
+client.machines.resize(machine_id, server_type="cpx42")
+client.machines.delete(machine_id)
 ```
 
 ## Toolbox: Filesystem
@@ -49,62 +39,49 @@ with client as c:
 Read, write, search, and manage files on a running machine.
 
 ```python
-from just_avps_api_client.api.toolbox_filesystem import (
-    get_api_v_1_machines_machine_id_toolbox_files as list_files,
-    get_api_v_1_machines_machine_id_toolbox_files_info as file_info,
-    get_api_v_1_machines_machine_id_toolbox_files_exists as file_exists,
-    get_api_v_1_machines_machine_id_toolbox_files_download as download_file,
-    post_api_v_1_machines_machine_id_toolbox_files_upload as upload_file,
-    post_api_v_1_machines_machine_id_toolbox_files_folder as create_folder,
-    delete_api_v_1_machines_machine_id_toolbox_files as delete_file,
-    post_api_v_1_machines_machine_id_toolbox_files_move as move_file,
-    get_api_v_1_machines_machine_id_toolbox_files_find as find_text,
-    post_api_v_1_machines_machine_id_toolbox_files_replace as replace_text,
-    post_api_v_1_machines_machine_id_toolbox_files_permissions as set_permissions,
-)
+tb = client.toolbox(machine_id)
 
-machine_id = "your-machine-uuid"
+# List files
+entries = tb.files.list("/root")
+for e in entries:
+    print(f"  {e['type']:4s} {e['mode_bits']} {e['size']:>8d} {e['name']}")
 
-with client as c:
-    # List files
-    result = list_files.sync(client=c, machine_id=machine_id, path="/root")
-    for entry in result.entries:
-        print(f"  {entry.type:4s} {entry.mode_bits} {entry.size:>8d} {entry.name}")
+# Upload a file (auto-creates parent dirs)
+tb.files.upload("/root/app.py", "print('hello')", mode="755")
 
-    # Upload a file (auto-creates parent dirs)
-    upload_file.sync(client=c, machine_id=machine_id, path="/root/app.py",
-                     body="print('Hello from JustAVPS!')")
+# Download a file
+content = tb.files.download("/root/app.py")
 
-    # Download a file
-    content = download_file.sync(client=c, machine_id=machine_id, path="/root/app.py")
+# Check existence
+result = tb.files.exists("/root/app.py")
+print(result["exists"], result["type"])
 
-    # Check existence
-    result = file_exists.sync(client=c, machine_id=machine_id, path="/root/app.py")
+# File metadata
+info = tb.files.info("/root/app.py")
+print(f"Size: {info['size']}, Owner: {info['owner']}")
 
-    # File metadata
-    info = file_info.sync(client=c, machine_id=machine_id, path="/root/app.py")
+# Create directory (mkdir -p)
+tb.files.mkdir("/root/project/src")
 
-    # Create directory (mkdir -p)
-    create_folder.sync(client=c, machine_id=machine_id, path="/root/project/src")
+# Search text in files (grep)
+result = tb.files.find("/root/project", r"TODO|FIXME", include="*.py")
+for m in result["matches"]:
+    print(f"  {m['file']}:{m['line']}: {m['content']}")
 
-    # Search text in files (grep)
-    result = find_text.sync(client=c, machine_id=machine_id,
-                            path="/root/project", pattern="TODO|FIXME", include_="*.py")
+# Find and replace
+tb.files.replace(["/root/app.py"], "hello", "goodbye")
 
-    # Find and replace
-    replace_text.sync(client=c, machine_id=machine_id,
-                      body={"files": ["/root/app.py"], "pattern": "Hello", "new_value": "Hi"})
+# Move / rename
+tb.files.move("/root/app.py", "/root/main.py")
 
-    # Move / rename
-    move_file.sync(client=c, machine_id=machine_id,
-                   source="/root/app.py", destination="/root/main.py")
+# Set permissions
+tb.files.chmod("/root/main.py", "755")
 
-    # Set permissions
-    set_permissions.sync(client=c, machine_id=machine_id,
-                         path="/root/main.py", body={"mode": "755"})
+# Delete file
+tb.files.remove("/root/main.py")
 
-    # Delete
-    delete_file.sync(client=c, machine_id=machine_id, path="/root/main.py")
+# Delete directory recursively
+tb.files.remove("/root/project", recursive=True)
 ```
 
 ## Toolbox: Process
@@ -112,75 +89,82 @@ with client as c:
 Execute commands, run code, and manage processes on a running machine.
 
 ```python
-from just_avps_api_client.api.toolbox_process import (
-    post_api_v_1_machines_machine_id_toolbox_process_execute as execute,
-    post_api_v_1_machines_machine_id_toolbox_process_code_run as code_run,
-    get_api_v_1_machines_machine_id_toolbox_process_list as list_processes,
-    post_api_v_1_machines_machine_id_toolbox_process_kill as kill_process,
+tb = client.toolbox(machine_id)
+
+# Execute a shell command
+result = tb.process.exec("ls -la /root")
+print(f"Exit: {result['exit_code']}")
+print(result["stdout"])
+
+# Execute with cwd, timeout, env vars
+result = tb.process.exec(
+    "npm install && npm run build",
+    cwd="/root/project",
+    timeout=120,
+    env={"NODE_ENV": "production"},
 )
 
-with client as c:
-    # Execute a shell command
-    result = execute.sync(client=c, machine_id=machine_id,
-                          body={"command": "ls -la /root", "timeout": 30})
-    print(f"Exit: {result.exit_code}")
-    print(result.stdout)
+# Run a code snippet
+result = tb.process.code_run("print(6 * 7)", language="python")
+print(result["stdout"])  # "42\n"
 
-    # Execute with cwd + env vars
-    result = execute.sync(client=c, machine_id=machine_id, body={
-        "command": "npm install && npm run build",
-        "cwd": "/root/project",
-        "timeout": 120,
-        "env": {"NODE_ENV": "production"},
-    })
+# List running processes
+processes = tb.process.list()
+for p in processes:
+    print(f"  PID {p['pid']}: {p['command']}")
 
-    # Run a code snippet
-    result = code_run.sync(client=c, machine_id=machine_id,
-                           body={"code": "print(2 + 2)", "language": "python"})
-    print(result.stdout)  # "4\n"
-
-    # List processes
-    result = list_processes.sync(client=c, machine_id=machine_id)
-    for proc in result.processes:
-        print(f"  PID {proc.pid}: {proc.command}")
-
-    # Kill a process
-    kill_process.sync(client=c, machine_id=machine_id,
-                      body={"pid": 1234, "signal": "SIGTERM"})
+# Kill a process
+tb.process.kill(1234, signal="SIGTERM")
 ```
 
-## Images, SSH Keys, API Keys, Webhooks, Server Types
+## Images
 
 ```python
-# Images
-from just_avps_api_client.api.images import get_api_v1_images, delete_api_v1_images_id
-from just_avps_api_client.api.machines import post_api_v1_machines_id_image
+# Create image from a running machine
+image = client.machines.create_image(machine_id, name="my-snapshot")
 
+# List / get / delete
+images = client.images.list()
+image = client.images.get(image_id)
+client.images.delete(image_id)
+```
+
+## SSH Keys, API Keys, Webhooks
+
+```python
 # SSH Keys
-from just_avps_api_client.api.ssh_keys import get_api_v1_ssh_keys, post_api_v1_ssh_keys
+keys = client.ssh_keys.list()
+key = client.ssh_keys.create("laptop", "ssh-ed25519 AAAA...")
+client.ssh_keys.delete(key["id"])
 
 # API Keys
-from just_avps_api_client.api.api_keys import get_api_v1_api_keys, post_api_v1_api_keys
+keys = client.api_keys.list()
+key = client.api_keys.create("ci-deploy")
+print(key["key"])  # Only shown once!
+client.api_keys.delete(key["id"])
 
 # Webhooks
-from just_avps_api_client.api.webhooks import get_api_v1_webhooks, post_api_v1_webhooks
-
-# Server Types
-from just_avps_api_client.api.server_types import (
-    get_api_v1_server_types,
-    get_api_v1_server_types_providers,
-    get_api_v1_server_types_regions,
-)
+hooks = client.webhooks.list()
+hook = client.webhooks.create("https://example.com/hook", ["machine.ready", "machine.deleted"])
+client.webhooks.delete(hook["id"])
 ```
 
-## Async
-
-Every method has an async variant:
+## Server Types
 
 ```python
-async with client as c:
-    machines = await get_api_v1_machines.asyncio(client=c)
-    result = await execute.asyncio(client=c, machine_id=mid, body={"command": "uptime"})
+providers = client.server_types.providers()
+regions = client.server_types.regions("cloud")
+types = client.server_types.list("hel1")
+for t in types:
+    print(f"  {t['name']}: {t['cores']} vCPU, {t['memory']}GB, ${t['price_monthly']}/mo")
+```
+
+## Context Manager
+
+```python
+with JustAVPS("sk_live_...") as client:
+    machines = client.machines.list()
+    # client.close() called automatically
 ```
 
 ## API Reference

@@ -168,14 +168,15 @@ class HttpClient {
   post<T>(path: string, body?: unknown) { return this.request<T>('POST', path, body); }
   delete<T = void>(path: string) { return this.request<T>('DELETE', path); }
 
-  /** Raw fetch (for binary/text downloads where JSON parsing isn't desired) */
-  async requestRaw(method: string, path: string): Promise<Response> {
+  /** Raw fetch — for binary/text operations (downloads, file uploads) */
+  async requestRaw(method: string, path: string, body?: BodyInit | null, headers?: Record<string, string>): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeout);
     try {
       const res = await this.fetchFn(`${this.baseUrl}${path}`, {
         method,
-        headers: { Authorization: this.headers.Authorization },
+        headers: { Authorization: this.headers.Authorization, ...headers },
+        body,
         signal: controller.signal,
       });
       if (!res.ok) {
@@ -405,13 +406,17 @@ class ToolboxFilesResource {
   }
 
   /** Upload content to a file (creates parent directories automatically) */
-  upload(path: string, content: string, opts?: { mode?: string; overwrite?: boolean }) {
+  async upload(path: string, content: string | ArrayBuffer, opts?: { mode?: string; overwrite?: boolean }) {
     const params = new URLSearchParams({ path });
     if (opts?.mode) params.set('mode', opts.mode);
     if (opts?.overwrite === false) params.set('overwrite', 'false');
-    return this.http.post<{ path: string; name: string; type: 'file'; size: number }>(
-      `${this.base}/files/upload?${params}`, content,
+    const res = await this.http.requestRaw(
+      'POST',
+      `${this.base}/files/upload?${params}`,
+      typeof content === 'string' ? content : content,
+      { 'Content-Type': 'application/octet-stream' },
     );
+    return res.json() as Promise<{ path: string; name: string; type: 'file'; size: number }>;
   }
 
   /** Create a directory recursively (like mkdir -p) */
