@@ -1,0 +1,30 @@
+name: Promote to Production
+
+# Manually promote main → production via GitHub Actions UI
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "promote" to confirm deployment to production'
+        required: true
+
+jobs:
+  promote:
+    name: Promote main → production
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm == 'promote'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fast-forward production to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout production
+          git merge --ff-only origin/main
+          git push origin production
+          echo "### Promoted main → production" >> $GITHUB_STEP_SUMMARY
+          echo "Commit: $(git rev-parse --short HEAD)" >> $GITHUB_STEP_SUMMARY
