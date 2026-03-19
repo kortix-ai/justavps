@@ -25,7 +25,7 @@ import { useConfirm } from "@/hooks/use-confirm";
 import {
   ArrowLeft, RotateCw, Trash2, Copy, Check,
   Cpu, MemoryStick, HardDrive, Clock,
-  Globe, Server, Loader2,
+  Globe, Server, Loader2, ExternalLink, Code2,
   Terminal as TerminalIcon, Link2,
   AlertTriangle, Camera, Shield, Monitor
 } from "lucide-react";
@@ -62,6 +62,53 @@ function CopyButton({ text, label, className }: { text: string; label: string; c
       {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
       {copied ? "Copied" : "Copy"}
     </Button>
+  );
+}
+
+function ProxyPortCard({ slug }: { slug: string }) {
+  const [port, setPort] = useState("");
+  const url = port ? `https://${port}--${slug}.kortix.cloud` : "";
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Port Forwarding</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Access any port on your machine via subdomain:
+        </p>
+        <div className="flex gap-2">
+          <Input
+            type="number"
+            placeholder="Port (e.g. 3000)"
+            value={port}
+            onChange={(e) => setPort(e.target.value)}
+            className="w-40 font-mono text-sm"
+            min={1}
+            max={65535}
+          />
+          {url && (
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn("inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition-colors hover:bg-muted", "border-zinc-200 dark:border-zinc-800")}
+            >
+              <ExternalLink className="size-3.5" /> Open
+            </a>
+          )}
+        </div>
+        {url && (
+          <div className="relative group">
+            <pre className="bg-zinc-950 text-zinc-300 p-3 rounded-lg text-xs font-mono border border-zinc-800">{url}</pre>
+            <CopyButton text={url} label="Port URL" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">
+          Format: <code className="bg-muted px-1 rounded">{`{port}--${slug}.kortix.cloud`}</code>
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -203,7 +250,15 @@ export default function MachineDetailPage() {
                 </TabsTrigger>
                 <TabsTrigger value="terminal" className="gap-2">
                   <TerminalIcon className="size-4" />
-                  Web Terminal
+                  Terminal
+                </TabsTrigger>
+                <TabsTrigger value="proxy" className="gap-2">
+                  <Globe className="size-4" />
+                  Proxy
+                </TabsTrigger>
+                <TabsTrigger value="api" className="gap-2">
+                  <Code2 className="size-4" />
+                  API
                 </TabsTrigger>
               </TabsList>
 
@@ -325,6 +380,118 @@ export default function MachineDetailPage() {
               {/* ── Web Terminal Tab ───────────────────────────────── */}
               <TabsContent value="terminal" className="mt-0">
                 <Terminal machineId={machine.id} machineIp={machine.ip} machineSlug={machine.slug} machineStatus={machine.status} ptyUrl={machine.urls?.pty ?? null} />
+              </TabsContent>
+
+              {/* ── Proxy Tab ──────────────────────────────────────── */}
+              <TabsContent value="proxy" className="space-y-4 mt-0">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Web Access</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      Your machine is accessible at:
+                    </p>
+                    <div className="relative group">
+                      <pre className="bg-zinc-950 text-zinc-300 p-3 rounded-lg text-sm font-mono border border-zinc-800">
+                        {`https://${machine.slug}.kortix.cloud`}
+                      </pre>
+                      <CopyButton text={`https://${machine.slug}.kortix.cloud`} label="URL" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                    <a href={`https://${machine.slug}.kortix.cloud`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline">
+                      <ExternalLink className="size-3" /> Open in browser
+                    </a>
+                  </CardContent>
+                </Card>
+
+                <ProxyPortCard slug={machine.slug} />
+
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Authentication</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <p className="text-sm text-muted-foreground">Two ways to access your machine through the proxy:</p>
+                    <div className="space-y-3">
+                      <div className="flex items-start gap-3">
+                        <div className="size-6 rounded-full bg-muted flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">1</div>
+                        <div className="space-y-1 min-w-0">
+                          <p className="text-sm font-medium">Browser — automatic</p>
+                          <p className="text-xs text-muted-foreground">Log in to justavps.com, then visit any <code className="bg-muted px-1 rounded">.kortix.cloud</code> URL. Auth is handled via session cookie.</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <div className="size-6 rounded-full bg-muted flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">2</div>
+                        <div className="space-y-1 min-w-0 flex-1">
+                          <p className="text-sm font-medium">API key — programmatic</p>
+                          <p className="text-xs text-muted-foreground">Pass your API key in the <code className="bg-muted px-1 rounded">Authorization</code> header:</p>
+                          <div className="relative group">
+                            <pre className="bg-zinc-950 text-zinc-300 p-3 rounded-lg text-xs font-mono border border-zinc-800">{`curl https://${machine.slug}.kortix.cloud \\\n  -H "Authorization: Bearer sk_live_xxx"`}</pre>
+                            <CopyButton text={`curl https://${machine.slug}.kortix.cloud \\\n  -H "Authorization: Bearer sk_live_xxx"`} label="curl" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* ── API Tab ────────────────────────────────────────── */}
+              <TabsContent value="api" className="space-y-4 mt-0">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Machine ID</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="relative group">
+                      <pre className="bg-zinc-950 text-zinc-300 p-3 rounded-lg text-sm font-mono border border-zinc-800">{machine.id}</pre>
+                      <CopyButton text={machine.id} label="Machine ID" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Quick Examples</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground">Get this machine</p>
+                      <div className="relative group">
+                        <pre className="bg-zinc-950 text-zinc-300 p-3 rounded-lg text-xs font-mono border border-zinc-800 overflow-x-auto">{`curl https://justavps.com/api/v1/machines/${machine.id} \\\n  -H "Authorization: Bearer sk_live_xxx"`}</pre>
+                        <CopyButton text={`curl https://justavps.com/api/v1/machines/${machine.id} \\\n  -H "Authorization: Bearer sk_live_xxx"`} label="curl" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground">Reboot</p>
+                      <div className="relative group">
+                        <pre className="bg-zinc-950 text-zinc-300 p-3 rounded-lg text-xs font-mono border border-zinc-800 overflow-x-auto">{`curl -X POST https://justavps.com/api/v1/machines/${machine.id}/reboot \\\n  -H "Authorization: Bearer sk_live_xxx"`}</pre>
+                        <CopyButton text={`curl -X POST https://justavps.com/api/v1/machines/${machine.id}/reboot \\\n  -H "Authorization: Bearer sk_live_xxx"`} label="curl" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground">Delete</p>
+                      <div className="relative group">
+                        <pre className="bg-zinc-950 text-zinc-300 p-3 rounded-lg text-xs font-mono border border-zinc-800 overflow-x-auto">{`curl -X DELETE https://justavps.com/api/v1/machines/${machine.id} \\\n  -H "Authorization: Bearer sk_live_xxx"`}</pre>
+                        <CopyButton text={`curl -X DELETE https://justavps.com/api/v1/machines/${machine.id} \\\n  -H "Authorization: Bearer sk_live_xxx"`} label="curl" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Resources</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <Link href="/keys" className="flex items-center gap-2 text-sm text-primary hover:underline">
+                      <Code2 className="size-3.5" /> Generate API Key
+                    </Link>
+                    <Link href="/api/docs" className="flex items-center gap-2 text-sm text-primary hover:underline">
+                      <ExternalLink className="size-3.5" /> Full API Reference
+                    </Link>
+                  </CardContent>
+                </Card>
               </TabsContent>
             </Tabs>
           ) : (
