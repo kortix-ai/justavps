@@ -57,6 +57,7 @@ const sections: DocSection[] = [
     subsections: [
       { id: "sdk-typescript", title: "TypeScript" },
       { id: "sdk-python", title: "Python" },
+      { id: "sdk-toolbox", title: "Toolbox (FS + Process)" },
     ],
   },
   {
@@ -346,16 +347,61 @@ await client.machines.delete(machine.id);`}</CodeBlock>
 client = JustAVPS("sk_live_xxx")
 
 # Create a machine
-machine = client.machines.create(
-    server_type="cpx32",
-    region="hel1",
-)
+machine = client.machines.create(server_type="cpx32", region="hel1")
 
 # List all machines
 machines = client.machines.list()
 
 # Delete a machine
-client.machines.delete(machine.id)`}</CodeBlock>
+client.machines.delete(machine["id"])`}</CodeBlock>
+
+        <H3 id="sdk-toolbox">Toolbox (Filesystem + Process)</H3>
+        <P>Every machine has a built-in toolbox for file management and command execution. Access it via <InlineCode>client.toolbox(machineId)</InlineCode>.</P>
+        <CodeBlock title="TypeScript — Files">{`const tb = client.toolbox(machine.id);
+
+// Upload, download, search, replace
+await tb.files.upload("/root/app.py", 'print("hello")');
+const content = await tb.files.download("/root/app.py");
+const { matches } = await tb.files.find("/root", "TODO");
+await tb.files.replace(["/root/app.py"], "hello", "goodbye");
+
+// Directories, permissions, move
+await tb.files.mkdir("/root/project/src");
+await tb.files.chmod("/root/script.sh", "755");
+await tb.files.move("/root/old.py", "/root/new.py");`}</CodeBlock>
+        <CodeBlock title="TypeScript — Process">{`// Execute commands
+const result = await tb.process.exec("npm install", {
+  cwd: "/root/project",
+  timeout: 120,
+  env: { NODE_ENV: "production" },
+});
+console.log(result.stdout, result.exit_code);
+
+// Run code snippets (Python, Node, Bash, Ruby, Go)
+const py = await tb.process.codeRun("print(6 * 7)", "python");
+
+// Stream output (SSE)
+for await (const event of tb.process.stream("npm run build")) {
+  if (event.type === "stdout") process.stdout.write(event.data.data);
+}
+
+// List and kill processes
+const { processes } = await tb.process.list();
+await tb.process.kill(1234, "SIGTERM");`}</CodeBlock>
+        <CodeBlock title="Python — Files + Process">{`tb = client.toolbox(machine_id)
+
+# Files
+tb.files.upload("/root/app.py", 'print("hello")')
+content = tb.files.download("/root/app.py")
+tb.files.mkdir("/root/project")
+
+# Process
+result = tb.process.exec("ls -la /root", cwd="/root")
+print(result["stdout"])
+
+py = tb.process.code_run("print(6 * 7)", language="python")
+print(py["stdout"])  # "42"`}</CodeBlock>
+        <Callout type="tip">Full interactive API reference with SDK code samples for every endpoint: <a href="/api/docs">justavps.com/api/docs</a></Callout>
 
         <DocSeparator />
 

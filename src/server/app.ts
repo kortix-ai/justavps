@@ -5,6 +5,7 @@ import { prettyJSON } from 'hono/pretty-json';
 import { Scalar } from '@scalar/hono-api-reference';
 
 import { v1 } from './routes/v1';
+import { enrichOpenAPISpec } from './lib/openapi-enrichment';
 
 export const app = new OpenAPIHono().basePath('/api');
 
@@ -50,20 +51,21 @@ app.openAPIRegistry.registerComponent('securitySchemes', 'cookieAuth', {
   description: 'Session cookie set by the dashboard login flow.',
 });
 
-// ─── OpenAPI Spec (auto-generated from route definitions) ───────────────────
+// ─── OpenAPI Spec (auto-generated from route definitions + enriched) ────────
 
-app.doc('/docs/openapi.json', {
-  openapi: '3.1.0',
+const openAPIConfig = {
+  openapi: '3.1.0' as const,
   info: {
     title: 'JustAVPS API',
     version: '1.0.0',
-    description: `The JustAVPS API lets you programmatically manage VPS machines, images, SSH keys, API keys, webhooks, and billing.
+    description: `The JustAVPS API lets you programmatically create and manage VPS machines, run commands, manage files, and build infrastructure.
 
 ## Authentication
 
-All authenticated endpoints accept either:
-- **Bearer token**: \`Authorization: Bearer sk_live_xxx\` — your API key
-- **Session cookie**: \`authjs.session-token\` — set by the dashboard login
+All authenticated endpoints accept:
+- **Bearer token**: \`Authorization: Bearer sk_live_xxx\`
+
+Generate API keys in the [dashboard](https://justavps.com/settings).
 
 ## Base URL
 \`\`\`
@@ -71,8 +73,46 @@ https://justavps.com/api/v1
 \`\`\`
 
 ## SDKs
-- **TypeScript**: \`npm install @justavps/sdk\`
-- **Python**: \`pip install justavps\`
+
+\`\`\`bash
+# TypeScript / Node.js
+npm install @justavps/sdk
+
+# Python
+pip install justavps
+\`\`\`
+
+\`\`\`typescript
+import { JustAVPS } from "@justavps/sdk";
+const client = new JustAVPS({ apiKey: "sk_live_..." });
+
+// Create a machine
+const machine = await client.machines.create({ server_type: "cpx32", region: "hel1" });
+
+// Execute commands
+const tb = client.toolbox(machine.id);
+const result = await tb.process.exec("echo hello");
+
+// Manage files
+await tb.files.upload("/root/app.py", 'print("hello")');
+const content = await tb.files.download("/root/app.py");
+\`\`\`
+
+\`\`\`python
+from justavps import JustAVPS
+client = JustAVPS("sk_live_...")
+
+# Create a machine
+machine = client.machines.create(server_type="cpx32", region="hel1")
+
+# Execute commands
+tb = client.toolbox(machine["id"])
+result = tb.process.exec("echo hello")
+
+# Manage files
+tb.files.upload("/root/app.py", 'print("hello")')
+content = tb.files.download("/root/app.py")
+\`\`\`
 `,
     contact: { name: 'JustAVPS', url: 'https://justavps.com', email: 'support@justavps.com' },
   },
@@ -93,6 +133,16 @@ https://justavps.com/api/v1
     { name: 'Toolbox: Process', description: 'Execute commands, run code, and manage processes on a machine' },
     { name: 'Internal', description: 'Internal endpoints used by machine agents and infrastructure' },
   ],
+};
+
+// Register the spec for route generation (hono needs this)
+app.doc('/docs/openapi-raw.json', openAPIConfig);
+
+// Serve the enriched spec with SDK code samples, tag groups, etc.
+app.get('/docs/openapi.json', (c) => {
+  const rawSpec = app.getOpenAPI31Document(openAPIConfig);
+  const enriched = enrichOpenAPISpec(rawSpec);
+  return c.json(enriched);
 });
 
 app.get(
@@ -100,11 +150,16 @@ app.get(
   Scalar({
     sources: [
       {
-        title: 'JustAVPS REST API',
+        title: 'JustAVPS API',
         url: '/api/docs/openapi.json',
       },
     ],
     theme: 'kepler',
+    hiddenClients: true,
+    defaultHttpClient: {
+      targetKey: 'js',
+      clientKey: 'fetch',
+    },
   }),
 );
 
