@@ -10,6 +10,7 @@ on:
       - "src/server/app.ts"
       - "src/server/lib/openapi-enrichment.ts"
       - "src/lib/schemas.ts"
+      - ".github/workflows/publish-sdks.yml"
 
 permissions:
   contents: write
