@@ -34,34 +34,34 @@ export type GetApiV1MachinesResponses = {
             slug: string;
             name: string;
             status: 'provisioning' | 'ready' | 'error' | 'stopped' | 'deleted';
-            provisioning_stage: string;
-            provisioning_stage_updated_at: string;
+            provisioning_stage: string | null;
+            provisioning_stage_updated_at: string | null;
             provider: string;
-            image_id: string;
+            image_id: string | null;
             server_type: string;
             region: string;
-            ip: string;
-            price_monthly: number;
+            ip: string | null;
+            price_monthly: number | null;
             backups_enabled: boolean;
             created_at: string;
-            ready_at: string;
+            ready_at: string | null;
             urls: {
                 vscode: string;
                 pty: string;
-            };
-            ssh: string;
+            } | null;
+            ssh: string | null;
             ssh_key: {
-                private_key: string;
-                public_key: string;
-                setup_command: string;
+                private_key: string | null;
+                public_key: string | null;
+                setup_command: string | null;
                 key_path: string;
-            };
+            } | null;
             connect: {
-                ssh_command: string;
-                setup_command: string;
+                ssh_command: string | null;
+                setup_command: string | null;
                 vscode_url: string;
-                cursor_ssh: string;
-            };
+                cursor_ssh: string | null;
+            } | null;
             health: {
                 cpu: number;
                 memory: number;
@@ -69,8 +69,8 @@ export type GetApiV1MachinesResponses = {
                 services: {
                     [key: string]: boolean;
                 };
-                last_heartbeat_at: string;
-            };
+                last_heartbeat_at: string | null;
+            } | null;
         }>;
     };
 };
@@ -82,7 +82,7 @@ export type PostApiV1MachinesData = {
         /**
          * Image to boot from. Null = Ubuntu 24.04
          */
-        image_id?: string;
+        image_id?: string | null;
         /**
          * Cloud provider
          */
@@ -149,6 +149,14 @@ export type PostApiV1MachinesErrors = {
         message: string;
     };
     /**
+     * Forbidden
+     */
+    403: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+    /**
      * Not Found
      */
     404: {
@@ -169,34 +177,34 @@ export type PostApiV1MachinesResponses = {
         slug: string;
         name: string;
         status: 'provisioning' | 'ready' | 'error' | 'stopped' | 'deleted';
-        provisioning_stage: string;
-        provisioning_stage_updated_at: string;
+        provisioning_stage: string | null;
+        provisioning_stage_updated_at: string | null;
         provider: string;
-        image_id: string;
+        image_id: string | null;
         server_type: string;
         region: string;
-        ip: string;
-        price_monthly: number;
+        ip: string | null;
+        price_monthly: number | null;
         backups_enabled: boolean;
         created_at: string;
-        ready_at: string;
+        ready_at: string | null;
         urls: {
             vscode: string;
             pty: string;
-        };
-        ssh: string;
+        } | null;
+        ssh: string | null;
         ssh_key: {
-            private_key: string;
-            public_key: string;
-            setup_command: string;
+            private_key: string | null;
+            public_key: string | null;
+            setup_command: string | null;
             key_path: string;
-        };
+        } | null;
         connect: {
-            ssh_command: string;
-            setup_command: string;
+            ssh_command: string | null;
+            setup_command: string | null;
             vscode_url: string;
-            cursor_ssh: string;
-        };
+            cursor_ssh: string | null;
+        } | null;
         health: {
             cpu: number;
             memory: number;
@@ -204,8 +212,8 @@ export type PostApiV1MachinesResponses = {
             services: {
                 [key: string]: boolean;
             };
-            last_heartbeat_at: string;
-        };
+            last_heartbeat_at: string | null;
+        } | null;
     };
 };
 
@@ -295,34 +303,34 @@ export type GetApiV1MachinesByIdResponses = {
         slug: string;
         name: string;
         status: 'provisioning' | 'ready' | 'error' | 'stopped' | 'deleted';
-        provisioning_stage: string;
-        provisioning_stage_updated_at: string;
+        provisioning_stage: string | null;
+        provisioning_stage_updated_at: string | null;
         provider: string;
-        image_id: string;
+        image_id: string | null;
         server_type: string;
         region: string;
-        ip: string;
-        price_monthly: number;
+        ip: string | null;
+        price_monthly: number | null;
         backups_enabled: boolean;
         created_at: string;
-        ready_at: string;
+        ready_at: string | null;
         urls: {
             vscode: string;
             pty: string;
-        };
-        ssh: string;
+        } | null;
+        ssh: string | null;
         ssh_key: {
-            private_key: string;
-            public_key: string;
-            setup_command: string;
+            private_key: string | null;
+            public_key: string | null;
+            setup_command: string | null;
             key_path: string;
-        };
+        } | null;
         connect: {
-            ssh_command: string;
-            setup_command: string;
+            ssh_command: string | null;
+            setup_command: string | null;
             vscode_url: string;
-            cursor_ssh: string;
-        };
+            cursor_ssh: string | null;
+        } | null;
         health: {
             cpu: number;
             memory: number;
@@ -330,8 +338,8 @@ export type GetApiV1MachinesByIdResponses = {
             services: {
                 [key: string]: boolean;
             };
-            last_heartbeat_at: string;
-        };
+            last_heartbeat_at: string | null;
+        } | null;
     };
 };
 
@@ -401,7 +409,7 @@ export type PostApiV1MachinesByIdResizeData = {
 
 export type PostApiV1MachinesByIdResizeErrors = {
     /**
-     * Bad Request
+     * Bad Request (e.g. downgrade attempt, same plan, invalid type)
      */
     400: {
         error?: boolean;
@@ -477,6 +485,14 @@ export type PostApiV1MachinesByIdImageErrors = {
         status: number;
     };
     /**
+     * Forbidden
+     */
+    403: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+    /**
      * Not Found
      */
     404: {
@@ -496,11 +512,11 @@ export type PostApiV1MachinesByIdImageResponses = {
         id: string;
         name: string;
         status: 'creating' | 'ready' | 'failed' | 'deleted';
-        source_machine_id: string;
+        source_machine_id: string | null;
         provider: string;
-        provider_image_id: string;
-        disk_size_gb: number;
-        architecture: string;
+        provider_image_id: string | null;
+        disk_size_gb: number | null;
+        architecture: string | null;
         created_at: string;
         updated_at: string;
     };
@@ -713,11 +729,11 @@ export type GetApiV1ImagesResponses = {
             id: string;
             name: string;
             status: 'creating' | 'ready' | 'failed' | 'deleted';
-            source_machine_id: string;
+            source_machine_id: string | null;
             provider: string;
-            provider_image_id: string;
-            disk_size_gb: number;
-            architecture: string;
+            provider_image_id: string | null;
+            disk_size_gb: number | null;
+            architecture: string | null;
             created_at: string;
             updated_at: string;
         }>;
@@ -809,11 +825,11 @@ export type GetApiV1ImagesByIdResponses = {
         id: string;
         name: string;
         status: 'creating' | 'ready' | 'failed' | 'deleted';
-        source_machine_id: string;
+        source_machine_id: string | null;
         provider: string;
-        provider_image_id: string;
-        disk_size_gb: number;
-        architecture: string;
+        provider_image_id: string | null;
+        disk_size_gb: number | null;
+        architecture: string | null;
         created_at: string;
         updated_at: string;
     };
@@ -981,7 +997,7 @@ export type GetApiV1ApiKeysResponses = {
             key?: string;
             key_prefix: string;
             created_at: string;
-            last_used: string;
+            last_used: string | null;
         }>;
     };
 };
@@ -1031,7 +1047,7 @@ export type PostApiV1ApiKeysResponses = {
         key?: string;
         key_prefix: string;
         created_at: string;
-        last_used: string;
+        last_used: string | null;
     };
 };
 
@@ -1240,9 +1256,9 @@ export type GetApiV1AccountResponses = {
     200: {
         id: string;
         email: string;
-        name: string;
+        name: string | null;
         machines_count: number;
-        stripe_customer_id: string;
+        stripe_customer_id: string | null;
         created_at: string;
     };
 };
@@ -1314,7 +1330,7 @@ export type GetApiV1AccountBillingResponses = {
      * Billing info
      */
     200: {
-        portal_url: string;
+        portal_url: string | null;
         has_payment_method: boolean;
         message?: string;
     };
@@ -1368,6 +1384,44 @@ export type PostApiV1AccountBillingSetupResponses = {
 };
 
 export type PostApiV1AccountBillingSetupResponse = PostApiV1AccountBillingSetupResponses[keyof PostApiV1AccountBillingSetupResponses];
+
+export type GetApiV1AccountLimitsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/account/limits';
+};
+
+export type GetApiV1AccountLimitsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+};
+
+export type GetApiV1AccountLimitsError = GetApiV1AccountLimitsErrors[keyof GetApiV1AccountLimitsErrors];
+
+export type GetApiV1AccountLimitsResponses = {
+    /**
+     * Account limits and usage
+     */
+    200: {
+        limits: {
+            max_machines: number;
+            max_images: number;
+        };
+        usage: {
+            machines: number;
+            images: number;
+        };
+    };
+};
+
+export type GetApiV1AccountLimitsResponse = GetApiV1AccountLimitsResponses[keyof GetApiV1AccountLimitsResponses];
 
 export type PostApiV1InternalHeartbeatData = {
     body: {
@@ -1713,7 +1767,7 @@ export type GetApiV1MachinesByMachineIdToolboxFilesResponses = {
             owner: string;
             group: string;
             mod_time: string;
-            symlink_target: string;
+            symlink_target: string | null;
         }>;
     };
 };
@@ -1777,7 +1831,7 @@ export type GetApiV1MachinesByMachineIdToolboxFilesInfoResponses = {
         owner: string;
         group: string;
         mod_time: string;
-        symlink_target: string;
+        symlink_target: string | null;
     };
 };
 
@@ -1819,7 +1873,7 @@ export type GetApiV1MachinesByMachineIdToolboxFilesExistsResponses = {
      */
     200: {
         exists: boolean;
-        type: 'file' | 'dir';
+        type: 'file' | 'dir' | null;
     };
 };
 
