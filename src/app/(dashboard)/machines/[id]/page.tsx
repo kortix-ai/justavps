@@ -17,12 +17,6 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
 import { useMachine, useDeleteMachine, useRebootMachine, useBackups, useCreateBackup, useToggleBackups } from "@/hooks/use-machines";
@@ -327,7 +321,6 @@ export default function MachineDetailPage() {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://justavps.com';
 
   return (
-    <TooltipProvider delayDuration={300}>
     <div className="space-y-5 max-w-5xl mx-auto p-4 md:p-6 pb-20">
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -644,6 +637,5 @@ export default function MachineDetailPage() {
         </DialogContent>
       </Dialog>
     </div>
-    </TooltipProvider>
   );
 }
