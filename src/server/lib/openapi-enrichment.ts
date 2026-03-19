@@ -376,7 +376,7 @@ export function enrichOpenAPISpec(spec: any): any {
     { name: 'Machines & Infrastructure', tags: ['Machines', 'Images', 'Server Types'] },
     { name: 'Toolbox', tags: ['Toolbox: Filesystem', 'Toolbox: Process'] },
     { name: 'Authentication & Access', tags: ['API Keys', 'SSH Keys'] },
-    { name: 'Integrations', tags: ['Webhooks', 'Events'] },
+    { name: 'Integrations', tags: ['Webhooks'] },
     { name: 'Account', tags: ['Account'] },
     { name: 'Internal', tags: ['Internal'] },
   ];

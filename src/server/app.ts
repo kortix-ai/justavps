@@ -128,7 +128,6 @@ content = tb.files.download("/root/app.py")
     { name: 'Webhooks', description: 'Subscribe to machine lifecycle events via webhooks' },
     { name: 'Server Types', description: 'Discover available providers, regions, and server types' },
     { name: 'Account', description: 'Account info, usage stats, and billing' },
-    { name: 'Events', description: 'Real-time machine status via Server-Sent Events' },
     { name: 'Toolbox: Filesystem', description: 'Read, write, search, and manage files on a machine' },
     { name: 'Toolbox: Process', description: 'Execute commands, run code, and manage processes on a machine' },
     { name: 'Internal', description: 'Internal endpoints used by machine agents and infrastructure' },
@@ -155,9 +154,7 @@ app.get(
       },
     ],
     theme: 'kepler',
-    hiddenClients: {
-      shell: false,
-    },
+    hiddenClients: true,
     defaultHttpClient: {
       targetKey: 'shell',
       clientKey: 'curl',
