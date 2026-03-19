@@ -1,6 +1,8 @@
 name: Publish SDKs
 
-# Trigger: push to master that touches SDK source or API routes/schemas
+# ─── Auto-publish on ANY change to SDK source, API routes, or schemas ────────
+# Versioning: CalVer YYYY.M.PATCH (auto-increments patch per month)
+# Example: 2026.3.0, 2026.3.1, 2026.3.2, then 2026.4.0 next month
 on:
   push:
     branches: [master, main]
@@ -14,7 +16,7 @@ on:
 
 permissions:
   contents: write
-  id-token: write   # PyPI trusted publishing + npm provenance
+  id-token: write
 
 jobs:
   publish:
@@ -37,46 +39,80 @@ jobs:
 
       - run: pip install build
 
-      # ── Version: CalVer YYYY.M.patch ─────────────────────────────────────
+      # ── Calculate next version ─────────────────────────────────────────
       - name: Calculate version
         id: version
         run: |
           PREFIX="$(date +%Y).$(date +%-m)"
           LATEST=$(git tag -l "sdk-v${PREFIX}.*" --sort=-v:refname | head -1)
-          if [ -z "$LATEST" ]; then PATCH=0; else PATCH=$(( $(echo "$LATEST" | grep -oP '\d+$') + 1 )); fi
-          echo "version=${PREFIX}.${PATCH}" >> "$GITHUB_OUTPUT"
-          echo "📦 SDK version: ${PREFIX}.${PATCH}"
+          if [ -z "$LATEST" ]; then
+            PATCH=0
+          else
+            PATCH=$(( $(echo "$LATEST" | grep -oP '\d+$') + 1 ))
+          fi
+          VERSION="${PREFIX}.${PATCH}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "📦 SDK version: ${VERSION}"
 
-      # ── TypeScript SDK → npm ─────────────────────────────────────────────
+      # ── Check if already published (skip if so) ────────────────────────
+      - name: Check npm
+        id: check_npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if npm view "@kortix/justavps@${VERSION}" version 2>/dev/null; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "⏭️ npm @kortix/justavps@${VERSION} already exists"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check PyPI
+        id: check_pypi
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if pip index versions kortix-justavps 2>/dev/null | grep -q "${VERSION}"; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "⏭️ PyPI kortix-justavps@${VERSION} already exists"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── TypeScript SDK → npm ───────────────────────────────────────────
       - name: Build & publish TS SDK
+        if: steps.check_npm.outputs.skip != 'true'
         working-directory: src/sdk/ts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          # Set version
-          node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version='${{ steps.version.outputs.version }}'; fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-          # Build
+          node -e "
+            const fs = require('fs');
+            const p = JSON.parse(fs.readFileSync('package.json','utf8'));
+            p.version = '${{ steps.version.outputs.version }}';
+            fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
+          "
           npm install --no-save tsup typescript
           npx tsup
-          # Publish (skip if version already exists)
-          npm publish --access public || echo "npm publish failed (version may already exist)"
+          npm publish --access public
 
-      # ── Python SDK → PyPI ────────────────────────────────────────────────
-      - name: Build & publish Python SDK
+      # ── Python SDK → PyPI ──────────────────────────────────────────────
+      - name: Build Python SDK
+        if: steps.check_pypi.outputs.skip != 'true'
         working-directory: src/sdk/python
         run: |
-          # Set version
           sed -i "s/^version = .*/version = \"${{ steps.version.outputs.version }}\"/" pyproject.toml
-          # Build
           python -m build
 
       - name: Publish to PyPI
+        if: steps.check_pypi.outputs.skip != 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: src/sdk/python/dist/
 
-      # ── Tag ──────────────────────────────────────────────────────────────
+      # ── Tag release ────────────────────────────────────────────────────
       - name: Tag release
+        if: steps.check_npm.outputs.skip != 'true' || steps.check_pypi.outputs.skip != 'true'
         run: |
           V="${{ steps.version.outputs.version }}"
           git config user.name "github-actions[bot]"
@@ -84,11 +120,21 @@ jobs:
           git tag -a "sdk-v${V}" -m "SDK v${V}"
           git push origin "sdk-v${V}"
 
+      # ── Summary ────────────────────────────────────────────────────────
       - name: Summary
         run: |
           V="${{ steps.version.outputs.version }}"
           echo "### 📦 SDK v${V}" >> $GITHUB_STEP_SUMMARY
-          echo "| Package | Install |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|---------|" >> $GITHUB_STEP_SUMMARY
-          echo "| [\`@kortix/justavps\`](https://www.npmjs.com/package/@kortix/justavps) | \`npm i @kortix/justavps\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| [\`kortix-justavps\`](https://pypi.org/project/kortix-justavps/) | \`pip install kortix-justavps\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Package | Version | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|---------|--------|" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.check_npm.outputs.skip }}" = "true" ]; then
+            echo "| \`@kortix/justavps\` | ${V} | ⏭️ Skipped (exists) |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| [\`@kortix/justavps\`](https://www.npmjs.com/package/@kortix/justavps) | ${V} | ✅ Published |" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ "${{ steps.check_pypi.outputs.skip }}" = "true" ]; then
+            echo "| \`kortix-justavps\` | ${V} | ⏭️ Skipped (exists) |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| [\`kortix-justavps\`](https://pypi.org/project/kortix-justavps/) | ${V} | ✅ Published |" >> $GITHUB_STEP_SUMMARY
+          fi
