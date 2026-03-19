@@ -55,6 +55,7 @@ export interface Image {
   id: string;
   name: string;
   status: ImageStatus;
+  is_public: boolean;
   source_machine_id: string | null;
   provider: string;
   provider_image_id: string | null;

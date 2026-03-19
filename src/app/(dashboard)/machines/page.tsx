@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -9,13 +11,59 @@ import { useAccountLimits } from "@/hooks/use-account";
 import { useMachines, useDeleteMachine } from "@/hooks/use-machines";
 import { useConfirm } from "@/hooks/use-confirm";
 import { toast } from "sonner";
-import { Server, Plus, Trash2, AlertTriangle } from "lucide-react";
+import { Server, Plus, Trash2, AlertTriangle, Loader2 } from "lucide-react";
 
 export default function MachinesPage() {
-  const { data: machines, isLoading, error } = useMachines();
+  const searchParams = useSearchParams();
+  const isPostCheckout = searchParams.get("checkout") === "success";
+
+  // Use ref to survive URL changes — once we start waiting, we keep waiting
+  const startedWaiting = useRef(false);
+  const [waitingForMachine, setWaitingForMachine] = useState(false);
+  const initialMachineCount = useRef<number | null>(null);
+
+  // Start waiting on first render if post-checkout
+  useEffect(() => {
+    if (isPostCheckout && !startedWaiting.current) {
+      startedWaiting.current = true;
+      setWaitingForMachine(true);
+      // Clean URL immediately without re-mounting
+      window.history.replaceState({}, "", "/machines");
+    }
+  }, [isPostCheckout]);
+
+  // Poll every 3s while waiting
+  const { data: machines, isLoading, error } = useMachines({
+    refetchInterval: waitingForMachine ? 3000 : false,
+  });
   const { data: limits } = useAccountLimits();
   const deleteMachine = useDeleteMachine();
   const [confirm, ConfirmDialog] = useConfirm();
+
+  // Capture initial machine count once data loads
+  useEffect(() => {
+    if (machines && initialMachineCount.current === null) {
+      initialMachineCount.current = machines.length;
+    }
+  }, [machines]);
+
+  // Stop waiting once a NEW machine appears (count increased) or a provisioning machine exists
+  useEffect(() => {
+    if (!waitingForMachine || !machines) return;
+    const hasNewMachine = initialMachineCount.current !== null && machines.length > initialMachineCount.current;
+    const hasProvisioning = machines.some((m) => m.status === "provisioning");
+    if (hasNewMachine || hasProvisioning) {
+      setWaitingForMachine(false);
+    }
+  }, [waitingForMachine, machines]);
+
+  // Timeout: stop waiting after 90s
+  useEffect(() => {
+    if (!waitingForMachine) return;
+    const timer = setTimeout(() => setWaitingForMachine(false), 90_000);
+    return () => clearTimeout(timer);
+  }, [waitingForMachine]);
+
   const machineUsage = limits?.usage.machines ?? 0;
   const machineMax = limits?.limits.max_machines;
   const machineLimitReached = machineMax !== undefined && machineUsage >= machineMax;
@@ -68,6 +116,16 @@ export default function MachinesPage() {
                 ? " Delete one to deploy another."
                 : " You can still deploy, but you are close to your cap."}
             </p>
+          </div>
+        </div>
+      )}
+
+      {waitingForMachine && (
+        <div className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
+          <Loader2 className="size-5 animate-spin text-primary shrink-0" />
+          <div>
+            <p className="text-sm font-medium">Setting up your machine...</p>
+            <p className="text-sm text-muted-foreground">Payment complete. Your machine is being provisioned — this usually takes about 60 seconds.</p>
           </div>
         </div>
       )}

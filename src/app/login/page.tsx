@@ -4,15 +4,9 @@ import { signIn } from "next-auth/react";
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Server } from "lucide-react";
 
 type AuthMode = "login" | "register";
 
@@ -88,7 +82,6 @@ function LoginForm() {
         return;
       }
 
-      // Auto-login after successful registration
       const signInResult = await signIn("credentials", {
         email,
         password,
@@ -99,7 +92,6 @@ function LoginForm() {
       if (signInResult?.ok) {
         router.push(next);
       } else {
-        // Registration succeeded but login failed — switch to login
         setError("Account created. Please sign in.");
         setMode("login");
       }
@@ -115,141 +107,132 @@ function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl">
-            {mode === "login" ? "Welcome back" : "Create an account"}
-          </CardTitle>
-          <CardDescription>
-            {mode === "login"
-              ? "Sign in to manage your cloud machines"
-              : "Get started with JustAVPS"}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {/* Tab Switcher */}
-          <div className="flex mb-6 rounded-lg bg-muted p-1">
-            <button
-              type="button"
-              onClick={() => switchMode("login")}
-              className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
-                mode === "login"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Sign In
-            </button>
-            <button
-              type="button"
-              onClick={() => switchMode("register")}
-              className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
-                mode === "register"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Register
-            </button>
-          </div>
+    <div className="min-h-screen flex flex-col items-center justify-center bg-background px-4">
+      {/* Logo */}
+      <div className="mb-8 flex items-center gap-3">
+        <div className="flex items-center justify-center size-9 rounded-lg bg-foreground">
+          <Server className="size-4 text-background" />
+        </div>
+        <div>
+          <h1 className="text-base font-semibold tracking-tight leading-none">JustAVPS</h1>
+          <p className="text-[11px] text-muted-foreground leading-none mt-0.5">by Kortix</p>
+        </div>
+      </div>
 
-          {mode === "login" ? (
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="login-email">Email</Label>
-                <Input
-                  id="login-email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  autoComplete="email"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="login-password">Password</Label>
-                <Input
-                  id="login-password"
-                  type="password"
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  autoComplete="current-password"
-                />
-              </div>
-              {error && <p className="text-sm text-destructive">{error}</p>}
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "Signing in..." : "Sign In"}
-              </Button>
-              <p className="text-center text-xs text-muted-foreground">
-                Don&apos;t have an account?{" "}
-                <button
-                  type="button"
-                  onClick={() => switchMode("register")}
-                  className="text-primary underline-offset-4 hover:underline"
-                >
-                  Register
-                </button>
-              </p>
-            </form>
-          ) : (
-            <form onSubmit={handleRegister} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="register-name">Name (optional)</Label>
-                <Input
-                  id="register-name"
-                  type="text"
-                  placeholder="Your name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  autoComplete="name"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="register-email">Email</Label>
-                <Input
-                  id="register-email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  autoComplete="email"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="register-password">Password</Label>
-                <Input
-                  id="register-password"
-                  type="password"
-                  placeholder="Min. 8 characters"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  autoComplete="new-password"
-                />
-              </div>
-              {error && <p className="text-sm text-destructive">{error}</p>}
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "Creating account..." : "Create Account"}
-              </Button>
-              <p className="text-center text-xs text-muted-foreground">
-                Already have an account?{" "}
-                <button
-                  type="button"
-                  onClick={() => switchMode("login")}
-                  className="text-primary underline-offset-4 hover:underline"
-                >
-                  Sign In
-                </button>
-              </p>
-            </form>
-          )}
-        </CardContent>
-      </Card>
+      {/* Card */}
+      <div className="w-full max-w-xs">
+        <div className="text-center mb-6">
+          <h2 className="text-lg font-semibold tracking-tight">
+            {mode === "login" ? "Welcome back!" : "Create your account"}
+          </h2>
+        </div>
+
+        {mode === "login" ? (
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="login-email">Email</Label>
+              <Input
+                id="login-email"
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+                className="h-10"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="login-password">Password</Label>
+              <Input
+                id="login-password"
+                type="password"
+                placeholder="Enter your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+                className="h-10"
+              />
+            </div>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <Button type="submit" className="w-full h-10" disabled={loading}>
+              {loading ? "Signing in..." : "Sign in"}
+            </Button>
+          </form>
+        ) : (
+          <form onSubmit={handleRegister} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="register-name">Name</Label>
+              <Input
+                id="register-name"
+                type="text"
+                placeholder="Your name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                autoComplete="name"
+                className="h-10"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="register-email">Email</Label>
+              <Input
+                id="register-email"
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+                className="h-10"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="register-password">Password</Label>
+              <Input
+                id="register-password"
+                type="password"
+                placeholder="Min. 8 characters"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoComplete="new-password"
+                className="h-10"
+              />
+            </div>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <Button type="submit" className="w-full h-10" disabled={loading}>
+              {loading ? "Creating account..." : "Create account"}
+            </Button>
+          </form>
+        )}
+
+        {/* Divider */}
+        <div className="relative my-6">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t" />
+          </div>
+          <div className="relative flex justify-center text-xs">
+            <span className="bg-background px-2 text-muted-foreground">
+              {mode === "login" ? "New to JustAVPS?" : "Already have an account?"}
+            </span>
+          </div>
+        </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full h-10"
+          onClick={() => switchMode(mode === "login" ? "register" : "login")}
+        >
+          {mode === "login" ? "Create an account" : "Sign in instead"}
+        </Button>
+      </div>
+
+      {/* Footer */}
+      <p className="text-xs text-muted-foreground mt-8">
+        By continuing, you agree to our terms of service.
+      </p>
     </div>
   );
 }
