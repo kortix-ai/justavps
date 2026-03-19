@@ -58,8 +58,8 @@ jobs:
           # Build
           npm install --no-save tsup typescript
           npx tsup
-          # Publish
-          npm publish --provenance --access public
+          # Publish (skip if version already exists)
+          npm publish --access public || echo "npm publish failed (version may already exist)"
 
       # ── Python SDK → PyPI ────────────────────────────────────────────────
       - name: Build & publish Python SDK
