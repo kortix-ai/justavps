@@ -14,7 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-type AuthMode = "login" | "register";
+type AuthMode = "login" | "register" | "apikey";
 
 export default function LoginPage() {
   return (
@@ -33,12 +33,14 @@ function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [apiKey, setApiKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const next = searchParams.get("next") || "/machines";
+  // Support both "next" and "callbackUrl" query params
+  const next = searchParams.get("callbackUrl") || searchParams.get("next") || "/machines";
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -109,22 +111,72 @@ function LoginForm() {
     }
   }
 
+  async function handleApiKeyAuth(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = apiKey.trim();
+    if (!trimmed) return;
+    setLoading(true);
+    setError("");
+
+    try {
+      const res = await fetch("/api/auth/apikey", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: trimmed, callbackUrl: next }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setLoading(false);
+        setError(data.message || "Invalid API key.");
+        return;
+      }
+
+      setLoading(false);
+
+      // If we got a redirect URL (for proxy-auth flows), navigate there directly
+      if (data.redirectUrl) {
+        window.location.href = data.redirectUrl;
+      } else {
+        // For regular dashboard access, sign in with returned credentials
+        router.push(data.next || "/machines");
+      }
+    } catch {
+      setLoading(false);
+      setError("Failed to authenticate with API key.");
+    }
+  }
+
   function switchMode(newMode: AuthMode) {
     setMode(newMode);
     setError("");
   }
+
+  const titles: Record<AuthMode, { title: string; description: string }> = {
+    login: {
+      title: "Welcome back",
+      description: "Sign in to manage your cloud machines",
+    },
+    register: {
+      title: "Create an account",
+      description: "Get started with JustAVPS",
+    },
+    apikey: {
+      title: "API Key Login",
+      description: "Authenticate with your API key",
+    },
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">
-            {mode === "login" ? "Welcome back" : "Create an account"}
+            {titles[mode].title}
           </CardTitle>
           <CardDescription>
-            {mode === "login"
-              ? "Sign in to manage your cloud machines"
-              : "Get started with JustAVPS"}
+            {titles[mode].description}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -151,6 +203,17 @@ function LoginForm() {
               }`}
             >
               Register
+            </button>
+            <button
+              type="button"
+              onClick={() => switchMode("apikey")}
+              className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
+                mode === "apikey"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              API Key
             </button>
           </div>
 
@@ -195,7 +258,7 @@ function LoginForm() {
                 </button>
               </p>
             </form>
-          ) : (
+          ) : mode === "register" ? (
             <form onSubmit={handleRegister} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="register-name">Name (optional)</Label>
@@ -238,6 +301,40 @@ function LoginForm() {
               </Button>
               <p className="text-center text-xs text-muted-foreground">
                 Already have an account?{" "}
+                <button
+                  type="button"
+                  onClick={() => switchMode("login")}
+                  className="text-primary underline-offset-4 hover:underline"
+                >
+                  Sign In
+                </button>
+              </p>
+            </form>
+          ) : (
+            <form onSubmit={handleApiKeyAuth} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="apikey-input">API Key</Label>
+                <Input
+                  id="apikey-input"
+                  type="password"
+                  placeholder="sk_live_..."
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  required
+                  autoComplete="off"
+                  className="font-mono"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Paste your API key to authenticate. You can generate keys from the{" "}
+                <span className="font-medium">API Keys</span> page in the dashboard.
+              </p>
+              {error && <p className="text-sm text-destructive">{error}</p>}
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? "Authenticating..." : "Authenticate"}
+              </Button>
+              <p className="text-center text-xs text-muted-foreground">
+                Prefer email login?{" "}
                 <button
                   type="button"
                   onClick={() => switchMode("login")}
