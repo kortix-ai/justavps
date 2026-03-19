@@ -30,12 +30,29 @@ const POLL_INTERVAL_MS = 3_000;
  *   Power        8   16 GB   320 GB   $49/mo   cpx52    cpx31
  *   Ultra       16   32 GB   640 GB   $97/mo   cpx62    cpx41
  */
-const PLAN_TIERS = [
+export const PLAN_TIERS = [
   { vcpu: 2,  memory: 4,  disk: 80,  price: 15, sku: { hel1: 'cpx32', nbg1: 'cpx32', hil: 'cpx11' } as Record<string, string> },
   { vcpu: 4,  memory: 8,  disk: 160, price: 27, sku: { hel1: 'cpx42', nbg1: 'cpx42', hil: 'cpx21' } as Record<string, string> },
   { vcpu: 8,  memory: 16, disk: 320, price: 49, sku: { hel1: 'cpx52', nbg1: 'cpx52', hil: 'cpx31' } as Record<string, string> },
   { vcpu: 16, memory: 32, disk: 640, price: 97, sku: { hel1: 'cpx62', nbg1: 'cpx62', hil: 'cpx41' } as Record<string, string> },
 ];
+
+/**
+ * Get the plan tier index for a given SKU across any region.
+ * Returns -1 if not found.
+ */
+export function getPlanTierIndex(sku: string): number {
+  return PLAN_TIERS.findIndex((tier) =>
+    Object.values(tier.sku).includes(sku),
+  );
+}
+
+/**
+ * Get the plan tier for a given SKU.
+ */
+export function getPlanTier(sku: string) {
+  return PLAN_TIERS[getPlanTierIndex(sku)] ?? null;
+}
 
 interface HetznerServerType {
   id: number;
@@ -229,12 +246,37 @@ export class HetznerProvider implements ComputeProvider {
     console.log(`[hetzner] Rebooted server ${serverId}`);
   }
 
+  /**
+   * Resize a server: stop → change_type → start.
+   *
+   * Hetzner requires the server to be stopped for shared CPU types before
+   * changing type. We power off, wait for the server to reach 'off' status,
+   * issue the change_type, then power it back on and wait for 'running'.
+   *
+   * `upgrade_disk: true` — disk is permanently enlarged (irreversible).
+   */
   async resizeServer(serverId: string, serverType: string): Promise<void> {
+    // 1. Check current status — only stop if running
+    const currentStatus = await this.getServerStatus(serverId);
+    if (currentStatus === 'running') {
+      console.log(`[hetzner] Stopping server ${serverId} before resize...`);
+      await this.stopServer(serverId);
+      await waitForServerStatus(Number(serverId), 'off', 120_000);
+      console.log(`[hetzner] Server ${serverId} stopped`);
+    }
+
+    // 2. Change type
     await hetznerFetch(`/servers/${serverId}/actions/change_type`, {
       method: 'POST',
       body: { server_type: serverType, upgrade_disk: true },
     });
-    console.log(`[hetzner] Resizing server ${serverId} to ${serverType}`);
+    console.log(`[hetzner] Server ${serverId} type changed to ${serverType}`);
+
+    // 3. Start the server back up
+    console.log(`[hetzner] Starting server ${serverId} after resize...`);
+    await this.startServer(serverId);
+    await waitForServerStatus(Number(serverId), 'running', 120_000);
+    console.log(`[hetzner] Server ${serverId} resized to ${serverType} and running`);
   }
 
   async getServerStatus(serverId: string): Promise<string> {

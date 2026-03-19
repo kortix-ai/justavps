@@ -23,12 +23,13 @@ import { useMachine, useDeleteMachine, useRebootMachine, useBackups, useCreateBa
 import { useCreateImage } from "@/hooks/use-images";
 import { useConfirm } from "@/hooks/use-confirm";
 import {
-  ArrowLeft, RotateCw, Trash2, Copy, Check,
+  ArrowLeft, RotateCw, Trash2, Copy, Check, ArrowUp,
   Cpu, MemoryStick, HardDrive, Clock,
   Globe, Server, Loader2, ExternalLink, Code2,
   Terminal as TerminalIcon, Link2,
   AlertTriangle, Camera, Shield, Monitor, Archive
 } from "lucide-react";
+import { RescaleDialog } from "@/components/dashboard/rescale-dialog";
 import Link from "next/link";
 import { timeAgo, cn } from "@/lib/utils";
 
@@ -203,6 +204,7 @@ export default function MachineDetailPage() {
   const router = useRouter();
   const machineId = params.id as string;
   const [createImageOpen, setCreateImageOpen] = useState(false);
+  const [rescaleOpen, setRescaleOpen] = useState(false);
   const [imageName, setImageName] = useState("");
 
   const { data: machine, isLoading, error } = useMachine(machineId);
@@ -297,10 +299,16 @@ export default function MachineDetailPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           {isReady && (
-            <Button variant="outline" onClick={() => setCreateImageOpen(true)} title="Create Image">
-              <Camera className="size-4" />
-              <span className="sr-only sm:not-sr-only sm:ml-2">Image</span>
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => setRescaleOpen(true)} title="Scale Up">
+                <ArrowUp className="size-4" />
+                <span className="sr-only sm:not-sr-only sm:ml-2">Scale Up</span>
+              </Button>
+              <Button variant="outline" onClick={() => setCreateImageOpen(true)} title="Create Image">
+                <Camera className="size-4" />
+                <span className="sr-only sm:not-sr-only sm:ml-2">Image</span>
+              </Button>
+            </>
           )}
           <Button variant="outline" onClick={handleReboot} disabled={!isReady || rebootMachine.isPending} title="Reboot">
             {rebootMachine.isPending ? <Loader2 className="size-4 animate-spin" /> : <RotateCw className="size-4" />}
@@ -313,13 +321,22 @@ export default function MachineDetailPage() {
         </div>
       </div>
 
-      {/* Provisioning Banner */}
+      {/* Provisioning / Resizing Banner */}
       {machine.status === "provisioning" && (
         <div className="p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex items-center gap-4 animate-in fade-in slide-in-from-top-2">
           <div className="p-2 bg-yellow-500/20 rounded-full"><Loader2 className="size-5 animate-spin text-yellow-500" /></div>
           <div>
-            <h3 className="font-medium text-yellow-500">Machine is provisioning</h3>
-            <p className="text-sm text-yellow-500/80">This usually takes about 60 seconds. The page will update automatically.</p>
+            {machine.provisioning_stage === "resizing" ? (
+              <>
+                <h3 className="font-medium text-yellow-500">Scaling up your machine</h3>
+                <p className="text-sm text-yellow-500/80">The machine is being stopped, resized, and restarted. This takes ~60-90 seconds. The page will update automatically.</p>
+              </>
+            ) : (
+              <>
+                <h3 className="font-medium text-yellow-500">Machine is provisioning</h3>
+                <p className="text-sm text-yellow-500/80">This usually takes about 60 seconds. The page will update automatically.</p>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -706,6 +723,15 @@ Host ${machine.slug}
       </div>
 
       <ConfirmDialog />
+
+      {/* Rescale Dialog */}
+      {machine && (
+        <RescaleDialog
+          open={rescaleOpen}
+          onOpenChange={setRescaleOpen}
+          machine={machine}
+        />
+      )}
 
       {/* Create Image Dialog */}
       <Dialog open={createImageOpen} onOpenChange={setCreateImageOpen}>

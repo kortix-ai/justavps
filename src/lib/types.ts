@@ -15,6 +15,8 @@ export interface Machine {
   slug: string;
   name: string;
   status: MachineStatus;
+  provisioning_stage: string | null;
+  provisioning_stage_updated_at: string | null;
   provider: string;
   image_id: string | null;
   server_type: string;
@@ -161,4 +163,17 @@ export interface CheckoutRequired {
 /** Returned from POST /account/billing/setup */
 export interface BillingSetup {
   checkout_url: string;
+}
+
+// ─── Account Limits ─────────────────────────────────────────────────────────
+
+export interface AccountLimits {
+  limits: {
+    max_machines: number;
+    max_images: number;
+  };
+  usage: {
+    machines: number;
+    images: number;
+  };
 }

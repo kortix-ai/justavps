@@ -46,7 +46,7 @@ export type CreateMachineResult =
 /**
  * Create a machine. If the user has no payment method on file, the API returns
  * 402 with a Stripe Checkout URL. The hook catches this and returns a typed
- * result so the caller can redirect.
+ * result so the caller can redirect — no second request needed.
  */
 export function useCreateMachine() {
   const qc = useQueryClient();
@@ -56,20 +56,10 @@ export function useCreateMachine() {
         const machine = await api.post<Machine>("/machines", input);
         return { kind: "machine", machine };
       } catch (err) {
-        if (err instanceof ApiError && err.status === 402) {
-          // Parse the checkout response from the error message
+        if (err instanceof ApiError && err.status === 402 && err.data) {
           // The API returns { requires_checkout, checkout_url, message }
-          // We need to re-fetch the raw response to get the full body
-          const res = await fetch("/api/v1/machines", {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(input),
-          });
-          if (res.status === 402) {
-            const body = await res.json() as CheckoutRequired;
-            return { kind: "checkout", checkout: body };
-          }
+          // ApiError.data already contains the parsed response body
+          return { kind: "checkout", checkout: err.data as unknown as CheckoutRequired };
         }
         throw err;
       }
@@ -115,13 +105,22 @@ interface ResizeInput {
   server_type: string;
 }
 
+interface ResizeResponse {
+  action: 'resize';
+  old_type: string;
+  new_type: string;
+  status: string;
+}
+
 export function useResizeMachine() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, server_type }: ResizeInput) =>
-      api.post(`/machines/${id}/resize`, { server_type }),
+      api.post<ResizeResponse>(`/machines/${id}/resize`, { server_type }),
     onSuccess: (_data, { id }) => {
+      // Invalidate both detail and list — status goes to "provisioning" during resize
       qc.invalidateQueries({ queryKey: machineKeys.detail(id) });
+      qc.invalidateQueries({ queryKey: machineKeys.all });
     },
   });
 }

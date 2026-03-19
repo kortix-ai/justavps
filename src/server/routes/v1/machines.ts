@@ -13,7 +13,8 @@ type Machine = typeof machines.$inferSelect;
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 import { stripeClient } from '../../lib/stripe';
 import { requireOwnedResource, requireProvider, errorResponse, handleRouteError } from '../../lib/route-helpers';
-import { HetznerProvider } from '../../lib/providers/hetzner';
+import { checkMachineLimit, checkImageLimit } from '../../lib/account-limits';
+import { HetznerProvider, getPlanTierIndex } from '../../lib/providers/hetzner';
 import { eventBus } from '../../lib/event-bus';
 import { after } from 'next/server';
 import {
@@ -23,7 +24,6 @@ import {
   setupProxyDNS,
   lookupPriceAndSpecs,
   createMachineRecord,
-  createStripeSubscription,
   cleanupMachineResources,
   syncMachineStatus,
   autoGenerateAndSaveSSHKey,
@@ -145,6 +145,12 @@ machinesApp.openapi(createMachineRoute, async (c) => {
   const data = c.req.valid('json');
   const ownerId = c.get('userId');
 
+  // 0. Check account machine limit
+  const machineLimit = await checkMachineLimit(ownerId);
+  if (!machineLimit.allowed) {
+    return errorResponse(c, 403, `Machine limit reached (${machineLimit.current}/${machineLimit.max}). Delete an existing machine or contact support to increase your limit.`) as any;
+  }
+
   // 1. Validate provider
   const lookup = requireProvider(c, data.provider);
   if (lookup.response) return lookup.response as any;
@@ -179,54 +185,77 @@ machinesApp.openapi(createMachineRoute, async (c) => {
   // 3. Price + specs lookup
   const { priceMonthly, specs } = await lookupPriceAndSpecs(provider, data.region, data.server_type);
 
-  // 4. Payment gate
+  // 4. Payment gate — STRICT. No payment = no machine.
+  let stripeSubId: string | null = null;
+  let stripeSubItemId: string | null = null;
+
   if (stripeClient.isConfigured()) {
+    const [user] = await db.select().from(users).where(eq(users.id, ownerId));
+    if (!user) return errorResponse(c, 404, 'User not found') as any;
+
+    const customerId = await stripeClient.getOrCreateCustomer(ownerId, user.email);
+    if (!user.stripeCustomerId) {
+      await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, ownerId));
+    }
+
+    const hasPM = await stripeClient.hasPaymentMethod(customerId);
+
+    if (!hasPM) {
+      // No payment method → redirect to Stripe Checkout
+      const { url: checkoutUrl } = await stripeClient.createCheckoutSession({
+        customerId,
+        userId: ownerId,
+        machineConfig: {
+          provider: data.provider,
+          server_type: data.server_type,
+          region: data.region,
+          name: data.name,
+          image_id: data.image_id ?? null,
+          docker_image: data.docker_image,
+          entrypoint: data.entrypoint,
+          env_vars: data.env_vars,
+          ssh_key_ids: data.ssh_key_ids,
+          specs,
+        },
+        priceMonthlyUsd: priceMonthly,
+        successUrl: `${config.APP_URL}/machines`,
+        cancelUrl: `${config.APP_URL}/machines`,
+      });
+
+      console.log(`[MACHINES] User ${ownerId} has no payment method — redirecting to Stripe Checkout`);
+
+      return c.json({
+        requires_checkout: true as const,
+        checkout_url: checkoutUrl,
+        message: 'Payment method required. Complete checkout to provision your machine.',
+      }, 402);
+    }
+
+    // Has payment method → create subscription SYNCHRONOUSLY before provisioning.
+    // If this fails, the machine is NOT created. No free rides.
     try {
-      const [user] = await db.select().from(users).where(eq(users.id, ownerId));
-      if (!user) return errorResponse(c, 404, 'User not found') as any;
-
-      const customerId = await stripeClient.getOrCreateCustomer(ownerId, user.email);
-      if (!user.stripeCustomerId) {
-        await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, ownerId));
-      }
-
-      const hasPM = await stripeClient.hasPaymentMethod(customerId);
-
-      if (!hasPM) {
-        const { url: checkoutUrl } = await stripeClient.createCheckoutSession({
-          customerId,
-          userId: ownerId,
-          machineConfig: {
-            provider: data.provider,
-            server_type: data.server_type,
-            region: data.region,
-            name: data.name,
-            image_id: data.image_id ?? null,
-            docker_image: data.docker_image,
-            entrypoint: data.entrypoint,
-            env_vars: data.env_vars,
-            ssh_key_ids: data.ssh_key_ids,
-            specs,
-          },
-          priceMonthlyUsd: priceMonthly,
-          successUrl: `${config.APP_URL}/machines`,
-          cancelUrl: `${config.APP_URL}/machines`,
-        });
-
-        console.log(`[MACHINES] User ${ownerId} has no payment method — redirecting to Stripe Checkout`);
-
-        return c.json({
-          requires_checkout: true as const,
-          checkout_url: checkoutUrl,
-          message: 'Payment method required. Complete checkout to provision your machine.',
-        }, 402);
-      }
+      const result = await stripeClient.createMachineSubscription(
+        customerId,
+        '', // machineId not known yet — will update after insert
+        `pending-${Date.now()}`,
+        priceMonthly,
+        data.server_type,
+        specs,
+      );
+      stripeSubId = result.subscriptionId;
+      stripeSubItemId = `${result.subscriptionId}|${result.subscriptionItemId}`;
+      console.log(`[MACHINES] Subscription ${result.subscriptionId} created and charged for user ${ownerId}`);
     } catch (err) {
-      console.error('[MACHINES] Payment check failed:', err);
+      console.error(`[MACHINES] Subscription creation failed for user ${ownerId}:`, err);
+      return c.json({
+        requires_checkout: true as const,
+        checkout_url: `${config.APP_URL}/billing`,
+        message: 'Payment failed. Please update your payment method and try again.',
+      }, 402);
     }
   }
 
-  // 5. Provision immediately
+  // 5. Provision — billing is already settled (or Stripe not configured)
   try {
     const { slug, machineToken } = await generateMachineIdentity();
 
@@ -258,6 +287,16 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       dockerImage: data.docker_image || null,
       entrypoint: data.entrypoint || null,
     });
+
+    if (stripeSubId) {
+      await stripeClient.linkSubscriptionToMachine(stripeSubId, machine.id, slug)
+        .catch((err) => console.warn(`[MACHINES] Failed to backfill subscription metadata for ${slug}:`, err));
+    }
+
+    // Link Stripe subscription to this machine
+    if (stripeSubItemId) {
+      await db.update(machines).set({ stripeSubItemId }).where(eq(machines.id, machine.id));
+    }
 
     await eventBus.emitStageChange(machine.id, ownerId, 'server_creating', 'Creating server on provider...');
 
@@ -291,14 +330,14 @@ machinesApp.openapi(createMachineRoute, async (c) => {
           console.warn(`[MACHINES] KV setup failed for ${slug}:`, err);
         }
 
-        try {
-          createStripeSubscription(ownerId, machine.id, slug, priceMonthly, data.server_type, specs);
-        } catch (err) {
-          console.warn(`[MACHINES] Billing setup failed for ${slug}:`, err);
-        }
-
       } catch (err) {
         console.error(`[MACHINES] Background provisioning failed for ${slug}:`, err);
+
+        // Provisioning failed — cancel the Stripe subscription so user isn't charged
+        if (stripeSubId) {
+          await stripeClient.cancelMachineSubscription(stripeSubId).catch(() => {});
+        }
+
         await db.update(machines).set({
           status: 'error',
           providerMeta: { error: err instanceof Error ? err.message : String(err) },
@@ -309,6 +348,10 @@ machinesApp.openapi(createMachineRoute, async (c) => {
 
     return c.json(serializeMachine(machine), 202);
   } catch (err) {
+    // Machine creation failed — cancel subscription if we already created one
+    if (stripeSubId) {
+      await stripeClient.cancelMachineSubscription(stripeSubId).catch(() => {});
+    }
     return handleRouteError(c, err, 'MACHINES') as any;
   }
 });
@@ -464,8 +507,10 @@ const resizeMachineRoute = createRoute({
   path: '/{id}/resize',
   tags: ['Machines'],
   security: bearerSecurity,
-  summary: 'Resize a machine',
-  description: 'Changes the machine to a different server type. Requires reboot (~30s downtime). Billing is prorated.',
+  summary: 'Resize (scale up) a machine',
+  description:
+    'Scales a machine UP to a larger server type. **Only upgrades are allowed** — you cannot downgrade to a smaller plan. ' +
+    'The machine is stopped, resized, and restarted (~60-90s downtime). Disk is permanently enlarged. Billing is prorated.',
   request: {
     params: z.object({ id: z.string().uuid().openapi({ description: 'Machine ID' }) }),
     body: {
@@ -478,7 +523,7 @@ const resizeMachineRoute = createRoute({
       description: 'Resize initiated',
       content: { 'application/json': { schema: ResizeResponseSchema } },
     },
-    400: { description: 'Bad Request', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    400: { description: 'Bad Request (e.g. downgrade attempt, same plan, invalid type)', content: { 'application/json': { schema: ErrorResponseSchema } } },
     401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
     404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
   },
@@ -494,38 +539,124 @@ machinesApp.openapi(resizeMachineRoute, async (c) => {
 
   const machine = owned.resource;
   if (!machine.providerServerId) {
-    return errorResponse(c, 404, 'Machine not found') as any;
+    return errorResponse(c, 400, 'Machine has no provider server — cannot resize') as any;
   }
 
-  try {
-    const lookup = requireProvider(c, machine.provider);
-    if (lookup.response) return lookup.response as any;
+  // Only allow resize when machine is running
+  if (machine.status !== 'ready') {
+    return errorResponse(c, 400, `Machine must be running to resize (current status: ${machine.status})`) as any;
+  }
 
-    await lookup.provider.resizeServer(machine.providerServerId, server_type);
-    await db.update(machines)
-      .set({ serverType: server_type })
-      .where(eq(machines.id, id));
+  // Same type = no-op
+  if (machine.serverType === server_type) {
+    return errorResponse(c, 400, 'Machine is already on this server type') as any;
+  }
 
-    if (stripeClient.isConfigured() && machine.stripeSubItemId) {
-      const subItemId = machine.stripeSubItemId.split('|')[1];
-      const serverTypes = await lookup.provider.listServerTypes(machine.region);
-      const st = serverTypes.find(t => t.name === server_type);
-      if (st && subItemId) {
-        const resizeSpecs = { vcpus: st.cores, ramGb: st.memory, diskGb: st.disk, cpuType: st.cpuType } as const;
-        await stripeClient.updateMachineSubscription(subItemId, st.priceMonthly, server_type, machine.id, resizeSpecs)
-          .catch(err => console.error('[MACHINES] Stripe resize failed:', err));
+  // ── Scale-up validation ──────────────────────────────────────────────────
+  const currentTierIdx = getPlanTierIndex(machine.serverType);
+  const newTierIdx = getPlanTierIndex(server_type);
+
+  if (newTierIdx === -1) {
+    return errorResponse(c, 400, `Unknown server type: ${server_type}`) as any;
+  }
+
+  if (currentTierIdx !== -1 && newTierIdx <= currentTierIdx) {
+    return errorResponse(c, 400, 'Only scale-up is allowed — you cannot downgrade to a smaller plan') as any;
+  }
+
+  const lookup = requireProvider(c, machine.provider);
+  if (lookup.response) return lookup.response as any;
+
+  // ── Look up new price + specs BEFORE starting the resize ──────────────
+  const serverTypes = await lookup.provider.listServerTypes(machine.region);
+  const newSt = serverTypes.find(t => t.name === server_type);
+  if (!newSt) {
+    return errorResponse(c, 400, `Server type ${server_type} is not available in region ${machine.region}`) as any;
+  }
+
+  const newPrice = newSt.priceMonthly;
+  const newSpecs = { vcpus: newSt.cores, ramGb: newSt.memory, diskGb: newSt.disk, cpuType: newSt.cpuType } as const;
+
+  // ── Respond immediately, run resize in background ─────────────────────
+  // Mark machine as resizing so the frontend can show progress
+  await db.update(machines)
+    .set({
+      status: 'provisioning',
+      provisioningStage: 'resizing',
+      provisioningStageUpdatedAt: new Date(),
+    })
+    .where(eq(machines.id, id));
+
+  await eventBus.emitStageChange(
+    machine.id,
+    ownerId,
+    'resizing',
+    `Scaling up from ${machine.serverType} to ${server_type}...`,
+  );
+
+  // Background: stop → resize → start → update DB & billing
+  after(async () => {
+    try {
+      // 1. Provider resize (stop → change_type → start)
+      await lookup.provider.resizeServer(machine.providerServerId!, server_type);
+
+      // 2. Update machine record: new server type, new price, back to ready
+      await db.update(machines)
+        .set({
+          serverType: server_type,
+          priceMonthly: newPrice,
+          status: 'ready',
+          provisioningStage: null,
+          provisioningStageUpdatedAt: new Date(),
+        })
+        .where(eq(machines.id, id));
+
+      // 3. Update Stripe subscription price with proration
+      if (stripeClient.isConfigured() && machine.stripeSubItemId) {
+        const subItemId = machine.stripeSubItemId.split('|')[1];
+        if (subItemId) {
+          await stripeClient.updateMachineSubscription(subItemId, newPrice, server_type, machine.id, newSpecs)
+            .catch(err => console.error('[MACHINES] Stripe resize billing update failed:', err));
+        }
       }
-    }
 
-    return c.json({
-      action: 'resize' as const,
-      old_type: machine.serverType,
-      new_type: server_type,
-      status: 'initiated',
-    }, 202);
-  } catch (err) {
-    return handleRouteError(c, err, 'MACHINES') as any;
-  }
+      // 4. Emit success event
+      await eventBus.emitStageChange(
+        machine.id,
+        ownerId,
+        'resize_complete',
+        `Scaled up to ${server_type} ($${newPrice}/mo)`,
+        { old_type: machine.serverType, new_type: server_type, new_price: newPrice },
+      );
+
+      console.log(`[MACHINES] Resize complete: ${machine.slug} ${machine.serverType} → ${server_type} ($${newPrice}/mo)`);
+    } catch (err) {
+      console.error(`[MACHINES] Resize failed for ${machine.slug}:`, err);
+
+      // Revert machine status to ready with original server type
+      await db.update(machines)
+        .set({
+          status: 'ready',
+          provisioningStage: null,
+          provisioningStageUpdatedAt: new Date(),
+        })
+        .where(eq(machines.id, id));
+
+      await eventBus.emitStatusChange(
+        machine.id,
+        ownerId,
+        'ready',
+        `Resize failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  });
+
+  return c.json({
+    action: 'resize' as const,
+    old_type: machine.serverType,
+    new_type: server_type,
+    status: 'initiated',
+  }, 202);
 });
 
 // ─── POST /:id/image — Create image from running machine ────────────────────
@@ -566,6 +697,12 @@ machinesApp.openapi(createImageFromMachineRoute, async (c) => {
   const machine = owned.resource;
   if (machine.status !== 'ready') return errorResponse(c, 400, `Machine must be ready (current: ${machine.status})`) as any;
   if (!machine.providerServerId) return errorResponse(c, 400, 'Machine has no provider server') as any;
+
+  // Check account image limit
+  const imageLimit = await checkImageLimit(ownerId);
+  if (!imageLimit.allowed) {
+    return errorResponse(c, 403, `Image limit reached (${imageLimit.current}/${imageLimit.max}). Delete an existing image or contact support to increase your limit.`) as any;
+  }
 
   const lookup = requireProvider(c, machine.provider);
   if (lookup.response) return lookup.response as any;
