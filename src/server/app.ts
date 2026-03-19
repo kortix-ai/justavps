@@ -6,18 +6,24 @@ import { Scalar } from '@scalar/hono-api-reference';
 
 import { v1 } from './routes/v1';
 import { enrichOpenAPISpec } from './lib/openapi-enrichment';
+import { config } from './lib/config';
 
 export const app = new OpenAPIHono().basePath('/api');
 
+const corsOrigins = [
+  'https://justavps.com',
+  'https://www.justavps.com',
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:3001',
+];
+if (config.APP_URL && !corsOrigins.includes(config.APP_URL)) {
+  corsOrigins.push(config.APP_URL);
+}
+
 app.use('*', cors({
-  origin: [
-    'https://justavps.com',
-    'https://www.justavps.com',
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:3001',
-  ],
+  origin: corsOrigins,
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
   credentials: true,

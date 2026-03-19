@@ -575,22 +575,22 @@ Host ${machine.slug}
                     <div className="space-y-2">
                       <p className="text-xs font-medium text-muted-foreground">Get this machine</p>
                       <div className="relative group">
-                        <pre className="bg-zinc-950 text-zinc-300 p-3 rounded-lg text-xs font-mono border border-zinc-800 overflow-x-auto">{`curl https://justavps.com/api/v1/machines/${machine.id} \\\n  -H "Authorization: Bearer sk_live_xxx"`}</pre>
-                        <CopyButton text={`curl https://justavps.com/api/v1/machines/${machine.id} \\\n  -H "Authorization: Bearer sk_live_xxx"`} label="curl" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <pre className="bg-zinc-950 text-zinc-300 p-3 rounded-lg text-xs font-mono border border-zinc-800 overflow-x-auto">{`curl ${process.env.NEXT_PUBLIC_APP_URL || 'https://justavps.com'}/api/v1/machines/${machine.id} \\\n  -H "Authorization: Bearer sk_live_xxx"`}</pre>
+                        <CopyButton text={`curl ${process.env.NEXT_PUBLIC_APP_URL || 'https://justavps.com'}/api/v1/machines/${machine.id} \\\n  -H "Authorization: Bearer sk_live_xxx"`} label="curl" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
                     </div>
                     <div className="space-y-2">
                       <p className="text-xs font-medium text-muted-foreground">Reboot</p>
                       <div className="relative group">
-                        <pre className="bg-zinc-950 text-zinc-300 p-3 rounded-lg text-xs font-mono border border-zinc-800 overflow-x-auto">{`curl -X POST https://justavps.com/api/v1/machines/${machine.id}/reboot \\\n  -H "Authorization: Bearer sk_live_xxx"`}</pre>
-                        <CopyButton text={`curl -X POST https://justavps.com/api/v1/machines/${machine.id}/reboot \\\n  -H "Authorization: Bearer sk_live_xxx"`} label="curl" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <pre className="bg-zinc-950 text-zinc-300 p-3 rounded-lg text-xs font-mono border border-zinc-800 overflow-x-auto">{`curl -X POST ${process.env.NEXT_PUBLIC_APP_URL || 'https://justavps.com'}/api/v1/machines/${machine.id}/reboot \\\n  -H "Authorization: Bearer sk_live_xxx"`}</pre>
+                        <CopyButton text={`curl -X POST ${process.env.NEXT_PUBLIC_APP_URL || 'https://justavps.com'}/api/v1/machines/${machine.id}/reboot \\\n  -H "Authorization: Bearer sk_live_xxx"`} label="curl" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
                     </div>
                     <div className="space-y-2">
                       <p className="text-xs font-medium text-muted-foreground">Delete</p>
                       <div className="relative group">
-                        <pre className="bg-zinc-950 text-zinc-300 p-3 rounded-lg text-xs font-mono border border-zinc-800 overflow-x-auto">{`curl -X DELETE https://justavps.com/api/v1/machines/${machine.id} \\\n  -H "Authorization: Bearer sk_live_xxx"`}</pre>
-                        <CopyButton text={`curl -X DELETE https://justavps.com/api/v1/machines/${machine.id} \\\n  -H "Authorization: Bearer sk_live_xxx"`} label="curl" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <pre className="bg-zinc-950 text-zinc-300 p-3 rounded-lg text-xs font-mono border border-zinc-800 overflow-x-auto">{`curl -X DELETE ${process.env.NEXT_PUBLIC_APP_URL || 'https://justavps.com'}/api/v1/machines/${machine.id} \\\n  -H "Authorization: Bearer sk_live_xxx"`}</pre>
+                        <CopyButton text={`curl -X DELETE ${process.env.NEXT_PUBLIC_APP_URL || 'https://justavps.com'}/api/v1/machines/${machine.id} \\\n  -H "Authorization: Bearer sk_live_xxx"`} label="curl" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
                     </div>
                   </CardContent>
