@@ -3,14 +3,21 @@
   "version": "0.1.0",
   "description": "Official TypeScript SDK for the JustAVPS API",
   "license": "MIT",
-  "author": "JustAVPS <support@justavps.com>",
+  "author": "Kortix (https://kortix.com/)",
   "homepage": "https://justavps.com/api/docs",
   "repository": {
     "type": "git",
-    "url": "https://github.com/heyagi/justavps.com",
+    "url": "https://github.com/kortix-ai/justavps.com",
     "directory": "src/sdk/ts"
   },
-  "keywords": ["justavps", "vps", "api", "sdk", "cloud", "machines"],
+  "keywords": [
+    "justavps",
+    "vps",
+    "api",
+    "sdk",
+    "cloud",
+    "machines"
+  ],
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -37,13 +44,17 @@
       }
     }
   },
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsup",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
-    "tsup": "^8.0.0",
-    "typescript": "^5.0.0"
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
   }
 }

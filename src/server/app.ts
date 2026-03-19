@@ -114,7 +114,7 @@ tb.files.upload("/root/app.py", 'print("hello")')
 content = tb.files.download("/root/app.py")
 \`\`\`
 `,
-    contact: { name: 'JustAVPS', url: 'https://justavps.com', email: 'support@justavps.com' },
+    contact: { name: 'Kortix', url: 'https://kortix.com', email: 'support@justavps.com' },
   },
   servers: [
     { url: '/', description: 'Current' },

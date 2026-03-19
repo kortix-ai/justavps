@@ -1,121 +1,92 @@
 name: Publish SDKs
 
-# ─── Trigger: push to master that touches the OpenAPI spec or SDK source ─────
+# Trigger: push to master that touches SDK source or API routes/schemas
 on:
   push:
     branches: [master, main]
     paths:
-      - "src/server/openapi.ts"
       - "src/sdk/**"
-      - "openapi-ts.config.ts"
-      - "scripts/extract-openapi.ts"
+      - "src/server/routes/**"
+      - "src/server/app.ts"
+      - "src/server/lib/openapi-enrichment.ts"
+      - "src/lib/schemas.ts"
 
 permissions:
-  contents: write   # to push version bumps + tags
+  contents: write
   id-token: write   # PyPI trusted publishing + npm provenance
 
 jobs:
   publish:
-    name: Auto-publish SDKs
+    name: Publish SDKs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0          # need history for version calculation
+          fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: pnpm/action-setup@v4
-        with: { version: 9 }
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: pnpm
+          node-version: 22
           registry-url: https://registry.npmjs.org
 
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
 
-      - run: pnpm install --frozen-lockfile
-      - run: pip install openapi-python-client build
+      - run: pip install build
 
-      # ── Regenerate everything from spec ──────────────────────────────────
-      - name: Generate SDKs
-        run: pnpm sdk:generate
-
-      # ── Calculate next version (CalVer: YYYY.M.patch) ───────────────────
+      # ── Version: CalVer YYYY.M.patch ─────────────────────────────────────
       - name: Calculate version
         id: version
         run: |
-          YEAR=$(date +%Y)
-          MONTH=$(date +%-m)
-          PREFIX="${YEAR}.${MONTH}"
-
-          # Find latest tag matching this month
+          PREFIX="$(date +%Y).$(date +%-m)"
           LATEST=$(git tag -l "sdk-v${PREFIX}.*" --sort=-v:refname | head -1)
-          if [ -z "$LATEST" ]; then
-            PATCH=0
-          else
-            PATCH=$(echo "$LATEST" | grep -oP '\d+$')
-            PATCH=$((PATCH + 1))
-          fi
+          if [ -z "$LATEST" ]; then PATCH=0; else PATCH=$(( $(echo "$LATEST" | grep -oP '\d+$') + 1 )); fi
+          echo "version=${PREFIX}.${PATCH}" >> "$GITHUB_OUTPUT"
+          echo "📦 SDK version: ${PREFIX}.${PATCH}"
 
-          VERSION="${PREFIX}.${PATCH}"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "📦 Next SDK version: $VERSION"
-
-      # ── Build & publish TypeScript SDK to npm ────────────────────────────
-      - name: Set TS SDK version
+      # ── TypeScript SDK → npm ─────────────────────────────────────────────
+      - name: Build & publish TS SDK
         working-directory: src/sdk/ts
-        run: |
-          node -e "
-            const fs = require('fs');
-            const p = JSON.parse(fs.readFileSync('package.json','utf8'));
-            p.version = '${{ steps.version.outputs.version }}';
-            fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
-          "
-
-      - name: Build TS SDK
-        working-directory: src/sdk/ts
-        run: |
-          npm install --no-save tsup typescript
-          npx tsup
-
-      - name: Publish to npm
-        working-directory: src/sdk/ts
-        run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          # Set version
+          node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version='${{ steps.version.outputs.version }}'; fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+          # Build
+          npm install --no-save tsup typescript
+          npx tsup
+          # Publish
+          npm publish --provenance --access public
 
-      # ── Build & publish Python SDK to PyPI ───────────────────────────────
-      - name: Set Python SDK version
+      # ── Python SDK → PyPI ────────────────────────────────────────────────
+      - name: Build & publish Python SDK
         working-directory: src/sdk/python
-        run: sed -i "s/^version = .*/version = \"${{ steps.version.outputs.version }}\"/" pyproject.toml
-
-      - name: Build Python SDK
-        working-directory: src/sdk/python
-        run: python -m build
+        run: |
+          # Set version
+          sed -i "s/^version = .*/version = \"${{ steps.version.outputs.version }}\"/" pyproject.toml
+          # Build
+          python -m build
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: src/sdk/python/dist/
 
-      # ── Tag the release ──────────────────────────────────────────────────
+      # ── Tag ──────────────────────────────────────────────────────────────
       - name: Tag release
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          V="${{ steps.version.outputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "sdk-v${VERSION}" -m "SDK v${VERSION} — auto-published"
-          git push origin "sdk-v${VERSION}"
+          git tag -a "sdk-v${V}" -m "SDK v${V}"
+          git push origin "sdk-v${V}"
 
       - name: Summary
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          echo "### 📦 SDKs published — v${VERSION}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Package | Registry | Install |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|----------|---------|" >> $GITHUB_STEP_SUMMARY
-          echo "| \`@justavps/sdk\` | [npm](https://www.npmjs.com/package/@justavps/sdk) | \`npm i @justavps/sdk\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| \`justavps\` | [PyPI](https://pypi.org/project/justavps/) | \`pip install justavps\` |" >> $GITHUB_STEP_SUMMARY
+          V="${{ steps.version.outputs.version }}"
+          echo "### 📦 SDK v${V}" >> $GITHUB_STEP_SUMMARY
+          echo "| Package | Install |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| [\`@justavps/sdk\`](https://www.npmjs.com/package/@justavps/sdk) | \`npm i @justavps/sdk\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| [\`justavps\`](https://pypi.org/project/justavps/) | \`pip install justavps\` |" >> $GITHUB_STEP_SUMMARY
