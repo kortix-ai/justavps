@@ -25,7 +25,6 @@ import {
   HardDrive,
   KeyRound,
   CreditCard,
-  Settings,
   FileText,
   Code2,
   ChevronsUpDown,
@@ -36,12 +35,11 @@ import {
 
 const navigation = [
   { name: "Machines", href: "/machines", icon: Server },
-  { name: "Snapshots", href: "/snapshots", icon: HardDrive },
+  { name: "Images", href: "/images", icon: HardDrive },
   { name: "Keys", href: "/keys", icon: KeyRound },
   { name: "API Reference", href: "/api/docs", icon: Code2 },
-  // { name: "Webhooks", href: "/webhooks", icon: Globe }, // hidden — no active consumers yet
-  { name: "Billing", href: "/billing", icon: CreditCard },
   { name: "Docs", href: "/docs", icon: FileText },
+  { name: "Billing", href: "/billing", icon: CreditCard },
 ];
 
 export function AppSidebar() {
@@ -111,10 +109,6 @@ export function AppSidebar() {
               sideOffset={6}
               className="w-52"
             >
-              <DropdownMenuItem onClick={() => window.location.href = "/settings"}>
-                <Settings className="size-4" />
-                Settings
-              </DropdownMenuItem>
               <DropdownMenuItem onClick={toggleTheme}>
                 {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
                 {theme === "dark" ? "Light mode" : "Dark mode"}
