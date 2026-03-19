@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ type AccessState =
   | { kind: "loading" }
   | { kind: "error"; message: string };
 
-export default function CheckoutSuccessPage() {
+function CheckoutSuccessContent() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id");
   const [state, setState] = useState<AccessState>({ kind: "loading" });
@@ -79,5 +79,25 @@ export default function CheckoutSuccessPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function CheckoutSuccessPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-background px-6">
+          <div className="w-full max-w-md rounded-2xl border bg-card p-8 text-center">
+            <Loader2 className="mx-auto size-8 animate-spin text-muted-foreground" />
+            <h1 className="mt-5 text-2xl font-semibold tracking-tight">Checkout complete</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Unlocking your account and machine access now.
+            </p>
+          </div>
+        </div>
+      }
+    >
+      <CheckoutSuccessContent />
+    </Suspense>
   );
 }

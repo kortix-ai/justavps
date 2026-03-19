@@ -4,9 +4,9 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import {
-  Book, Code2, CreditCard, HardDrive,
+  CreditCard, HardDrive,
   Copy, Check, Shield, Zap, Menu, X, LifeBuoy,
-  Monitor, Wrench, ExternalLink,
+  Monitor, Wrench,
   Server, Image as ImageIcon, Cpu, FolderOpen, Terminal,
   Key, KeyRound, Webhook, User,
 } from "lucide-react";
@@ -160,11 +160,7 @@ export default function DocsPage() {
       {/* Sidebar */}
       <aside className={cn("fixed inset-y-0 left-0 z-40 w-56 overflow-y-auto transition-transform duration-200 lg:transition-none", mobileNavOpen ? "translate-x-0" : "-translate-x-full", "lg:static lg:translate-x-0 lg:w-56 lg:shrink-0", "border-r border-zinc-200 bg-white/95 backdrop-blur-sm dark:border-zinc-800/60 dark:bg-zinc-950/95", "lg:border-r-0 lg:bg-transparent lg:dark:bg-transparent lg:backdrop-blur-none")}>
         <div className="flex flex-col h-full">
-          {/* Top: docs nav */}
-          <div className="px-4 pt-6 pb-2">
-            <div className="flex items-center gap-2 mb-4 px-1"><Book className="size-4 text-foreground/70" /><span className="text-sm font-semibold tracking-tight">Docs</span></div>
-          </div>
-          <nav className="px-3 flex-shrink-0">
+          <nav className="px-3 pt-6 flex-shrink-0">
             {NAV.map((item) => {
               const Icon = item.icon;
               return (
@@ -177,9 +173,6 @@ export default function DocsPage() {
 
           {/* Bottom: API reference links */}
           <div className="mt-auto px-3 pt-3 pb-6">
-            <Link href="/api/docs" className="flex items-center gap-2 px-2.5 py-1.5 mb-2 text-[13px] font-medium text-foreground hover:underline underline-offset-2">
-              <Code2 className="size-3.5 shrink-0" />API Reference<ExternalLink className="size-3 ml-auto text-muted-foreground/50" />
-            </Link>
             {API_REF.map((group) => (
               <div key={group.label} className="mb-2 last:mb-0">
                 <p className="px-2.5 pt-1 pb-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/40">{group.label}</p>
@@ -213,7 +206,7 @@ export default function DocsPage() {
         <P>Get a machine running in under 60 seconds.</P>
 
         <Step n={1} title="Choose a machine">
-          <p>Pick a plan from the landing page or dashboard. Starter (2 vCPU / 4 GB), Pro (4 vCPU / 8 GB), Power (8 vCPU / 16 GB), or Ultra (16 vCPU / 32 GB). Choose your region (EU or US).</p>
+          <p>Pick a plan from the landing page or dashboard. Starter (2 vCPU / 4 GB), Pro (4 vCPU / 8 GB), Power (8 vCPU / 16 GB), or Ultra (16 vCPU / 32 GB). Choose your region (EU Central or US West).</p>
           <ImagePlaceholder alt="📸 Screenshot: plan picker modal showing the 4 plans with specs and pricing" />
         </Step>
 
@@ -396,7 +389,7 @@ export default function DocsPage() {
           <Li><B>Machine resized</B> → price updated with proration</Li>
         </Ul>
         <P>Cancel anytime — no contracts, no lock-in. Manage billing, update payment methods, and view invoices in <B>Billing</B> in the dashboard.</P>
-        <Callout type="info">Available regions: Helsinki (EU) and Hillsboro, OR (US).</Callout>
+        <Callout type="info">Available regions: EU Central and US West.</Callout>
 
         <Hr />
 
