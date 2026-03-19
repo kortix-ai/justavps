@@ -160,6 +160,11 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   if (customerId) {
     await stripeClient.linkCustomerToUser(customerId, userId, checkoutEmail)
       .catch((err: unknown) => console.warn(`[STRIPE WEBHOOK] Failed to link customer ${customerId} to user ${userId}:`, err));
+
+    // Set the checkout payment method as the customer's default for future charges.
+    // Stripe Checkout attaches the PM to the subscription but NOT to the customer.
+    await stripeClient.setDefaultPaymentMethodFromCheckout(customerId, session)
+      .catch((err: unknown) => console.warn(`[STRIPE WEBHOOK] Failed to set default payment method for ${customerId}:`, err));
   }
 
   const priceMonthly = parseFloat(metadata.price_monthly || '0');
