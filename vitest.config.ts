@@ -11,7 +11,7 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/__tests__/setup.ts'],
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
-    exclude: ['node_modules', '.opencode', 'workers', 'agent', '.next', '.kortix', 'src/__tests__/e2e/**'],
+    exclude: ['node_modules', '.opencode', 'workers', 'agent', '.next', '.kortix', 'src/__tests__/e2e/**', 'src/sdk/**'],
   },
   resolve: {
     alias: {

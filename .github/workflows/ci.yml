@@ -19,7 +19,7 @@ jobs:
       - uses: pnpm/action-setup@v4
         with: { version: 9 }
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: pnpm }
+        with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm vitest run
@@ -32,16 +32,16 @@ jobs:
       - uses: pnpm/action-setup@v4
         with: { version: 9 }
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: pnpm }
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.13" }
+        with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - run: pip install openapi-python-client
-      - run: SDK_URL=https://justavps.com pnpm sdk:generate
+
+      # Regenerate TS SDK from the committed openapi.json (not from production)
+      - run: npx @hey-api/openapi-ts
+
       - name: Fail if SDK is stale
         run: |
-          if [ -n "$(git diff --name-only)" ]; then
-            echo "::error::SDK is out of date. Run 'pnpm sdk:generate' and commit."
-            git diff --stat
+          if [ -n "$(git diff --name-only src/sdk/generated/)" ]; then
+            echo "::error::SDK generated code is out of date. Run 'pnpm sdk:generate:ts' and commit."
+            git diff --stat src/sdk/generated/
             exit 1
           fi
