@@ -367,11 +367,11 @@ export default function MachineDetailPage() {
                       Run this once to save the SSH key and connect instantly:
                     </p>
                     {machine.ssh_key?.setup_command && (
-                      <div className="relative group">
-                        <pre className="bg-zinc-950 text-green-400 p-4 rounded-lg text-xs font-mono leading-relaxed overflow-x-auto border border-zinc-800">
-                          {machine.ssh_key.setup_command}
-                        </pre>
-                        <CopyButton text={machine.ssh_key.setup_command} label="Setup command" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <div className="relative group flex items-center gap-2">
+                        <div className="flex-1 min-w-0 bg-zinc-950 rounded-lg border border-zinc-800 px-4 py-3 overflow-hidden">
+                          <pre className="text-green-400 text-xs font-mono whitespace-nowrap overflow-hidden text-ellipsis">{machine.ssh_key.setup_command}</pre>
+                        </div>
+                        <CopyButton text={machine.ssh_key.setup_command} label="Setup command" className="shrink-0" />
                       </div>
                     )}
                     <p className="text-xs text-muted-foreground">
