@@ -353,34 +353,27 @@ export default function MachineDetailPage() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
           {isReady && (
             <>
-              <Tooltip><TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" className="size-8" onClick={() => setRescaleOpen(true)}>
-                  <ArrowUp className="size-3.5" />
-                </Button>
-              </TooltipTrigger><TooltipContent>Scale Up</TooltipContent></Tooltip>
-
-              <Tooltip><TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" className="size-8" onClick={() => setCreateImageOpen(true)}>
-                  <Camera className="size-3.5" />
-                </Button>
-              </TooltipTrigger><TooltipContent>Create Snapshot</TooltipContent></Tooltip>
+              <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={() => setRescaleOpen(true)}>
+                <ArrowUp className="size-3.5" />
+                Scale Up
+              </Button>
+              <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={() => setCreateImageOpen(true)}>
+                <Camera className="size-3.5" />
+                Snapshot
+              </Button>
             </>
           )}
-
-          <Tooltip><TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="size-8" onClick={handleReboot} disabled={!isReady || rebootMachine.isPending}>
-              {rebootMachine.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCw className="size-3.5" />}
-            </Button>
-          </TooltipTrigger><TooltipContent>Reboot</TooltipContent></Tooltip>
-
-          <Tooltip><TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10" onClick={handleDelete}>
-              <Trash2 className="size-3.5" />
-            </Button>
-          </TooltipTrigger><TooltipContent>Delete</TooltipContent></Tooltip>
+          <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={handleReboot} disabled={!isReady || rebootMachine.isPending}>
+            {rebootMachine.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCw className="size-3.5" />}
+            Reboot
+          </Button>
+          <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20" onClick={handleDelete}>
+            <Trash2 className="size-3.5" />
+            Delete
+          </Button>
         </div>
       </div>
 
