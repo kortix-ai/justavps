@@ -5,6 +5,7 @@ import { users, machines } from '../../db/schema';
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 import { stripeClient } from '../../lib/stripe';
 import { config } from '../../lib/config';
+import { hashPassword } from '../../lib/crypto';
 import {
   getAccountLimits,
   countActiveMachines,
@@ -16,6 +17,7 @@ import {
   AccountLimitsResponseSchema,
   BillingResponseSchema,
   BillingSetupResponseSchema,
+  AccountPasswordSetupSchema,
   ErrorResponseSchema,
 } from '@/lib/schemas';
 
@@ -62,6 +64,7 @@ accountApp.openapi(getAccountRoute, async (c) => {
       name: userRow.name,
       machines_count: userMachines.length,
       stripe_customer_id: userRow.stripeCustomerId ?? null,
+      has_password: !!userRow.passwordHash,
       created_at: userRow.createdAt.toISOString(),
     });
   } catch (err) {
@@ -231,6 +234,42 @@ accountApp.openapi(createBillingSetupRoute, async (c) => {
     console.error('[BILLING] setup checkout error:', err);
     return c.json({ error: true, message: 'Failed to create setup session', status: 500 }, 500);
   }
+});
+
+const setAccountPasswordRoute = createRoute({
+  method: 'post',
+  path: '/password',
+  tags: ['Account'],
+  security: bearerSecurity,
+  summary: 'Set account password',
+  description: 'Sets the initial password for passwordless checkout-created accounts.',
+  request: {
+    body: {
+      required: true,
+      content: { 'application/json': { schema: AccountPasswordSetupSchema } },
+    },
+  },
+  responses: {
+    200: { description: 'Password set successfully' },
+    400: { description: 'Bad Request', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+accountApp.openapi(setAccountPasswordRoute, async (c) => {
+  const userId = c.get('userId');
+  const { password } = c.req.valid('json');
+
+  const [user] = await db.select().from(users).where(eq(users.id, userId));
+  if (!user) return c.json({ error: true, message: 'User not found', status: 404 }, 404);
+  if (user.passwordHash) {
+    return c.json({ error: true, message: 'Password is already set for this account', status: 400 }, 400);
+  }
+
+  const passwordHash = await hashPassword(password);
+  await db.update(users).set({ passwordHash }).where(eq(users.id, userId));
+  return c.json({ ok: true as const });
 });
 
 // ─── GET /limits — Get Account Limits ───────────────────────────────────────

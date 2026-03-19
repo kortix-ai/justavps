@@ -23,6 +23,8 @@ import { stripeClient, type CheckoutMachineConfig } from '../../lib/stripe';
 import { config } from '../../lib/config';
 import { getProvider } from '../../lib/providers';
 import { eventBus } from '../../lib/event-bus';
+import { resolveCheckoutUser } from '../../lib/checkout-users';
+import { emailClient } from '../../lib/email';
 import {
   generateMachineIdentity,
   uploadSSHKeyToProvider,
@@ -132,7 +134,32 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     return;
   }
 
-  const userId = metadata.justavps_user_id;
+  const checkoutEmail = metadata.justavps_checkout_email || session.customer_details?.email || session.customer_email || null;
+  const checkoutName = session.customer_details?.name || null;
+  const customerId = typeof session.customer === 'string'
+    ? session.customer
+    : session.customer?.id || null;
+  let userId = metadata.justavps_user_id || '';
+
+  if (!userId) {
+    if (!checkoutEmail) {
+      console.error(`[STRIPE WEBHOOK] Checkout session ${session.id} has no user id or email — refusing provisioning`);
+      return;
+    }
+
+    const resolvedUser = await resolveCheckoutUser({
+      email: checkoutEmail,
+      name: checkoutName,
+      stripeCustomerId: customerId,
+    });
+    userId = resolvedUser.user.id;
+  }
+
+  if (customerId) {
+    await stripeClient.linkCustomerToUser(customerId, userId, checkoutEmail)
+      .catch((err: unknown) => console.warn(`[STRIPE WEBHOOK] Failed to link customer ${customerId} to user ${userId}:`, err));
+  }
+
   const priceMonthly = parseFloat(metadata.price_monthly || '0');
   let machineConfig: CheckoutMachineConfig;
 
@@ -195,6 +222,19 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const stripeSubItemIdValue = subscriptionId
     ? `${subscriptionId}|${subscriptionItemId || 'checkout'}|${session.id}`
     : null;
+
+  const planLabel = machineConfig.specs
+    ? `${machineConfig.specs.vcpus} vCPU / ${machineConfig.specs.ramGb} GB RAM / ${machineConfig.specs.diskGb} GB SSD`
+    : machineConfig.server_type;
+
+  if (checkoutEmail) {
+    await emailClient.sendCheckoutAccessEmail({
+      email: checkoutEmail,
+      name: checkoutName,
+      sessionId: session.id,
+      planLabel,
+    });
+  }
 
   // Check account machine limit before provisioning
   const machineLimit = await checkMachineLimit(userId);

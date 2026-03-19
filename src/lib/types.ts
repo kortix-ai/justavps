@@ -147,6 +147,16 @@ export interface AccountUsage {
   };
 }
 
+export interface AccountProfile {
+  id: string;
+  email: string;
+  name: string | null;
+  machines_count: number;
+  stripe_customer_id: string | null;
+  has_password: boolean;
+  created_at: string;
+}
+
 export interface BillingPortal {
   portal_url: string | null;
   has_payment_method: boolean;

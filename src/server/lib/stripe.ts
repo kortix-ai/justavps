@@ -51,6 +51,17 @@ function formatProductName(specs?: MachineSpecs): string {
 // ─── Stripe client ──────────────────────────────────────────────────────────
 
 export const stripeClient = {
+  async getOrCreateCustomerByEmail(email: string): Promise<string> {
+    const normalizedEmail = email.trim().toLowerCase();
+    const existing = await stripe.customers.list({ email: normalizedEmail, limit: 1 });
+    if (existing.data.length > 0) {
+      return existing.data[0].id;
+    }
+
+    const customer = await stripe.customers.create({ email: normalizedEmail });
+    return customer.id;
+  },
+
   /**
    * Get or create a Stripe customer for a user.
    */
@@ -109,8 +120,8 @@ export const stripeClient = {
    * The machine config is stored in session metadata so the webhook can provision it.
    */
   async createCheckoutSession(params: {
-    customerId: string;
-    userId: string;
+    customerId?: string | null;
+    userId?: string | null;
     machineConfig: CheckoutMachineConfig;
     priceMonthlyUsd: number;
     successUrl: string;
@@ -135,30 +146,30 @@ export const stripeClient = {
     // Checkout in subscription mode — charges the full month IMMEDIATELY at checkout.
     // No trial, no deferred billing. User pays before machine is provisioned.
     const session = await stripe.checkout.sessions.create({
-      customer: params.customerId,
+      ...(params.customerId ? { customer: params.customerId } : {}),
       mode: 'subscription',
       line_items: [{ price: price.id, quantity: 1 }],
       success_url: `${params.successUrl}?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${params.cancelUrl}?checkout=cancelled`,
       metadata: {
         justavps_action: 'create_machine',
-        justavps_user_id: params.userId,
         machine_config: JSON.stringify(params.machineConfig),
         price_monthly: String(params.priceMonthlyUsd),
+        ...(params.userId ? { justavps_user_id: params.userId } : {}),
       },
       subscription_data: {
         metadata: {
-          justavps_user_id: params.userId,
           machine_provider: params.machineConfig.provider,
           machine_server_type: params.machineConfig.server_type,
           machine_region: params.machineConfig.region,
+          ...(params.userId ? { justavps_user_id: params.userId } : {}),
         },
       },
       payment_method_types: ['card'],
       payment_method_collection: 'always',
     });
 
-    console.log(`[STRIPE] Created checkout session ${session.id} for user ${params.userId} ($${params.priceMonthlyUsd}/mo)`);
+    console.log(`[STRIPE] Created checkout session ${session.id} for customer ${params.customerId || 'guest'} ($${params.priceMonthlyUsd}/mo)`);
 
     return {
       sessionId: session.id,
@@ -319,6 +330,17 @@ export const stripeClient = {
     });
 
     console.log(`[STRIPE] Linked subscription ${subscriptionId} to machine ${machineSlug}`);
+  },
+
+  async linkCustomerToUser(customerId: string, userId: string, email?: string | null): Promise<void> {
+    if (!customerId) return;
+
+    await stripe.customers.update(customerId, {
+      ...(email ? { email: email.trim().toLowerCase() } : {}),
+      metadata: {
+        justavps_user_id: userId,
+      },
+    });
   },
 
   /**

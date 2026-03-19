@@ -58,7 +58,6 @@ export function useCreateMachine() {
       } catch (err) {
         if (err instanceof ApiError && err.status === 402 && err.data) {
           // The API returns { requires_checkout, checkout_url, message }
-          // ApiError.data already contains the parsed response body
           return { kind: "checkout", checkout: err.data as unknown as CheckoutRequired };
         }
         throw err;

@@ -226,6 +226,7 @@ export const AccountResponseSchema = z.object({
   name: z.string().nullable(),
   machines_count: z.number(),
   stripe_customer_id: z.string().nullable(),
+  has_password: z.boolean(),
   created_at: z.string(),
 });
 
@@ -250,6 +251,10 @@ export const BillingResponseSchema = z.object({
 
 export const BillingSetupResponseSchema = z.object({
   checkout_url: z.string(),
+});
+
+export const AccountPasswordSetupSchema = z.object({
+  password: z.string().min(8).max(128),
 });
 
 // ─── Account Limits Schemas ─────────────────────────────────────────────────

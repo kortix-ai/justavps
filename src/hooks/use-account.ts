@@ -1,12 +1,20 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { api } from "./api-client";
-import type { AccountUsage, AccountLimits, BillingPortal, BillingSetup } from "@/lib/types";
+import type { AccountUsage, AccountLimits, BillingPortal, BillingSetup, AccountProfile } from "@/lib/types";
 
 export const accountKeys = {
+  profile: ["account", "profile"] as const,
   usage: ["account", "usage"] as const,
   billing: ["account", "billing"] as const,
   limits: ["account", "limits"] as const,
 };
+
+export function useAccount() {
+  return useQuery({
+    queryKey: accountKeys.profile,
+    queryFn: () => api.get<AccountProfile>("/account"),
+  });
+}
 
 export function useUsage() {
   return useQuery({
@@ -41,5 +49,11 @@ export function useSetupPaymentMethod() {
         window.location.href = data.checkout_url;
       }
     },
+  });
+}
+
+export function useSetAccountPassword() {
+  return useMutation({
+    mutationFn: (password: string) => api.post<{ ok: true }>("/account/password", { password }),
   });
 }

@@ -24,6 +24,13 @@ export const config = {
   STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET || '',
   STRIPE_COMPUTE_PRODUCT_ID: process.env.STRIPE_COMPUTE_PRODUCT_ID || '',
 
+  // Email (Mailtrap)
+  MAILTRAP_API_TOKEN: (process.env.MAILTRAP_API_TOKEN || process.env.MAILTRAP_API_KEY || '').trim(),
+  MAILTRAP_USE_SANDBOX: (process.env.MAILTRAP_USE_SANDBOX || '').trim().toLowerCase() === 'true',
+  MAILTRAP_INBOX_ID: parseInt(process.env.MAILTRAP_INBOX_ID || '0', 10),
+  MAILTRAP_SENDER_EMAIL: (process.env.MAILTRAP_SENDER_EMAIL || 'justavps@kortix.ai').trim(),
+  MAILTRAP_SENDER_NAME: (process.env.MAILTRAP_SENDER_NAME || 'JustAVPS').trim(),
+
   // Platform
   PLATFORM_URL: (process.env.PLATFORM_URL || 'https://justavps.com').trim(),
   PROXY_DOMAIN: (process.env.PROXY_DOMAIN || 'kortix.cloud').trim(),
@@ -49,5 +56,8 @@ export const config = {
   },
   isStripeConfigured(): boolean {
     return !!this.STRIPE_SECRET_KEY;
+  },
+  isMailtrapConfigured(): boolean {
+    return !!this.MAILTRAP_API_TOKEN;
   },
 } as const;
