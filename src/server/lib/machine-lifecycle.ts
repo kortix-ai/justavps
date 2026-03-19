@@ -19,7 +19,7 @@ export async function generateMachineIdentity() {
 
 /**
  * Upload SSH key to provider. This is MANDATORY for server creation —
- * without it, Hetzner sets a temporary root password with forced expiry,
+ * without it, the provider sets a temporary root password with forced expiry,
  * making SSH access impossible even with cloud-init injected keys.
  *
  * Retries up to 3 times before throwing.
@@ -79,6 +79,7 @@ export function buildMachineUserData(
     dockerImage,
     entrypoint,
     extraSSHKeys,
+    daemonChannel: config.DAEMON_CHANNEL,
   });
 }
 

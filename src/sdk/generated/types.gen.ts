@@ -88,11 +88,11 @@ export type PostApiV1MachinesData = {
          */
         provider?: string;
         /**
-         * Server type (e.g. "cpx32")
+         * Server type / plan identifier
          */
         server_type: string;
         /**
-         * Region (e.g. "hel1", "hil")
+         * Region (e.g. "eu", "us")
          */
         region: string;
         /**
@@ -1125,7 +1125,7 @@ export type GetApiV1ServerTypesData = {
          */
         provider?: string;
         /**
-         * Region ID (e.g. hel1)
+         * Region ID (e.g. eu, us)
          */
         region: string;
     };

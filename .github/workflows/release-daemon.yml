@@ -1,16 +1,18 @@
 name: Release Daemon
 
-# Builds and uploads the daemon binary to R2 whenever daemon/ code changes on production.
+# Builds and uploads the daemon binary to R2 whenever daemon/ code changes.
+# - production branch → daemon/latest/ (production download path)
+# - main branch       → daemon/dev/latest/ (dev download path)
 # Vercel auto-deploys the Next.js app on push — this handles the Go binary side.
 
 on:
   push:
-    branches: [production]
+    branches: [production, main]
     paths:
       - 'daemon/**'
 
 concurrency:
-  group: release-daemon
+  group: release-daemon-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -39,32 +41,45 @@ jobs:
             -o bin/justavps-daemon-linux-amd64 .
           ls -lh bin/justavps-daemon-linux-amd64
 
+      - name: Set R2 path prefix
+        id: r2path
+        run: |
+          if [ "${{ github.ref_name }}" = "production" ]; then
+            echo "prefix=daemon" >> "$GITHUB_OUTPUT"
+          else
+            echo "prefix=daemon/dev" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload to R2
         env:
           CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CF_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
           CF_API_KEY: ${{ secrets.CLOUDFLARE_GLOBAL_API_KEY }}
+          PREFIX: ${{ steps.r2path.outputs.prefix }}
         run: |
-          # Upload as latest (what cloud-init downloads)
+          SHA="${GITHUB_SHA::7}"
+
+          # Upload as latest
           curl -sf -X PUT \
-            "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/r2/buckets/justavps-releases/objects/daemon/latest/justavps-daemon-linux-amd64" \
+            "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/r2/buckets/justavps-releases/objects/${PREFIX}/latest/justavps-daemon-linux-amd64" \
             -H "X-Auth-Email: ${CF_EMAIL}" \
             -H "X-Auth-Key: ${CF_API_KEY}" \
             --data-binary @daemon/bin/justavps-daemon-linux-amd64
 
           # Also upload versioned copy for rollbacks
-          SHA="${GITHUB_SHA::7}"
           curl -sf -X PUT \
-            "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/r2/buckets/justavps-releases/objects/daemon/${SHA}/justavps-daemon-linux-amd64" \
+            "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/r2/buckets/justavps-releases/objects/${PREFIX}/${SHA}/justavps-daemon-linux-amd64" \
             -H "X-Auth-Email: ${CF_EMAIL}" \
             -H "X-Auth-Key: ${CF_API_KEY}" \
             --data-binary @daemon/bin/justavps-daemon-linux-amd64
 
-          echo "✅ Uploaded daemon ${SHA} to R2 (latest + versioned)"
+          echo "✅ Uploaded daemon ${SHA} to R2 at ${PREFIX}/ (latest + versioned)"
 
       - name: Verify download
+        env:
+          PREFIX: ${{ steps.r2path.outputs.prefix }}
         run: |
           curl -sf -o /tmp/verify -w "HTTP %{http_code} — %{size_download} bytes" \
-            "https://pub-caf7762051b942d5a801397d750a0dc3.r2.dev/daemon/latest/justavps-daemon-linux-amd64"
+            "https://pub-caf7762051b942d5a801397d750a0dc3.r2.dev/${PREFIX}/latest/justavps-daemon-linux-amd64"
           echo ""
           chmod +x /tmp/verify && /tmp/verify --version

@@ -93,7 +93,7 @@ import { JustAVPS } from "@kortix/justavps";
 const client = new JustAVPS({ apiKey: "sk_live_..." });
 
 // Create a machine
-const machine = await client.machines.create({ server_type: "cpx32", region: "hel1" });
+const machine = await client.machines.create({ server_type: "starter", region: "eu" });
 
 // Execute commands
 const tb = client.toolbox(machine.id);
@@ -109,7 +109,7 @@ from justavps import JustAVPS
 client = JustAVPS("sk_live_...")
 
 # Create a machine
-machine = client.machines.create(server_type="cpx32", region="hel1")
+machine = client.machines.create(server_type="starter", region="eu")
 
 # Execute commands
 tb = client.toolbox(machine["id"])

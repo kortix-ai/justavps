@@ -23,8 +23,8 @@ const { machines } = await client.machines.list();
 // Create a machine
 const machine = await client.machines.create({
   provider: 'cloud',
-  server_type: 'cpx32',
-  region: 'hel1',
+  server_type: 'starter',
+  region: 'eu',
   name: 'my-dev-box',
 });
 
@@ -34,7 +34,7 @@ console.log(`IP: ${ready.ip}`);
 
 // Reboot / Resize / Delete
 await client.machines.reboot(machine.id);
-await client.machines.resize(machine.id, { server_type: 'cpx42' });
+await client.machines.resize(machine.id, { server_type: 'pro' });
 await client.machines.delete(machine.id);
 ```
 
@@ -155,7 +155,7 @@ await client.webhooks.delete(webhook.id);
 ```typescript
 const { providers } = await client.serverTypes.providers();
 const { regions } = await client.serverTypes.regions('cloud');
-const { server_types } = await client.serverTypes.list('hel1');
+const { server_types } = await client.serverTypes.list('eu');
 server_types.forEach(t =>
   console.log(`${t.name}: ${t.cores} vCPU, ${t.memory}GB, $${t.price_monthly}/mo`)
 );

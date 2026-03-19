@@ -19,7 +19,7 @@ import { useCreateMachine } from "@/hooks/use-machines";
 import { useSSHKeys } from "@/hooks/use-ssh-keys";
 import { useImages } from "@/hooks/use-images";
 import { ChevronRight, Loader2, KeyRound, Check, Monitor, Container, HardDrive, Box } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, planName } from "@/lib/utils";
 import type { Image } from "@/lib/types";
 
 // Template selection mode
@@ -295,8 +295,8 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
                     onClick={() => setSelectedServerType(s.name)}
                   >
                     <div className="flex items-center gap-3">
-                      <span className="font-mono text-sm text-muted-foreground w-12">{s.name}</span>
-                      <span className="text-sm">
+                      <span className="text-sm font-medium w-14">{planName(s.name)}</span>
+                      <span className="text-sm text-muted-foreground">
                         {s.vcpu} vCPU <span className="text-muted-foreground">&middot;</span> {s.ram_gb} GB <span className="text-muted-foreground">&middot;</span> {s.disk_gb} GB
                       </span>
                     </div>

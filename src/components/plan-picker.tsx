@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@/lib/utils";
+import { cn, regionDisplay } from "@/lib/utils";
 import { Check, Zap, Star, Rocket, Crown } from "lucide-react";
 import type { Region, ServerType } from "@/lib/types";
 
@@ -12,14 +12,6 @@ const PLAN_META = [
   { label: "Power",    Icon: Rocket, tagline: "Heavy agents & parallel tasks",         anchor: 483 },
   { label: "Ultra",    Icon: Crown,  tagline: "Maximum performance, zero bottlenecks", anchor: 966 },
 ] as const;
-
-export const REGION_MAP: Record<string, { flag: string; label: string }> = {
-  hel1: { flag: "\u{1F1EA}\u{1F1FA}", label: "Europe" },
-  fsn1: { flag: "\u{1F1EA}\u{1F1FA}", label: "Europe" },
-  nbg1: { flag: "\u{1F1EA}\u{1F1FA}", label: "Europe" },
-  hil:  { flag: "\u{1F1FA}\u{1F1F8}", label: "USA" },
-  ash:  { flag: "\u{1F1FA}\u{1F1F8}", label: "USA" },
-};
 
 export const INCLUDED_FEATURES = [
   "SSH access", "Browser IDE", "Web terminal", "Auth proxy",
@@ -56,7 +48,7 @@ export function PlanPicker({
           <div className="flex gap-2">
             {regions.map((r) => {
               const active = selectedRegion === r.id;
-              const rm = REGION_MAP[r.id];
+              const rm = regionDisplay(r.id);
               return (
                 <button
                   key={r.id}
@@ -68,8 +60,8 @@ export function PlanPicker({
                       : "border-border text-muted-foreground hover:border-foreground hover:text-foreground"
                   )}
                 >
-                  <span>{rm?.flag ?? "\u{1F30D}"}</span>
-                  {rm?.label ?? r.city}
+                  <span>{rm.flag}</span>
+                  {rm.label}
                 </button>
               );
             })}

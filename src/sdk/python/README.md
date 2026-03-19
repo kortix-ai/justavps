@@ -21,7 +21,7 @@ client = JustAVPS("sk_live_...")
 machines = client.machines.list()
 
 # Create a machine
-machine = client.machines.create(server_type="cpx32", region="hel1", name="my-box")
+machine = client.machines.create(server_type="starter", region="eu", name="my-box")
 print(f"Created: {machine['id']} — {machine['slug']}")
 
 # Get details
@@ -30,7 +30,7 @@ print(f"Status: {machine['status']}, IP: {machine['ip']}")
 
 # Reboot / Resize / Delete
 client.machines.reboot(machine_id)
-client.machines.resize(machine_id, server_type="cpx42")
+client.machines.resize(machine_id, server_type="pro")
 client.machines.delete(machine_id)
 ```
 
@@ -154,7 +154,7 @@ client.webhooks.delete(hook["id"])
 ```python
 providers = client.server_types.providers()
 regions = client.server_types.regions("cloud")
-types = client.server_types.list("hel1")
+types = client.server_types.list("eu")
 for t in types:
     print(f"  {t['name']}: {t['cores']} vCPU, {t['memory']}GB, ${t['price_monthly']}/mo")
 ```

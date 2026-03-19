@@ -4,7 +4,7 @@
  */
 
 export const config = {
-  // Hetzner
+  // Cloud provider
   HETZNER_API_KEY: process.env.HETZNER_API_KEY || '',
   HETZNER_DEFAULT_LOCATION: process.env.HETZNER_DEFAULT_LOCATION || 'nbg1',
   // Pre-built snapshot with all platform software (OpenCode, Caddy, Docker, daemon, etc.)
@@ -36,6 +36,8 @@ export const config = {
   PROXY_DOMAIN: (process.env.PROXY_DOMAIN || 'kortix.cloud').trim(),
   APP_URL: (process.env.NEXT_PUBLIC_APP_URL || 'https://justavps.com').trim(),
   API_URL: (process.env.NEXT_PUBLIC_API_URL || 'https://justavps.com/api').trim(),
+  // Daemon release channel: "dev" downloads from daemon/dev/latest/, "latest" (default) from daemon/latest/
+  DAEMON_CHANNEL: (process.env.DAEMON_CHANNEL || 'latest').trim() as 'dev' | 'latest',
 
   // Pricing
   COMPUTE_MARKUP: parseFloat(process.env.COMPUTE_MARKUP || '2.5'),
@@ -54,7 +56,7 @@ export const config = {
   isKortixConfigured(): boolean {
     return !!this.KORTIX_OAUTH_CLIENT_ID && !!this.KORTIX_OAUTH_CLIENT_SECRET;
   },
-  isHetznerConfigured(): boolean {
+  isCloudProviderConfigured(): boolean {
     return !!this.HETZNER_API_KEY;
   },
   isCloudflareConfigured(): boolean {

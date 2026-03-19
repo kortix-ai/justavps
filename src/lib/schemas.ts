@@ -12,8 +12,8 @@ import { z } from '@hono/zod-openapi';
 export const CreateMachineSchema = z.object({
   image_id: z.string().uuid().optional().nullable().describe('Image to boot from. Null = Ubuntu 24.04'),
   provider: z.string().min(1).default('cloud').describe('Cloud provider'),
-  server_type: z.string().min(1).describe('Server type (e.g. "cpx32")'),
-  region: z.string().min(1).describe('Region (e.g. "hel1", "hil")'),
+  server_type: z.string().min(1).describe('Server type / plan identifier'),
+  region: z.string().min(1).describe('Region (e.g. "eu", "us")'),
   name: z.string().min(1).max(64).optional().describe('Human-readable name'),
   env_vars: z.record(z.string(), z.string()).optional().describe('Extra environment variables written to /etc/justavps/env on the machine'),
   docker_image: z.string().optional().describe('Docker image to run on boot (e.g. "myapp:latest")'),

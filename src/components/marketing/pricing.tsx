@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+import { cn, planName } from "@/lib/utils";
 import Link from "next/link";
 
 interface ServerType {
@@ -26,14 +26,17 @@ export function Pricing() {
   const [serverTypes, setServerTypes] = useState<ServerType[]>([]);
   const [regions, setRegions] = useState<Region[]>([]);
   const [loading, setLoading] = useState(true);
-  const [region, setRegion] = useState("hel1");
+  const [region, setRegion] = useState("");
 
   // Fetch regions on mount
   useEffect(() => {
     fetch("/api/v1/server-types/regions")
       .then((r) => r.json())
       .then((d) => {
-        if (d.regions?.length) setRegions(d.regions);
+        if (d.regions?.length) {
+          setRegions(d.regions);
+          setRegion((prev) => prev || d.regions[0].id);
+        }
       })
       .catch(() => {});
   }, []);
@@ -115,7 +118,7 @@ export function Pricing() {
                 >
                   <div className="flex items-center gap-3">
                     <span className="font-mono font-bold text-sm">
-                      {s.name.toUpperCase()}
+                      {planName(s.name)}
                     </span>
                     {i === 0 && (
                       <Badge

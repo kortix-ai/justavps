@@ -34,14 +34,14 @@ print(machines)` },
 
   'POST /api/v1/machines': [
     { lang: 'JavaScript', label: 'TypeScript SDK', source: `const machine = await client.machines.create({
-  server_type: "cpx32",
-  region: "hel1",
+  server_type: "starter",
+  region: "eu",
   name: "my-dev-box",
 });
 console.log(machine.id, machine.slug);` },
     { lang: 'Python', label: 'Python SDK', source: `machine = client.machines.create(
-    server_type="cpx32",
-    region="hel1",
+    server_type="starter",
+    region="eu",
     name="my-dev-box",
 )
 print(machine["id"], machine["slug"])` },
@@ -65,8 +65,8 @@ print(machine["status"], machine["ip"])` },
   ],
 
   'POST /api/v1/machines/{id}/resize': [
-    { lang: 'JavaScript', label: 'TypeScript SDK', source: `await client.machines.resize("machine-id", { server_type: "cpx42" });` },
-    { lang: 'Python', label: 'Python SDK', source: `client.machines.resize("machine-id", server_type="cpx42")` },
+    { lang: 'JavaScript', label: 'TypeScript SDK', source: `await client.machines.resize("machine-id", { server_type: "pro" });` },
+    { lang: 'Python', label: 'Python SDK', source: `client.machines.resize("machine-id", server_type="pro")` },
   ],
 
   'POST /api/v1/machines/{id}/image': [
@@ -160,8 +160,8 @@ print(key["key"])  # Only shown once!` },
 
   // ── Server Types ──────────────────────────────────────────────────
   'GET /api/v1/server-types': [
-    { lang: 'JavaScript', label: 'TypeScript SDK', source: `const { server_types } = await client.serverTypes.list("hel1");` },
-    { lang: 'Python', label: 'Python SDK', source: `types = client.server_types.list("hel1")` },
+    { lang: 'JavaScript', label: 'TypeScript SDK', source: `const { server_types } = await client.serverTypes.list("eu");` },
+    { lang: 'Python', label: 'Python SDK', source: `types = client.server_types.list("eu")` },
   ],
 
   'GET /api/v1/server-types/providers': [

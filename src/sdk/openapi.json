@@ -3,7 +3,7 @@
   "info": {
     "title": "JustAVPS API",
     "version": "1.0.0",
-    "description": "The JustAVPS API lets you programmatically create and manage VPS machines, run commands, manage files, and build infrastructure.\n\n## Authentication\n\nAll authenticated endpoints accept:\n- **Bearer token**: `Authorization: Bearer sk_live_xxx`\n\nGenerate API keys in the [dashboard](https://justavps.com/settings).\n\n## Base URL\n```\nhttps://justavps.com/api/v1\n```\n\n## SDKs\n\n```bash\n# TypeScript / Node.js\nnpm install @kortix/justavps\n\n# Python\npip install kortix-justavps\n```\n\n```typescript\nimport { JustAVPS } from \"@kortix/justavps\";\nconst client = new JustAVPS({ apiKey: \"sk_live_...\" });\n\n// Create a machine\nconst machine = await client.machines.create({ server_type: \"cpx32\", region: \"hel1\" });\n\n// Execute commands\nconst tb = client.toolbox(machine.id);\nconst result = await tb.process.exec(\"echo hello\");\n\n// Manage files\nawait tb.files.upload(\"/root/app.py\", 'print(\"hello\")');\nconst content = await tb.files.download(\"/root/app.py\");\n```\n\n```python\nfrom justavps import JustAVPS\nclient = JustAVPS(\"sk_live_...\")\n\n# Create a machine\nmachine = client.machines.create(server_type=\"cpx32\", region=\"hel1\")\n\n# Execute commands\ntb = client.toolbox(machine[\"id\"])\nresult = tb.process.exec(\"echo hello\")\n\n# Manage files\ntb.files.upload(\"/root/app.py\", 'print(\"hello\")')\ncontent = tb.files.download(\"/root/app.py\")\n```\n",
+    "description": "The JustAVPS API lets you programmatically create and manage VPS machines, run commands, manage files, and build infrastructure.\n\n## Authentication\n\nAll authenticated endpoints accept:\n- **Bearer token**: `Authorization: Bearer sk_live_xxx`\n\nGenerate API keys in the [dashboard](https://justavps.com/settings).\n\n## Base URL\n```\nhttps://justavps.com/api/v1\n```\n\n## SDKs\n\n```bash\n# TypeScript / Node.js\nnpm install @kortix/justavps\n\n# Python\npip install kortix-justavps\n```\n\n```typescript\nimport { JustAVPS } from \"@kortix/justavps\";\nconst client = new JustAVPS({ apiKey: \"sk_live_...\" });\n\n// Create a machine\nconst machine = await client.machines.create({ server_type: \"starter\", region: \"eu\" });\n\n// Execute commands\nconst tb = client.toolbox(machine.id);\nconst result = await tb.process.exec(\"echo hello\");\n\n// Manage files\nawait tb.files.upload(\"/root/app.py\", 'print(\"hello\")');\nconst content = await tb.files.download(\"/root/app.py\");\n```\n\n```python\nfrom justavps import JustAVPS\nclient = JustAVPS(\"sk_live_...\")\n\n# Create a machine\nmachine = client.machines.create(server_type=\"starter\", region=\"eu\")\n\n# Execute commands\ntb = client.toolbox(machine[\"id\"])\nresult = tb.process.exec(\"echo hello\")\n\n# Manage files\ntb.files.upload(\"/root/app.py\", 'print(\"hello\")')\ncontent = tb.files.download(\"/root/app.py\")\n```\n",
     "contact": {
       "name": "Kortix",
       "url": "https://kortix.com",
@@ -132,12 +132,12 @@
                   "server_type": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "Server type (e.g. \"cpx32\")"
+                    "description": "Server type / plan identifier"
                   },
                   "region": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "Region (e.g. \"hel1\", \"hil\")"
+                    "description": "Region (e.g. \"eu\", \"us\")"
                   },
                   "name": {
                     "type": "string",
@@ -552,12 +552,12 @@
           {
             "lang": "JavaScript",
             "label": "TypeScript SDK",
-            "source": "const machine = await client.machines.create({\n  server_type: \"cpx32\",\n  region: \"hel1\",\n  name: \"my-dev-box\",\n});\nconsole.log(machine.id, machine.slug);"
+            "source": "const machine = await client.machines.create({\n  server_type: \"starter\",\n  region: \"eu\",\n  name: \"my-dev-box\",\n});\nconsole.log(machine.id, machine.slug);"
           },
           {
             "lang": "Python",
             "label": "Python SDK",
-            "source": "machine = client.machines.create(\n    server_type=\"cpx32\",\n    region=\"hel1\",\n    name=\"my-dev-box\",\n)\nprint(machine[\"id\"], machine[\"slug\"])"
+            "source": "machine = client.machines.create(\n    server_type=\"starter\",\n    region=\"eu\",\n    name=\"my-dev-box\",\n)\nprint(machine[\"id\"], machine[\"slug\"])"
           }
         ]
       },
@@ -1576,12 +1576,12 @@
           {
             "lang": "JavaScript",
             "label": "TypeScript SDK",
-            "source": "await client.machines.resize(\"machine-id\", { server_type: \"cpx42\" });"
+            "source": "await client.machines.resize(\"machine-id\", { server_type: \"pro\" });"
           },
           {
             "lang": "Python",
             "label": "Python SDK",
-            "source": "client.machines.resize(\"machine-id\", server_type=\"cpx42\")"
+            "source": "client.machines.resize(\"machine-id\", server_type=\"pro\")"
           }
         ]
       }
@@ -3455,10 +3455,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "Region ID (e.g. hel1)"
+              "description": "Region ID (e.g. eu, us)"
             },
             "required": true,
-            "description": "Region ID (e.g. hel1)",
+            "description": "Region ID (e.g. eu, us)",
             "name": "region",
             "in": "query"
           }
@@ -3583,12 +3583,12 @@
           {
             "lang": "JavaScript",
             "label": "TypeScript SDK",
-            "source": "const { server_types } = await client.serverTypes.list(\"hel1\");"
+            "source": "const { server_types } = await client.serverTypes.list(\"eu\");"
           },
           {
             "lang": "Python",
             "label": "Python SDK",
-            "source": "types = client.server_types.list(\"hel1\")"
+            "source": "types = client.server_types.list(\"eu\")"
           }
         ]
       }

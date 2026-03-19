@@ -123,6 +123,23 @@ describe('cloud-init', () => {
       expect(script).toContain('daemon download failed, using image version');
     });
 
+    it('should use production R2 path by default (no daemonChannel)', () => {
+      const script = buildCloudInit(defaultOpts);
+      expect(script).toContain('daemon/latest/justavps-daemon-linux-amd64');
+      expect(script).not.toContain('daemon/dev/latest');
+    });
+
+    it('should use production R2 path when daemonChannel is "latest"', () => {
+      const script = buildCloudInit({ ...defaultOpts, daemonChannel: 'latest' });
+      expect(script).toContain('daemon/latest/justavps-daemon-linux-amd64');
+      expect(script).not.toContain('daemon/dev/latest');
+    });
+
+    it('should use dev R2 path when daemonChannel is "dev"', () => {
+      const script = buildCloudInit({ ...defaultOpts, daemonChannel: 'dev' });
+      expect(script).toContain('daemon/dev/latest/justavps-daemon-linux-amd64');
+    });
+
     it('should enable and start daemon as the primary service', () => {
       const script = buildCloudInit(defaultOpts);
       expect(script).toContain('systemctl enable --now justavps-daemon');

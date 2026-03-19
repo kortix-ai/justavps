@@ -45,7 +45,7 @@ const listServerTypesRoute = createRoute({
   request: {
     query: z.object({
       provider: z.string().default('cloud').openapi({ description: 'Cloud provider' }),
-      region: z.string().openapi({ description: 'Region ID (e.g. hel1)' }),
+      region: z.string().openapi({ description: 'Region ID (e.g. eu, us)' }),
     }),
   },
   responses: {

@@ -12,7 +12,7 @@
  *
  * const { machines } = await client.machines.list();
  * const machine = await client.machines.create({
- *   snapshot_id: 'uuid', server_type: 'cpx32', region: 'hel1',
+ *   snapshot_id: 'uuid', server_type: 'starter', region: 'eu',
  * });
  * const ready = await client.machines.waitForReady(machine.id);
  * ```

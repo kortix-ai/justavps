@@ -92,8 +92,8 @@ interface HetznerImage {
 }
 
 const HETZNER_REGIONS: RegionInfo[] = [
-  { id: 'hel1', name: 'EU-Central', country: 'FI', city: 'Helsinki' },
-  { id: 'hil', name: 'US-West', country: 'US', city: 'Hillsboro, OR' },
+  { id: 'hel1', name: 'EU-Central', country: 'EU', city: 'Europe' },
+  { id: 'hil', name: 'US-West', country: 'US', city: 'United States' },
 ];
 
 async function hetznerFetch<T = unknown>(

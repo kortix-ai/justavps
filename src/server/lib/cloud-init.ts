@@ -34,6 +34,8 @@ interface CloudInitOpts {
   entrypoint?: string;
   /** Additional SSH public keys (user-managed) to authorize on the machine */
   extraSSHKeys?: string[];
+  /** Daemon release channel: "dev" or "latest" (default). Controls which R2 path the binary is downloaded from. */
+  daemonChannel?: 'dev' | 'latest';
 }
 
 export function buildCloudInit(opts: CloudInitOpts): string {
@@ -175,7 +177,7 @@ CONFIGEOF
 echo '${envLinesBase64}' | base64 -d > /etc/justavps/env
 
 # ── Update daemon to latest ───────────────────────────────────────────────
-DAEMON_URL="https://pub-caf7762051b942d5a801397d750a0dc3.r2.dev/daemon/latest/justavps-daemon-linux-amd64"
+DAEMON_URL="https://pub-caf7762051b942d5a801397d750a0dc3.r2.dev/${opts.daemonChannel === 'dev' ? 'daemon/dev/latest' : 'daemon/latest'}/justavps-daemon-linux-amd64"
 curl -fsSL -o /usr/local/bin/justavps-daemon "$DAEMON_URL" \\
   || echo "[justavps] WARNING: daemon download failed, using image version"
 chmod +x /usr/local/bin/justavps-daemon 2>/dev/null || true
