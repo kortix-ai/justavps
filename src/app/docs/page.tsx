@@ -48,7 +48,9 @@ const sections: DocSection[] = [
     id: "api-reference",
     title: "REST API",
     icon: Code2,
-    subsections: [],
+    subsections: [
+      { id: "sdks", title: "SDKs" },
+    ],
   },
   {
     id: "snapshots",
@@ -305,7 +307,24 @@ export default function DocsPage() {
             Open API Reference →
           </Link>
         </div>
-        <P>The interactive API reference has full endpoint documentation, request/response schemas, and a try-it-out playground.</P>
+        <H3 id="sdks">SDKs</H3>
+        <P>Official TypeScript and Python SDKs:</P>
+        <CodeBlock title="TypeScript">{`npm install @justavps/sdk`}</CodeBlock>
+        <CodeBlock title="Python">{`pip install justavps`}</CodeBlock>
+        <CodeBlock title="TypeScript example">{`import { JustAVPS } from "@justavps/sdk";
+
+const client = new JustAVPS("sk_live_xxx");
+const machine = await client.machines.create({
+  server_type: "cpx32",
+  region: "hel1",
+});`}</CodeBlock>
+        <CodeBlock title="Python example">{`from justavps import JustAVPS
+
+client = JustAVPS("sk_live_xxx")
+machine = client.machines.create(
+    server_type="cpx32",
+    region="hel1",
+)`}</CodeBlock>
 
         <DocSeparator />
 
