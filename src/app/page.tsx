@@ -7,7 +7,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/hooks/use-theme";
 import { Logo } from "@/components/logo";
-import { TbApi, TbBolt } from "react-icons/tb";
+import { TbApi } from "react-icons/tb";
 import { SiPython, SiTypescript } from "react-icons/si";
 import { CheckoutModal } from "@/components/checkout-modal";
 
@@ -56,6 +56,7 @@ export default function Home() {
             <a href="#use-cases" className="px-3 py-1 text-[12.5px] text-muted-foreground/80 hover:text-foreground rounded-md hover:bg-muted/40 transition-all duration-150">Use Cases</a>
             <a href="#api" className="px-3 py-1 text-[12.5px] text-muted-foreground/80 hover:text-foreground rounded-md hover:bg-muted/40 transition-all duration-150">API</a>
             <a href="#pricing" className="px-3 py-1 text-[12.5px] text-muted-foreground/80 hover:text-foreground rounded-md hover:bg-muted/40 transition-all duration-150">Pricing</a>
+            <a href="#about" className="px-3 py-1 text-[12.5px] text-muted-foreground/80 hover:text-foreground rounded-md hover:bg-muted/40 transition-all duration-150">About</a>
             <Link href="/docs" className="px-3 py-1 text-[12.5px] text-muted-foreground/80 hover:text-foreground rounded-md hover:bg-muted/40 transition-all duration-150">Docs</Link>
           </div>
           <div className="flex items-center gap-1">
@@ -89,7 +90,7 @@ export default function Home() {
             ...and it&apos;s <span className="text-foreground font-medium">justavps :)</span>
           </p>
           <p className="mt-5 text-sm sm:text-base text-muted-foreground max-w-lg mx-auto leading-relaxed">
-            A persistent, always-on machine for AI agents that never stop running. Long-lived sandboxes with full SSH, Docker, and filesystem. <strong className="text-foreground">10x cheaper. Secure. Stateful.</strong>
+            Persistent, always-on infrastructure for AI agents that run 24/7. Full SSH, Docker, and filesystem — not ephemeral containers. <strong className="text-foreground">10x cheaper. Secure. Stateful.</strong>
           </p>
           <div className="mt-7 flex items-center justify-center gap-3">
             <button onClick={() => setCheckoutOpen(true)} className={cn(buttonVariants({ size: "lg" }), "text-sm px-7 h-12 font-medium rounded-xl")}>
@@ -126,27 +127,27 @@ export default function Home() {
       <section id="use-cases" className="px-6 py-16 sm:py-20 border-t border-border">
         <div className="max-w-5xl mx-auto">
           <SectionHead
-            title="Ship faster. Run agents 24/7. Never lose state."
-            desc="A persistent computer for your AI agent — daily backups, authenticated proxy on every port, any coding agent you want."
+            title="Use it personally. Or build a service on it."
+            desc="A 24/7 stateful computer for AI agents — with daily backups, authenticated proxy on every port, and any coding agent of your choice."
           />
 
           <div className="grid md:grid-cols-2 gap-4 mt-10">
             <div className="rounded-2xl border border-border bg-card overflow-hidden flex flex-col">
               <div className="p-6 flex-1">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-base font-medium">Close your laptop. Keep shipping.</h3>
+                  <h3 className="text-base font-medium">Your dev machine in the cloud</h3>
                   <span className="px-2.5 py-0.5 rounded-full bg-muted border border-border text-[10px] font-medium text-muted-foreground">PERSONAL</span>
                 </div>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  Your AI agent keeps coding while you sleep, commute, or touch grass. Perfect internet, zero battery drain, no dropped SSH connections — ever.
+                  SSH in or connect your IDE — it&apos;s just a Linux box. Close your laptop, your agents keep going. Come back tomorrow, everything&apos;s still there.
                 </p>
                 <div className="mt-4 flex items-center gap-1.5">
-                  <Chip><LogoClaude /></Chip><Chip><LogoCursor /></Chip><Chip><LogoVSCode /></Chip>
+                  <Chip><LogoCursor /></Chip><Chip><LogoVSCode /></Chip><Chip><LogoClaude /></Chip>
                   <span className="text-xs text-muted-foreground ml-1.5">+ any SSH client</span>
                 </div>
               </div>
               <div className="border-t border-border bg-muted p-4 font-mono text-xs leading-relaxed">
-                <div className="text-muted-foreground"># SSH in, start coding</div>
+                <div className="text-muted-foreground"># Connect from Cursor, VS Code, or terminal</div>
                 <div className="mt-1"><span className="text-green-600 dark:text-green-400">$</span> <span className="text-foreground">ssh root@95.217.x.x</span></div>
                 <div className="mt-1"><span className="text-green-600 dark:text-green-400">$</span> <span className="text-foreground">claude &quot;build me a fastapi scraper&quot;</span></div>
                 <div className="mt-1 text-blue-600 dark:text-blue-400">Done. Run: python main.py<span className="inline-block w-1.5 h-3 bg-foreground animate-pulse ml-0.5 align-text-bottom" /></div>
@@ -156,30 +157,38 @@ export default function Home() {
             <div className="rounded-2xl border border-border bg-card overflow-hidden flex flex-col">
               <div className="p-6 flex-1">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-base font-medium">Give every user their own sandbox.</h3>
+                  <h3 className="text-base font-medium">Sandboxes as infrastructure</h3>
                   <span className="px-2.5 py-0.5 rounded-full bg-muted border border-border text-[10px] font-medium text-muted-foreground">SERVICE</span>
                 </div>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  Provision sandboxes via SDK. Files, Bash, and CUA APIs. One API key. Agent API for Claude Code, OpenCode, and Codex — sessions included.
+                  Spin up machines, manage files, run bash, and launch coding agents — all from one API. Give every user &amp; their agents a sandbox.
                 </p>
                 <div className="mt-4 flex items-center gap-1.5">
-                  <Chip><LogoClaude /></Chip><Chip><LogoOpenCode /></Chip><Chip><TbApi className="size-5" /></Chip>
-                  <span className="text-xs text-muted-foreground ml-1.5">Python · TypeScript · REST</span>
+                  <Chip><SiPython className="size-4" /></Chip>
+                  <Chip><SiTypescript className="size-4" /></Chip>
+                  <Chip><TbApi className="size-5" /></Chip>
                 </div>
               </div>
-              <div className="border-t border-border bg-muted p-4 font-mono text-xs leading-relaxed">
-                <div className="text-muted-foreground"># pip install kortix-justavps</div>
-                <div className="mt-1"><span className="text-blue-600 dark:text-blue-400">from</span> <span className="text-foreground">justavps</span> <span className="text-blue-600 dark:text-blue-400">import</span> <span className="text-foreground">JustAVPS</span></div>
-                <div className="mt-1 text-foreground">vps = JustAVPS(api_key=<span className="text-amber-600 dark:text-amber-400">&quot;sk-...&quot;</span>)</div>
-                <div className="mt-1 text-foreground">sandbox = vps.create(type=<span className="text-amber-600 dark:text-amber-400">&quot;cpx32&quot;</span>)</div>
-                <div className="mt-1 text-foreground">sandbox.exec(<span className="text-amber-600 dark:text-amber-400">&quot;claude &#39;build a REST API&#39;&quot;</span>)</div>
-                <div className="mt-1 text-foreground">sandbox.url(<span className="text-amber-600 dark:text-amber-400">8000</span>) <span className="text-muted-foreground"># → https://8000.abc123.justavps.com</span></div>
+              <div className="border-t border-border bg-muted p-4">
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { label: "Machines", desc: "Create, list, resize, delete" },
+                    { label: "Filesystem", desc: "Read, write, search, upload" },
+                    { label: "Process", desc: "Exec, stream, kill" },
+                    { label: "Agents API", desc: "Claude, OpenCode, Codex" },
+                  ].map(cap => (
+                    <div key={cap.label} className="rounded-lg bg-background/60 px-3 py-2">
+                      <div className="text-xs font-medium text-foreground">{cap.label}</div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">{cap.desc}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
 
           <div className="mt-5 flex flex-wrap items-center gap-1.5 justify-center">
-            {["SSH","Web Terminal","Browser IDE","Daily Backups","API Key Auth","FS API","Bash API","Computer Use API","Claude Code","OpenCode","Codex","Any Agent"].map(f => (
+            {["SSH","Web Terminal","Browser IDE","Daily Backups","API Key Auth","FS API","Bash API","Computer Use API","Claude Code","OpenCode","Codex","Any Agents"].map(f => (
               <span key={f} className="px-2.5 py-1 rounded-full border border-border bg-card text-xs text-muted-foreground font-medium">{f}</span>
             ))}
           </div>
@@ -227,25 +236,12 @@ export default function Home() {
         <div className="max-w-5xl mx-auto"><ApiOverview /></div>
       </section>
 
-      {/* PROBLEM — Loss Aversion Section */}
-      <section className="px-6 py-12 sm:py-16 border-t border-border">
-        <div className="max-w-3xl mx-auto text-center">
-          <h2 className="text-2xl sm:text-3xl font-medium tracking-tight">You&apos;re paying 10x too much for always-on agents.</h2>
-          <p className="mt-3 text-sm text-muted-foreground max-w-xl mx-auto leading-relaxed">
-            Per-second billing sounds cheap until your agent runs 24/7. A 4 vCPU sandbox on E2B or Daytona costs <strong className="text-foreground">$242/mo</strong>. The same machine on JustAVPS? <strong className="text-foreground">$27/mo</strong>. That&apos;s $2,580/year you&apos;re throwing away — per machine.
-          </p>
-          <button onClick={() => setCheckoutOpen(true)} className={cn(buttonVariants({ variant: "outline", size: "sm" }), "mt-5 text-xs")}>
-            Stop overpaying <svg className="ml-1.5 size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
-          </button>
-        </div>
-      </section>
-
-      {/* PRICING — Loss-aversion framing */}
+      {/* PRICING */}
       <section id="pricing" className="px-6 py-16 sm:py-20 border-t border-border">
         <div className="max-w-4xl mx-auto">
           <SectionHead
-            title="Stop burning money on per-second billing."
-            desc="Per-second sandboxes are designed for 5-minute runs. For agents that work 24/7, you're overpaying by 10x. Here's proof."
+            title="You're paying 10x too much for always-on agents."
+            desc="Per-second billing sounds cheap — until your agents run 24/7. Here's what a month of continuous usage actually costs."
           />
 
           <div className="rounded-2xl border border-border overflow-hidden mt-10 mb-6">
@@ -309,25 +305,55 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ABOUT */}
+      <section id="about" className="px-6 py-16 sm:py-20 border-t border-border">
+        <div className="max-w-4xl mx-auto">
+          <div className="rounded-2xl border border-border bg-card overflow-hidden">
+            <div className="relative">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/team.png" alt="Kortix team" className="w-full aspect-video object-cover" />
+              <div className="absolute inset-0 bg-gradient-to-t from-card via-transparent to-transparent" />
+            </div>
+            <div className="px-6 sm:px-8 pb-6 sm:pb-8 -mt-12 relative">
+              <h3 className="text-lg sm:text-xl font-medium tracking-tight mb-2">Built by the team behind Kortix</h3>
+              <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl">
+                We ran over <strong className="text-foreground">3 million sandboxes</strong> on incumbent providers while building{" "}
+                <a href="https://kortix.com" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2 hover:opacity-80 transition-opacity">Kortix</a>
+                {" "}— the AGI OS, serving <strong className="text-foreground">400k+ users</strong>. We hit the cost ceiling. So we rebuilt the infrastructure ourselves.
+              </p>
+              <div className="mt-4 flex items-center gap-2">
+                <a href="https://kortix.com" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-background text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
+                  <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" /></svg>
+                  kortix.com
+                </a>
+                <a href="https://github.com/kortix-ai/suna" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-background text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
+                  <svg className="size-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" /></svg>
+                  <GitHubStars />
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* OBJECTION HANDLING — Risk Reversal */}
       <section className="px-6 py-16 sm:py-20 border-t border-border">
         <div className="max-w-2xl mx-auto">
           <h2 className="text-2xl sm:text-3xl font-medium tracking-tight text-center mb-10">Still on the fence?</h2>
           <div className="space-y-4">
             <Objection q="What if I don't like it?" a="Cancel anytime. No contracts, no lock-in. Your data is yours — download it and leave whenever you want." />
-            <Objection q="Is it really cheaper?" a="Do the math yourself. Daytona charges $0.0504/h per vCPU + $0.0162/h per GiB RAM. Run that 24/7 for a month and compare. We're 8–10x cheaper, every time." />
+            <Objection q="Is it really cheaper?" a="Do the math yourself. Daytona, E2B, Modal and others charge per-second — $0.05+/h per vCPU, $0.016+/h per GiB RAM. Run that 24/7 for a month and compare. We're 8–10x cheaper, every time." />
             <Objection q="How fast can I get started?" a="Under 60 seconds. Pick a plan, we provision your machine, you SSH in. That's it." />
             <Objection q="What about security?" a="Every port is behind an authenticated proxy by default. Zero open ports. API key or session token required for every request. No config needed." />
-            <Objection q="Can I run any agent?" a="Claude Code, OpenCode, Cursor, Codex, Amp — anything that runs on Linux. It's just a VPS with superpowers." />
+            <Objection q="Which agents can I run?" a="Claude Code, OpenCode, Cursor, Codex, Amp — any agents that run on Linux. It's just a VPS with superpowers." />
           </div>
         </div>
       </section>
 
-      {/* FINAL CTA — Urgency + Value Stack */}
+      {/* FINAL CTA */}
       <section className="px-6 py-20 sm:py-28 border-t border-border text-center">
-        <h2 className="text-3xl sm:text-4xl font-medium tracking-tighter mb-3">Every hour without a machine is wasted compute.</h2>
-        <p className="text-sm text-muted-foreground mb-2 max-w-md mx-auto">Your competitors&apos; agents are running right now. Yours should be too.</p>
-        <p className="text-xs text-muted-foreground mb-6">From $15/mo · Deploys in 60s · Cancel anytime</p>
+        <h2 className="text-3xl sm:text-4xl font-medium tracking-tighter mb-3">Get a machine.</h2>
+        <p className="text-sm text-muted-foreground mb-6">From $15/mo. Running in 60 seconds. Cancel anytime.</p>
         <button onClick={() => setCheckoutOpen(true)} className={cn(buttonVariants({ size: "lg" }), "text-sm px-8 h-12 font-medium rounded-xl")}>
           Deploy now <svg className="ml-2 size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
         </button>
@@ -336,14 +362,13 @@ export default function Home() {
       {/* FOOTER */}
       <footer className="border-t border-border px-6 py-8">
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <span className="text-xs text-muted-foreground">© {new Date().getFullYear()} justavps.com · by Kortix</span>
+          <span className="text-xs text-muted-foreground">© {new Date().getFullYear()} justavps.com · by <a href="https://kortix.com" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">Kortix</a></span>
           <div className="flex items-center gap-5 text-xs text-muted-foreground">
             <Link href="/docs" className="hover:text-foreground transition-colors">Docs</Link>
             {isLoggedIn
               ? <Link href="/machines" className="hover:text-foreground transition-colors">Dashboard</Link>
               : <Link href="/login" className="hover:text-foreground transition-colors">Login</Link>
             }
-            <a href="mailto:support@justavps.com" className="hover:text-foreground transition-colors">Support</a>
           </div>
         </div>
       </footer>
@@ -389,6 +414,22 @@ function LogoPill({ icon, label }: { icon: React.ReactNode; label: string }) {
 
 function Chip({ children }: { children: React.ReactNode }) {
   return <div className="size-8 rounded-lg border border-border bg-muted flex items-center justify-center text-muted-foreground">{children}</div>;
+}
+
+function GitHubStars() {
+  const [stars, setStars] = useState<string | null>(null);
+  useEffect(() => {
+    fetch("https://api.github.com/repos/kortix-ai/suna")
+      .then(r => r.json())
+      .then(d => {
+        if (d.stargazers_count) {
+          const count = d.stargazers_count;
+          setStars(count >= 1000 ? `${(count / 1000).toFixed(1).replace(/\.0$/, "")}k` : String(count));
+        }
+      })
+      .catch(() => setStars("19k"));
+  }, []);
+  return <span>{stars ?? "19k"}+ stars</span>;
 }
 
 function ProofStat({ value, label }: { value: string; label: string }) {
@@ -500,7 +541,7 @@ function ApiOverview() {
               <SiTypescript className="size-4" /><span className="text-[11px] font-medium">TypeScript SDK</span>
             </span>
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border bg-card text-muted-foreground hover:text-foreground transition-colors">
-              <TbBolt className="size-4" /><span className="text-[11px] font-medium">REST API</span>
+              <TbApi className="size-4" /><span className="text-[11px] font-medium">REST API</span>
             </span>
           </div>
         </div>

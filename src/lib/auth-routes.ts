@@ -4,13 +4,13 @@
  * Matched as prefixes (e.g. '/machines' matches '/machines/new').
  */
 export const PROTECTED_ROUTES: string[] = [
+  '/welcome',
   '/machines',
   '/images',
   '/keys',
   '/webhooks',
   '/billing',
   '/settings',
-  '/docs',
 ];
 
 /**

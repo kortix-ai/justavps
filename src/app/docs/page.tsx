@@ -5,7 +5,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import {
   Book, Server, Globe, Code2, CreditCard, HardDrive, Search, Package,
-  ChevronRight, Copy, Check, ArrowRight, Shield, Zap, Menu, X,
+  ChevronRight, Copy, Check, ArrowRight, Shield, Zap, Menu, X, LifeBuoy,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -95,6 +95,12 @@ const sections: DocSection[] = [
       { id: "pricing", title: "Pricing" },
       { id: "billing-cycle", title: "Billing Cycle" },
     ],
+  },
+  {
+    id: "support",
+    title: "Support",
+    icon: LifeBuoy,
+    subsections: [],
   },
 ];
 
@@ -474,6 +480,16 @@ print(py["stdout"])  # "42"`}</CodeBlock>
           <Li><Strong>Machine resized</Strong> → price updated with proration</Li>
         </Ul>
         <P>Manage billing, update payment methods, and view invoices in <Strong>Billing</Strong> in the dashboard.</P>
+
+        <DocSeparator />
+
+        {/* ── SUPPORT ── */}
+        <H2 id="support">Support</H2>
+        <P>Need help? Reach out and we&apos;ll get back to you as soon as possible.</P>
+        <Ul>
+          <Li><Strong>Email</Strong> — <a href="mailto:support@justavps.com" className="text-foreground underline underline-offset-2 hover:opacity-80 transition-opacity">support@justavps.com</a></Li>
+          <Li><Strong>Built by</Strong> — <a href="https://kortix.com" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2 hover:opacity-80 transition-opacity">Kortix</a></Li>
+        </Ul>
 
         <div className="h-20" />
       </div>

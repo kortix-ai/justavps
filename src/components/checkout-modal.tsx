@@ -25,6 +25,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
   const { data: serverTypes } = useServerTypes(selectedProvider || undefined, selectedRegion || undefined);
   const [serverTypeOverride, setServerTypeOverride] = useState("");
   const selectedServerType = serverTypeOverride || serverTypes?.[Math.min(1, (serverTypes?.length ?? 1) - 1)]?.name || "";
+  const [guestCheckoutPending, setGuestCheckoutPending] = useState(false);
   const createMachine = useCreateMachine();
 
   // Lock body scroll when open
@@ -47,8 +48,32 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
   const competitorMultiplier = selectedST ? Math.round((selectedST.vcpu * 0.0504 + selectedST.ram_gb * 0.0162) * 730 / selectedST.price_monthly) : 0;
 
   const handleDeploy = () => {
-    if (!isLoggedIn) { window.location.href = `/login?next=${encodeURIComponent("/machines/new")}`; return; }
     if (!selectedProvider || !selectedRegion || !selectedServerType) return;
+    if (!isLoggedIn) {
+      setGuestCheckoutPending(true);
+      void fetch("/api/checkout/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: selectedProvider,
+          region: selectedRegion,
+          server_type: selectedServerType,
+        }),
+      })
+        .then(async (res) => {
+          const data = await res.json().catch(() => ({ message: "Failed to start checkout." }));
+          if (!res.ok) {
+            throw new Error(data.message || "Failed to start checkout.");
+          }
+          window.location.href = data.checkout_url;
+        })
+        .catch((err: Error) => {
+          toast.error(err.message);
+        })
+        .finally(() => setGuestCheckoutPending(false));
+      return;
+    }
+
     createMachine.mutate(
       { provider: selectedProvider, server_type: selectedServerType, region: selectedRegion },
       {
@@ -94,6 +119,15 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
 
           {/* ── Body ── */}
           <div className="flex-1 overflow-y-auto px-6 pb-4">
+            {!isLoggedIn && (
+              <div className="mb-4 rounded-xl border border-border bg-muted/40 px-4 py-3">
+                <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Direct checkout</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Stripe collects your email during checkout. Once payment succeeds, we create your account and sign you straight into the dashboard.
+                </p>
+              </div>
+            )}
+
             <PlanPicker
               regions={regions ?? undefined}
               serverTypes={serverTypes ?? undefined}
@@ -118,13 +152,13 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
             <Button
               className="w-full h-12 text-sm font-medium rounded-xl"
               onClick={handleDeploy}
-              disabled={createMachine.isPending || !selectedServerType}
+              disabled={createMachine.isPending || guestCheckoutPending || !selectedServerType}
             >
-              {createMachine.isPending ? (
+              {createMachine.isPending || guestCheckoutPending ? (
                 <><Loader2 className="size-4 animate-spin mr-2" />Setting up your machine...</>
               ) : !isLoggedIn ? (
                 <>
-                  Create account & deploy
+                  Continue to secure checkout
                   {selectedST && <span className="ml-2 opacity-70">· ${selectedST.price_monthly}/mo</span>}
                   <ArrowRight className="size-4 ml-2" />
                 </>
@@ -140,7 +174,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
             {/* Micro-commitment reassurance */}
             <p className="text-center text-[10px] text-muted-foreground mt-2">
               {!isLoggedIn
-                ? "Free account · No credit card required to sign up"
+                ? "Pay now · Your account and machine unlock right after checkout"
                 : "Billed monthly · Downgrade or cancel in one click"
               }
             </p>
