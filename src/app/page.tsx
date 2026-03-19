@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useSession } from "next-auth/react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/hooks/use-theme";
@@ -33,6 +34,8 @@ function ThemeToggle() {
 /* ═══════════════════════ PAGE ═══════════════════════ */
 export default function Home() {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const { data: session } = useSession();
+  const isLoggedIn = !!session?.user;
   return (
     <div className="min-h-screen flex flex-col bg-background text-foreground">
       <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} />
@@ -49,8 +52,14 @@ export default function Home() {
           <div className="flex items-center gap-1">
             <ThemeToggle />
             <div className="w-px h-4 bg-border/60 mx-1.5 hidden sm:block" />
-            <Link href="/login" className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "h-7 text-[12.5px] px-2.5 text-muted-foreground hover:text-foreground hidden sm:inline-flex")}>Log in</Link>
-            <button onClick={() => setCheckoutOpen(true)} className={cn(buttonVariants({ size: "sm" }), "h-7 text-[12.5px] px-3 hidden sm:inline-flex")}>Get started</button>
+            {isLoggedIn ? (
+              <Link href="/machines" className={cn(buttonVariants({ size: "sm" }), "h-7 text-[12.5px] px-3 hidden sm:inline-flex")}>Dashboard</Link>
+            ) : (
+              <>
+                <Link href="/login" className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "h-7 text-[12.5px] px-2.5 text-muted-foreground hover:text-foreground hidden sm:inline-flex")}>Log in</Link>
+                <button onClick={() => setCheckoutOpen(true)} className={cn(buttonVariants({ size: "sm" }), "h-7 text-[12.5px] px-3 hidden sm:inline-flex")}>Get started</button>
+              </>
+            )}
           </div>
         </div>
       </nav>
@@ -233,7 +242,10 @@ export default function Home() {
           <span className="text-xs text-muted-foreground">© {new Date().getFullYear()} justavps.com · by Kortix</span>
           <div className="flex items-center gap-5 text-xs text-muted-foreground">
             <Link href="/docs" className="hover:text-foreground transition-colors">Docs</Link>
-            <Link href="/login" className="hover:text-foreground transition-colors">Login</Link>
+            {isLoggedIn
+              ? <Link href="/machines" className="hover:text-foreground transition-colors">Dashboard</Link>
+              : <Link href="/login" className="hover:text-foreground transition-colors">Login</Link>
+            }
             <a href="mailto:support@justavps.com" className="hover:text-foreground transition-colors">Support</a>
           </div>
         </div>
