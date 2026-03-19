@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useUsage, useBillingPortal, useSetupPaymentMethod } from "@/hooks/use-account";
 import { ExternalLink, CreditCard, Receipt, AlertTriangle, CheckCircle2, Loader2, Plus } from "lucide-react";
+import { planName } from "@/lib/utils";
 import { useEffect } from "react";
 import { toast } from "sonner";
 
@@ -105,7 +106,7 @@ export default function BillingPage() {
               <div key={m.id} className="flex items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-mono">{m.slug}</span>
-                  <span className="text-xs text-muted-foreground">{m.server_type}</span>
+                  <span className="text-xs text-muted-foreground">{planName(m.server_type)}</span>
                 </div>
                 <Badge variant={m.status === "ready" ? "default" : "secondary"}>{m.status}</Badge>
               </div>

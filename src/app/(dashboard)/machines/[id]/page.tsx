@@ -52,11 +52,11 @@ import {
   Archive,
   Clock,
   Shield,
-  Zap,
+  KeyRound,
 } from "lucide-react";
 import { RescaleDialog } from "@/components/dashboard/rescale-dialog";
 import Link from "next/link";
-import { timeAgo, cn } from "@/lib/utils";
+import { timeAgo, cn, regionDisplay, planName } from "@/lib/utils";
 
 const Terminal = dynamic(() => import("@/components/dashboard/terminal"), {
   ssr: false,
@@ -84,8 +84,7 @@ const statusMap: Record<
   error: {
     label: "Error",
     dotClass: "bg-red-500",
-    badgeClass:
-      "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20",
+    badgeClass: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20",
   },
   stopped: {
     label: "Stopped",
@@ -94,7 +93,37 @@ const statusMap: Record<
   },
 };
 
-/* ─── Click-to-copy code block ──────────────────────────────────────── */
+/* ─── Shared copy logic ──────────────────────────────────────────────── */
+function useCopy(text: string, label?: string) {
+  const [copied, setCopied] = useState(false);
+  const copy = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    navigator.clipboard.writeText(text);
+    if (label) toast.success(`${label} copied`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return { copied, copy };
+}
+
+/* ─── Shared hover copy overlay (top-right badge) ────────────────────── */
+function CopyOverlay({ copied }: { copied: boolean }) {
+  return (
+    <div
+      className={cn(
+        "absolute top-2 right-2 flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md pointer-events-none transition-all",
+        copied
+          ? "bg-green-500/20 text-green-400 opacity-100"
+          : "bg-zinc-800 text-zinc-400 opacity-0 group-hover:opacity-100",
+      )}
+    >
+      {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+      {copied ? "Copied" : "Copy"}
+    </div>
+  );
+}
+
+/* ─── Standard click-to-copy code block ─────────────────────────────── */
 function CodeBlock({
   text,
   label,
@@ -104,124 +133,126 @@ function CodeBlock({
   label?: string;
   variant?: "default" | "green";
 }) {
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useCopy(text, label);
   return (
-    <div
-      className="relative group cursor-pointer"
-      onClick={() => {
-        navigator.clipboard.writeText(text);
-        if (label) toast.success(`${label} copied`);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }}
-    >
+    <div className="relative group cursor-pointer" onClick={copy}>
       <pre
         className={cn(
-          "p-3 rounded-lg text-xs font-mono border overflow-x-auto transition-colors",
+          "p-3 rounded-lg text-xs font-mono border overflow-x-auto transition-colors leading-relaxed",
           "bg-zinc-950 border-zinc-800 hover:border-zinc-700",
           variant === "green" ? "text-green-400" : "text-zinc-300",
         )}
       >
         {text}
       </pre>
+      <CopyOverlay copied={copied} />
+    </div>
+  );
+}
+
+/* ─── Masked secret block — same hover copy, key never readable ──────── */
+function SecretCodeBlock({ text, label }: { text: string; label?: string }) {
+  const { copied, copy } = useCopy(text, label);
+
+  // Replace the private key value with bullets — only first 6 chars shown.
+  // setup_command: mkdir ... && echo 'KEY' > path && chmod ...
+  const masked = text.replace(
+    /(echo\s+')([^']{6})[^']*('[^']*)/,
+    "$1$2••••••$3",
+  );
+
+  return (
+    <div className="relative group cursor-pointer" onClick={copy}>
       <div
         className={cn(
-          "absolute top-2 right-2 flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md transition-all",
-          copied
-            ? "bg-green-500/20 text-green-400 opacity-100"
-            : "bg-zinc-800 text-zinc-400 opacity-0 group-hover:opacity-100",
+          "rounded-lg border overflow-hidden transition-colors",
+          "bg-zinc-950 border-zinc-800 hover:border-zinc-700",
         )}
       >
-        {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
-        {copied ? "Copied" : "Copy"}
-      </div>
-    </div>
-  );
-}
-
-/* ─── Resource stat with progress bar ───────────────────────────────── */
-function ResourceStatCard({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: React.ElementType;
-  label: string;
-  value: number;
-}) {
-  const color =
-    value > 80
-      ? "text-red-500"
-      : value > 60
-        ? "text-yellow-500"
-        : "text-emerald-500";
-  const progressColor =
-    value > 80
-      ? "[&>div]:bg-red-500"
-      : value > 60
-        ? "[&>div]:bg-yellow-500"
-        : "[&>div]:bg-emerald-500";
-  return (
-    <div className="rounded-xl border bg-card p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <div className="rounded-lg bg-muted p-1.5">
-          <Icon className="size-3.5 text-muted-foreground" />
+        {/* Single truncated line — never wraps, key stays hidden */}
+        <p className="px-3 py-2.5 text-[11px] font-mono text-green-400 truncate leading-relaxed">
+          {masked}
+        </p>
+        {/* Footer hint */}
+        <div className="flex items-center gap-1.5 px-3 py-1.5 border-t border-zinc-800 bg-zinc-900/50">
+          <KeyRound className="size-2.5 text-zinc-500 shrink-0" />
+          <span className="text-[10px] text-zinc-500">Private key hidden</span>
         </div>
-        <span className="text-xs text-muted-foreground font-medium">
-          {label}
-        </span>
       </div>
-      <div className="flex items-baseline gap-1 mb-2.5">
-        <span
-          className={cn(
-            "text-2xl font-semibold tabular-nums tracking-tight",
-            color,
-          )}
-        >
-          {Math.round(value)}
-        </span>
-        <span className="text-xs text-muted-foreground">%</span>
-      </div>
-      <Progress
-        value={value}
-        className={cn("h-1.5 rounded-full", progressColor)}
-      />
+      <CopyOverlay copied={copied} />
     </div>
   );
 }
 
-/* ─── Info stat card ────────────────────────────────────────────────── */
-function InfoStatCard({
+/* ─── Inline copy button (for row-level copy actions) ───────────────── */
+function CopyButton({ text, label }: { text: string; label?: string }) {
+  const { copied, copy } = useCopy(text, label);
+  return (
+    <button
+      onClick={copy}
+      className={cn(
+        "shrink-0 flex items-center justify-center gap-1.5 text-xs font-medium w-20 py-1.5 rounded-lg border transition-all",
+        copied
+          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+          : "border-border bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+      {copied ? "Copied!" : "Copy"}
+    </button>
+  );
+}
+
+/* ─── Stat card ─────────────────────────────────────────────────────── */
+function StatCard({
   icon: Icon,
   label,
   value,
   suffix,
+  colorClass,
+  progress,
 }: {
   icon: React.ElementType;
   label: string;
   value: string | number;
   suffix?: string;
+  colorClass?: string;
+  progress?: number;
 }) {
   return (
-    <div className="rounded-xl border bg-card p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <div className="rounded-lg bg-muted p-1.5">
+    <div className="rounded-xl border bg-card p-4 space-y-2.5">
+      <div className="flex items-center gap-2">
+        <div className="size-7 rounded-md bg-muted flex items-center justify-center shrink-0">
           <Icon className="size-3.5 text-muted-foreground" />
         </div>
-        <span className="text-xs text-muted-foreground font-medium">
-          {label}
-        </span>
+        <span className="text-xs text-muted-foreground truncate">{label}</span>
       </div>
       <div className="flex items-baseline gap-1">
-        <span className="text-lg font-semibold tabular-nums tracking-tight truncate">
+        <span
+          className={cn(
+            "text-xl font-semibold tabular-nums tracking-tight leading-none truncate",
+            colorClass,
+          )}
+        >
           {value}
         </span>
         {suffix && (
-          <span className="text-xs text-muted-foreground shrink-0">
-            {suffix}
-          </span>
+          <span className="text-xs text-muted-foreground shrink-0">{suffix}</span>
         )}
       </div>
+      {progress !== undefined && (
+        <Progress
+          value={progress}
+          className={cn(
+            "h-1 rounded-full",
+            progress > 80
+              ? "[&>div]:bg-red-500"
+              : progress > 60
+                ? "[&>div]:bg-yellow-500"
+                : "[&>div]:bg-emerald-500",
+          )}
+        />
+      )}
     </div>
   );
 }
@@ -231,65 +262,64 @@ function BackupsPanel({ machineId }: { machineId: string }) {
   const { data, isLoading } = useBackups(machineId);
   const createBackup = useCreateBackup();
   const toggleBackups = useToggleBackups();
-
   const backups = data?.backups ?? [];
   const enabled = data?.backups_enabled ?? false;
 
   return (
     <div className="space-y-4">
-      {/* Controls row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="rounded-xl border bg-card p-5">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className="rounded-lg bg-muted p-1.5">
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
                 <Shield className="size-3.5 text-muted-foreground" />
+                <span className="text-sm font-medium">Automatic</span>
               </div>
-              <span className="text-sm font-medium">Automatic Backups</span>
+              <p className="text-xs text-muted-foreground">
+                {enabled
+                  ? "Daily snapshots, up to 7 kept."
+                  : "20% of server price/mo."}
+              </p>
             </div>
             <Button
               variant={enabled ? "outline" : "default"}
               size="sm"
-              className="h-7 text-xs"
+              className="h-7 text-xs shrink-0"
               disabled={toggleBackups.isPending}
               onClick={() =>
                 toggleBackups.mutate(
                   { machineId, enable: !enabled },
                   {
                     onSuccess: () =>
-                      toast.success(
-                        enabled ? "Backups disabled" : "Backups enabled",
-                      ),
+                      toast.success(enabled ? "Backups disabled" : "Backups enabled"),
                     onError: (err) => toast.error(err.message),
                   },
                 )
               }
             >
-              {toggleBackups.isPending ? (
+              {toggleBackups.isPending && (
                 <Loader2 className="size-3 animate-spin mr-1" />
-              ) : null}
+              )}
               {enabled ? "Disable" : "Enable"}
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">
-            {enabled
-              ? "Daily backups enabled. Up to 7 kept automatically."
-              : "Enable for daily snapshots (20% of server price)."}
-          </p>
         </div>
 
         <div className="rounded-xl border bg-card p-5">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className="rounded-lg bg-muted p-1.5">
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
                 <Camera className="size-3.5 text-muted-foreground" />
+                <span className="text-sm font-medium">Manual</span>
               </div>
-              <span className="text-sm font-medium">Manual Backup</span>
+              <p className="text-xs text-muted-foreground">
+                Point-in-time snapshot on demand.
+              </p>
             </div>
             <Button
               size="sm"
               variant="outline"
-              className="h-7 text-xs gap-1.5"
+              className="h-7 text-xs shrink-0"
               disabled={createBackup.isPending}
               onClick={() =>
                 createBackup.mutate(
@@ -304,122 +334,102 @@ function BackupsPanel({ machineId }: { machineId: string }) {
               {createBackup.isPending ? (
                 <Loader2 className="size-3 animate-spin" />
               ) : (
-                <Zap className="size-3" />
+                <Camera className="size-3" />
               )}
               Run Now
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Create a point-in-time backup of your machine right now.
-          </p>
         </div>
       </div>
 
-      {/* Backup list */}
-      <div className="rounded-xl border bg-card">
-        <div className="px-5 py-3 border-b">
-          <span className="text-sm font-medium">
-            Backup History{" "}
-            <span className="text-muted-foreground font-normal">
-              ({backups.length})
-            </span>
-          </span>
+      {/* History */}
+      <div className="rounded-xl border bg-card overflow-hidden">
+        <div className="px-4 py-3 border-b flex items-center justify-between">
+          <span className="text-sm font-medium">History</span>
+          <span className="text-xs text-muted-foreground">{backups.length} snapshots</span>
         </div>
-        <div className="p-3">
-          {isLoading ? (
-            <div className="space-y-2 p-2">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-12 rounded-lg" />
-              ))}
-            </div>
-          ) : backups.length === 0 ? (
-            <div className="flex flex-col items-center py-8 text-center">
-              <Archive className="size-8 text-muted-foreground/30 mb-2" />
-              <p className="text-sm text-muted-foreground">No backups yet</p>
-              <p className="text-xs text-muted-foreground/70 mt-0.5">
-                Enable automatic backups or run one manually.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {backups.map((b) => (
-                <div
-                  key={b.id}
-                  className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/40 transition-colors"
-                >
-                  <div className="min-w-0 flex items-center gap-3">
-                    <div className="rounded-lg bg-muted p-1.5 shrink-0">
-                      <Archive className="size-3 text-muted-foreground" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium truncate">
-                        {b.description}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {timeAgo(b.created)}
-                        {b.size > 0 && ` · ${b.size.toFixed(1)} GB`}
-                      </p>
-                    </div>
-                  </div>
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      "text-[10px] shrink-0",
-                      b.status === "available"
-                        ? "border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
-                        : "",
-                    )}
-                  >
-                    {b.status}
-                  </Badge>
+        {isLoading ? (
+          <div className="p-4 space-y-2">
+            {[1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-12 rounded-lg" />
+            ))}
+          </div>
+        ) : backups.length === 0 ? (
+          <div className="flex flex-col items-center py-10 text-center">
+            <Archive className="size-7 text-muted-foreground/25 mb-2" />
+            <p className="text-sm text-muted-foreground">No backups yet</p>
+          </div>
+        ) : (
+          <div className="divide-y">
+            {backups.map((b) => (
+              <div
+                key={b.id}
+                className="flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors"
+              >
+                <div className="min-w-0">
+                  <p className="text-xs font-medium truncate">{b.description}</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {timeAgo(b.created)}
+                    {b.size > 0 && ` · ${b.size.toFixed(1)} GB`}
+                  </p>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "text-[10px] shrink-0 ml-3",
+                    b.status === "available"
+                      ? "border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
+                      : "",
+                  )}
+                >
+                  {b.status}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-/* ─── Port Forwarding Card ──────────────────────────────────────────── */
-function ProxyPortCard({ slug }: { slug: string }) {
+/* ─── Port Forwarding (inline, no wrapper card) ─────────────────────── */
+function PortForwardCard({ slug }: { slug: string }) {
   const [port, setPort] = useState("");
   const url = port ? `https://${port}--${slug}.kortix.cloud` : "";
   return (
-    <div className="rounded-xl border bg-card overflow-hidden">
-      <div className="flex items-center gap-2 px-5 py-3 border-b">
-        <Link2 className="size-3.5 text-muted-foreground" />
-        <span className="text-sm font-medium">Port Forwarding</span>
+    <div className="space-y-3">
+      <div className="flex gap-2 flex-wrap items-center">
+        <Input
+          type="number"
+          placeholder="Port, e.g. 3000"
+          value={port}
+          onChange={(e) => setPort(e.target.value)}
+          className="w-44 font-mono text-sm h-9"
+          min={1}
+          max={65535}
+        />
+        {url && (
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors hover:bg-muted h-9"
+          >
+            <ExternalLink className="size-3" /> Open
+          </a>
+        )}
       </div>
-      <div className="p-5 space-y-4">
-        <div className="flex gap-2">
-          <Input
-            type="number"
-            placeholder="Port (e.g. 3000)"
-            value={port}
-            onChange={(e) => setPort(e.target.value)}
-            className="w-40 font-mono text-sm h-9"
-            min={1}
-            max={65535}
-          />
-          {url && (
-            <a
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition-colors hover:bg-muted h-9"
-            >
-              <ExternalLink className="size-3" /> Open
-            </a>
-          )}
-        </div>
-        {url && <CodeBlock text={url} label="Port URL" />}
+      {url ? (
+        <CodeBlock text={url} label="Port URL" />
+      ) : (
         <p className="text-xs text-muted-foreground">
-          Format:{" "}
-          <code className="bg-muted px-1.5 py-0.5 rounded text-[11px]">{`{port}--${slug}.kortix.cloud`}</code>
+          Pattern:{" "}
+          <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-[11px]">
+            {`{port}--${slug}.kortix.cloud`}
+          </code>
         </p>
-      </div>
+      )}
     </div>
   );
 }
@@ -427,7 +437,6 @@ function ProxyPortCard({ slug }: { slug: string }) {
 /* ═══════════════════════════════════════════════════════════════════════
    MACHINE DETAIL PAGE
    ═══════════════════════════════════════════════════════════════════════ */
-
 export default function MachineDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -482,44 +491,39 @@ export default function MachineDetailPage() {
     });
   };
 
-  /* ── Loading skeleton ──────────────────────────────────────────────── */
+  /* ── Loading ───────────────────────────────────────────────────────── */
   if (isLoading)
     return (
       <div className="space-y-6 max-w-5xl mx-auto">
         <div className="flex items-center gap-3">
           <Skeleton className="size-9 rounded-lg" />
-          <div className="space-y-2">
+          <div className="space-y-2 flex-1">
             <Skeleton className="h-6 w-48" />
-            <Skeleton className="h-3 w-72" />
+            <Skeleton className="h-3 w-72 max-w-full" />
           </div>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-28 rounded-xl" />
+            <Skeleton key={i} className="h-24 rounded-xl" />
           ))}
         </div>
-        <Skeleton className="h-10 w-80 rounded-lg" />
-        <Skeleton className="h-[400px] rounded-xl" />
+        <Skeleton className="h-10 w-72 max-w-full rounded-lg" />
+        <Skeleton className="h-96 rounded-xl" />
       </div>
     );
 
-  /* ── Error / Not Found ─────────────────────────────────────────────── */
+  /* ── Error ─────────────────────────────────────────────────────────── */
   if (error || !machine)
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
-        <div className="rounded-2xl bg-destructive/10 p-5 mb-5">
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+        <div className="rounded-2xl bg-destructive/10 p-5 mb-4">
           <AlertTriangle className="size-8 text-destructive" />
         </div>
         <h2 className="font-heading text-xl mb-1.5">Machine Not Found</h2>
-        <p className="text-sm text-muted-foreground mb-6 max-w-md">
-          {error?.message ||
-            "The machine you are looking for does not exist or has been deleted."}
+        <p className="text-sm text-muted-foreground mb-6 max-w-sm">
+          {error?.message || "This machine does not exist or has been deleted."}
         </p>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => router.push("/machines")}
-        >
+        <Button variant="outline" size="sm" onClick={() => router.push("/machines")}>
           <ArrowLeft className="size-3.5" />
           Back to Machines
         </Button>
@@ -532,44 +536,63 @@ export default function MachineDetailPage() {
   const sshKeyPath = `~/.ssh/justavps_${machine.slug}`;
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://justavps.com";
 
+  /* Health-based stat colors */
+  const cpuColor =
+    (machine.health?.cpu ?? 0) > 80
+      ? "text-red-500"
+      : (machine.health?.cpu ?? 0) > 60
+        ? "text-yellow-500"
+        : "text-emerald-500";
+  const memColor =
+    (machine.health?.memory ?? 0) > 80
+      ? "text-red-500"
+      : (machine.health?.memory ?? 0) > 60
+        ? "text-yellow-500"
+        : "text-emerald-500";
+  const diskColor =
+    (machine.health?.disk ?? 0) > 80
+      ? "text-red-500"
+      : (machine.health?.disk ?? 0) > 60
+        ? "text-yellow-500"
+        : "text-emerald-500";
+
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-20">
-      {/* ── Header ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3">
+    <div className="max-w-5xl mx-auto pb-20 space-y-5">
+
+      {/* ════════════════════════════════════════════════════════════════
+          HEADER
+          ════════════════════════════════════════════════════════════════ */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        {/* Left: back + title */}
+        <div className="flex items-start gap-3 min-w-0">
           <Link
             href="/machines"
-            className="mt-1 rounded-lg border p-2 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+            className="mt-0.5 shrink-0 size-8 rounded-lg border flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
           >
             <ArrowLeft className="size-4" />
           </Link>
           <div className="min-w-0">
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <h1 className="font-heading text-xl md:text-2xl tracking-tight truncate">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="font-heading text-lg md:text-xl tracking-tight leading-tight">
                 {machine.name || machine.slug}
               </h1>
               <Badge
                 variant="outline"
                 className={cn(
-                  "gap-1.5 px-2.5 py-0.5 h-6 text-[11px] font-medium shrink-0",
+                  "gap-1.5 text-[11px] font-medium h-5 px-2 shrink-0",
                   statusInfo.badgeClass,
                 )}
               >
-                <span
-                  className={cn(
-                    "size-1.5 rounded-full",
-                    statusInfo.dotClass,
-                  )}
-                />
+                <span className={cn("size-1.5 rounded-full", statusInfo.dotClass)} />
                 {statusInfo.label}
               </Badge>
             </div>
-            <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground flex-wrap">
+            <p className="text-xs text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
               <span className="font-mono">{machine.slug}</span>
               <span className="opacity-30">·</span>
-              <span className="font-mono">{machine.server_type}</span>
+              <span className="font-mono">{planName(machine.server_type)}</span>
               <span className="opacity-30">·</span>
-              <span>{machine.region.toUpperCase()}</span>
+              <span>{regionDisplay(machine.region).label}</span>
               {machine.ip && (
                 <>
                   <span className="opacity-30">·</span>
@@ -581,16 +604,16 @@ export default function MachineDetailPage() {
                   <span className="opacity-30">·</span>
                   <span className="inline-flex items-center gap-1">
                     <Clock className="size-3" />
-                    up {uptime}
+                    {uptime}
                   </span>
                 </>
               )}
-            </div>
+            </p>
           </div>
         </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-1.5 shrink-0">
+        {/* Right: actions */}
+        <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
           {isReady && (
             <>
               <Button
@@ -639,10 +662,12 @@ export default function MachineDetailPage() {
         </div>
       </div>
 
-      {/* ── Provisioning Banner ────────────────────────────────────────── */}
+      {/* ════════════════════════════════════════════════════════════════
+          PROVISIONING BANNER
+          ════════════════════════════════════════════════════════════════ */}
       {machine.status === "provisioning" && (
-        <div className="flex items-center gap-3 rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-4">
-          <div className="rounded-lg bg-yellow-500/10 p-2 shrink-0">
+        <div className="flex items-start gap-3 rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-4">
+          <div className="rounded-lg bg-yellow-500/10 p-1.5 shrink-0 mt-0.5">
             <Loader2 className="size-4 animate-spin text-yellow-500" />
           </div>
           <div>
@@ -653,197 +678,197 @@ export default function MachineDetailPage() {
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
               {machine.provisioning_stage === "resizing"
-                ? "Stops, resizes, and restarts (~60-90s). Page updates automatically."
-                : "This usually takes about 60 seconds. Page updates automatically."}
+                ? "Stops, resizes, and restarts — usually 60–90s. This page updates automatically."
+                : "Usually takes about 60 seconds. This page updates automatically."}
             </p>
           </div>
         </div>
       )}
 
-      {/* ── Stats Strip ────────────────────────────────────────────────── */}
+      {/* ════════════════════════════════════════════════════════════════
+          STATS STRIP
+          ════════════════════════════════════════════════════════════════ */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {machine.health ? (
           <>
-            <ResourceStatCard
+            <StatCard
               icon={Cpu}
               label="CPU"
-              value={machine.health.cpu}
+              value={`${Math.round(machine.health.cpu)}%`}
+              colorClass={cpuColor}
+              progress={machine.health.cpu}
             />
-            <ResourceStatCard
+            <StatCard
               icon={MemoryStick}
               label="Memory"
-              value={machine.health.memory}
+              value={`${Math.round(machine.health.memory)}%`}
+              colorClass={memColor}
+              progress={machine.health.memory}
             />
-            <ResourceStatCard
+            <StatCard
               icon={HardDrive}
               label="Disk"
-              value={machine.health.disk}
+              value={`${Math.round(machine.health.disk)}%`}
+              colorClass={diskColor}
+              progress={machine.health.disk}
             />
           </>
         ) : (
           <>
-            <InfoStatCard
-              icon={Globe}
-              label="Region"
-              value={machine.region.toUpperCase()}
-            />
-            <InfoStatCard
-              icon={Server}
-              label="Type"
-              value={machine.server_type}
-            />
-            <InfoStatCard
-              icon={HardDrive}
-              label="IP Address"
-              value={machine.ip || "—"}
-            />
+            <StatCard icon={Globe} label="Region" value={regionDisplay(machine.region).label} />
+            <StatCard icon={Server} label="Plan" value={planName(machine.server_type)} />
+            <StatCard icon={HardDrive} label="IP" value={machine.ip || "—"} />
           </>
         )}
-        <InfoStatCard
+        <StatCard
           icon={DollarSign}
-          label="Monthly Cost"
+          label="Cost"
           value={`$${machine.price_monthly ?? 0}`}
           suffix="/mo"
         />
       </div>
 
-      {/* ── Tabs ───────────────────────────────────────────────────────── */}
+      {/* ════════════════════════════════════════════════════════════════
+          TABS
+          ════════════════════════════════════════════════════════════════ */}
       {isReady ? (
         <Tabs defaultValue="connect" className="space-y-4">
-          <TabsList className="h-10 p-1">
-            <TabsTrigger value="connect" className="gap-1.5 text-xs h-8">
+          <TabsList className="h-9 p-1 w-full sm:w-auto overflow-x-auto">
+            <TabsTrigger value="connect" className="gap-1.5 text-xs h-7">
               <Link2 className="size-3.5" />
               Connect
             </TabsTrigger>
-            <TabsTrigger value="terminal" className="gap-1.5 text-xs h-8">
+            <TabsTrigger value="terminal" className="gap-1.5 text-xs h-7">
               <TerminalIcon className="size-3.5" />
               Terminal
             </TabsTrigger>
-            <TabsTrigger value="proxy" className="gap-1.5 text-xs h-8">
+            <TabsTrigger value="proxy" className="gap-1.5 text-xs h-7">
               <Globe className="size-3.5" />
               Proxy
             </TabsTrigger>
-            <TabsTrigger value="backups" className="gap-1.5 text-xs h-8">
+            <TabsTrigger value="backups" className="gap-1.5 text-xs h-7">
               <Archive className="size-3.5" />
               Backups
             </TabsTrigger>
-            <TabsTrigger value="api" className="gap-1.5 text-xs h-8">
+            <TabsTrigger value="api" className="gap-1.5 text-xs h-7">
               <Code2 className="size-3.5" />
               API
             </TabsTrigger>
           </TabsList>
 
-          {/* ── Connect Tab ──────────────────────────────────── */}
-          <TabsContent value="connect" className="mt-0 space-y-4">
-            {/* Quick Connect — hero card */}
+          {/* ── CONNECT ────────────────────────────────────────────────── */}
+          <TabsContent value="connect" className="mt-0 space-y-3">
+
+            {/* AI Agent shortcut — top of page, primary CTA */}
             <div className="rounded-xl border bg-card overflow-hidden">
-              <div className="flex items-center gap-2 px-5 py-3 border-b bg-emerald-500/5">
-                <Zap className="size-3.5 text-emerald-500" />
-                <span className="text-sm font-medium">Quick Connect</span>
-                <Badge className="text-[10px] font-normal bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 h-4 px-1.5 ml-auto">
-                  One command
-                </Badge>
+              <div className="flex items-start gap-3 p-4">
+                <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+                  <Code2 className="size-4 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium mb-0.5">Let your AI agent do it</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Copy this prompt and paste it into{" "}
+                    <span className="text-foreground font-medium">Claude Code, Cursor, Codex, OpenCode</span>
+                    {" "}— whatever you use. It contains your private key so the agent can set everything up automatically.
+                    Or do it manually below.
+                  </p>
+                </div>
+                <CopyButton
+                  text={`Set up SSH access to my remote VPS and connect via Remote-SSH.\n\n1. Save the SSH key:\n${machine.ssh_key?.setup_command?.split("&&").slice(0, 2).join("&&").trim() ?? "# run step 1 first"}\n\n2. Add to ~/.ssh/config:\nHost ${machine.slug}\n  HostName ${machine.ip}\n  User root\n  IdentityFile ${sshKeyPath}\n  StrictHostKeyChecking no\n\n3. Connect via Remote-SSH to host "${machine.slug}"`}
+                  label="AI agent prompt"
+                />
               </div>
-              <div className="p-5 space-y-3">
+            </div>
+
+            {/* Divider */}
+            <div className="flex items-center gap-3">
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-[11px] text-muted-foreground uppercase tracking-wider">or manually</span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+
+            {/* Step 1 — Save SSH key */}
+            <div className="rounded-xl border bg-card overflow-hidden">
+              <div className="flex items-center gap-2.5 px-4 py-2.5 border-b bg-muted/30">
+                <span className="size-5 rounded-full bg-foreground text-background text-[10px] font-bold flex items-center justify-center shrink-0 leading-none">1</span>
+                <span className="text-sm font-medium">Save SSH key &amp; connect</span>
+                <div className="ml-auto flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                  <KeyRound className="size-3" />
+                  <span>Contains private key</span>
+                </div>
+              </div>
+              <div className="p-4 space-y-2.5">
                 <p className="text-xs text-muted-foreground">
-                  Save the SSH key and connect — paste this in your terminal:
+                  Run once in your terminal — saves your key to{" "}
+                  <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-[11px]">{sshKeyPath}</code>{" "}
+                  and opens an SSH session immediately.
                 </p>
-                {machine.ssh_key?.setup_command && (
-                  <CodeBlock
+                {machine.ssh_key?.setup_command ? (
+                  <SecretCodeBlock
                     text={machine.ssh_key.setup_command}
                     label="Setup command"
-                    variant="green"
                   />
+                ) : (
+                  <p className="text-xs text-muted-foreground italic">Not available yet.</p>
                 )}
                 <p className="text-xs text-muted-foreground">
                   Reconnect later:{" "}
-                  <code className="bg-muted px-1.5 py-0.5 rounded text-[11px] font-mono">
+                  <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-[11px]">
                     ssh -i {sshKeyPath} root@{machine.ip}
                   </code>
                 </p>
               </div>
             </div>
 
-            {/* Two-column: VS Code + Plain SSH */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Cursor / VS Code */}
-              <div className="rounded-xl border bg-card overflow-hidden">
-                <div className="flex items-center gap-2 px-5 py-3 border-b">
-                  <Monitor className="size-3.5 text-muted-foreground" />
-                  <span className="text-sm font-medium">
-                    Cursor / VS Code
-                  </span>
-                  <Badge className="text-[10px] font-normal bg-primary/10 text-primary border-primary/20 h-4 px-1.5 ml-auto">
-                    Recommended
-                  </Badge>
-                </div>
-                <div className="p-5 space-y-4">
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      1. Add to SSH config
-                    </p>
-                    <CodeBlock
-                      text={`grep -q "Host ${machine.slug}" ~/.ssh/config 2>/dev/null || printf '\\nHost ${machine.slug}\\n  HostName ${machine.ip}\\n  User root\\n  IdentityFile ${sshKeyPath}\\n  StrictHostKeyChecking no\\n' >> ~/.ssh/config`}
-                      label="SSH config command"
-                      variant="green"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      2. Connect
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      <kbd className="bg-muted px-1.5 py-0.5 rounded text-[10px] border font-mono">
-                        Cmd+Shift+P
-                      </kbd>{" "}
-                      → Remote-SSH: Connect to Host →{" "}
-                      <code className="bg-muted px-1 rounded font-mono">
-                        {machine.slug}
-                      </code>
-                    </p>
-                  </div>
-                  <div className="pt-3 border-t">
-                    <p className="text-[11px] text-muted-foreground">
-                      Port forwarding is automatic —{" "}
-                      <code className="bg-muted px-1 rounded">
-                        localhost:3000
-                      </code>{" "}
-                      works locally.
-                    </p>
-                  </div>
-                </div>
+            {/* Step 2 — Editor methods */}
+            <div className="rounded-xl border bg-card overflow-hidden">
+              <div className="flex items-center gap-2.5 px-4 py-2.5 border-b bg-muted/30">
+                <span className="size-5 rounded-full bg-foreground text-background text-[10px] font-bold flex items-center justify-center shrink-0 leading-none">2</span>
+                <span className="text-sm font-medium">Open in your editor</span>
               </div>
+              <div className="divide-y divide-border/60">
 
-              {/* Plain SSH */}
-              <div className="rounded-xl border bg-card overflow-hidden">
-                <div className="flex items-center gap-2 px-5 py-3 border-b">
-                  <TerminalIcon className="size-3.5 text-muted-foreground" />
-                  <span className="text-sm font-medium">Plain SSH</span>
+                {/* Cursor / VS Code */}
+                <div className="p-4 space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <Monitor className="size-3.5 text-muted-foreground" />
+                    <span className="text-sm font-medium">Cursor / VS Code</span>
+                    <Badge className="text-[10px] font-normal bg-primary/10 text-primary border-primary/20 h-4 px-1.5">
+                      Recommended
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Add host to SSH config (run once):</p>
+                  <CodeBlock
+                    text={`grep -q "Host ${machine.slug}" ~/.ssh/config 2>/dev/null || printf '\\nHost ${machine.slug}\\n  HostName ${machine.ip}\\n  User root\\n  IdentityFile ${sshKeyPath}\\n  StrictHostKeyChecking no\\n' >> ~/.ssh/config`}
+                    label="SSH config"
+                    variant="green"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Then press{" "}
+                    <kbd className="bg-muted px-1.5 py-0.5 rounded text-[10px] border font-mono">Cmd+Shift+P</kbd>
+                    {" → "}Remote-SSH: Connect to Host{" → "}
+                    <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-[11px]">{machine.slug}</code>
+                  </p>
                 </div>
-                <div className="p-5 space-y-4">
+
+                {/* Plain SSH */}
+                <div className="p-4 space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <TerminalIcon className="size-3.5 text-muted-foreground" />
+                    <span className="text-sm font-medium">Terminal / Plain SSH</span>
+                  </div>
                   <CodeBlock
                     text={`ssh -i ${sshKeyPath} root@${machine.ip}`}
                     label="SSH command"
                   />
-
-                  <details className="group">
-                    <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors flex items-center gap-1.5">
-                      <Code2 className="size-3" />
-                      AI agent prompt
-                    </summary>
-                    <div className="mt-3">
-                      <CodeBlock
-                        text={`Set up SSH access to my remote VPS and connect via Remote-SSH.\n\n1. Save the SSH key:\n${machine.ssh_key?.setup_command?.split("&&").slice(0, 2).join("&&").trim() ?? ""}\n\n2. Add to ~/.ssh/config:\nHost ${machine.slug}\n  HostName ${machine.ip}\n  User root\n  IdentityFile ${sshKeyPath}\n  StrictHostKeyChecking no\n\n3. Connect via Remote-SSH to host "${machine.slug}"`}
-                        label="AI agent prompt"
-                      />
-                    </div>
-                  </details>
                 </div>
+
               </div>
             </div>
           </TabsContent>
 
-          {/* ── Terminal Tab ──────────────────────────────────── */}
+          {/* ── TERMINAL ───────────────────────────────────────────────── */}
           <TabsContent value="terminal" className="mt-0">
             <Terminal
               machineId={machine.id}
@@ -854,148 +879,107 @@ export default function MachineDetailPage() {
             />
           </TabsContent>
 
-          {/* ── Proxy Tab ────────────────────────────────────── */}
-          <TabsContent value="proxy" className="mt-0 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Web Access */}
-              <div className="rounded-xl border bg-card overflow-hidden">
-                <div className="flex items-center gap-2 px-5 py-3 border-b">
+          {/* ── PROXY ──────────────────────────────────────────────────── */}
+          <TabsContent value="proxy" className="mt-0 space-y-3">
+            {/* Primary URL */}
+            <div className="rounded-xl border bg-card overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b">
+                <div className="flex items-center gap-2">
                   <Globe className="size-3.5 text-muted-foreground" />
-                  <span className="text-sm font-medium">Web Access</span>
+                  <span className="text-sm font-medium">Public URL</span>
                 </div>
-                <div className="p-5 space-y-3">
-                  <CodeBlock
-                    text={`https://${machine.slug}.kortix.cloud`}
-                    label="URL"
-                  />
-                  <a
-                    href={`https://${machine.slug}.kortix.cloud`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline font-medium"
-                  >
-                    <ExternalLink className="size-3" /> Open in browser
-                  </a>
-                </div>
+                <a
+                  href={`https://${machine.slug}.kortix.cloud`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <ExternalLink className="size-3" /> Open
+                </a>
               </div>
-
-              {/* API Access */}
-              <div className="rounded-xl border bg-card overflow-hidden">
-                <div className="flex items-center gap-2 px-5 py-3 border-b">
-                  <Code2 className="size-3.5 text-muted-foreground" />
-                  <span className="text-sm font-medium">API Access</span>
-                </div>
-                <div className="p-5 space-y-3">
-                  <p className="text-xs text-muted-foreground">
-                    Authenticate with your API key:
-                  </p>
-                  <CodeBlock
-                    text={`curl https://${machine.slug}.kortix.cloud \\\n  -H "Authorization: Bearer sk_live_xxx"`}
-                    label="curl"
-                  />
-                </div>
+              <div className="p-4">
+                <CodeBlock text={`https://${machine.slug}.kortix.cloud`} label="URL" />
               </div>
             </div>
 
-            <ProxyPortCard slug={machine.slug} />
+            {/* Port forwarding */}
+            <div className="rounded-xl border bg-card overflow-hidden">
+              <div className="flex items-center gap-2 px-4 py-3 border-b">
+                <Link2 className="size-3.5 text-muted-foreground" />
+                <span className="text-sm font-medium">Port Forwarding</span>
+              </div>
+              <div className="p-4 space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  Expose a port on your machine via a public URL.
+                </p>
+                <PortForwardCard slug={machine.slug} />
+              </div>
+            </div>
           </TabsContent>
 
-          {/* ── Backups Tab ──────────────────────────────────── */}
+          {/* ── BACKUPS ────────────────────────────────────────────────── */}
           <TabsContent value="backups" className="mt-0">
             <BackupsPanel machineId={machine.id} />
           </TabsContent>
 
-          {/* ── API Tab ──────────────────────────────────────── */}
-          <TabsContent value="api" className="mt-0 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Machine ID */}
-              <div className="rounded-xl border bg-card overflow-hidden">
-                <div className="flex items-center gap-2 px-5 py-3 border-b">
-                  <Server className="size-3.5 text-muted-foreground" />
-                  <span className="text-sm font-medium">Machine ID</span>
-                </div>
-                <div className="p-5">
-                  <CodeBlock text={machine.id} label="Machine ID" />
-                </div>
+          {/* ── API ────────────────────────────────────────────────────── */}
+          <TabsContent value="api" className="mt-0 space-y-3">
+            {/* Machine ID */}
+            <div className="rounded-xl border bg-card overflow-hidden">
+              <div className="flex items-center gap-2 px-4 py-3 border-b">
+                <Server className="size-3.5 text-muted-foreground" />
+                <span className="text-sm font-medium">Machine ID</span>
               </div>
-
-              {/* Resources */}
-              <div className="rounded-xl border bg-card overflow-hidden">
-                <div className="flex items-center gap-2 px-5 py-3 border-b">
-                  <Code2 className="size-3.5 text-muted-foreground" />
-                  <span className="text-sm font-medium">Resources</span>
-                </div>
-                <div className="p-5 space-y-2.5">
-                  <Link
-                    href="/keys"
-                    className="flex items-center gap-2.5 text-xs text-primary hover:underline font-medium"
-                  >
-                    <Code2 className="size-3" /> Generate API Key
-                  </Link>
-                  <Link
-                    href="/api/docs"
-                    className="flex items-center gap-2.5 text-xs text-primary hover:underline font-medium"
-                  >
-                    <ExternalLink className="size-3" /> API Reference
-                  </Link>
-                </div>
+              <div className="p-4">
+                <CodeBlock text={machine.id} label="Machine ID" />
               </div>
             </div>
 
-            {/* Examples */}
-            <div className="rounded-xl border bg-card overflow-hidden">
-              <div className="flex items-center gap-2 px-5 py-3 border-b">
-                <TerminalIcon className="size-3.5 text-muted-foreground" />
-                <span className="text-sm font-medium">Examples</span>
-              </div>
-              <div className="p-5">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      Get machine
-                    </p>
-                    <CodeBlock
-                      text={`curl ${appUrl}/api/v1/machines/${machine.id} \\\n  -H "Authorization: Bearer sk_live_xxx"`}
-                      label="curl"
-                    />
+            {/* Links */}
+            <div className="rounded-xl border bg-card divide-y">
+              <Link
+                href="/keys"
+                className="flex items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="size-7 rounded-md bg-muted flex items-center justify-center shrink-0">
+                    <KeyRound className="size-3.5 text-muted-foreground" />
                   </div>
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      Reboot
-                    </p>
-                    <CodeBlock
-                      text={`curl -X POST ${appUrl}/api/v1/machines/${machine.id}/reboot \\\n  -H "Authorization: Bearer sk_live_xxx"`}
-                      label="curl"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      Delete
-                    </p>
-                    <CodeBlock
-                      text={`curl -X DELETE ${appUrl}/api/v1/machines/${machine.id} \\\n  -H "Authorization: Bearer sk_live_xxx"`}
-                      label="curl"
-                    />
+                  <div>
+                    <p className="text-sm font-medium">Generate API Key</p>
+                    <p className="text-xs text-muted-foreground">Create a key to authenticate API requests</p>
                   </div>
                 </div>
-              </div>
+                <ExternalLink className="size-3.5 text-muted-foreground/50 group-hover:text-muted-foreground transition-colors shrink-0" />
+              </Link>
+              <Link
+                href="/api/docs"
+                className="flex items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="size-7 rounded-md bg-muted flex items-center justify-center shrink-0">
+                    <Code2 className="size-3.5 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">API Reference</p>
+                    <p className="text-xs text-muted-foreground">Full REST API docs with all endpoints</p>
+                  </div>
+                </div>
+                <ExternalLink className="size-3.5 text-muted-foreground/50 group-hover:text-muted-foreground transition-colors shrink-0" />
+              </Link>
             </div>
           </TabsContent>
         </Tabs>
       ) : (
-        /* ── Not Ready State ─────────────────────────────────────────── */
-        <div className="rounded-xl border border-dashed bg-card">
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="rounded-2xl bg-muted p-5 mb-4">
-              <Server
-                className="size-8 text-muted-foreground/50"
-                strokeWidth={1.5}
-              />
+        /* ── NOT READY ─────────────────────────────────────────────────── */
+        <div className="rounded-xl border border-dashed">
+          <div className="flex flex-col items-center justify-center py-16 text-center px-4">
+            <div className="rounded-2xl bg-muted p-4 mb-4">
+              <Server className="size-8 text-muted-foreground/40" strokeWidth={1.5} />
             </div>
-            <h3 className="text-base font-medium">Machine is not ready</h3>
-            <p className="text-sm text-muted-foreground max-w-sm mt-1.5">
-              Connection details, terminal, and management tools will appear
-              once the machine is running.
+            <h3 className="text-sm font-medium mb-1">Machine is not ready</h3>
+            <p className="text-xs text-muted-foreground max-w-xs">
+              Terminal, SSH, and management tools appear once the machine is running.
             </p>
           </div>
         </div>
@@ -1004,11 +988,7 @@ export default function MachineDetailPage() {
       <ConfirmDialog />
 
       {machine && (
-        <RescaleDialog
-          open={rescaleOpen}
-          onOpenChange={setRescaleOpen}
-          machine={machine}
-        />
+        <RescaleDialog open={rescaleOpen} onOpenChange={setRescaleOpen} machine={machine} />
       )}
 
       <Dialog open={createImageOpen} onOpenChange={setCreateImageOpen}>
@@ -1016,28 +996,23 @@ export default function MachineDetailPage() {
           <DialogHeader>
             <DialogTitle>Create Snapshot</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="image-name">Name</Label>
-              <Input
-                id="image-name"
-                placeholder="my-dev-environment"
-                value={imageName}
-                onChange={(e) => setImageName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleCreateImage();
-                }}
-              />
-              <p className="text-xs text-muted-foreground">
-                Saves the current state as a reusable image.
-              </p>
-            </div>
+          <div className="space-y-2">
+            <Label htmlFor="image-name">Name</Label>
+            <Input
+              id="image-name"
+              placeholder="my-dev-environment"
+              value={imageName}
+              onChange={(e) => setImageName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreateImage();
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              Saves the current machine state as a reusable image.
+            </p>
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setCreateImageOpen(false)}
-            >
+            <Button variant="outline" onClick={() => setCreateImageOpen(false)}>
               Cancel
             </Button>
             <Button
@@ -1047,7 +1022,7 @@ export default function MachineDetailPage() {
               {createImage.isPending ? (
                 <>
                   <Loader2 className="size-4 animate-spin mr-2" />
-                  Creating...
+                  Creating…
                 </>
               ) : (
                 "Create Snapshot"
