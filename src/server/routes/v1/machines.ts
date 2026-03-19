@@ -199,7 +199,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
     const [user] = await db.select().from(users).where(eq(users.id, ownerId));
     if (!user) return errorResponse(c, 404, 'User not found') as any;
 
-    const customerId = await stripeClient.getOrCreateCustomer(ownerId, user.email);
+    const customerId = await stripeClient.getOrCreateCustomer(ownerId, user.email, user.stripeCustomerId);
     if (!user.stripeCustomerId) {
       await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, ownerId));
     }
@@ -583,6 +583,31 @@ machinesApp.openapi(resizeMachineRoute, async (c) => {
   const newPrice = newSt.priceMonthly;
   const newSpecs = { vcpus: newSt.cores, ramGb: newSt.memory, diskGb: newSt.disk, cpuType: newSt.cpuType } as const;
 
+  let stripeSubItemLink = machine.stripeSubItemId;
+  if (stripeClient.isConfigured()) {
+    if (!stripeSubItemLink) {
+      return errorResponse(c, 400, 'Machine has no linked billing subscription — resize is blocked until billing is repaired') as any;
+    }
+
+    const [subscriptionId, maybeItemId, maybeCheckoutSessionId] = stripeSubItemLink.split('|');
+    if (subscriptionId && (!maybeItemId || maybeItemId === 'checkout')) {
+      try {
+        const repairedItemId = await stripeClient.getSubscriptionItemId(subscriptionId);
+        if (!repairedItemId) {
+          return errorResponse(c, 400, 'Machine billing subscription is missing its subscription item — resize is blocked until billing is repaired') as any;
+        }
+
+        stripeSubItemLink = [subscriptionId, repairedItemId, maybeCheckoutSessionId].filter(Boolean).join('|');
+        await db.update(machines)
+          .set({ stripeSubItemId: stripeSubItemLink })
+          .where(eq(machines.id, id));
+      } catch (err) {
+        console.error(`[MACHINES] Failed to repair Stripe billing link for ${machine.slug}:`, err);
+        return errorResponse(c, 400, 'Machine billing subscription could not be verified — resize is blocked until billing is repaired') as any;
+      }
+    }
+  }
+
   // ── Respond immediately, run resize in background ─────────────────────
   // Mark machine as resizing so the frontend can show progress
   await db.update(machines)
@@ -618,8 +643,8 @@ machinesApp.openapi(resizeMachineRoute, async (c) => {
         .where(eq(machines.id, id));
 
       // 3. Update Stripe subscription price with proration
-      if (stripeClient.isConfigured() && machine.stripeSubItemId) {
-        const subItemId = machine.stripeSubItemId.split('|')[1];
+      if (stripeClient.isConfigured() && stripeSubItemLink) {
+        const subItemId = stripeSubItemLink.split('|')[1];
         if (subItemId) {
           await stripeClient.updateMachineSubscription(subItemId, newPrice, server_type, machine.id, newSpecs)
             .catch(err => console.error('[MACHINES] Stripe resize billing update failed:', err));

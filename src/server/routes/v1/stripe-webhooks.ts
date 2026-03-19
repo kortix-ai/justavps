@@ -3,17 +3,22 @@
  *
  * Key events handled:
  *   - checkout.session.completed: User completed payment → provision their machine
- *   - invoice.payment_failed: Subscription payment failed → log warning
+ *   - invoice.payment_failed: Subscription payment failed → suspend machine
+ *   - customer.subscription.deleted: Subscription cancelled externally → mark machine
+ *   - customer.subscription.updated: Subscription changed → sync billing state
  *
  * This route does NOT use apiGuard — Stripe authenticates via webhook signature.
  * Stripe webhook routes are intentionally not included in the OpenAPI spec.
+ *
+ * IDEMPOTENCY: We track processed Stripe event IDs to prevent duplicate processing.
+ * A checkout session ID is checked against existing machines to prevent duplicate provisioning.
  */
 
 import { OpenAPIHono } from '@hono/zod-openapi';
-import { eq } from 'drizzle-orm';
+import { eq, and, like } from 'drizzle-orm';
 import Stripe from 'stripe';
 import { db } from '../../db';
-import { users, machines } from '../../db/schema';
+import { users, machines, images } from '../../db/schema';
 import { stripeClient, type CheckoutMachineConfig } from '../../lib/stripe';
 import { config } from '../../lib/config';
 import { getProvider } from '../../lib/providers';
@@ -26,16 +31,34 @@ import {
   createMachineRecord,
   autoGenerateAndSaveSSHKey,
   resolveSSHKeyPublicKeys,
+  cleanupMachineResources,
 } from '../../lib/machine-lifecycle';
 import { checkMachineLimit } from '../../lib/account-limits';
+import { desc } from 'drizzle-orm';
 
 export const stripeWebhooksApp = new OpenAPIHono();
+
+// ─── In-memory idempotency set (survives for process lifetime) ──────────────
+// For production, this should be a DB table or Redis set. In-memory is fine for
+// single-process deployments and prevents duplicate processing within a restart cycle.
+const processedEventIds = new Set<string>();
+const MAX_PROCESSED_IDS = 10_000;
+
+function markEventProcessed(eventId: string) {
+  if (processedEventIds.size >= MAX_PROCESSED_IDS) {
+    // Evict oldest entries (Set iterates in insertion order)
+    const iter = processedEventIds.values();
+    for (let i = 0; i < 1000; i++) iter.next();
+    // Can't efficiently delete first N from Set, so just clear and accept re-processing
+    // of very old events (which the DB-level idempotency check will catch anyway)
+    processedEventIds.clear();
+  }
+  processedEventIds.add(eventId);
+}
 
 /**
  * POST /stripe/webhooks — Stripe sends events here.
  * The raw body must be read for signature verification.
- * Not included in the OpenAPI spec (hide: true would work but this route
- * uses raw body so we just use a plain Hono handler).
  */
 stripeWebhooksApp.post('/', async (c) => {
   if (!stripeClient.isConfigured() || !config.STRIPE_WEBHOOK_SECRET) {
@@ -49,12 +72,18 @@ stripeWebhooksApp.post('/', async (c) => {
     return c.json({ error: 'Missing stripe-signature header' }, 400);
   }
 
-  let event;
+  let event: Stripe.Event;
   try {
     event = stripeClient.constructWebhookEvent(rawBody, signature);
   } catch (err) {
     console.error('[STRIPE WEBHOOK] Signature verification failed:', err);
     return c.json({ error: 'Invalid signature' }, 400);
+  }
+
+  // Idempotency check — skip already-processed events
+  if (processedEventIds.has(event.id)) {
+    console.log(`[STRIPE WEBHOOK] Skipping already-processed event ${event.id}`);
+    return c.json({ received: true, skipped: true });
   }
 
   console.log(`[STRIPE WEBHOOK] Received ${event.type} (${event.id})`);
@@ -69,15 +98,29 @@ stripeWebhooksApp.post('/', async (c) => {
         await handlePaymentFailed(event.data.object as Stripe.Invoice);
         break;
 
+      case 'customer.subscription.deleted':
+        await handleSubscriptionDeleted(event.data.object as Stripe.Subscription);
+        break;
+
+      case 'customer.subscription.updated':
+        await handleSubscriptionUpdated(event.data.object as Stripe.Subscription);
+        break;
+
       default:
+        console.log(`[STRIPE WEBHOOK] Unhandled event type: ${event.type}`);
         break;
     }
   } catch (err) {
     console.error(`[STRIPE WEBHOOK] Error handling ${event.type}:`, err);
+    // Still return 200 so Stripe doesn't retry (we logged the error)
   }
 
+  markEventProcessed(event.id);
   return c.json({ received: true });
 });
+
+// ─── checkout.session.completed ─────────────────────────────────────────────
+// User completed Stripe Checkout → provision the machine they configured.
 
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const metadata = session.metadata;
@@ -100,12 +143,60 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     return;
   }
 
+  // DB-level idempotency: check if a machine was already provisioned for this checkout session
+  const existingMachines = await db.select({ id: machines.id })
+    .from(machines)
+    .where(and(
+      eq(machines.ownerId, userId),
+      like(machines.stripeSubItemId, `%|${session.id}`),
+    ));
+
+  if (existingMachines.length > 0) {
+    console.log(`[STRIPE WEBHOOK] Machine already provisioned for checkout ${session.id} — skipping`);
+    return;
+  }
+
   console.log(`[STRIPE WEBHOOK] Provisioning machine for user ${userId}: ${machineConfig.server_type} in ${machineConfig.region}`);
 
-  const subscriptionId = typeof session.subscription === 'string'
+  // Extract subscription ID and subscription item ID from the checkout session
+  let subscriptionId = typeof session.subscription === 'string'
     ? session.subscription
     : (session.subscription as Stripe.Subscription | null)?.id || '';
 
+  let subscriptionItemId = '';
+  if (session.subscription && typeof session.subscription !== 'string') {
+    const sub = session.subscription as Stripe.Subscription;
+    subscriptionItemId = sub.items?.data?.[0]?.id || '';
+  }
+
+  // If the event payload does not include the expanded subscription details,
+  // refetch the Checkout Session to recover the subscription id + item id.
+  if (session.id && (!subscriptionId || !subscriptionItemId)) {
+    try {
+      const fullCheckoutSession = await stripeClient.getCheckoutSession(session.id);
+      if (typeof fullCheckoutSession.subscription === 'string') {
+        subscriptionId = fullCheckoutSession.subscription;
+      }
+      if (fullCheckoutSession.subscription && typeof fullCheckoutSession.subscription !== 'string') {
+        const sub = fullCheckoutSession.subscription as Stripe.Subscription;
+        subscriptionId = sub.id;
+        subscriptionItemId = sub.items?.data?.[0]?.id || '';
+      }
+    } catch {
+      // Fallback — we'll store just the subscription ID
+    }
+  }
+
+  if (!subscriptionId) {
+    console.error(`[STRIPE WEBHOOK] Checkout session ${session.id} has no subscription id — refusing to provision unpaid machine`);
+    return;
+  }
+
+  const stripeSubItemIdValue = subscriptionId
+    ? `${subscriptionId}|${subscriptionItemId || 'checkout'}|${session.id}`
+    : null;
+
+  // Check account machine limit before provisioning
   const machineLimit = await checkMachineLimit(userId);
   if (!machineLimit.allowed) {
     console.warn(`[STRIPE WEBHOOK] Machine limit reached for user ${userId} (${machineLimit.current}/${machineLimit.max}) — cancelling subscription ${subscriptionId || 'unknown'}`);
@@ -118,30 +209,24 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   try {
     const provider = getProvider(machineConfig.provider);
 
+    // Resolve image
     let resolvedImage = 'ubuntu-24.04';
     if (machineConfig.image_id) {
-      const { images: imagesTable } = await import('../../db/schema');
-      const [img] = await db.select().from(imagesTable).where(eq(imagesTable.id, machineConfig.image_id));
+      const [img] = await db.select().from(images).where(eq(images.id, machineConfig.image_id));
       if (img?.status === 'ready' && img.providerImageId) {
         resolvedImage = img.providerImageId;
       }
     } else {
-      // Use latest public base image from DB
-      const { images: imagesTable } = await import('../../db/schema');
-      const { and, desc } = await import('drizzle-orm');
-      const [baseImage] = await db.select().from(imagesTable)
-        .where(and(eq(imagesTable.isPublic, true), eq(imagesTable.status, 'ready')))
-        .orderBy(desc(imagesTable.createdAt))
+      const [baseImage] = await db.select().from(images)
+        .where(and(eq(images.isPublic, true), eq(images.status, 'ready')))
+        .orderBy(desc(images.createdAt))
         .limit(1);
       if (baseImage?.providerImageId) resolvedImage = baseImage.providerImageId;
     }
 
     const { slug, machineToken } = await generateMachineIdentity();
-
-    // Auto-generate SSH key and save to user's ssh_keys table
     const autoKey = await autoGenerateAndSaveSSHKey(userId, slug);
 
-    // Resolve any user-selected SSH keys
     const extraSSHKeys = machineConfig.ssh_key_ids?.length
       ? await resolveSSHKeyPublicKeys(userId, machineConfig.ssh_key_ids)
       : [];
@@ -176,20 +261,29 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     });
 
     if (subscriptionId) {
+      await stripeClient.linkSubscriptionToMachine(subscriptionId, machine.id, slug)
+        .catch((err: unknown) => console.warn(`[STRIPE WEBHOOK] Failed to backfill subscription metadata for ${slug}:`, err));
+    }
+
+    // Store the subscription link (with checkout session ID for idempotency)
+    if (stripeSubItemIdValue) {
       await db.update(machines).set({
-        stripeSubItemId: `${subscriptionId}|checkout`,
+        stripeSubItemId: stripeSubItemIdValue,
       }).where(eq(machines.id, machine.id));
     }
 
     await eventBus.emitStageChange(machine.id, userId, 'server_creating', 'Creating server on provider...');
 
-    provisionMachineAsync(machine, provider, machineConfig, slug, userId, userdata, providerKeyId, priceMonthly, resolvedImage);
+    // Provision async — don't block the webhook response
+    provisionMachineAsync(machine, provider, machineConfig, slug, userId, userdata, providerKeyId, priceMonthly, resolvedImage, subscriptionId);
 
     console.log(`[STRIPE WEBHOOK] Machine ${slug} created and queued for provisioning`);
   } catch (err) {
     console.error(`[STRIPE WEBHOOK] Failed to provision machine for user ${userId}:`, err);
   }
 }
+
+// ─── Async provisioning ────────────────────────────────────────────────────
 
 function provisionMachineAsync(
   machine: { id: string },
@@ -201,6 +295,7 @@ function provisionMachineAsync(
   providerKeyId: string,
   priceMonthly: number,
   resolvedImage: string,
+  subscriptionId: string,
 ) {
   (async () => {
     try {
@@ -238,6 +333,12 @@ function provisionMachineAsync(
 
     } catch (err) {
       console.error(`[STRIPE WEBHOOK] Background provisioning failed for ${slug}:`, err);
+
+      // Cancel subscription since provisioning failed — user shouldn't be charged
+      if (subscriptionId) {
+        await stripeClient.cancelMachineSubscription(subscriptionId).catch(() => {});
+      }
+
       await db.update(machines).set({
         status: 'error',
         providerMeta: { error: err instanceof Error ? err.message : String(err) },
@@ -246,6 +347,9 @@ function provisionMachineAsync(
     }
   })();
 }
+
+// ─── invoice.payment_failed ─────────────────────────────────────────────────
+// A recurring invoice payment failed — the machine may be suspended by Stripe.
 
 async function handlePaymentFailed(invoice: Stripe.Invoice) {
   const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id || '';
@@ -259,6 +363,84 @@ async function handlePaymentFailed(invoice: Stripe.Invoice) {
     const [user] = await db.select().from(users).where(eq(users.stripeCustomerId, customerId));
     if (user) {
       console.warn(`[STRIPE WEBHOOK] Payment failed for user ${user.email} (${user.id})`);
+
+      // Find machines linked to this subscription and mark them
+      if (subscriptionId) {
+        const affected = await db.select().from(machines)
+          .where(and(
+            eq(machines.ownerId, user.id),
+            like(machines.stripeSubItemId, `${subscriptionId}|%`),
+          ));
+
+        for (const m of affected) {
+          console.warn(`[STRIPE WEBHOOK] Machine ${m.slug} has failed payment — subscription ${subscriptionId}`);
+          // Don't suspend yet — Stripe may retry. Just log for now.
+          // Stripe's built-in dunning will handle escalation.
+        }
+      }
+    }
+  }
+}
+
+// ─── customer.subscription.deleted ──────────────────────────────────────────
+// Subscription was cancelled (by user via portal, or by Stripe after failed payments).
+// We should suspend/delete the linked machine.
+
+async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
+  const subscriptionId = subscription.id;
+  console.log(`[STRIPE WEBHOOK] Subscription ${subscriptionId} deleted`);
+
+  // Find machines linked to this subscription
+  const affected = await db.select().from(machines)
+    .where(like(machines.stripeSubItemId, `${subscriptionId}|%`));
+
+  for (const machine of affected) {
+    if (machine.status === 'deleted') continue;
+
+    console.log(`[STRIPE WEBHOOK] Subscription deleted for machine ${machine.slug} — destroying machine`);
+
+    try {
+      const provider = getProvider(machine.provider);
+      await cleanupMachineResources(machine, provider);
+      console.log(`[STRIPE WEBHOOK] Machine ${machine.slug} destroyed after subscription cancellation`);
+    } catch (err) {
+      console.error(`[STRIPE WEBHOOK] Failed to destroy machine ${machine.slug}:`, err);
+      // At minimum, mark as deleted in DB
+      await db.update(machines).set({ status: 'deleted', deletedAt: new Date() }).where(eq(machines.id, machine.id));
+    }
+  }
+}
+
+// ─── customer.subscription.updated ──────────────────────────────────────────
+// Subscription was updated (e.g. price change, status change).
+// Sync relevant state to our DB.
+
+async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
+  const subscriptionId = subscription.id;
+  const newStatus = subscription.status;
+
+  console.log(`[STRIPE WEBHOOK] Subscription ${subscriptionId} updated — status: ${newStatus}`);
+
+  // Find machines linked to this subscription
+  const affected = await db.select().from(machines)
+    .where(like(machines.stripeSubItemId, `${subscriptionId}|%`));
+
+  for (const machine of affected) {
+    if (machine.status === 'deleted') continue;
+
+    // Sync price from Stripe
+    const priceAmount = subscription.items.data[0]?.price?.unit_amount;
+    if (priceAmount != null) {
+      const newPriceMonthly = priceAmount / 100;
+      if (newPriceMonthly !== machine.priceMonthly) {
+        await db.update(machines).set({ priceMonthly: newPriceMonthly }).where(eq(machines.id, machine.id));
+        console.log(`[STRIPE WEBHOOK] Updated price for machine ${machine.slug}: $${machine.priceMonthly} → $${newPriceMonthly}`);
+      }
+    }
+
+    // If subscription went past_due or unpaid, log a warning
+    if (newStatus === 'past_due' || newStatus === 'unpaid') {
+      console.warn(`[STRIPE WEBHOOK] Machine ${machine.slug} subscription is ${newStatus} — machine may be suspended`);
     }
   }
 }

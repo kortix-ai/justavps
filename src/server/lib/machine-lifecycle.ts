@@ -36,15 +36,15 @@ export async function uploadSSHKeyToProvider(
     try {
       const result = await provider.uploadSSHKey(`justavps-${slug}`, publicKey);
       return result.keyId;
-    } catch (err: any) {
-      lastError = err;
+    } catch (err: unknown) {
+      lastError = err instanceof Error ? err : new Error(String(err));
       // If the key already exists (409/conflict or "already added"), try with a unique suffix
-      if (err.message?.includes('already') || err.message?.includes('409') || err.message?.includes('uniqueness_error')) {
+      if (err instanceof Error && (err.message.includes('already') || err.message.includes('409') || err.message.includes('uniqueness_error'))) {
         try {
           const result = await provider.uploadSSHKey(`justavps-${slug}-${Date.now()}`, publicKey);
           return result.keyId;
-        } catch (retryErr: any) {
-          lastError = retryErr;
+        } catch (retryErr: unknown) {
+          lastError = retryErr instanceof Error ? retryErr : new Error(String(retryErr));
         }
       }
       if (attempt < maxRetries) {
@@ -212,7 +212,7 @@ export async function createStripeSubscription(
     const [user] = await db.select().from(users).where(eq(users.id, ownerId));
     if (!user) return;
 
-    const customerId = await stripeClient.getOrCreateCustomer(ownerId, user.email);
+    const customerId = await stripeClient.getOrCreateCustomer(ownerId, user.email, user.stripeCustomerId);
     if (!user.stripeCustomerId) {
       await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, ownerId));
     }

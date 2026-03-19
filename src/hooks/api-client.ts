@@ -1,6 +1,9 @@
 const API_BASE = "/api/v1";
 
 export class ApiError extends Error {
+  /** Parsed JSON body from the error response (if available) */
+  data?: Record<string, unknown>;
+
   constructor(
     public status: number,
     message: string,
@@ -37,7 +40,11 @@ async function handleResponse<T>(res: Response): Promise<T> {
   }
 
   const body = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
-  throw new ApiError(res.status, body.message || `Request failed: ${res.status}`);
+  const err = new ApiError(res.status, body.message || `Request failed: ${res.status}`);
+  // Attach the full response body so callers can inspect structured error data
+  // (e.g. 402 checkout_url from the billing gate)
+  err.data = body;
+  throw err;
 }
 
 function request<T>(path: string, options: RequestInit = {}): Promise<T> {

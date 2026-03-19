@@ -153,7 +153,7 @@ accountApp.openapi(getBillingRoute, async (c) => {
     const [user] = await db.select().from(users).where(eq(users.id, userId));
 
     if (!user?.stripeCustomerId) {
-      const customerId = await stripeClient.getOrCreateCustomer(userId, user?.email || '');
+      const customerId = await stripeClient.getOrCreateCustomer(userId, user?.email || '', user?.stripeCustomerId);
       if (user) {
         await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, userId));
       }
@@ -215,7 +215,7 @@ accountApp.openapi(createBillingSetupRoute, async (c) => {
     const [user] = await db.select().from(users).where(eq(users.id, userId));
     if (!user) return c.json({ error: true, message: 'User not found', status: 404 }, 404);
 
-    const customerId = await stripeClient.getOrCreateCustomer(userId, user.email);
+    const customerId = await stripeClient.getOrCreateCustomer(userId, user.email, user.stripeCustomerId);
     if (!user.stripeCustomerId) {
       await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, userId));
     }

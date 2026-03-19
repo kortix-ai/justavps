@@ -54,7 +54,18 @@ export const stripeClient = {
   /**
    * Get or create a Stripe customer for a user.
    */
-  async getOrCreateCustomer(userId: string, email: string): Promise<string> {
+  async getOrCreateCustomer(userId: string, email: string, existingCustomerId?: string | null): Promise<string> {
+    if (existingCustomerId) {
+      try {
+        const existingById = await stripe.customers.retrieve(existingCustomerId);
+        if (!existingById.deleted) {
+          return existingById.id;
+        }
+      } catch {
+        // Fall through to metadata search/create if the stored customer is stale.
+      }
+    }
+
     // Search for existing customer by metadata
     const existing = await stripe.customers.search({
       query: `metadata['justavps_user_id']:'${userId}'`,
@@ -287,6 +298,38 @@ export const stripeClient = {
     });
 
     console.log(`[STRIPE] Updated subscription item ${subscriptionItemId} to $${newPriceMonthlyUsd}/mo`);
+  },
+
+  /**
+   * Backfill the real machine metadata onto an existing subscription.
+   * Used when we must charge before the DB machine record exists.
+   */
+  async linkSubscriptionToMachine(
+    subscriptionId: string,
+    machineId: string,
+    machineSlug: string,
+  ): Promise<void> {
+    if (!subscriptionId) return;
+
+    await stripe.subscriptions.update(subscriptionId, {
+      metadata: {
+        machine_id: machineId,
+        machine_slug: machineSlug,
+      },
+    });
+
+    console.log(`[STRIPE] Linked subscription ${subscriptionId} to machine ${machineSlug}`);
+  },
+
+  /**
+   * Retrieve the first subscription item id for an existing subscription.
+   * Used to repair legacy machine billing links that stored `sub|checkout`.
+   */
+  async getSubscriptionItemId(subscriptionId: string): Promise<string | null> {
+    if (!subscriptionId) return null;
+
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    return subscription.items.data[0]?.id || null;
   },
 
   /**
