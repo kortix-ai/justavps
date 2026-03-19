@@ -7,7 +7,6 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/hooks/use-theme";
 import { Logo } from "@/components/logo";
-import { SiPython, SiTypescript } from "react-icons/si";
 import { TbApi } from "react-icons/tb";
 import { CheckoutModal } from "@/components/checkout-modal";
 
@@ -77,10 +76,10 @@ export default function Home() {
           </div>
           <h1 className="text-5xl sm:text-7xl lg:text-8xl font-medium tracking-tighter leading-[0.88]">AI Sandbox</h1>
           <p className="mt-3 text-lg sm:text-2xl tracking-tight text-muted-foreground">
-            ...but it&apos;s <span className="text-foreground font-medium">justavps</span>
+            ...and it&apos;s <span className="text-foreground font-medium">justavps :)</span>
           </p>
           <p className="mt-5 text-sm sm:text-base text-muted-foreground max-w-md mx-auto leading-relaxed">
-            Persistent, 24/7 always-on infrastructure for AI agent sandboxes. <strong className="text-foreground">10x cheaper.</strong>
+            Persistent, 24/7 always-on infrastructure for AI agent sandboxes. <strong className="text-foreground">10x cheaper. Secure. Stateful.</strong>
           </p>
           <div className="mt-7 flex items-center justify-center gap-3">
             <button onClick={() => setCheckoutOpen(true)} className={cn(buttonVariants({ size: "lg" }), "text-sm px-7 h-12 font-medium rounded-xl")}>
@@ -114,7 +113,7 @@ export default function Home() {
                   <span className="px-2.5 py-0.5 rounded-full bg-muted border border-border text-[10px] font-medium text-muted-foreground">PERSONAL</span>
                 </div>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  SSH in from Cursor or VS Code. Run Claude Code, OpenCode, or any agent — 24/7 while you sleep.
+                  Close your laptop and keep working. Perfect internet, no battery drain, no dropped connections — ever.
                 </p>
                 <div className="mt-4 flex items-center gap-1.5">
                   <Chip><LogoClaude /></Chip><Chip><LogoCursor /></Chip><Chip><LogoVSCode /></Chip>
@@ -136,34 +135,57 @@ export default function Home() {
                   <span className="px-2.5 py-0.5 rounded-full bg-muted border border-border text-[10px] font-medium text-muted-foreground">SERVICE</span>
                 </div>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  Provision sandboxes via SDK. Each gets FS API, Bash API, Computer Use API, coding agents — all behind an authenticated proxy.
+                  Provision sandboxes via SDK. Files, Bash, and CUA APIs. One API key. API layer for Claude Code, OpenCode, and Codex — agents & sessions.
                 </p>
                 <div className="mt-4 flex items-center gap-1.5">
-                  <Chip><LogoDocker /></Chip>
+                  <Chip><LogoClaude /></Chip><Chip><LogoOpenCode /></Chip><Chip><TbApi className="size-5" /></Chip>
                   <span className="text-xs text-muted-foreground ml-1.5">Python · TypeScript · REST</span>
                 </div>
               </div>
               <div className="border-t border-border bg-muted p-4 font-mono text-xs leading-relaxed">
                 <div className="text-muted-foreground"># pip install justavps</div>
                 <div className="mt-1"><span className="text-blue-600 dark:text-blue-400">from</span> <span className="text-foreground">justavps</span> <span className="text-blue-600 dark:text-blue-400">import</span> <span className="text-foreground">JustAVPS</span></div>
-                <div className="mt-1 text-foreground">sandbox = JustAVPS().create(type=<span className="text-amber-600 dark:text-amber-400">&quot;cpx32&quot;</span>)</div>
-                <div className="mt-1 text-foreground">sandbox.exec(<span className="text-amber-600 dark:text-amber-400">&quot;echo hello&quot;</span>)</div>
-                <div className="mt-1 text-foreground">sandbox.url(<span className="text-amber-600 dark:text-amber-400">8000</span>) <span className="text-muted-foreground"># → https://8000.abc123.kortix.cloud</span></div>
+                <div className="mt-1 text-foreground">vps = JustAVPS(api_key=<span className="text-amber-600 dark:text-amber-400">&quot;sk-...&quot;</span>)</div>
+                <div className="mt-1 text-foreground">sandbox = vps.create(type=<span className="text-amber-600 dark:text-amber-400">&quot;cpx32&quot;</span>)</div>
+                <div className="mt-1 text-foreground">sandbox.exec(<span className="text-amber-600 dark:text-amber-400">&quot;claude &#39;build a REST API&#39;&quot;</span>)</div>
+                <div className="mt-1 text-foreground">sandbox.url(<span className="text-amber-600 dark:text-amber-400">8000</span>) <span className="text-muted-foreground"># → https://8000.abc123.justavps.com</span></div>
               </div>
             </div>
           </div>
 
           <div className="mt-5 flex flex-wrap items-center gap-1.5 justify-center">
-            {["SSH","Web Terminal","Browser IDE","Daily Backups","Secure Auth","Proxy","FS API","Bash API","Computer Use API","Coding Agents SDK","Docker","Any Agent"].map(f => (
+            {["SSH","Web Terminal","Browser IDE","Daily Backups","API Key Auth","FS API","Bash API","Computer Use API","Claude Code","OpenCode","Codex","Any Agent"].map(f => (
               <span key={f} className="px-2.5 py-1 rounded-full border border-border bg-card text-xs text-muted-foreground font-medium">{f}</span>
             ))}
           </div>
         </div>
       </section>
 
+      {/* SECURE BY DEFAULT */}
+      <section className="px-6 py-12 sm:py-14 border-t border-border">
+        <div className="max-w-5xl mx-auto">
+          <div className="rounded-2xl border border-border bg-card p-6 sm:p-8 flex flex-col sm:flex-row items-start sm:items-center gap-5">
+            <div className="size-10 rounded-xl bg-green-500/10 border border-green-500/20 flex items-center justify-center shrink-0">
+              <svg className="size-5 text-green-600 dark:text-green-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0110 0v4" /></svg>
+            </div>
+            <div className="flex-1">
+              <h3 className="text-base font-medium mb-1">Secure by default. Every port is authenticated.</h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Nothing is publicly exposed. Every port on your machine runs behind an authenticated proxy — only requests with a valid API key or session token get through. No open ports, no accidental exposure, no extra config.
+              </p>
+            </div>
+            <div className="shrink-0 hidden sm:flex items-center gap-2">
+              <span className="px-2.5 py-1 rounded-full bg-green-500/10 border border-green-500/20 text-xs font-medium text-green-600 dark:text-green-400">Auth Proxy</span>
+              <span className="px-2.5 py-1 rounded-full bg-green-500/10 border border-green-500/20 text-xs font-medium text-green-600 dark:text-green-400">API Keys</span>
+              <span className="px-2.5 py-1 rounded-full bg-green-500/10 border border-green-500/20 text-xs font-medium text-green-600 dark:text-green-400">Zero Open Ports</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* API */}
       <section id="api" className="px-6 py-16 sm:py-20 border-t border-border">
-        <div className="max-w-5xl mx-auto"><ApiCode /></div>
+        <div className="max-w-5xl mx-auto"><ApiOverview /></div>
       </section>
 
       {/* PRICING */}
@@ -291,124 +313,117 @@ function CmpRow({ spec, them, us, save }: { spec: string; them: string; us: stri
 }
 
 /* ═══ API SECTION ═══ */
-const IconPy = () => <SiPython className="size-4" />;
-const IconTS = () => <SiTypescript className="size-4" />;
-const IconREST = () => <TbApi className="size-[18px]" />;
 
-const API_SECTIONS = [
-  { id: "machine", label: "Machine",
-    icon: <svg className="size-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /></svg>,
-    desc: "Create, snapshot, resize, destroy sandboxes via SDK.",
-    py: [`from justavps import JustAVPS`,``,`client = JustAVPS()`,``,`# Create a sandbox`,`sandbox = client.create(type="cpx32", region="hel1")`,`print(sandbox.ip)    # 95.217.x.x`,`print(sandbox.url()) # https://abc123.kortix.cloud`,``,`# Snapshot & destroy`,`client.snapshot(sandbox.id, name="v1")`,`client.remove(sandbox.id)`,``,``],
-    ts: [`import { JustAVPS } from "justavps"`,``,`const client = new JustAVPS()`,``,`// Create a sandbox`,`const sandbox = await client.create({`,`  type: "cpx32", region: "hel1"`,`})`,`console.log(sandbox.ip)  // 95.217.x.x`,`console.log(sandbox.url())`,``,`// Snapshot & destroy`,`await client.snapshot(sandbox.id, { name: "v1" })`,`await client.remove(sandbox.id)`],
-    rest: [`# Create a sandbox`,`POST /api/v1/machines`,`Authorization: Bearer $API_KEY`,`{"type": "cpx32", "region": "hel1"}`,``,`# → 201 Created`,`# {"id": "abc123", "ip": "95.217.x.x"}`,``,`# Snapshot`,`POST /api/v1/machines/abc123/snapshots`,`{"name": "v1"}`,``,`# Destroy`,`DELETE /api/v1/machines/abc123`],
+const API_GROUPS = [
+  {
+    title: "Machine",
+    icon: <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /></svg>,
+    ops: [
+      { method: "POST", label: "Create a machine" },
+      { method: "GET", label: "List all machines" },
+      { method: "GET", label: "Get machine details" },
+      { method: "POST", label: "Rebuild a machine" },
+      { method: "DEL", label: "Delete a machine" },
+      { method: "POST", label: "Create a snapshot" },
+      { method: "GET", label: "List snapshots" },
+    ],
   },
-  { id: "process", label: "Process",
-    icon: <svg className="size-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></svg>,
-    desc: "Execute code and commands with real-time output streaming.",
-    py: [`# Execute code inside the sandbox`,`response = sandbox.process.code_run(`,`    'print("Hello World!")'`,`)`,`print(response.result)  # "Hello World!"`,``,`# Run a shell command`,`response = sandbox.process.exec(`,`    'echo "Hello from exec!"',`,`    cwd="/root", timeout=10`,`)`,`print(response.result)`,``,``],
-    ts: [`// Execute code inside the sandbox`,`const res = await sandbox.process.codeRun(`,`  'console.log("Hello World!")'`,`)`,`console.log(res.result) // "Hello World!"`,``,`// Run a shell command`,`const exec = await sandbox.process.exec(`,`  'echo "Hello from exec!"',`,`  { cwd: "/root", timeout: 10 }`,`)`,`console.log(exec.result)`,``,``],
-    rest: [`# Execute code`,`POST /api/v1/machines/abc123/exec`,`Authorization: Bearer $API_KEY`,`{"command": "python3 -c 'print(1+1)'"}`,``,`# → 200 OK`,`# {"exit_code": 0, "result": "2"}`,``,`# Stream output (SSE)`,`POST /api/v1/machines/abc123/exec?stream=true`,`Authorization: Bearer $API_KEY`,`{"command": "npm run build"}`,``,`# → SSE stream of stdout/stderr`],
+  {
+    title: "Filesystem",
+    icon: <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /></svg>,
+    ops: [
+      { method: "GET", label: "List files in a directory" },
+      { method: "GET", label: "Download a file" },
+      { method: "POST", label: "Upload a file" },
+      { method: "POST", label: "Create a directory" },
+      { method: "DEL", label: "Delete a file or directory" },
+      { method: "POST", label: "Move or rename" },
+      { method: "GET", label: "Search text in files" },
+      { method: "POST", label: "Find and replace" },
+      { method: "POST", label: "Download as zip" },
+    ],
   },
-  { id: "fs", label: "Filesystem",
-    icon: <svg className="size-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /></svg>,
-    desc: "Full CRUD file operations — upload, download, list, delete.",
-    py: [`# Upload a file`,`sandbox.fs.upload("data.csv", "/root/data.csv")`,``,`# Download a file`,`content = sandbox.fs.download("/root/output.json")`,``,`# List directory`,`files = sandbox.fs.list("/root")`,`for f in files:`,`    print(f.name, f.size)`,``,`# Delete a file`,`sandbox.fs.delete("/root/tmp.log")`,``],
-    ts: [`// Upload a file`,`await sandbox.fs.upload("data.csv", "/root/data.csv")`,``,`// Download a file`,`const content = await sandbox.fs.download("/root/output.json")`,``,`// List directory`,`const files = await sandbox.fs.list("/root")`,`for (const f of files)`,`  console.log(f.name, f.size)`,``,`// Delete a file`,`await sandbox.fs.delete("/root/tmp.log")`,``],
-    rest: [`# Upload`,`PUT /api/v1/machines/abc123/fs/root/data.csv`,`Content-Type: application/octet-stream`,`<file bytes>`,``,`# Download`,`GET /api/v1/machines/abc123/fs/root/output.json`,``,`# List directory`,`GET /api/v1/machines/abc123/fs/root`,`# → [{"name":"data.csv","size":1024}]`,``,`# Delete`,`DELETE /api/v1/machines/abc123/fs/root/tmp.log`],
+  {
+    title: "Process",
+    icon: <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></svg>,
+    ops: [
+      { method: "POST", label: "Execute a shell command" },
+      { method: "POST", label: "Execute with streaming" },
+      { method: "POST", label: "Run a code snippet" },
+      { method: "GET", label: "List running processes" },
+      { method: "POST", label: "Kill a process" },
+    ],
   },
-  { id: "agents", label: "Coding Agents",
-    icon: <svg className="size-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="11" width="18" height="10" rx="2" /><path d="M12 2a4 4 0 014 4v1H8V6a4 4 0 014-4zM7 15h.01M12 15h.01M17 15h.01" /></svg>,
-    desc: "Spawn agents, route prompts, stream events via sandbox-agent.",
-    py: [`# Install & start a coding agent`,`agent = sandbox.agents.install("claude-code")`,`agent.start()`,``,`# Create a session and send a prompt`,`session = agent.session.create()`,`stream = session.prompt(`,`    "Build a REST API with FastAPI"`,`)`,``,`# Stream events in real time`,`for event in stream:`,`    print(event.type, event.data)`,``],
-    ts: [`// Install & start a coding agent`,`const agent = await sandbox.agents.install("claude-code")`,`await agent.start()`,``,`// Create a session and send a prompt`,`const session = await agent.session.create()`,`const stream = await session.prompt(`,`  "Build a REST API with FastAPI"`,`)`,``,`// Stream events in real time`,`for await (const event of stream) {`,`  console.log(event.type, event.data)`,`}`],
-    rest: [`# Install an agent`,`POST /api/v1/machines/abc123/agents/install`,`{"agent": "claude-code"}`,``,`# Create a session`,`POST /api/v1/machines/abc123/agents/sessions`,`# → {"session_id": "ses_xyz"}`,``,`# Send a prompt (SSE stream)`,`POST /api/v1/machines/abc123/agents/sessions/ses_xyz/prompt`,`{"message": "Build a REST API with FastAPI"}`,`# → SSE stream of agent events`,``,`# List active sessions`,`GET /api/v1/machines/abc123/agents/sessions`],
+  {
+    title: "Coding Agents",
+    icon: <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="11" width="18" height="10" rx="2" /><path d="M12 2a4 4 0 014 4v1H8V6a4 4 0 014-4zM7 15h.01M12 15h.01M17 15h.01" /></svg>,
+    external: "https://sandboxagent.dev",
+    agentFeatures: ["Universal Agent API", "Session Management", "Streaming Events & Chat"],
   },
 ];
 
-type Lang = "py" | "ts" | "rest";
-const LANGS: { id: Lang; label: string; icon: React.ReactNode }[] = [
-  { id: "py", label: "Python", icon: <IconPy /> },
-  { id: "ts", label: "TypeScript", icon: <IconTS /> },
-  { id: "rest", label: "REST", icon: <IconREST /> },
-];
+function MethodBadge({ method }: { method: string }) {
+  const colors: Record<string, string> = {
+    GET: "text-green-600 dark:text-green-400 bg-green-500/10",
+    POST: "text-blue-600 dark:text-blue-400 bg-blue-500/10",
+    DEL: "text-red-600 dark:text-red-400 bg-red-500/10",
+  };
+  return <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold leading-none", colors[method])}>{method}</span>;
+}
 
-function ApiCode() {
-  const [section, setSection] = useState(0);
-  const [lang, setLang] = useState<Lang>("py");
-  const active = API_SECTIONS[section];
-  const lines = active[lang];
-  const isComment = (l: string) => l.startsWith("#") || l.startsWith("//");
+function ApiOverview() {
   return (
     <div>
       <div className="flex items-end justify-between mb-8">
-        <SectionHead title="Programmatic Control." desc="Machine, Process, Filesystem, and Coding Agents API." />
-        <div className="flex items-center gap-1 shrink-0 ml-4">
-          {LANGS.map((l) => (
-            <button key={l.id} onClick={() => setLang(l.id)} className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
-              lang === l.id ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:text-foreground"
-            )}>{l.icon}<span className="hidden sm:inline">{l.label}</span></button>
-          ))}
-        </div>
+        <SectionHead title="Programmatic Control." desc="Machine, Process, Filesystem, and Coding Agents — REST API, Python SDK, and TypeScript SDK." />
+        <Link href="/api/docs" className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0 ml-4 text-xs gap-1.5")}>
+          Full API Reference <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" /></svg>
+        </Link>
       </div>
 
-      <div className="flex md:hidden border border-border rounded-t-2xl overflow-hidden">
-        {API_SECTIONS.map((s, i) => (
-          <button key={s.id} onClick={() => setSection(i)} className={cn(
-            "flex-1 py-3 text-xs font-medium border-b-2 transition-colors",
-            i === section ? "text-foreground border-foreground bg-muted" : "text-muted-foreground border-transparent"
-          )}>{s.label}</button>
-        ))}
-      </div>
-
-      <div className="grid md:grid-cols-[260px_1fr] gap-0">
-        <div className="hidden md:grid grid-rows-4 border border-r-0 border-border rounded-l-2xl overflow-hidden">
-          {API_SECTIONS.map((s, i) => (
-            <button key={s.id} onClick={() => setSection(i)} className={cn(
-              "text-left px-5 flex flex-col justify-center transition-colors",
-              i < API_SECTIONS.length - 1 && "border-b border-border",
-              i === section ? "bg-card" : "hover:bg-muted"
-            )}>
-              <div className="flex items-center gap-2.5 mb-1">
-                <span className={cn(i === section ? "text-foreground" : "text-muted-foreground")}>{s.icon}</span>
-                <span className={cn("text-sm font-medium", i === section ? "text-foreground" : "text-muted-foreground")}>{s.label}</span>
-              </div>
-              <p className="text-xs leading-relaxed pl-[30px] text-muted-foreground">{s.desc}</p>
-            </button>
-          ))}
-        </div>
-
-        <div className="border border-border md:rounded-r-2xl rounded-b-2xl md:rounded-bl-none overflow-hidden bg-muted">
-          <div className="flex items-center border-b border-border px-4 py-2.5">
-            <div className="flex items-center gap-1.5">
-              <span className="size-2.5 rounded-full bg-red-500" /><span className="size-2.5 rounded-full bg-yellow-500" /><span className="size-2.5 rounded-full bg-green-500" />
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {API_GROUPS.map((group) => (
+          <div key={group.title} className="rounded-2xl border border-border bg-card overflow-hidden flex flex-col">
+            <div className="p-4 pb-3 flex items-center gap-2.5 border-b border-border">
+              <span className="text-muted-foreground">{group.icon}</span>
+              <h3 className="text-sm font-medium">{group.title}</h3>
+              {"ops" in group && group.ops && <span className="ml-auto text-[10px] text-muted-foreground font-medium">{group.ops.length}</span>}
             </div>
-            <span className="ml-3 text-xs text-muted-foreground font-mono">{active.label.toLowerCase()}.{lang === "rest" ? "http" : lang}</span>
+            {"external" in group ? (
+              <div className="p-4 flex-1 flex flex-col justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Control Claude Code, Codex, OpenCode, and Amp with one unified API. Ships out of the box on every sandbox.
+                  </p>
+                  {"agentFeatures" in group && group.agentFeatures && (
+                    <div className="mt-3 space-y-1">
+                      {group.agentFeatures.map((f: string) => (
+                        <div key={f} className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span className="size-1 rounded-full bg-foreground/30 shrink-0" />
+                          {f}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <a href={group.external} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-foreground hover:underline">
+                  sandboxagent.dev <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" /></svg>
+                </a>
+              </div>
+            ) : (
+              <div className="p-2 flex-1">
+                <div className="space-y-0.5">
+                  {group.ops.map((op) => (
+                    <div key={op.label} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-muted transition-colors">
+                      <MethodBadge method={op.method} />
+                      <span className="text-xs text-muted-foreground">{op.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-          <div className="p-5 font-mono text-xs leading-[1.8] overflow-x-auto h-[340px] overflow-y-auto">
-            {lines.map((line, i) => {
-              if (line === "") return <div key={`${section}-${lang}-${i}`} className="h-2.5" />;
-              if (isComment(line)) return <div key={`${section}-${lang}-${i}`} className="text-muted-foreground">{line}</div>;
-              if (lang === "rest") {
-                const c = line
-                  .replace(/^(GET|POST|PUT|DELETE|PATCH)\b/, '<span class="text-green-600 dark:text-green-400">$1</span>')
-                  .replace(/\$[A-Z_]+/g, '<span class="text-amber-600 dark:text-amber-400">$&</span>')
-                  .replace(/"([^"]*)"/g, '<span class="text-amber-600 dark:text-amber-400">"$1"</span>');
-                return <div key={`${section}-${lang}-${i}`} className="text-foreground" dangerouslySetInnerHTML={{ __html: c }} />;
-              }
-              const c = line
-                .replace(/\b(from|import|for|if|else|print|in|const|let|await|async|new|return|console)\b/g, '<kw>$1</kw>')
-                .replace(/"([^"]*)"/g, '<s>"$1"</s>')
-                .replace(/'([^']*)'/g, "<s>'$1'</s>")
-                .replace(/<kw>/g, '<span class="text-blue-600 dark:text-blue-400">')
-                .replace(/<\/kw>/g, '</span>')
-                .replace(/<s>/g, '<span class="text-amber-600 dark:text-amber-400">')
-                .replace(/<\/s>/g, '</span>');
-              return <div key={`${section}-${lang}-${i}`} className="text-foreground" dangerouslySetInnerHTML={{ __html: c }} />;
-            })}
-          </div>
-        </div>
+        ))}
       </div>
     </div>
   );
