@@ -332,6 +332,36 @@ export const stripeClient = {
     console.log(`[STRIPE] Linked subscription ${subscriptionId} to machine ${machineSlug}`);
   },
 
+  /**
+   * After checkout, set the payment method used as the customer's default.
+   * This ensures future direct subscriptions (without checkout) can charge the card.
+   */
+  async setDefaultPaymentMethodFromCheckout(customerId: string, session: Stripe.Checkout.Session): Promise<void> {
+    try {
+      // Get the subscription created by checkout
+      const subId = typeof session.subscription === 'string'
+        ? session.subscription
+        : (session.subscription as Stripe.Subscription | null)?.id;
+
+      if (!subId) return;
+
+      const subscription = await stripe.subscriptions.retrieve(subId);
+      const paymentMethodId = typeof subscription.default_payment_method === 'string'
+        ? subscription.default_payment_method
+        : subscription.default_payment_method?.id;
+
+      if (!paymentMethodId) return;
+
+      await stripe.customers.update(customerId, {
+        invoice_settings: { default_payment_method: paymentMethodId },
+      });
+
+      console.log(`[STRIPE] Set default payment method ${paymentMethodId} for customer ${customerId}`);
+    } catch (err) {
+      console.warn(`[STRIPE] Failed to set default payment method for ${customerId}:`, err);
+    }
+  },
+
   async linkCustomerToUser(customerId: string, userId: string, email?: string | null): Promise<void> {
     if (!customerId) return;
 
