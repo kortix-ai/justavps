@@ -27,6 +27,7 @@ import {
   CreditCard,
   FileText,
   Code2,
+  Settings,
   ChevronsUpDown,
   LogOut,
   Sun,
@@ -40,6 +41,7 @@ const navigation = [
   { name: "API Reference", href: "/api/docs", icon: Code2 },
   { name: "Docs", href: "/docs", icon: FileText },
   { name: "Billing", href: "/billing", icon: CreditCard },
+  { name: "Settings", href: "/settings", icon: Settings },
 ];
 
 export function AppSidebar() {

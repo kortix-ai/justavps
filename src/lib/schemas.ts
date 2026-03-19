@@ -252,6 +252,19 @@ export const BillingSetupResponseSchema = z.object({
   checkout_url: z.string(),
 });
 
+// ─── Account Limits Schemas ─────────────────────────────────────────────────
+
+export const AccountLimitsResponseSchema = z.object({
+  limits: z.object({
+    max_machines: z.number(),
+    max_images: z.number(),
+  }),
+  usage: z.object({
+    machines: z.number(),
+    images: z.number(),
+  }),
+});
+
 // ─── Internal Schemas ───────────────────────────────────────────────────────
 
 export const HeartbeatSchema = z.object({

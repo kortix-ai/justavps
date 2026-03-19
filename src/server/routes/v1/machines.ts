@@ -3,6 +3,8 @@
  * Uses @hono/zod-openapi: each route declares its schemas inline → spec is auto-generated.
  */
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { eq, and, desc } from 'drizzle-orm';
 import { db } from '../../db';
@@ -128,6 +130,10 @@ const createMachineRoute = createRoute({
     },
     400: {
       description: 'Bad Request',
+      content: { 'application/json': { schema: ErrorResponseSchema } },
+    },
+    403: {
+      description: 'Forbidden',
       content: { 'application/json': { schema: ErrorResponseSchema } },
     },
     404: {
@@ -290,7 +296,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
 
     if (stripeSubId) {
       await stripeClient.linkSubscriptionToMachine(stripeSubId, machine.id, slug)
-        .catch((err) => console.warn(`[MACHINES] Failed to backfill subscription metadata for ${slug}:`, err));
+        .catch((err: unknown) => console.warn(`[MACHINES] Failed to backfill subscription metadata for ${slug}:`, err));
     }
 
     // Link Stripe subscription to this machine
@@ -681,6 +687,7 @@ const createImageFromMachineRoute = createRoute({
       content: { 'application/json': { schema: ImageResponseSchema } },
     },
     400: { description: 'Bad Request', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    403: { description: 'Forbidden', content: { 'application/json': { schema: ErrorResponseSchema } } },
     401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
     404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
   },

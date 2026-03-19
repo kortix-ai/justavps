@@ -6,10 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { useAccountLimits } from "@/hooks/use-account";
 import { useProviders, useRegions, useServerTypes } from "@/hooks/use-server-types";
 import { useCreateMachine } from "@/hooks/use-machines";
 import { useSSHKeys } from "@/hooks/use-ssh-keys";
-import { ArrowLeft, Loader2, Shield, KeyRound, Check } from "lucide-react";
+import { ArrowLeft, Loader2, Shield, KeyRound, Check, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { PlanPicker } from "@/components/plan-picker";
 import { cn } from "@/lib/utils";
@@ -34,10 +35,15 @@ export function ProvisionWizard() {
   const [selectedSSHKeyIds, setSelectedSSHKeyIds] = useState<string[]>([]);
 
   const createMachine = useCreateMachine();
+  const { data: limits } = useAccountLimits();
   const { data: userSSHKeys } = useSSHKeys();
 
   const selectedST = serverTypes?.find((s) => s.name === selectedServerType);
-  const canCreate = selectedProvider && selectedRegion && selectedServerType;
+  const machineUsage = limits?.usage.machines ?? 0;
+  const machineMax = limits?.limits.max_machines;
+  const machineLimitReached = machineMax !== undefined && machineUsage >= machineMax;
+  const machineLimitNear = machineMax !== undefined && machineMax > 0 && machineUsage / machineMax >= 0.8 && !machineLimitReached;
+  const canCreate = Boolean(selectedProvider && selectedRegion && selectedServerType && !machineLimitReached);
 
   const handleCreate = () => {
     if (!canCreate) return;
@@ -185,6 +191,23 @@ export function ProvisionWizard() {
           <div className="flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground/70">
             <Shield className="size-3 text-green-600 dark:text-green-400" />
             <span>Daily backups included &middot; Running in 60s &middot; Cancel anytime</span>
+          </div>
+        </div>
+      )}
+
+      {(machineLimitReached || machineLimitNear) && (
+        <div className={`mt-6 flex items-start gap-3 rounded-xl border p-4 ${machineLimitReached ? "border-destructive/20 bg-destructive/5" : "border-amber-500/20 bg-amber-500/10"}`}>
+          <AlertTriangle className={`mt-0.5 size-5 shrink-0 ${machineLimitReached ? "text-destructive" : "text-amber-500"}`} />
+          <div className="space-y-1">
+            <p className="text-sm font-medium">
+              {machineLimitReached ? "Machine limit reached" : "Approaching machine limit"}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              You are using {machineUsage} of {machineMax} machines.
+              {machineLimitReached
+                ? " Delete an existing machine or contact support to increase your limit."
+                : " You can still deploy, but you are close to your cap."}
+            </p>
           </div>
         </div>
       )}

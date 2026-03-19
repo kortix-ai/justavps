@@ -27,6 +27,7 @@ import {
   autoGenerateAndSaveSSHKey,
   resolveSSHKeyPublicKeys,
 } from '../../lib/machine-lifecycle';
+import { checkMachineLimit } from '../../lib/account-limits';
 
 export const stripeWebhooksApp = new OpenAPIHono();
 
@@ -104,6 +105,15 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const subscriptionId = typeof session.subscription === 'string'
     ? session.subscription
     : (session.subscription as Stripe.Subscription | null)?.id || '';
+
+  const machineLimit = await checkMachineLimit(userId);
+  if (!machineLimit.allowed) {
+    console.warn(`[STRIPE WEBHOOK] Machine limit reached for user ${userId} (${machineLimit.current}/${machineLimit.max}) — cancelling subscription ${subscriptionId || 'unknown'}`);
+    if (subscriptionId) {
+      await stripeClient.cancelMachineSubscription(subscriptionId);
+    }
+    return;
+  }
 
   try {
     const provider = getProvider(machineConfig.provider);

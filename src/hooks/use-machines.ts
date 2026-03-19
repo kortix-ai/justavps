@@ -68,6 +68,7 @@ export function useCreateMachine() {
       if (result.kind === "machine") {
         qc.setQueryData(machineKeys.detail(result.machine.id), result.machine);
         qc.invalidateQueries({ queryKey: machineKeys.all });
+        qc.invalidateQueries({ queryKey: ["account", "limits"] });
       }
     },
   });
@@ -90,6 +91,7 @@ export function useDeleteMachine() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: machineKeys.all });
+      qc.invalidateQueries({ queryKey: ["account", "limits"] });
     },
   });
 }

@@ -6,8 +6,14 @@ import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 import { stripeClient } from '../../lib/stripe';
 import { config } from '../../lib/config';
 import {
+  getAccountLimits,
+  countActiveMachines,
+  countActiveImages,
+} from '../../lib/account-limits';
+import {
   AccountResponseSchema,
   AccountUsageResponseSchema,
+  AccountLimitsResponseSchema,
   BillingResponseSchema,
   BillingSetupResponseSchema,
   ErrorResponseSchema,
@@ -224,5 +230,50 @@ accountApp.openapi(createBillingSetupRoute, async (c) => {
   } catch (err) {
     console.error('[BILLING] setup checkout error:', err);
     return c.json({ error: true, message: 'Failed to create setup session', status: 500 }, 500);
+  }
+});
+
+// ─── GET /limits — Get Account Limits ───────────────────────────────────────
+
+const getAccountLimitsRoute = createRoute({
+  method: 'get',
+  path: '/limits',
+  tags: ['Account'],
+  security: bearerSecurity,
+  summary: 'Get account limits',
+  description: 'Returns the resource limits and current usage for the authenticated user.',
+  responses: {
+    200: {
+      description: 'Account limits and usage',
+      content: { 'application/json': { schema: AccountLimitsResponseSchema } },
+    },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+// @ts-expect-error — handler returns multiple shapes (error + success); spec types are correctly declared above
+accountApp.openapi(getAccountLimitsRoute, async (c) => {
+  const userId = c.get('userId');
+
+  try {
+    const [limits, machineCount, imageCount] = await Promise.all([
+      getAccountLimits(userId),
+      countActiveMachines(userId),
+      countActiveImages(userId),
+    ]);
+
+    return c.json({
+      limits: {
+        max_machines: limits.maxMachines,
+        max_images: limits.maxImages,
+      },
+      usage: {
+        machines: machineCount,
+        images: imageCount,
+      },
+    });
+  } catch (err) {
+    console.error('[ACCOUNT] Error fetching limits:', err);
+    return c.json({ error: true, message: 'Failed to fetch account limits', status: 500 }, 500);
   }
 });

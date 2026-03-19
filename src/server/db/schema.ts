@@ -169,6 +169,21 @@ export const webhooks = pgTable('webhooks', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// ─── Account Limits ────────────────────────────────────────────────────────
+
+/**
+ * Per-user resource limits. One row per user (upserted on first access).
+ * NULL = unlimited (no cap). Default limits are applied at the application layer
+ * when no row exists for a user.
+ */
+export const accountLimits = pgTable('account_limits', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id).notNull().unique(),
+  maxMachines: integer('max_machines').default(5).notNull(),
+  maxImages: integer('max_images').default(10).notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // ─── Type Exports ───────────────────────────────────────────────────────────
 
 export type User = typeof users.$inferSelect;
@@ -181,3 +196,5 @@ export type SSHKey = typeof sshKeys.$inferSelect;
 export type ApiKey = typeof apiKeys.$inferSelect;
 export type MachineEventRow = typeof machineEvents.$inferSelect;
 export type WebhookRow = typeof webhooks.$inferSelect;
+export type AccountLimitRow = typeof accountLimits.$inferSelect;
+export type NewAccountLimit = typeof accountLimits.$inferInsert;

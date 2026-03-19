@@ -1,10 +1,11 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { api } from "./api-client";
-import type { AccountUsage, BillingPortal, BillingSetup } from "@/lib/types";
+import type { AccountUsage, AccountLimits, BillingPortal, BillingSetup } from "@/lib/types";
 
 export const accountKeys = {
   usage: ["account", "usage"] as const,
   billing: ["account", "billing"] as const,
+  limits: ["account", "limits"] as const,
 };
 
 export function useUsage() {
@@ -18,6 +19,13 @@ export function useBillingPortal() {
   return useQuery({
     queryKey: accountKeys.billing,
     queryFn: () => api.get<BillingPortal>("/account/billing"),
+  });
+}
+
+export function useAccountLimits() {
+  return useQuery({
+    queryKey: accountKeys.limits,
+    queryFn: () => api.get<AccountLimits>("/account/limits"),
   });
 }
 

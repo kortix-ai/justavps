@@ -22,11 +22,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { useAccountLimits } from "@/hooks/use-account";
 import { useImages, useCreateImage, useDeleteImage } from "@/hooks/use-images";
 import { useMachines } from "@/hooks/use-machines";
 import { useConfirm } from "@/hooks/use-confirm";
 import type { Image } from "@/lib/types";
-import { HardDrive, Trash2, Container, Loader2, Plus } from "lucide-react";
+import { HardDrive, Trash2, Container, Loader2, Plus, AlertTriangle } from "lucide-react";
 
 const statusConfig: Record<string, { label: string; dotClass: string }> = {
   creating: { label: "Creating", dotClass: "bg-yellow-500 animate-pulse" },
@@ -37,6 +38,7 @@ const statusConfig: Record<string, { label: string; dotClass: string }> = {
 export default function ImagesPage() {
   const { data: images, isLoading, error } = useImages();
   const { data: machines } = useMachines();
+  const { data: limits } = useAccountLimits();
   const createImage = useCreateImage();
   const deleteImage = useDeleteImage();
   const [confirm, ConfirmDialog] = useConfirm();
@@ -45,6 +47,10 @@ export default function ImagesPage() {
   const [selectedMachineId, setSelectedMachineId] = useState("");
 
   const readyMachines = machines?.filter((m) => m.status === "ready") ?? [];
+  const imageUsage = limits?.usage.images ?? 0;
+  const imageMax = limits?.limits.max_images;
+  const imageLimitReached = imageMax !== undefined && imageUsage >= imageMax;
+  const imageLimitNear = imageMax !== undefined && imageMax > 0 && imageUsage / imageMax >= 0.8 && !imageLimitReached;
 
   const handleCreate = () => {
     if (!imageName.trim() || !selectedMachineId) return;
@@ -81,11 +87,28 @@ export default function ImagesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="font-heading text-3xl tracking-tight">Images</h1>
-        <Button onClick={() => setCreateOpen(true)} disabled={readyMachines.length === 0}>
+        <Button onClick={() => setCreateOpen(true)} disabled={readyMachines.length === 0 || imageLimitReached}>
           <Plus className="size-4 mr-2" />
           Create Image
         </Button>
       </div>
+
+      {(imageLimitReached || imageLimitNear) && (
+        <div className={`flex items-start gap-3 rounded-xl border p-4 ${imageLimitReached ? "border-destructive/20 bg-destructive/5" : "border-amber-500/20 bg-amber-500/10"}`}>
+          <AlertTriangle className={`mt-0.5 size-5 shrink-0 ${imageLimitReached ? "text-destructive" : "text-amber-500"}`} />
+          <div className="space-y-1">
+            <p className="text-sm font-medium">
+              {imageLimitReached ? "Image limit reached" : "Approaching image limit"}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              You are using {imageUsage} of {imageMax} images.
+              {imageLimitReached
+                ? " Delete an image to create another one."
+                : " You can still capture more images, but you are close to your cap."}
+            </p>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="text-center py-12">
@@ -113,7 +136,7 @@ export default function ImagesPage() {
           <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
             Capture an image from a running machine to save its state and spin up identical machines later.
           </p>
-          {readyMachines.length > 0 && (
+          {readyMachines.length > 0 && !imageLimitReached && (
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="size-4 mr-2" />
               Create Your First Image
@@ -170,7 +193,7 @@ export default function ImagesPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={createImage.isPending || !imageName.trim() || !selectedMachineId}>
+            <Button onClick={handleCreate} disabled={createImage.isPending || !imageName.trim() || !selectedMachineId || imageLimitReached}>
               {createImage.isPending ? <><Loader2 className="size-4 animate-spin mr-2" />Creating...</> : "Create Image"}
             </Button>
           </DialogFooter>

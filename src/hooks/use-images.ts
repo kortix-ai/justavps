@@ -31,6 +31,7 @@ export function useCreateImage() {
       qc.setQueryData<Image[]>(imageKeys.all, (old) =>
         old ? [image, ...old] : [image],
       );
+      qc.invalidateQueries({ queryKey: ["account", "limits"] });
     },
   });
 }
@@ -52,6 +53,7 @@ export function useDeleteImage() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: imageKeys.all });
+      qc.invalidateQueries({ queryKey: ["account", "limits"] });
     },
   });
 }
