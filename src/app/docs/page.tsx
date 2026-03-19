@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import {
-  Book, Server, Globe, Code2, CreditCard, HardDrive, Search,
+  Book, Server, Globe, Code2, CreditCard, HardDrive, Search, Package,
   ChevronRight, Copy, Check, ArrowRight, Shield, Zap, Menu, X,
 } from "lucide-react";
 
@@ -48,8 +48,15 @@ const sections: DocSection[] = [
     id: "api-reference",
     title: "REST API",
     icon: Code2,
+    subsections: [],
+  },
+  {
+    id: "sdks",
+    title: "SDKs",
+    icon: Package,
     subsections: [
-      { id: "sdks", title: "SDKs" },
+      { id: "sdk-typescript", title: "TypeScript" },
+      { id: "sdk-python", title: "Python" },
     ],
   },
   {
@@ -307,24 +314,48 @@ export default function DocsPage() {
             Open API Reference →
           </Link>
         </div>
-        <H3 id="sdks">SDKs</H3>
-        <P>Official TypeScript and Python SDKs:</P>
-        <CodeBlock title="TypeScript">{`npm install @justavps/sdk`}</CodeBlock>
-        <CodeBlock title="Python">{`pip install justavps`}</CodeBlock>
-        <CodeBlock title="TypeScript example">{`import { JustAVPS } from "@justavps/sdk";
+
+        <DocSeparator />
+
+        {/* ── SDKs ── */}
+        <H2 id="sdks">SDKs</H2>
+        <P>Official TypeScript and Python SDKs for the JustAVPS API.</P>
+
+        <H3 id="sdk-typescript">TypeScript</H3>
+        <CodeBlock title="Install">{`npm install @justavps/sdk`}</CodeBlock>
+        <CodeBlock title="Usage">{`import { JustAVPS } from "@justavps/sdk";
 
 const client = new JustAVPS("sk_live_xxx");
+
+// Create a machine
 const machine = await client.machines.create({
   server_type: "cpx32",
   region: "hel1",
-});`}</CodeBlock>
-        <CodeBlock title="Python example">{`from justavps import JustAVPS
+});
+
+// List all machines
+const machines = await client.machines.list();
+
+// Delete a machine
+await client.machines.delete(machine.id);`}</CodeBlock>
+
+        <H3 id="sdk-python">Python</H3>
+        <CodeBlock title="Install">{`pip install justavps`}</CodeBlock>
+        <CodeBlock title="Usage">{`from justavps import JustAVPS
 
 client = JustAVPS("sk_live_xxx")
+
+# Create a machine
 machine = client.machines.create(
     server_type="cpx32",
     region="hel1",
-)`}</CodeBlock>
+)
+
+# List all machines
+machines = client.machines.list()
+
+# Delete a machine
+client.machines.delete(machine.id)`}</CodeBlock>
 
         <DocSeparator />
 
