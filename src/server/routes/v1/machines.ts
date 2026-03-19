@@ -188,10 +188,8 @@ machinesApp.openapi(createMachineRoute, async (c) => {
     }
   }
 
-  // 3. Price + specs lookup
   const { priceMonthly, specs } = await lookupPriceAndSpecs(provider, data.region, data.server_type);
 
-  // 4. Payment gate — STRICT. No payment = no machine.
   let stripeSubId: string | null = null;
   let stripeSubItemId: string | null = null;
 
@@ -204,11 +202,8 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, ownerId));
     }
 
-    const hasPM = await stripeClient.hasPaymentMethod(customerId);
-
-    if (!hasPM) {
-      // No payment method → redirect to Stripe Checkout
-      const { url: checkoutUrl } = await stripeClient.createCheckoutSession({
+    const createCheckout = async () => {
+      const { url } = await stripeClient.createCheckoutSession({
         customerId,
         userId: ownerId,
         machineConfig: {
@@ -227,65 +222,44 @@ machinesApp.openapi(createMachineRoute, async (c) => {
         successUrl: `${config.APP_URL}/machines`,
         cancelUrl: `${config.APP_URL}/machines`,
       });
+      return url;
+    };
 
-      console.log(`[MACHINES] User ${ownerId} has no payment method — redirecting to Stripe Checkout`);
+    // Fast path: try direct subscription if user has a payment method
+    const hasPM = await stripeClient.hasPaymentMethod(customerId);
 
-      return c.json({
-        requires_checkout: true as const,
-        checkout_url: checkoutUrl,
-        message: 'Payment method required. Complete checkout to provision your machine.',
-      }, 402);
+    if (hasPM) {
+      try {
+        const result = await stripeClient.createMachineSubscription(
+          customerId,
+          '',
+          `pending-${Date.now()}`,
+          priceMonthly,
+          data.server_type,
+          specs,
+        );
+        stripeSubId = result.subscriptionId;
+        stripeSubItemId = `${result.subscriptionId}|${result.subscriptionItemId}`;
+        console.log(`[MACHINES] Subscription ${result.subscriptionId} created and charged for user ${ownerId}`);
+      } catch (err) {
+        console.warn(`[MACHINES] Direct subscription failed for user ${ownerId}, falling back to checkout:`, (err as Error).message);
+        // Fall through to checkout below
+      }
     }
 
-    // Has payment method → create subscription SYNCHRONOUSLY before provisioning.
-    // If this fails, the machine is NOT created. No free rides.
-    try {
-      const result = await stripeClient.createMachineSubscription(
-        customerId,
-        '', // machineId not known yet — will update after insert
-        `pending-${Date.now()}`,
-        priceMonthly,
-        data.server_type,
-        specs,
-      );
-      stripeSubId = result.subscriptionId;
-      stripeSubItemId = `${result.subscriptionId}|${result.subscriptionItemId}`;
-      console.log(`[MACHINES] Subscription ${result.subscriptionId} created and charged for user ${ownerId}`);
-    } catch (err) {
-      console.error(`[MACHINES] Subscription creation failed for user ${ownerId}:`, err);
-      // Payment method exists but subscription failed — redirect to fresh checkout
+    // If direct subscription didn't work (no PM or charge failed), use Checkout
+    if (!stripeSubId) {
       try {
-        const { url: checkoutUrl } = await stripeClient.createCheckoutSession({
-          customerId,
-          userId: ownerId,
-          machineConfig: {
-            provider: data.provider,
-            server_type: data.server_type,
-            region: data.region,
-            name: data.name,
-            image_id: data.image_id ?? null,
-            docker_image: data.docker_image,
-            entrypoint: data.entrypoint,
-            env_vars: data.env_vars,
-            ssh_key_ids: data.ssh_key_ids,
-            specs,
-          },
-          priceMonthlyUsd: priceMonthly,
-          successUrl: `${config.APP_URL}/machines`,
-          cancelUrl: `${config.APP_URL}/machines`,
-        });
+        const checkoutUrl = await createCheckout();
+        console.log(`[MACHINES] User ${ownerId} redirected to Stripe Checkout`);
         return c.json({
           requires_checkout: true as const,
           checkout_url: checkoutUrl,
-          message: 'Payment failed. Redirecting to checkout.',
+          message: 'Payment required. Complete checkout to provision your machine.',
         }, 402);
       } catch (checkoutErr) {
-        console.error(`[MACHINES] Fallback checkout also failed for user ${ownerId}:`, checkoutErr);
-        return c.json({
-          requires_checkout: true as const,
-          checkout_url: `${config.APP_URL}/billing`,
-          message: 'Payment failed. Please update your payment method and try again.',
-        }, 402);
+        console.error(`[MACHINES] Checkout creation failed for user ${ownerId}:`, checkoutErr);
+        return errorResponse(c, 500, 'Failed to initiate payment. Please try again.') as any;
       }
     }
   }

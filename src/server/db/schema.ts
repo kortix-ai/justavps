@@ -169,6 +169,19 @@ export const webhooks = pgTable('webhooks', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// ─── Processed Stripe Events (webhook idempotency) ────────────────────────
+
+/**
+ * Tracks processed Stripe webhook event IDs to prevent duplicate processing.
+ * Unique constraint on eventId ensures at-most-once delivery per event.
+ */
+export const stripeEvents = pgTable('stripe_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  eventId: text('event_id').unique().notNull(),
+  eventType: text('event_type').notNull(),
+  processedAt: timestamp('processed_at').defaultNow().notNull(),
+});
+
 // ─── Account Limits ────────────────────────────────────────────────────────
 
 /**
