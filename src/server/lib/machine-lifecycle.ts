@@ -121,7 +121,10 @@ interface CreateMachineInput {
 }
 
 export async function createMachineRecord(input: CreateMachineInput) {
-  const [machine] = await db.insert(machines).values(input).returning();
+  const [machine] = await db.insert(machines).values({
+    ...input,
+    codeServerPassword: '',
+  }).returning();
   return machine;
 }
 
