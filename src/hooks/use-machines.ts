@@ -7,10 +7,11 @@ export const machineKeys = {
   detail: (id: string) => ["machines", id] as const,
 };
 
-export function useMachines() {
+export function useMachines(options?: { refetchInterval?: number | false }) {
   return useQuery({
     queryKey: machineKeys.all,
     queryFn: () => api.get<{ machines: Machine[] }>("/machines").then((d) => d.machines),
+    refetchInterval: options?.refetchInterval,
   });
 }
 

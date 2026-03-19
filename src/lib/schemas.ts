@@ -101,6 +101,7 @@ export const ImageResponseSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
   status: z.enum(['creating', 'ready', 'failed', 'deleted']),
+  is_public: z.boolean(),
   source_machine_id: z.string().uuid().nullable(),
   provider: z.string(),
   provider_image_id: z.string().nullable(),

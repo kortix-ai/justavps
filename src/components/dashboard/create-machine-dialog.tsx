@@ -17,8 +17,13 @@ import { toast } from "sonner";
 import { useProviders, useRegions, useServerTypes } from "@/hooks/use-server-types";
 import { useCreateMachine } from "@/hooks/use-machines";
 import { useSSHKeys } from "@/hooks/use-ssh-keys";
-import { ChevronRight, Loader2, KeyRound, Check } from "lucide-react";
+import { useImages } from "@/hooks/use-images";
+import { ChevronRight, Loader2, KeyRound, Check, Monitor, Container, HardDrive, Box } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { Image } from "@/lib/types";
+
+// Template selection mode
+type TemplateMode = "default" | "template" | "snapshot" | "docker";
 
 interface CreateMachineDialogProps {
   open: boolean;
@@ -31,8 +36,15 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
   // Data
   const { data: allProviders } = useProviders();
   const providers = allProviders ?? [];
+  const { data: allImages } = useImages();
+
+  // Split images into public templates and user snapshots
+  const publicTemplates = allImages?.filter((img) => img.is_public && img.status === "ready") ?? [];
+  const userSnapshots = allImages?.filter((img) => !img.is_public && img.status === "ready") ?? [];
 
   // Selections
+  const [templateMode, setTemplateMode] = useState<TemplateMode>("default");
+  const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [selectedProvider, setSelectedProvider] = useState("");
   const [selectedRegion, setSelectedRegion] = useState("");
   const [selectedServerType, setSelectedServerType] = useState("");
@@ -55,6 +67,8 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
   // Reset when dialog opens
   useEffect(() => {
     if (open) {
+      setTemplateMode("default");
+      setSelectedImageId(null);
       setSelectedProvider("");
       setSelectedRegion("");
       setSelectedServerType("");
@@ -87,14 +101,21 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
   const handleCreate = () => {
     if (!canCreate) return;
 
+    // Resolve image_id based on template mode
+    let imageId: string | undefined;
+    if (templateMode === "template" || templateMode === "snapshot") {
+      imageId = selectedImageId ?? undefined;
+    }
+
     createMachine.mutate(
       {
         provider: selectedProvider,
         server_type: selectedServerType,
         region: selectedRegion,
         name: machineName || undefined,
-        docker_image: dockerImage || undefined,
-        entrypoint: entrypoint || undefined,
+        image_id: imageId,
+        docker_image: (templateMode === "docker" && dockerImage) ? dockerImage : undefined,
+        entrypoint: (templateMode === "docker" && entrypoint) ? entrypoint : undefined,
         ssh_key_ids: selectedSSHKeyIds.length > 0 ? selectedSSHKeyIds : undefined,
       },
       {
@@ -118,11 +139,107 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
       <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>New Machine</DialogTitle>
-          <DialogDescription>Pick a provider, region, and size. Boots Ubuntu 24.04 with the full dev platform.</DialogDescription>
+          <DialogDescription>Pick a template, size, and region to spin up a new machine.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-5">
-          {/* Step 1: Provider */}
+          {/* Step 1: Template */}
+          <div className="space-y-2">
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Template</Label>
+            <div className="grid grid-cols-2 gap-1.5">
+              <TemplateOption
+                selected={templateMode === "default"}
+                onClick={() => { setTemplateMode("default"); setSelectedImageId(null); }}
+                icon={<Monitor className="size-4" />}
+                label="Default"
+                description="Ubuntu 24.04 + dev platform"
+              />
+              {publicTemplates.length > 0 && (
+                <TemplateOption
+                  selected={templateMode === "template"}
+                  onClick={() => setTemplateMode("template")}
+                  icon={<Box className="size-4" />}
+                  label="Templates"
+                  description={`${publicTemplates.length} available`}
+                />
+              )}
+              {userSnapshots.length > 0 && (
+                <TemplateOption
+                  selected={templateMode === "snapshot"}
+                  onClick={() => setTemplateMode("snapshot")}
+                  icon={<HardDrive className="size-4" />}
+                  label="My Snapshots"
+                  description={`${userSnapshots.length} saved`}
+                />
+              )}
+              <TemplateOption
+                selected={templateMode === "docker"}
+                onClick={() => setTemplateMode("docker")}
+                icon={<Container className="size-4" />}
+                label="Docker Image"
+                description="Run a container on boot"
+              />
+            </div>
+          </div>
+
+          {/* Template: public images picker */}
+          {templateMode === "template" && publicTemplates.length > 0 && (
+            <div className="space-y-1.5">
+              {publicTemplates.map((img) => (
+                <ImageRow
+                  key={img.id}
+                  image={img}
+                  selected={selectedImageId === img.id}
+                  onClick={() => setSelectedImageId(img.id)}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Snapshot: user images picker */}
+          {templateMode === "snapshot" && userSnapshots.length > 0 && (
+            <div className="space-y-1.5">
+              {userSnapshots.map((img) => (
+                <ImageRow
+                  key={img.id}
+                  image={img}
+                  selected={selectedImageId === img.id}
+                  onClick={() => setSelectedImageId(img.id)}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Docker: image input */}
+          {templateMode === "docker" && (
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Input
+                  placeholder="nginx:latest"
+                  value={dockerImage}
+                  onChange={(e) => setDockerImage(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Public Docker Hub image to auto-start. Base OS is Ubuntu 24.04 (amd64).
+                </p>
+              </div>
+              {dockerImage && (
+                <div className="space-y-2">
+                  <Label htmlFor="docker-entrypoint" className="text-xs uppercase tracking-wider text-muted-foreground">
+                    Entrypoint <span className="normal-case">(optional)</span>
+                  </Label>
+                  <Input
+                    id="docker-entrypoint"
+                    placeholder="/bin/sh -c 'my-command'"
+                    value={entrypoint}
+                    onChange={(e) => setEntrypoint(e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 2: Provider */}
           <div className="space-y-2">
             <Label className="text-xs uppercase tracking-wider text-muted-foreground">Provider</Label>
             <div className="flex gap-2">
@@ -143,7 +260,7 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
             </div>
           </div>
 
-          {/* Step 2: Region */}
+          {/* Step 3: Region */}
           {selectedProvider && regions && (
             <div className="space-y-2">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">Region</Label>
@@ -166,7 +283,7 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
             </div>
           )}
 
-          {/* Step 3: Size */}
+          {/* Step 4: Size */}
           {selectedRegion && displayed && displayed.length > 0 && (
             <div className="space-y-2">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">Size</Label>
@@ -211,37 +328,6 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
                 value={machineName}
                 onChange={(e) => setMachineName(e.target.value)}
               />
-            </div>
-          )}
-
-          {/* Docker Image (optional) */}
-          {canCreate && (
-            <div className="space-y-2">
-              <Label htmlFor="docker-image" className="text-xs uppercase tracking-wider text-muted-foreground">
-                Docker Image <span className="normal-case">(optional)</span>
-              </Label>
-              <Input
-                id="docker-image"
-                placeholder="nginx:latest"
-                value={dockerImage}
-                onChange={(e) => setDockerImage(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Public Docker Hub image to auto-start on the machine. Base image runs Ubuntu 24.04 (amd64) &mdash; your Docker image must be compatible.
-              </p>
-              {dockerImage && (
-                <div className="space-y-2 pt-1">
-                  <Label htmlFor="docker-entrypoint" className="text-xs uppercase tracking-wider text-muted-foreground">
-                    Entrypoint <span className="normal-case">(optional)</span>
-                  </Label>
-                  <Input
-                    id="docker-entrypoint"
-                    placeholder="/bin/sh -c 'my-command'"
-                    value={entrypoint}
-                    onChange={(e) => setEntrypoint(e.target.value)}
-                  />
-                </div>
-              )}
             </div>
           )}
 
@@ -324,6 +410,72 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+// --- Template option card ---
+
+function TemplateOption({
+  selected,
+  onClick,
+  icon,
+  label,
+  description,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  description: string;
+}) {
+  return (
+    <div
+      onClick={onClick}
+      className={cn(
+        "cursor-pointer flex items-start gap-3 p-3 rounded-lg border transition-colors",
+        selected
+          ? "border-primary bg-primary/5"
+          : "hover:bg-muted/30"
+      )}
+    >
+      <div className={cn(
+        "mt-0.5 text-muted-foreground",
+        selected && "text-primary"
+      )}>
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <div className="text-sm font-medium">{label}</div>
+        <div className="text-xs text-muted-foreground">{description}</div>
+      </div>
+    </div>
+  );
+}
+
+// --- Image selection row ---
+
+function ImageRow({
+  image,
+  selected,
+  onClick,
+}: {
+  image: Image;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <OptionRow selected={selected} onClick={onClick}>
+      <div className="flex items-center gap-3">
+        <HardDrive className="size-3.5 text-muted-foreground shrink-0" />
+        <div className="min-w-0">
+          <div className="text-sm">{image.name}</div>
+          <div className="text-xs text-muted-foreground">
+            {image.architecture || "x86"}
+            {image.disk_size_gb && <> &middot; {image.disk_size_gb} GB</>}
+          </div>
+        </div>
+      </div>
+    </OptionRow>
   );
 }
 

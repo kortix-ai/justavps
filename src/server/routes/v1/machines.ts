@@ -253,11 +253,40 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       console.log(`[MACHINES] Subscription ${result.subscriptionId} created and charged for user ${ownerId}`);
     } catch (err) {
       console.error(`[MACHINES] Subscription creation failed for user ${ownerId}:`, err);
-      return c.json({
-        requires_checkout: true as const,
-        checkout_url: `${config.APP_URL}/billing`,
-        message: 'Payment failed. Please update your payment method and try again.',
-      }, 402);
+      // Payment method exists but subscription failed — redirect to fresh checkout
+      try {
+        const { url: checkoutUrl } = await stripeClient.createCheckoutSession({
+          customerId,
+          userId: ownerId,
+          machineConfig: {
+            provider: data.provider,
+            server_type: data.server_type,
+            region: data.region,
+            name: data.name,
+            image_id: data.image_id ?? null,
+            docker_image: data.docker_image,
+            entrypoint: data.entrypoint,
+            env_vars: data.env_vars,
+            ssh_key_ids: data.ssh_key_ids,
+            specs,
+          },
+          priceMonthlyUsd: priceMonthly,
+          successUrl: `${config.APP_URL}/machines`,
+          cancelUrl: `${config.APP_URL}/machines`,
+        });
+        return c.json({
+          requires_checkout: true as const,
+          checkout_url: checkoutUrl,
+          message: 'Payment failed. Redirecting to checkout.',
+        }, 402);
+      } catch (checkoutErr) {
+        console.error(`[MACHINES] Fallback checkout also failed for user ${ownerId}:`, checkoutErr);
+        return c.json({
+          requires_checkout: true as const,
+          checkout_url: `${config.APP_URL}/billing`,
+          message: 'Payment failed. Please update your payment method and try again.',
+        }, 402);
+      }
     }
   }
 
