@@ -22,7 +22,6 @@ export const config = {
   // Stripe
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY || '',
   STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET || '',
-  STRIPE_COMPUTE_PRODUCT_ID: process.env.STRIPE_COMPUTE_PRODUCT_ID || '',
 
   // Email (Mailtrap)
   MAILTRAP_API_TOKEN: (process.env.MAILTRAP_API_TOKEN || process.env.MAILTRAP_API_KEY || '').trim(),
