@@ -44,7 +44,16 @@ export const config = {
   AUTH_SECRET: (process.env.AUTH_SECRET || '').trim(),
   PROXY_AUTH_SECRET: (process.env.PROXY_AUTH_SECRET || process.env.AUTH_SECRET || '').trim(),
 
+  // Kortix OAuth
+  KORTIX_OAUTH_CLIENT_ID: (process.env.KORTIX_OAUTH_CLIENT_ID || '').trim(),
+  KORTIX_OAUTH_CLIENT_SECRET: (process.env.KORTIX_OAUTH_CLIENT_SECRET || '').trim(),
+  KORTIX_OAUTH_BASE_URL: (process.env.KORTIX_OAUTH_BASE_URL || 'https://api.computer.kortix.com/v1/oauth').trim(),
+  KORTIX_FRONTEND_URL: (process.env.KORTIX_FRONTEND_URL || 'https://computer.kortix.com').trim(),
+
   // Helpers
+  isKortixConfigured(): boolean {
+    return !!this.KORTIX_OAUTH_CLIENT_ID && !!this.KORTIX_OAUTH_CLIENT_SECRET;
+  },
   isHetznerConfigured(): boolean {
     return !!this.HETZNER_API_KEY;
   },

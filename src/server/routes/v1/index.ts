@@ -15,6 +15,7 @@ import { sseApp } from './sse';
 import { webhooksApp } from './webhooks';
 import { stripeWebhooksApp } from './stripe-webhooks';
 import { toolboxApp } from './toolbox';
+import { importKortixApp } from './import-kortix';
 
 export const v1 = new OpenAPIHono();
 
@@ -29,3 +30,4 @@ v1.route('/machines', sseApp); // SSE status stream mounted under /machines/:id/
 v1.route('/machines', toolboxApp); // Toolbox FS + Process API under /machines/:id/toolbox/*
 v1.route('/webhooks', webhooksApp);
 v1.route('/stripe/webhooks', stripeWebhooksApp);
+v1.route('/', importKortixApp);

@@ -232,6 +232,13 @@ export async function cleanupMachineResources(
   machine: typeof machines.$inferSelect,
   provider: ComputeProvider,
 ) {
+  if (machine.source === 'kortix') {
+    await db.update(machines)
+      .set({ status: 'deleted', deletedAt: new Date() })
+      .where(eq(machines.id, machine.id));
+    return;
+  }
+
   if (machine.providerServerId) {
     await provider.deleteServer(machine.providerServerId);
   }
