@@ -1,8 +1,8 @@
 /**
  * Cloud-init generator for machine boot.
  *
- * Runs on boot from a pre-built base image. ONLY does machine-specific config.
- * All software is pre-installed in the base image.
+ * Runs on boot from a pre-built base image. Does machine-specific config
+ * and ensures critical services are installed.
  *
  * The justavps-daemon is the ONLY service that needs to run on :80.
  * It handles reverse proxying, PTY terminal, port forwarding, health — everything.
@@ -13,8 +13,9 @@
  *   2. Platform config (slug, token, callback URL)
  *   3. Environment variables
  *   4. Update daemon binary to latest
- *   5. Start daemon + upstream services
- *   6. Docker workload (if configured)
+ *   5. Install sandbox-agent if missing (coding agent API)
+ *   6. Start daemon + upstream services
+ *   7. Docker workload (if configured)
  *
  * Security model (direct IP proxy — no tunnels):
  *   - CF Worker authenticates all requests at edge
@@ -181,6 +182,33 @@ chmod +x /usr/local/bin/justavps-daemon 2>/dev/null || true
 
 # ── Disable Caddy (daemon handles :80 now) ────────────────────────────────
 systemctl disable --now caddy 2>/dev/null || true
+
+# ── Install sandbox-agent (universal coding agent API by Rivet) ───────────
+if ! command -v sandbox-agent &>/dev/null; then
+  echo "[justavps] Installing sandbox-agent..."
+  curl -fsSL https://releases.rivet.dev/sandbox-agent/0.3.x/install.sh | sh || echo "[justavps] WARNING: sandbox-agent install failed"
+  sandbox-agent install-agent --all 2>/dev/null || true
+fi
+
+# ── Systemd service: Sandbox Agent ────────────────────────────────────────
+if [ ! -f /etc/systemd/system/sandbox-agent.service ]; then
+  cat > /etc/systemd/system/sandbox-agent.service << 'SAEOF'
+[Unit]
+Description=Sandbox Agent (coding agent API)
+After=network.target
+
+[Service]
+Type=simple
+User=user
+ExecStart=/usr/local/bin/sandbox-agent server --no-token --host 0.0.0.0 --port 2468
+Restart=always
+RestartSec=3
+Environment=HOME=/home/user
+
+[Install]
+WantedBy=multi-user.target
+SAEOF
+fi
 
 ${stageCallback('cloud_init_done', 'Starting services')}
 

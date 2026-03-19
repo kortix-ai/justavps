@@ -29,14 +29,20 @@ describe('cloud-init', () => {
       expect(script).not.toMatch(/^set -e$/m);
     });
 
-    it('should NOT contain any install logic (belongs in base image)', () => {
+    it('should NOT contain OS-level install logic (belongs in base image)', () => {
       const script = buildCloudInit(defaultOpts);
       expect(script).not.toContain('apt-get install');
       expect(script).not.toContain('apt-get update');
       expect(script).not.toContain('gpg --dearmor');
-      expect(script).not.toContain('https://claude.ai/install.sh');
-      expect(script).not.toContain('https://opencode.ai/install');
       expect(script).not.toContain('deb.nodesource.com');
+    });
+
+    it('should install sandbox-agent if not present', () => {
+      const script = buildCloudInit(defaultOpts);
+      expect(script).toContain('https://releases.rivet.dev/sandbox-agent/0.3.x/install.sh');
+      expect(script).toContain('sandbox-agent install-agent --all');
+      expect(script).toContain('sandbox-agent.service');
+      expect(script).toContain('sandbox-agent server --no-token --host 0.0.0.0 --port 2468');
     });
 
     it('should NOT use Caddy (daemon handles :80 now)', () => {
