@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import Link from "next/link";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MachineCard } from "@/components/dashboard/machine-card";
 import { ImportKortixModal } from "@/components/dashboard/import-kortix-modal";
@@ -23,12 +22,14 @@ import {
   Search,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { CheckoutModal } from "@/components/checkout-modal";
 
 export default function MachinesPage() {
   const searchParams = useSearchParams();
   const isPostCheckout = searchParams.get("checkout") === "success";
   const isKortixImport = searchParams.get("import") === "kortix";
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
@@ -166,13 +167,14 @@ export default function MachinesPage() {
               Limit Reached
             </Button>
           ) : (
-            <Link
-              href="/machines/new"
-              className={cn(buttonVariants({ size: "sm" }), "h-8 text-xs")}
+            <Button
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => setCheckoutOpen(true)}
             >
               <Plus className="size-3.5" />
               New Machine
-            </Link>
+            </Button>
           )}
         </div>
       </div>
@@ -286,13 +288,13 @@ export default function MachinesPage() {
               Limit Reached
             </Button>
           ) : (
-            <Link
-              href="/machines/new"
-              className={cn(buttonVariants({ size: "sm" }))}
+            <Button
+              size="sm"
+              onClick={() => setCheckoutOpen(true)}
             >
               <Plus className="size-3.5" />
               New Machine
-            </Link>
+            </Button>
           )}
         </div>
       ) : (
@@ -344,6 +346,10 @@ export default function MachinesPage() {
       <ImportKortixModal
         open={importModalOpen}
         onOpenChange={setImportModalOpen}
+      />
+      <CheckoutModal
+        open={checkoutOpen}
+        onClose={() => setCheckoutOpen(false)}
       />
     </div>
   );

@@ -18,6 +18,83 @@ export const INCLUDED_FEATURES = [
   "Daily backups", "Docker", "Claude Code / OpenCode", "sandbox-agent SDK",
 ];
 
+export type BillingInterval = "monthly" | "yearly" | "2year";
+
+const INTERVAL_DISCOUNT: Record<BillingInterval, number> = {
+  monthly: 0,
+  yearly: 0.20,   // 20% off
+  "2year": 0.30,  // 30% off — best deal
+};
+
+const INTERVAL_MONTHS: Record<BillingInterval, number> = {
+  monthly: 1,
+  yearly: 12,
+  "2year": 24,
+};
+
+/** Compute effective monthly price based on billing interval */
+export function effectiveMonthlyPrice(priceMonthly: number, interval: BillingInterval): number {
+  const discount = INTERVAL_DISCOUNT[interval];
+  if (discount === 0) return priceMonthly;
+  return Math.round(priceMonthly * (1 - discount) * 100) / 100;
+}
+
+/** Compute total price for the full billing period */
+export function totalPrice(priceMonthly: number, interval: BillingInterval): number {
+  return Math.round(effectiveMonthlyPrice(priceMonthly, interval) * INTERVAL_MONTHS[interval] * 100) / 100;
+}
+
+/** Human-readable billing label */
+export function intervalLabel(interval: BillingInterval): string {
+  if (interval === "yearly") return "yr";
+  if (interval === "2year") return "2yr";
+  return "mo";
+}
+
+/* ═══ BillingToggle component ═══ */
+
+interface BillingToggleProps {
+  interval: BillingInterval;
+  onChange: (interval: BillingInterval) => void;
+}
+
+export function BillingToggle({ interval, onChange }: BillingToggleProps) {
+  const options: { value: BillingInterval; label: string; badge?: string }[] = [
+    { value: "monthly", label: "Monthly" },
+    { value: "yearly", label: "Yearly", badge: "20% off" },
+    { value: "2year", label: "2 Year", badge: "30% off" },
+  ];
+
+  return (
+    <div className="inline-flex items-center rounded-xl border border-border bg-muted/30 p-1 gap-0.5">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          onClick={() => onChange(opt.value)}
+          className={cn(
+            "relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all",
+            interval === opt.value
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          {opt.label}
+          {opt.badge && (
+            <span className={cn(
+              "rounded-full px-1.5 py-0.5 text-[9px] font-semibold leading-none",
+              interval === opt.value
+                ? "bg-green-500/15 text-green-600 dark:text-green-400"
+                : "bg-green-500/10 text-green-600/70 dark:text-green-400/70"
+            )}>
+              {opt.badge}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /* ═══ PlanPicker component ═══ */
 
 interface PlanPickerProps {
@@ -28,6 +105,9 @@ interface PlanPickerProps {
   onRegionChange: (region: string) => void;
   onServerTypeChange: (serverType: string) => void;
   showIncluded?: boolean;
+  billingInterval?: BillingInterval;
+  onBillingIntervalChange?: (interval: BillingInterval) => void;
+  showBillingToggle?: boolean;
 }
 
 export function PlanPicker({
@@ -38,9 +118,21 @@ export function PlanPicker({
   onRegionChange,
   onServerTypeChange,
   showIncluded = true,
+  billingInterval = "monthly",
+  onBillingIntervalChange,
+  showBillingToggle = false,
 }: PlanPickerProps) {
+  const isDiscounted = billingInterval !== "monthly";
+
   return (
     <div className="space-y-5">
+      {/* Billing interval toggle */}
+      {showBillingToggle && onBillingIntervalChange && (
+        <div className="flex justify-center">
+          <BillingToggle interval={billingInterval} onChange={onBillingIntervalChange} />
+        </div>
+      )}
+
       {/* Region picker */}
       {regions && regions.length > 1 && (
         <div>
@@ -78,7 +170,9 @@ export function PlanPicker({
             const { label, Icon, tagline, anchor } = meta;
             const isPopular = idx === 1;
             const active = selectedServerType === s.name;
-            const savingsPercent = anchor > 0 ? Math.round((1 - s.price_monthly / anchor) * 100) : 0;
+            const displayMonthly = effectiveMonthlyPrice(s.price_monthly, billingInterval);
+            const total = totalPrice(s.price_monthly, billingInterval);
+            const savingsPercent = anchor > 0 ? Math.round((1 - displayMonthly / anchor) * 100) : 0;
 
             return (
               <button
@@ -136,7 +230,10 @@ export function PlanPicker({
                     <div className="text-[10px] text-muted-foreground/50 line-through">${anchor}/mo elsewhere</div>
                   )}
                   <div className="flex items-baseline gap-0.5 justify-end">
-                    <span className="text-lg font-semibold">${s.price_monthly}</span>
+                    {isDiscounted && (
+                      <span className="text-[11px] text-muted-foreground/50 line-through mr-1">${s.price_monthly}</span>
+                    )}
+                    <span className="text-lg font-semibold">${displayMonthly}</span>
                     <span className="text-xs text-muted-foreground">/mo</span>
                   </div>
                   <div className="flex items-center justify-end gap-1 mt-0.5">
@@ -146,6 +243,11 @@ export function PlanPicker({
                       </span>
                     )}
                   </div>
+                  {isDiscounted && (
+                    <div className="text-[10px] text-muted-foreground/60 mt-0.5">
+                      ${total}/{intervalLabel(billingInterval)} total
+                    </div>
+                  )}
                 </div>
               </button>
             );

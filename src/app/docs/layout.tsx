@@ -62,7 +62,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
                   Log in
                 </Link>
                 <Link
-                  href="/machines/new"
+                  href="/machines"
                   className={cn(
                     buttonVariants({ size: "sm" }),
                     "h-7 text-[12.5px] px-3"

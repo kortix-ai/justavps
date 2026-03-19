@@ -37,6 +37,7 @@ interface CreateMachineInput {
   docker_image?: string;
   entrypoint?: string;
   ssh_key_ids?: string[];
+  billing_interval?: "monthly" | "yearly" | "2year";
 }
 
 /** Result of createMachine — either a Machine (provisioned) or a checkout redirect (needs payment) */
