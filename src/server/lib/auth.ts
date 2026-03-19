@@ -13,10 +13,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
 
   providers: [
-    GitHubProvider({
-      clientId: process.env.GITHUB_CLIENT_ID || '',
-      clientSecret: process.env.GITHUB_CLIENT_SECRET || '',
-    }),
+    // GitHub OAuth — only enabled when credentials are configured
+    ...(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET
+      ? [GitHubProvider({
+          clientId: process.env.GITHUB_CLIENT_ID,
+          clientSecret: process.env.GITHUB_CLIENT_SECRET,
+        })]
+      : []),
 
     CredentialsProvider({
       name: 'credentials',
