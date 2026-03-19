@@ -136,15 +136,33 @@ export default function DocsPage() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => { for (const entry of entries) { if (entry.isIntersecting) setActiveSection(entry.target.id); } },
-      { rootMargin: "-20% 0px -75% 0px", threshold: 0 }
-    );
-    for (const item of NAV) {
-      const el = document.getElementById(item.id);
-      if (el) observer.observe(el);
-    }
-    return () => observer.disconnect();
+    const ids = NAV.map((n) => n.id);
+    const update = () => {
+      const scrollEl = document.querySelector("[data-docs-scroll]");
+      if (!scrollEl) return;
+      const { scrollTop, scrollHeight, clientHeight } = scrollEl;
+      // If at bottom, always select last section
+      if (scrollTop + clientHeight >= scrollHeight - 32) {
+        setActiveSection(ids[ids.length - 1]);
+        return;
+      }
+      // Otherwise pick the last section whose heading has scrolled past 25% of viewport
+      const threshold = clientHeight * 0.25;
+      let current = ids[0];
+      for (const id of ids) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        const containerRect = scrollEl.getBoundingClientRect();
+        if (rect.top - containerRect.top <= threshold) current = id;
+      }
+      setActiveSection(current);
+    };
+    const scrollEl = document.querySelector("[data-docs-scroll]");
+    if (!scrollEl) return;
+    update();
+    scrollEl.addEventListener("scroll", update, { passive: true });
+    return () => scrollEl.removeEventListener("scroll", update);
   }, []);
 
   const scrollTo = (id: string) => {
@@ -191,7 +209,7 @@ export default function DocsPage() {
       </aside>
 
       {/* Content */}
-      <div className="flex-1 min-w-0 overflow-y-auto">
+      <div data-docs-scroll className="flex-1 min-w-0 overflow-y-auto">
       <div className="max-w-3xl mx-auto px-6 py-8 lg:px-10">
 
         <div className="mb-10">
@@ -207,12 +225,10 @@ export default function DocsPage() {
 
         <Step n={1} title="Choose a machine">
           <p>Pick a plan from the landing page or dashboard. Starter (2 vCPU / 4 GB), Pro (4 vCPU / 8 GB), Power (8 vCPU / 16 GB), or Ultra (16 vCPU / 32 GB). Choose your region (EU Central or US West).</p>
-          <ImagePlaceholder alt="📸 Screenshot: plan picker modal showing the 4 plans with specs and pricing" />
         </Step>
 
         <Step n={2} title="Deploy">
           <p>Click <B>Deploy</B>. Your machine provisions in ~60 seconds. You get a dedicated IP, SSH key, and an authenticated subdomain for every port.</p>
-          <ImagePlaceholder alt="📸 Screenshot: machine detail page showing status 'Running', IP address, and connection options" />
         </Step>
 
         <Step n={3} title="Connect">
@@ -221,8 +237,6 @@ export default function DocsPage() {
           <p>After the first connect, reconnect anytime:</p>
           <CodeBlock>{`ssh -i ~/.ssh/justavps_mybox root@95.217.x.x`}</CodeBlock>
         </Step>
-
-        <Callout type="tip">You can also connect from the <B>web terminal</B> in the dashboard — zero setup, works from any browser.</Callout>
 
         <Hr />
 
@@ -250,12 +264,7 @@ export default function DocsPage() {
         <Callout type="info">OpenCode web UI runs on port 1337 by default. Access it at <IC>1337-&#123;id&#125;.justavps.com</IC> with your API key, or use SSH port forwarding for <IC>localhost:1337</IC>.</Callout>
 
         <H3 id="mobile-access">Access from Mobile</H3>
-        <P>You can check on your agents from your phone:</P>
-        <Ul>
-          <Li><B>OpenCode Web UI</B> — works in any mobile browser via the authenticated proxy</Li>
-          <Li><B>SSH apps</B> — we recommend <a href="https://termius.com" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2">Termius</a> (iOS &amp; Android) or <a href="https://blink.sh" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2">Blink Shell</a> (iOS) for a proper terminal experience</Li>
-
-        </Ul>
+        <P>Use the <B>OpenCode Web UI</B> from any mobile browser — it works via the authenticated proxy with zero setup. Or use the dashboard <B>web terminal</B> for quick shell access.</P>
 
         <Hr />
 
@@ -320,13 +329,33 @@ export default function DocsPage() {
         <P>Storage is NVMe SSD, persistent across reboots. Daily backups are enabled by default.</P>
 
         <H3 id="coding-agents-api">Coding Agents API</H3>
-        <P>Every machine ships with <a href="https://sandboxagent.dev" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2">sandbox-agent</a> pre-installed — a unified API for running Claude Code, OpenCode, Codex, and other coding agents. It provides:</P>
+        <P>Every machine ships with <a href="https://sandboxagent.dev" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2">sandbox-agent</a> pre-installed — a unified API for running Claude Code, Codex, OpenCode, Amp, and other coding agents over one consistent interface.</P>
         <Ul>
           <Li><B>Universal Agent API</B> — one interface to run any supported coding agent</Li>
           <Li><B>Session management</B> — create, resume, and manage agent sessions</Li>
           <Li><B>Streaming events</B> — real-time output via SSE</Li>
+          <Li><B>Universal schema</B> — standardized events for tool calls, permission requests, file edits, and more</Li>
+          <Li><B>Runs inside any sandbox</B> — lightweight static binary that also works in Docker, E2B, Daytona, and Vercel Sandboxes</Li>
         </Ul>
-        <P>sandbox-agent runs on port 2468 by default. See the full docs at <a href="https://sandboxagent.dev" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2">sandboxagent.dev</a>.</P>
+        <CodeBlock title="sandbox-agent session example">{`import { SandboxAgent } from "sandbox-agent";
+import { local } from "sandbox-agent/local";
+
+const client = await SandboxAgent.start({
+  sandbox: local(),
+});
+
+await client.createSession("my-session", {
+  agent: "claude-code",
+});
+
+await client.postMessage("my-session", {
+  message: "Hello, world!",
+});
+
+for await (const event of client.streamEvents("my-session")) {
+  console.log(event.type, event.data);
+}`}</CodeBlock>
+        <P><a href="https://sandboxagent.dev/docs/agent-sessions" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2">Agent Sessions</a> covers the full session lifecycle — create sessions, send messages, persist transcripts, and replay or audit every event. sandbox-agent runs on port 2468 by default.</P>
 
         <H3 id="custom-snapshots">Custom Snapshots</H3>
         <P>Create snapshots from any Docker image. Useful for pre-installing dependencies, custom toolchains, or per-customer environments.</P>

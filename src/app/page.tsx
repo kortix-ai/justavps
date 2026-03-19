@@ -35,6 +35,7 @@ function ThemeToggle() {
 export default function Home() {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [showFloatingCta, setShowFloatingCta] = useState(false);
+  const [activeSection, setActiveSection] = useState("");
   const { data: session } = useSession();
   const isLoggedIn = !!session?.user;
 
@@ -45,6 +46,23 @@ export default function Home() {
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  useEffect(() => {
+    const ids = ["use-cases", "api", "pricing", "about"];
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) setActiveSection(entry.target.id);
+        }
+      },
+      { rootMargin: "-40% 0px -55% 0px" }
+    );
+    for (const id of ids) {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    }
+    return () => observer.disconnect();
+  }, []);
   return (
     <div className="min-h-screen flex flex-col bg-background text-foreground">
       <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} />
@@ -53,10 +71,19 @@ export default function Home() {
         <div className="relative max-w-5xl mx-auto flex items-center justify-between h-12 px-6">
           <Logo />
           <div className="hidden md:flex items-center gap-1 absolute left-1/2 -translate-x-1/2">
-            <a href="#use-cases" className="px-3 py-1 text-[12.5px] text-muted-foreground/80 hover:text-foreground rounded-md hover:bg-muted/40 transition-all duration-150">Use Cases</a>
-            <a href="#api" className="px-3 py-1 text-[12.5px] text-muted-foreground/80 hover:text-foreground rounded-md hover:bg-muted/40 transition-all duration-150">API</a>
-            <a href="#pricing" className="px-3 py-1 text-[12.5px] text-muted-foreground/80 hover:text-foreground rounded-md hover:bg-muted/40 transition-all duration-150">Pricing</a>
-            <a href="#about" className="px-3 py-1 text-[12.5px] text-muted-foreground/80 hover:text-foreground rounded-md hover:bg-muted/40 transition-all duration-150">About</a>
+            {[
+              { href: "#use-cases", id: "use-cases", label: "Use Cases" },
+              { href: "#api", id: "api", label: "API" },
+              { href: "#pricing", id: "pricing", label: "Pricing" },
+              { href: "#about", id: "about", label: "About" },
+            ].map(item => (
+              <a key={item.id} href={item.href} className={cn(
+                "px-3 py-1 text-[12.5px] rounded-md transition-all duration-150",
+                activeSection === item.id
+                  ? "text-foreground font-medium"
+                  : "text-muted-foreground/80 hover:text-foreground hover:bg-muted/40"
+              )}>{item.label}</a>
+            ))}
             <Link href="/docs" className="px-3 py-1 text-[12.5px] text-muted-foreground/80 hover:text-foreground rounded-md hover:bg-muted/40 transition-all duration-150">Docs</Link>
           </div>
           <div className="flex items-center gap-1">
@@ -512,7 +539,7 @@ const API_GROUPS = [
     title: "Coding Agents",
     icon: <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="11" width="18" height="10" rx="2" /><path d="M12 2a4 4 0 014 4v1H8V6a4 4 0 014-4zM7 15h.01M12 15h.01M10 14L21 3" /></svg>,
     external: "https://sandboxagent.dev",
-    agentFeatures: ["Universal Agent API", "Session Management", "Streaming Events & Chat"],
+    agentFeatures: ["Universal Agent API", "Session Management", "Streaming Events", "Universal Schema"],
   },
 ];
 
@@ -562,7 +589,7 @@ function ApiOverview() {
               <div className="p-4 flex-1 flex flex-col justify-between">
                 <div>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Control Claude Code, Codex, OpenCode, and Amp with one unified API. Ships out of the box on every sandbox.
+                    Control Claude Code, Codex, OpenCode, and Amp with one unified API. Ships out of the box on every sandbox, with session lifecycle management and a standard event schema.
                   </p>
                   {"agentFeatures" in group && group.agentFeatures && (
                     <div className="mt-3 space-y-1">
@@ -575,9 +602,14 @@ function ApiOverview() {
                     </div>
                   )}
                 </div>
-                <a href={group.external} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-foreground hover:underline">
-                  sandboxagent.dev <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" /></svg>
-                </a>
+                <div className="mt-4 flex flex-wrap items-center gap-3 text-xs font-medium text-foreground">
+                  <a href={group.external} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 hover:underline">
+                    sandboxagent.dev <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" /></svg>
+                  </a>
+                  <a href="https://sandboxagent.dev/docs/agent-sessions" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 hover:underline text-muted-foreground hover:text-foreground">
+                    Agent Sessions <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" /></svg>
+                  </a>
+                </div>
               </div>
             ) : (
               <div className="p-2 flex-1">

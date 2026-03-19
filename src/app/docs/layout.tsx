@@ -34,23 +34,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
       {/* ── Navbar ── */}
       <nav className="sticky top-0 shrink-0 z-50 w-full border-b border-border/50 bg-background/80 backdrop-blur-xl">
         <div className="max-w-screen-2xl mx-auto flex items-center justify-between h-12 px-6">
-          {/* Left: brand + docs badge */}
-          <div className="flex items-center gap-3">
-            <Logo />
-            <svg className="size-[18px] text-border/60 -rotate-12 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M7 4l10 16" /></svg>
-            <Link
-              href="/docs"
-              className="text-[12px] font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Docs
-            </Link>
-            <Link
-              href="/api/docs"
-              className="text-[12px] font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              API Reference
-            </Link>
-          </div>
+          <Logo />
 
           {/* Right: utility + auth */}
           <div className="flex items-center gap-1">
