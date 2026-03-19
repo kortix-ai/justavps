@@ -92,7 +92,8 @@ jobs:
             p.version = '${{ steps.version.outputs.version }}';
             fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
           "
-          npm install --no-save tsup typescript
+          rm -rf node_modules package-lock.json
+          npm install tsup typescript --save-dev
           npx tsup
           npm publish --access public
 
