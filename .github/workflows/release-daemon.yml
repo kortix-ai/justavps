@@ -1,6 +1,6 @@
 name: Release Daemon
 
-# Builds and uploads the daemon binary to R2 whenever daemon/ code changes on master.
+# Builds and uploads the daemon binary to R2 whenever daemon/ code changes on production.
 # Vercel auto-deploys the Next.js app on push — this handles the Go binary side.
 
 on:
