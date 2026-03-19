@@ -1,11 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { toast } from "sonner";
-import { Terminal as TerminalIcon, Copy, RotateCw, Maximize2, Minimize2, Check, XCircle } from "lucide-react";
+import { RotateCw, Maximize2, Minimize2, Check, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
@@ -15,7 +13,7 @@ interface TerminalProps {
   machineIp?: string | null;
   machineSlug?: string;
   machineStatus?: string;
-  /** WebSocket PTY URL from machine.urls.pty (e.g. wss://slug.kortix.cloud/_pty) */
+  /** WebSocket PTY URL (e.g. wss://slug.kortix.cloud/_pty) */
   ptyUrl?: string | null;
 }
 
@@ -24,7 +22,7 @@ const XTermComponent = ({ machineId, machineIp, machineSlug, machineStatus, ptyU
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const resizeCleanupRef = useRef<(() => void) | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const [connected, setConnected] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -37,14 +35,10 @@ const XTermComponent = ({ machineId, machineIp, machineSlug, machineStatus, ptyU
 
   const connectPTY = useCallback(async (term: Terminal | null) => {
     if (!ptyUrl || !term) return;
-    
-    // Close existing connection if any
     wsRef.current?.close();
 
     term.write('\x1b[90mConnecting to machine...\x1b[0m\r\n');
 
-    // Get proxy auth token for cross-origin WebSocket
-    // (cookies aren't sent cross-origin from justavps.com → slug.kortix.cloud)
     let wsUrl = ptyUrl;
     try {
       const res = await fetch('/api/proxy-auth', { method: 'POST' });
@@ -56,9 +50,7 @@ const XTermComponent = ({ machineId, machineIp, machineSlug, machineStatus, ptyU
           wsUrl = url.toString();
         }
       }
-    } catch {
-      // Fall back to cookie-based auth (works if same origin)
-    }
+    } catch { /* fallback to cookie auth */ }
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
@@ -73,31 +65,17 @@ const XTermComponent = ({ machineId, machineIp, machineSlug, machineStatus, ptyU
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        if (msg.type === 'output') {
-          term.write(msg.data);
-        } else if (msg.type === 'error') {
-          term.write(`\r\n\x1b[31mError: ${msg.data}\x1b[0m\r\n`);
-        } else if (msg.type === 'exit') {
-          term.write(`\r\n\x1b[90m[Process exited]\x1b[0m\r\n`);
-          setConnected(false);
-        }
-      } catch {
-        term.write(event.data);
-      }
+        if (msg.type === 'output') term.write(msg.data);
+        else if (msg.type === 'error') term.write(`\r\n\x1b[31mError: ${msg.data}\x1b[0m\r\n`);
+        else if (msg.type === 'exit') { term.write(`\r\n\x1b[90m[Process exited]\x1b[0m\r\n`); setConnected(false); }
+      } catch { term.write(event.data); }
     };
 
-    ws.onclose = () => {
-      setConnected(false);
-    };
-
-    ws.onerror = () => {
-      term.write('\r\n\x1b[31mConnection failed. Check that the machine agent is running.\x1b[0m\r\n');
-    };
+    ws.onclose = () => setConnected(false);
+    ws.onerror = () => term.write('\r\n\x1b[31mConnection failed. Check that the machine agent is running.\x1b[0m\r\n');
 
     term.onData((data: string) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'input', data }));
-      }
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }));
     });
   }, [ptyUrl]);
 
@@ -111,58 +89,59 @@ const XTermComponent = ({ machineId, machineIp, machineSlug, machineStatus, ptyU
       const { FitAddon: XFitAddon } = await import("@xterm/addon-fit");
       const { WebLinksAddon } = await import("@xterm/addon-web-links");
 
-      // Prevent double initialization or init after unmount
       if (termRef.current || !mounted) return;
 
       const term = new XTerminal({
         cursorBlink: true,
-        fontSize: 13,
-        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+        fontSize: 14,
+        fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+        lineHeight: 1.2,
+        scrollback: 5000,
         theme: {
           background: '#09090b',
-          foreground: '#fafafa',
+          foreground: '#e4e4e7',
           cursor: '#a1a1aa',
-          selectionBackground: 'rgba(255, 255, 255, 0.2)',
+          cursorAccent: '#09090b',
+          selectionBackground: 'rgba(161, 161, 170, 0.3)',
+          black: '#09090b',
+          red: '#ef4444',
+          green: '#22c55e',
+          yellow: '#eab308',
+          blue: '#3b82f6',
+          magenta: '#a855f7',
+          cyan: '#06b6d4',
+          white: '#e4e4e7',
+          brightBlack: '#52525b',
+          brightRed: '#f87171',
+          brightGreen: '#4ade80',
+          brightYellow: '#facc15',
+          brightBlue: '#60a5fa',
+          brightMagenta: '#c084fc',
+          brightCyan: '#22d3ee',
+          brightWhite: '#fafafa',
         },
-        rows: 20,
-        cols: 80,
       });
 
       const fit = new XFitAddon();
-      const webLinks = new WebLinksAddon();
-
       term.loadAddon(fit);
-      term.loadAddon(webLinks);
-      
+      term.loadAddon(new WebLinksAddon());
       term.open(terminalRef.current);
       fit.fit();
-      
+
       termRef.current = term;
       fitRef.current = fit;
 
-      // Handle resize
-      const onResize = () => {
-        if (fitRef.current) {
-          try {
-            fitRef.current.fit();
-            sendResize();
-          } catch (e) {
-            console.error("Terminal resize error:", e);
-          }
-        }
-      };
+      // ResizeObserver for proper container-based fitting
+      const ro = new ResizeObserver(() => {
+        try { fit.fit(); sendResize(); } catch {}
+      });
+      ro.observe(terminalRef.current);
+      resizeObserverRef.current = ro;
 
-      window.addEventListener('resize', onResize);
-      resizeCleanupRef.current = () => window.removeEventListener('resize', onResize);
-
-      // Connect if machine is ready and we have a PTY URL
       if (ptyUrl && (machineStatus === 'ready' || machineIp)) {
         connectPTY(term);
       } else {
-        term.write('\x1b[33mWaiting for machine initialization...\x1b[0m\r\n');
-        if (machineIp) {
-          term.write(`\r\nAlternate SSH command:\r\nssh -i ~/.ssh/justavps_${machineSlug} root@${machineIp}\r\n`);
-        }
+        term.write('\x1b[33mWaiting for machine...\x1b[0m\r\n');
       }
     }
 
@@ -170,89 +149,81 @@ const XTermComponent = ({ machineId, machineIp, machineSlug, machineStatus, ptyU
 
     return () => {
       mounted = false;
-      resizeCleanupRef.current?.();
-      resizeCleanupRef.current = null;
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
       wsRef.current?.close();
       termRef.current?.dispose();
       termRef.current = null;
     };
   }, [machineId, machineStatus, ptyUrl, machineIp, machineSlug, connectPTY, sendResize]);
 
-  // Handle fullscreen toggle resize
+  // Re-fit on fullscreen toggle
   useEffect(() => {
-    if (fitRef.current) {
-      setTimeout(() => {
-        try {
-          fitRef.current?.fit();
-          sendResize();
-          termRef.current?.focus();
-        } catch (e) { console.error(e); }
-      }, 100);
-    }
+    setTimeout(() => {
+      try { fitRef.current?.fit(); sendResize(); termRef.current?.focus(); } catch {}
+    }, 50);
   }, [isFullscreen, sendResize]);
 
-  const copySSH = () => {
-    if (machineIp && machineSlug) {
-      navigator.clipboard.writeText(`ssh -i ~/.ssh/justavps_${machineSlug} -o StrictHostKeyChecking=no root@${machineIp}`);
-      toast.success('SSH command copied');
-    }
-  };
-
-  const toggleFullscreen = () => {
-    setIsFullscreen(!isFullscreen);
-  };
-
   return (
-    <Card className={cn(
-      "overflow-hidden transition-all duration-300", 
-      isFullscreen && "fixed inset-4 z-50 h-auto shadow-2xl border-primary/20"
+    <div className={cn(
+      "rounded-xl overflow-hidden border bg-[#09090b] flex flex-col transition-all duration-200",
+      isFullscreen && "fixed inset-3 z-50 shadow-2xl border-primary/20"
     )}>
-      <CardHeader className="flex flex-row items-center justify-between p-3 bg-muted/30 border-b">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between px-3 py-2 bg-zinc-900/80 border-b border-zinc-800">
         <div className="flex items-center gap-2">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <TerminalIcon className="size-4 text-muted-foreground" />
-            Terminal
-          </CardTitle>
-          <Badge 
-            variant={connected ? "default" : "secondary"} 
+          <div className="flex gap-1.5">
+            <div className="size-3 rounded-full bg-red-500/80" />
+            <div className="size-3 rounded-full bg-yellow-500/80" />
+            <div className="size-3 rounded-full bg-green-500/80" />
+          </div>
+          <Badge
+            variant="secondary"
             className={cn(
-              "text-[10px] h-5 px-1.5 gap-1 font-normal",
-              connected ? "bg-green-500/15 text-green-600 dark:text-green-400 hover:bg-green-500/25 border-green-500/20" : ""
+              "text-[10px] h-5 px-1.5 gap-1 font-normal border-0 ml-2",
+              connected
+                ? "bg-green-500/15 text-green-400"
+                : "bg-zinc-800 text-zinc-500"
             )}
           >
-            {connected ? <Check className="size-3" /> : <XCircle className="size-3" />}
+            {connected ? <Check className="size-2.5" /> : <XCircle className="size-2.5" />}
             {connected ? "Connected" : "Disconnected"}
           </Badge>
         </div>
-        
-        <div className="flex items-center gap-1">
-          {machineIp && (
-            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1.5" onClick={copySSH}>
-              <Copy className="size-3.5" />
-              <span className="hidden sm:inline">Copy SSH</span>
-            </Button>
-          )}
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => connectPTY(termRef.current)} disabled={!ptyUrl || connected} title="Reconnect">
-            <RotateCw className={cn("size-3.5", !connected && "text-muted-foreground")} />
+
+        <div className="flex items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+            onClick={() => connectPTY(termRef.current)}
+            disabled={!ptyUrl || connected}
+            title="Reconnect"
+          >
+            <RotateCw className="size-3.5" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={toggleFullscreen} title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+            onClick={() => setIsFullscreen(!isFullscreen)}
+            title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+          >
             {isFullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
           </Button>
         </div>
-      </CardHeader>
+      </div>
 
-      <CardContent className="p-0 bg-[#09090b]">
-        <div 
-          ref={terminalRef} 
-          className="w-full relative"
-          style={{ 
-            height: isFullscreen ? 'calc(100vh - 100px)' : '400px',
-          }}
-        >
-          {/* Terminal is mounted here */}
-        </div>
-      </CardContent>
-    </Card>
+      {/* Terminal */}
+      <div
+        ref={terminalRef}
+        className="flex-1 min-h-0"
+        style={{
+          height: isFullscreen ? 'calc(100vh - 80px)' : '500px',
+          padding: '4px 0 4px 4px',
+        }}
+      />
+    </div>
   );
 };
 

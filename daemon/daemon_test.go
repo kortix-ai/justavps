@@ -240,10 +240,8 @@ func TestProxyRouterDefault(t *testing.T) {
 	}
 }
 
-func TestManagedServicesNoCaddy(t *testing.T) {
-	for _, svc := range ManagedServices {
-		if svc == "caddy" {
-			t.Error("caddy should not be in ManagedServices — daemon replaces it")
-		}
+func TestManagedServicesMinimal(t *testing.T) {
+	if len(ManagedServices) != 1 || ManagedServices[0] != "docker" {
+		t.Errorf("ManagedServices should only contain 'docker', got %v", ManagedServices)
 	}
 }

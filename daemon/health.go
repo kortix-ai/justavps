@@ -27,12 +27,8 @@ type HealthSnapshot struct {
 }
 
 // ManagedServices — systemd services we monitor and allow restart of.
-// Note: caddy is gone. The daemon IS the HTTP frontend now.
 var ManagedServices = []string{
 	"docker",
-	"opencode-web",
-	"sandbox-agent",
-	"justavps-docker",
 }
 
 func NewHealthChecker() *HealthChecker {
