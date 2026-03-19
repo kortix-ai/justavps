@@ -188,7 +188,7 @@ function provisionMachineAsync(
   slug: string,
   userId: string,
   userdata: string,
-  providerKeyId: string | undefined,
+  providerKeyId: string,
   priceMonthly: number,
   resolvedImage: string,
 ) {
@@ -200,7 +200,7 @@ function provisionMachineAsync(
         image: resolvedImage,
         region: machineConfig.region,
         userData: userdata,
-        sshKeyIds: providerKeyId ? [providerKeyId] : [],
+        sshKeyIds: [providerKeyId],
         enableBackups: true,
         labels: {
           'justavps': 'true',

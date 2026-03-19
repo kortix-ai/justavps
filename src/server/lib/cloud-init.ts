@@ -144,6 +144,22 @@ ${extraSSHKeysBlock}
 chmod 700 /home/user/.ssh && chmod 600 /home/user/.ssh/authorized_keys
 chown -R user:user /home/user/.ssh
 
+# ── Lock down password auth (SSH-key-only access) ────────────────────────
+# Clear any forced password expiry set by the provider image
+passwd -d root 2>/dev/null || true
+chage -M -1 root 2>/dev/null || true
+chage -E -1 root 2>/dev/null || true
+passwd -l root 2>/dev/null || true
+
+# Ensure sshd only allows key-based auth
+sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+sed -i 's/^#\\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
+sed -i 's/^#\\?KbdInteractiveAuthentication.*/KbdInteractiveAuthentication no/' /etc/ssh/sshd_config
+# Drop any cloud-init overrides that might re-enable password auth
+rm -f /etc/ssh/sshd_config.d/50-cloud-init.conf 2>/dev/null || true
+systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null || true
+
 # ── Platform config ───────────────────────────────────────────────────────
 mkdir -p /etc/justavps
 cat > /etc/justavps/config.json << 'CONFIGEOF'

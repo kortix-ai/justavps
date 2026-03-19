@@ -269,7 +269,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
           image: resolvedImage,
           region: data.region,
           userData: userdata,
-          sshKeyIds: providerKeyId ? [providerKeyId] : [],
+          sshKeyIds: [providerKeyId],
           enableBackups: true,
           labels: {
             'justavps': 'true',

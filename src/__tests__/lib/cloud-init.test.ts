@@ -62,6 +62,23 @@ describe('cloud-init', () => {
       expect(script).toContain(`echo '${key}' > /home/user/.ssh/authorized_keys`);
     });
 
+    it('should lock root password and clear expiry flags', () => {
+      const script = buildCloudInit(defaultOpts);
+      expect(script).toContain('passwd -d root');
+      expect(script).toContain('chage -M -1 root');
+      expect(script).toContain('chage -E -1 root');
+      expect(script).toContain('passwd -l root');
+    });
+
+    it('should disable password-based SSH authentication', () => {
+      const script = buildCloudInit(defaultOpts);
+      expect(script).toContain('PasswordAuthentication no');
+      expect(script).toContain('PermitRootLogin prohibit-password');
+      expect(script).toContain('ChallengeResponseAuthentication no');
+      expect(script).toContain('KbdInteractiveAuthentication no');
+      expect(script).toContain('rm -f /etc/ssh/sshd_config.d/50-cloud-init.conf');
+    });
+
     it('should inject machine token and callback URL', () => {
       const script = buildCloudInit({
         ...defaultOpts,

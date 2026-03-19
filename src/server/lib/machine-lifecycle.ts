@@ -9,7 +9,7 @@ import { config } from './config';
 import { cloudflareClient } from './cloudflare';
 import { stripeClient, type MachineSpecs } from './stripe';
 import type { ComputeProvider } from './providers';
-import { broadcastToProviders } from './provider-sync';
+
 
 export async function generateMachineIdentity() {
   const slug = nanoid(8).toLowerCase().replace(/[^a-z0-9]/g, 'x');
@@ -17,18 +17,47 @@ export async function generateMachineIdentity() {
   return { slug, machineToken };
 }
 
+/**
+ * Upload SSH key to provider. This is MANDATORY for server creation —
+ * without it, Hetzner sets a temporary root password with forced expiry,
+ * making SSH access impossible even with cloud-init injected keys.
+ *
+ * Retries up to 3 times before throwing.
+ */
 export async function uploadSSHKeyToProvider(
   provider: ComputeProvider,
   slug: string,
   publicKey: string,
-): Promise<string | undefined> {
-  try {
-    const result = await provider.uploadSSHKey(`justavps-${slug}`, publicKey);
-    return result.keyId;
-  } catch (err: any) {
-    console.warn(`[MACHINES] SSH key upload to ${provider.name} failed (non-fatal):`, err.message?.slice(0, 100));
-    return undefined;
+): Promise<string> {
+  const maxRetries = 3;
+  let lastError: Error | undefined;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await provider.uploadSSHKey(`justavps-${slug}`, publicKey);
+      return result.keyId;
+    } catch (err: any) {
+      lastError = err;
+      // If the key already exists (409/conflict or "already added"), try with a unique suffix
+      if (err.message?.includes('already') || err.message?.includes('409') || err.message?.includes('uniqueness_error')) {
+        try {
+          const result = await provider.uploadSSHKey(`justavps-${slug}-${Date.now()}`, publicKey);
+          return result.keyId;
+        } catch (retryErr: any) {
+          lastError = retryErr;
+        }
+      }
+      if (attempt < maxRetries) {
+        console.warn(`[MACHINES] SSH key upload attempt ${attempt}/${maxRetries} failed, retrying...`);
+        await new Promise(r => setTimeout(r, 1000 * attempt));
+      }
+    }
   }
+
+  throw new Error(
+    `SSH key upload to ${provider.name} failed after ${maxRetries} attempts: ${lastError?.message?.slice(0, 200)}. ` +
+    `Server creation aborted — without a provider-level SSH key, the machine would require a password change on first login.`
+  );
 }
 
 export function buildMachineUserData(
@@ -120,6 +149,11 @@ export async function resolveSSHKeyPublicKeys(
 /**
  * Auto-generate an SSH key and save it to the user's ssh_keys table.
  * The key is named "auto-{slug}" so users can identify which machine it was created for.
+ *
+ * NOTE: Does NOT upload to providers here — the caller must use
+ * `uploadSSHKeyToProvider()` which has retries and hard-fails on error.
+ * This avoids double-uploading and ensures the key ID used in createServer
+ * is always valid.
  */
 export async function autoGenerateAndSaveSSHKey(
   ownerId: string,
@@ -128,19 +162,12 @@ export async function autoGenerateAndSaveSSHKey(
   const keyPair = generateSSHKeyPair(`${slug}@justavps`);
   const fingerprint = fingerprintSSHKey(keyPair.publicKey);
 
-  // Upload to providers (best-effort)
-  const uploaded = await broadcastToProviders(
-    (provider) => provider.uploadSSHKey(`justavps-auto-${slug}`, keyPair.publicKey),
-    'SSH-KEYS-AUTO',
-  );
-  const providerKeyId = uploaded?.result.keyId ?? null;
-
   const [saved] = await db.insert(sshKeys).values({
     ownerId,
     name: `auto-${slug}`,
     publicKey: keyPair.publicKey,
     fingerprint,
-    providerKeyId,
+    providerKeyId: null,
   }).returning();
 
   return { publicKey: keyPair.publicKey, privateKey: keyPair.privateKey, keyId: saved.id };
