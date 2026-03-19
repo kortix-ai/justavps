@@ -179,14 +179,19 @@ const ACCESS_DENIED_HTML = `<!DOCTYPE html>
   .card { text-align: center; max-width: 420px; padding: 40px; }
   h1 { font-size: 20px; font-weight: 600; margin: 0 0 8px; }
   p { color: #888; font-size: 14px; margin: 0 0 16px; }
+  .links { display: flex; gap: 16px; justify-content: center; }
   a { color: #3b82f6; text-decoration: none; }
   a:hover { text-decoration: underline; }
+  .logout { color: #ef4444; }
 </style>
 </head><body>
 <div class="card">
   <h1>Access Denied</h1>
-  <p>You don't have permission to access this machine. Make sure you're logged in with the account that created it.</p>
-  <a href="https://justavps.com/machines">← Back to Dashboard</a>
+  <p>You don't have permission to access this machine. Make sure you're logged in with the correct account.</p>
+  <div class="links">
+    <a href="https://justavps.com/machines">← Dashboard</a>
+    <a href="https://justavps.com/api/auth/signout" class="logout">Sign out & re-login</a>
+  </div>
 </div>
 </body></html>`;
 
