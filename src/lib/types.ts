@@ -40,6 +40,8 @@ export interface Machine {
     vscode_url: string;
     cursor_ssh: string | null;
   } | null;
+  source: 'user' | 'kortix';
+  kortix_sandbox_id: string | null;
   health: {
     cpu: number;
     memory: number;

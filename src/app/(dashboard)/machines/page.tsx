@@ -6,16 +6,26 @@ import Link from "next/link";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MachineCard } from "@/components/dashboard/machine-card";
+import { ImportKortixModal } from "@/components/dashboard/import-kortix-modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAccountLimits } from "@/hooks/use-account";
 import { useMachines, useDeleteMachine } from "@/hooks/use-machines";
 import { useConfirm } from "@/hooks/use-confirm";
 import { toast } from "sonner";
-import { Server, Plus, Trash2, AlertTriangle, Loader2 } from "lucide-react";
+import { Server, Plus, Trash2, AlertTriangle, Loader2, Download } from "lucide-react";
 
 export default function MachinesPage() {
   const searchParams = useSearchParams();
   const isPostCheckout = searchParams.get("checkout") === "success";
+  const isKortixImport = searchParams.get("import") === "kortix";
+  const [importModalOpen, setImportModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (isKortixImport) {
+      setImportModalOpen(true);
+      window.history.replaceState({}, "", "/machines");
+    }
+  }, [isKortixImport]);
 
   // Use ref to survive URL changes — once we start waiting, we keep waiting
   const startedWaiting = useRef(false);
@@ -90,17 +100,26 @@ export default function MachinesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="font-heading text-3xl tracking-tight">Machines</h1>
-        {machineLimitReached ? (
-          <Button disabled>
-            <Plus className="size-4" />
-            Machine Limit Reached
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setImportModalOpen(true)}
+          >
+            <Download className="size-4" />
+            Import from Kortix
           </Button>
-        ) : (
-          <Link href="/machines/new" className={cn(buttonVariants())}>
-            <Plus className="size-4" />
-            New Machine
-          </Link>
-        )}
+          {machineLimitReached ? (
+            <Button disabled>
+              <Plus className="size-4" />
+              Machine Limit Reached
+            </Button>
+          ) : (
+            <Link href="/machines/new" className={cn(buttonVariants())}>
+              <Plus className="size-4" />
+              New Machine
+            </Link>
+          )}
+        </div>
       </div>
 
       {(machineLimitReached || machineLimitNear) && (
@@ -177,6 +196,7 @@ export default function MachinesPage() {
       )}
 
       <ConfirmDialog />
+      <ImportKortixModal open={importModalOpen} onOpenChange={setImportModalOpen} />
     </div>
   );
 }

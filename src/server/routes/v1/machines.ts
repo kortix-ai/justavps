@@ -95,6 +95,8 @@ function serializeMachine(m: typeof machines.$inferSelect) {
       vscode_url: `https://${m.slug}.${proxyDomain}`,
       cursor_ssh: m.ip ? `ssh -i ${sshKeyPath} root@${m.ip}` : null,
     },
+    source: m.source || 'user',
+    kortix_sandbox_id: m.kortixSandboxId ?? null,
     health: m.lastHeartbeat ? {
       ...m.lastHeartbeat,
       last_heartbeat_at: m.lastHeartbeatAt?.toISOString() ?? null,

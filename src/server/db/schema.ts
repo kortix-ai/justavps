@@ -83,6 +83,10 @@ export const machines = pgTable('machines', {
   // Backups
   backupsEnabled: boolean('backups_enabled').default(true).notNull(),
 
+  // Source tracking (user = self-provisioned, kortix = imported from Kortix)
+  source: text('source').default('user').notNull(),
+  kortixSandboxId: text('kortix_sandbox_id'),
+
   // Billing
   priceMonthly: integer('price_monthly'),
   stripeSubItemId: text('stripe_sub_item_id'),
@@ -197,6 +201,21 @@ export const accountLimits = pgTable('account_limits', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// ─── Kortix Links ──────────────────────────────────────────────────────────
+
+export const kortixLinks = pgTable('kortix_links', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  kortixUserId: text('kortix_user_id').notNull(),
+  kortixAccountId: text('kortix_account_id').notNull(),
+  kortixEmail: text('kortix_email'),
+  accessTokenEnc: text('access_token_enc'),
+  refreshTokenEnc: text('refresh_token_enc'),
+  tokenExpiresAt: timestamp('token_expires_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // ─── Type Exports ───────────────────────────────────────────────────────────
 
 export type User = typeof users.$inferSelect;
@@ -211,3 +230,5 @@ export type MachineEventRow = typeof machineEvents.$inferSelect;
 export type WebhookRow = typeof webhooks.$inferSelect;
 export type AccountLimitRow = typeof accountLimits.$inferSelect;
 export type NewAccountLimit = typeof accountLimits.$inferInsert;
+export type KortixLink = typeof kortixLinks.$inferSelect;
+export type NewKortixLink = typeof kortixLinks.$inferInsert;

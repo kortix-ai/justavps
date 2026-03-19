@@ -34,9 +34,16 @@ export function MachineCard({ machine, onDelete }: MachineCardProps) {
                 <Badge variant={status.variant}>{status.label}</Badge>
               </div>
             </div>
-            {machine.price_monthly && (
-              <span className="text-sm text-muted-foreground font-mono">${machine.price_monthly}/mo</span>
-            )}
+            <div className="flex items-center gap-2">
+              {machine.source === 'kortix' && (
+                <Badge variant="outline" className="text-xs">Kortix</Badge>
+              )}
+              {machine.source === 'kortix' ? (
+                <span className="text-sm text-muted-foreground">Billed via Kortix</span>
+              ) : machine.price_monthly ? (
+                <span className="text-sm text-muted-foreground font-mono">${machine.price_monthly}/mo</span>
+              ) : null}
+            </div>
           </div>
         </CardHeader>
 
@@ -73,7 +80,7 @@ export function MachineCard({ machine, onDelete }: MachineCardProps) {
         </CardContent>
       </Link>
 
-      {onDelete && (
+      {onDelete && machine.source !== 'kortix' && (
         <Button
           variant="ghost"
           size="sm"
