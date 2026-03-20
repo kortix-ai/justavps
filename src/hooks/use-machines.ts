@@ -36,6 +36,7 @@ interface CreateMachineInput {
   name?: string;
   docker_image?: string;
   entrypoint?: string;
+  command?: string;
   ssh_key_ids?: string[];
   billing_interval?: "monthly" | "yearly" | "2year";
 }

@@ -23,11 +23,6 @@ export interface SerializedImage {
   updated_at: string;
 }
 
-type TemplatePreset = {
-  dockerImage?: string;
-  entrypoint?: string;
-};
-
 interface ResolveImageInput {
   explicitImage?: Pick<ImageRow, 'id' | 'name' | 'status' | 'providerImageId'> | null;
   fallbackPublicImage?: Pick<ImageRow, 'id' | 'name' | 'providerImageId'> | null;
@@ -36,26 +31,14 @@ interface ResolveImageInput {
 export interface ResolvedImageSelection {
   providerImage: string;
   machineImageId: string | null;
-  dockerImage?: string;
-  entrypoint?: string;
 }
 
 type ResolveImageResult =
   | { ok: true; selection: ResolvedImageSelection }
   | { ok: false; status: 400; message: string };
 
-const PRESET_BY_TEMPLATE_NAME: Record<string, TemplatePreset> = {
-  [KORTIX_TEMPLATE_NAME]: {
-    dockerImage: 'kortix/computer:latest',
-  },
-};
-
 export function isDefaultTemplateImage(image: Pick<ImageRow, 'name' | 'providerImageId'>): boolean {
   return image.name === DEFAULT_TEMPLATE_NAME;
-}
-
-export function getTemplatePreset(templateName: string): TemplatePreset | null {
-  return PRESET_BY_TEMPLATE_NAME[templateName] ?? null;
 }
 
 export function serializeImageRow(image: ImageRow): SerializedImage {
@@ -92,18 +75,6 @@ export function buildVisibleImageCatalog(rows: ImageRow[]): SerializedImage[] {
   return [...publicTemplates, ...snapshots];
 }
 
-function withPreset(selection: ResolvedImageSelection, templateName?: string | null): ResolvedImageSelection {
-  if (!templateName) return selection;
-  const preset = getTemplatePreset(templateName);
-  if (!preset) return selection;
-
-  return {
-    ...selection,
-    dockerImage: preset.dockerImage,
-    entrypoint: preset.entrypoint,
-  };
-}
-
 export function resolveRequestedProviderImage(input: ResolveImageInput): ResolveImageResult {
   if (input.explicitImage) {
     if (input.explicitImage.status !== 'ready') {
@@ -120,13 +91,10 @@ export function resolveRequestedProviderImage(input: ResolveImageInput): Resolve
 
     return {
       ok: true,
-      selection: withPreset(
-        {
-          providerImage: input.explicitImage.providerImageId,
-          machineImageId: input.explicitImage.id,
-        },
-        input.explicitImage.name,
-      ),
+      selection: {
+        providerImage: input.explicitImage.providerImageId,
+        machineImageId: input.explicitImage.id,
+      },
     };
   }
 

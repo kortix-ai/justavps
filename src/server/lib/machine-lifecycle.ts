@@ -67,6 +67,7 @@ export function buildMachineUserData(
   envVars?: Record<string, string>,
   dockerImage?: string,
   entrypoint?: string,
+  command?: string,
   extraSSHKeys?: string[],
 ) {
   return buildCloudInit({
@@ -78,6 +79,7 @@ export function buildMachineUserData(
     envVars,
     dockerImage,
     entrypoint,
+    command,
     extraSSHKeys,
     daemonChannel: config.DAEMON_CHANNEL,
   });
@@ -191,6 +193,7 @@ interface CreateMachineInput {
   priceMonthly: number | null;
   dockerImage?: string | null;
   entrypoint?: string | null;
+  dockerCommand?: string | null;
 }
 
 export async function createMachineRecord(input: CreateMachineInput) {

@@ -172,8 +172,9 @@ describe('cloud-init', () => {
     it('should include docker block when dockerImage is specified', () => {
       const script = buildCloudInit({ ...defaultOpts, dockerImage: 'myapp:latest' });
       expect(script).toContain('justavps-docker.service');
-      expect(script).toContain('docker run --rm --name justavps-workload');
-      expect(script).toContain('myapp:latest');
+      expect(script).toContain('RUN_ARGS=(');
+      expect(script).toContain('--name justavps-workload');
+      expect(script).toContain('bXlhcHA6bGF0ZXN0');
       expect(script).toContain('systemctl enable --now justavps-docker');
       expect(script).toContain('docker-host-ports');
     });
@@ -189,8 +190,20 @@ describe('cloud-init', () => {
         dockerImage: 'myapp:latest',
         entrypoint: '/start.sh',
       });
-      expect(script).toContain("DOCKER_COMMAND=");
+      expect(script).toContain('DOCKER_ENTRYPOINT=');
+      expect(script).toContain('RUN_ARGS+=(--entrypoint "$DOCKER_ENTRYPOINT")');
       expect(script).toContain('L3N0YXJ0LnNo');
+    });
+
+    it('should include command when specified', () => {
+      const script = buildCloudInit({
+        ...defaultOpts,
+        dockerImage: 'myapp:latest',
+        command: 'sleep infinity',
+      });
+      expect(script).toContain('append_command_args "$DOCKER_COMMAND"');
+      expect(script).toContain("b'\\0'");
+      expect(script).toContain('c2xlZXAgaW5maW5pdHk=');
     });
 
     it('should remap container port 80 to host 8080', () => {

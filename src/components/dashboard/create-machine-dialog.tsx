@@ -47,6 +47,7 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
   // Docker config — optional addon, layered on top of image selection
   const [dockerImage, setDockerImage] = useState("");
   const [entrypoint, setEntrypoint] = useState("");
+  const [command, setCommand] = useState("");
   const [showDockerConfig, setShowDockerConfig] = useState(false);
 
   const [selectedProviderOverride, setSelectedProviderOverride] = useState<string | null>(null);
@@ -88,6 +89,7 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
         image_id: selectedImageId ?? undefined,
         docker_image: (showDockerConfig && dockerImage) ? dockerImage : undefined,
         entrypoint: (showDockerConfig && entrypoint) ? entrypoint : undefined,
+        command: (showDockerConfig && command) ? command : undefined,
         ssh_key_ids: selectedSSHKeyIds.length > 0 ? selectedSSHKeyIds : undefined,
       },
       {
@@ -112,6 +114,7 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
       setShowImagePicker(false);
       setDockerImage("");
       setEntrypoint("");
+      setCommand("");
       setShowDockerConfig(false);
       setSelectedProviderOverride(null);
       setSelectedRegionOverride(null);
@@ -236,19 +239,41 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
                   <p className="text-xs text-muted-foreground">
                     Public Docker Hub image to auto-start on the selected base OS.
                   </p>
+                  <p className="text-xs text-muted-foreground/80">
+                    Exposed container port `80` is remapped to host `8080`, `443` to `8443`, and SSH stays on the base machine.
+                  </p>
                 </div>
                 {dockerImage && (
-                  <div className="space-y-2">
-                    <Label htmlFor="docker-entrypoint" className="text-xs uppercase tracking-wider text-muted-foreground">
-                      Entrypoint <span className="normal-case">(optional)</span>
-                    </Label>
-                    <Input
-                      id="docker-entrypoint"
-                      placeholder="/bin/sh -c 'my-command'"
-                      value={entrypoint}
-                      onChange={(e) => setEntrypoint(e.target.value)}
-                    />
-                  </div>
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="docker-entrypoint" className="text-xs uppercase tracking-wider text-muted-foreground">
+                        Entrypoint <span className="normal-case">(optional)</span>
+                      </Label>
+                      <Input
+                        id="docker-entrypoint"
+                        placeholder="/bin/sh"
+                        value={entrypoint}
+                        onChange={(e) => setEntrypoint(e.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Real Docker `--entrypoint` override. Leave blank to use the image default.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="docker-command" className="text-xs uppercase tracking-wider text-muted-foreground">
+                        Command <span className="normal-case">(optional)</span>
+                      </Label>
+                      <Input
+                        id="docker-command"
+                        placeholder="-lc 'python -m http.server 80'"
+                        value={command}
+                        onChange={(e) => setCommand(e.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Command and args passed after the image name. Example: `sleep infinity`.
+                      </p>
+                    </div>
+                  </>
                 )}
               </div>
             )}

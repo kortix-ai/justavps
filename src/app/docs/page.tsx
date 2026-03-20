@@ -400,12 +400,12 @@ for await (const event of client.streamEvents("my-session")) {
 }`}</CodeBlock>
         <P><a href="https://sandboxagent.dev/docs/agent-sessions" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2">Agent Sessions</a> covers the full session lifecycle — create sessions, send messages, persist transcripts, and replay or audit every event. sandbox-agent runs on port 2468 by default.</P>
 
-        <H3 id="custom-snapshots">Your Own Images</H3>
+        <H3 id="custom-images">Your Own Images</H3>
         <P>Create a private image from any running machine when you want to preserve installed dependencies, cloned repos, custom toolchains, or customer-specific setup. These bootable images appear in <B>Images</B> under your account.</P>
         <CodeBlock title="Create via API" lang="bash">{`curl -X POST https://justavps.com/api/v1/machines/{machine_id}/image \
   -H "Authorization: Bearer sk_live_xxx" \
   -H "Content-Type: application/json" \
-  -d '{"name": "my-app-snapshot"}'`}</CodeBlock>
+  -d '{"name": "my-app-image"}'`}</CodeBlock>
         <P>Poll <IC>GET /api/v1/images</IC> or <IC>GET /api/v1/images/{'{id}'}</IC> until the image status becomes <IC>ready</IC>, then pass its <IC>image_id</IC> when creating a new machine.</P>
 
         <H3 id="docker-workloads">Docker On Boot</H3>
@@ -426,9 +426,11 @@ for await (const event of client.streamEvents("my-session")) {
     "provider": "cloud",
     "server_type": "cpx42",
     "region": "hel1",
-    "docker_image": "nginx:latest"
+    "docker_image": "python:3.12-alpine",
+    "entrypoint": "python",
+    "command": "-m http.server 8000"
   }'`}</CodeBlock>
-        <P>Use <IC>image_id</IC> for built-in templates or your own saved images. Use <IC>docker_image</IC> when you want the base machine plus a container started automatically on boot.</P>
+        <P>Use <IC>image_id</IC> for built-in templates or your own saved images. Use <IC>docker_image</IC> when you want the base machine plus a container started automatically on boot. <IC>entrypoint</IC> maps to Docker <IC>--entrypoint</IC>, while <IC>command</IC> is passed after the image name.</P>
 
         <Hr />
 

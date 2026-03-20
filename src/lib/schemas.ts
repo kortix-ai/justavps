@@ -17,7 +17,8 @@ export const CreateMachineSchema = z.object({
   name: z.string().min(1).max(64).optional().describe('Human-readable name'),
   env_vars: z.record(z.string(), z.string()).optional().describe('Extra environment variables written to /etc/justavps/env on the machine'),
   docker_image: z.string().optional().describe('Docker image to run on boot (e.g. "myapp:latest")'),
-  entrypoint: z.string().optional().describe('Entrypoint for the Docker container'),
+  entrypoint: z.string().optional().describe('Optional Docker --entrypoint override (binary/path only)'),
+  command: z.string().optional().describe('Optional container command/args passed after the image name'),
   ssh_key_ids: z.array(z.string().uuid()).optional().describe('IDs of user SSH keys to add to the machine. Auto-generated key is always included.'),
   billing_interval: z.enum(['monthly', 'yearly', '2year']).optional().default('monthly').describe('Billing interval: monthly, yearly (20% off), or 2year (30% off, billed annually)'),
 });

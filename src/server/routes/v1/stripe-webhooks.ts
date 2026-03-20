@@ -258,8 +258,6 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     const provider = getProvider(machineConfig.provider);
 
     let explicitImage = null;
-    let resolvedDockerImage = machineConfig.docker_image;
-    let resolvedEntrypoint = machineConfig.entrypoint;
     if (machineConfig.image_id) {
       const [img] = await db.select().from(images).where(eq(images.id, machineConfig.image_id));
       explicitImage = img ?? null;
@@ -281,8 +279,9 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
     const resolvedImage = resolvedImageResult.selection.providerImage;
     const machineImageId = resolvedImageResult.selection.machineImageId;
-    resolvedDockerImage = resolvedDockerImage ?? resolvedImageResult.selection.dockerImage;
-    resolvedEntrypoint = resolvedEntrypoint ?? resolvedImageResult.selection.entrypoint;
+    const resolvedDockerImage = machineConfig.docker_image;
+    const resolvedEntrypoint = machineConfig.entrypoint;
+    const resolvedCommand = machineConfig.command;
 
     const { slug, machineToken } = await generateMachineIdentity();
     const autoKey = await autoGenerateAndSaveSSHKey(userId, slug);
@@ -299,6 +298,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       machineConfig.env_vars,
       resolvedDockerImage,
       resolvedEntrypoint,
+      resolvedCommand,
       extraSSHKeys,
     );
 
@@ -318,6 +318,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       priceMonthly: priceMonthly || null,
       dockerImage: resolvedDockerImage || null,
       entrypoint: resolvedEntrypoint || null,
+      dockerCommand: resolvedCommand || null,
     });
 
     if (subscriptionId) {

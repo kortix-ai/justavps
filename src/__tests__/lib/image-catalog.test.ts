@@ -3,7 +3,6 @@ import {
   buildVisibleImageCatalog,
   DEFAULT_TEMPLATE_NAME,
   getDefaultMachineLabel,
-  getTemplatePreset,
   isDefaultTemplateImage,
   resolveRequestedProviderImage,
 } from '@/server/lib/image-catalog';
@@ -56,29 +55,21 @@ describe('image catalog', () => {
     ).toBe(true);
   });
 
-  it('returns the Kortix preset workload', () => {
-    expect(getTemplatePreset('Kortix')).toEqual({
-      dockerImage: 'kortix/computer:latest',
-    });
-  });
-
-  it('resolves an explicit ready image with a Kortix preset', () => {
+  it('resolves an explicit ready image without injecting extra runtime config', () => {
     const resolved = resolveRequestedProviderImage({
       explicitImage: {
         id: '33333333-3333-3333-3333-333333333333',
         name: 'Kortix',
         status: 'ready',
-        providerImageId: '367950002',
+        providerImageId: '368326049',
       },
     });
 
     expect(resolved).toEqual({
       ok: true,
       selection: {
-        providerImage: '367950002',
+        providerImage: '368326049',
         machineImageId: '33333333-3333-3333-3333-333333333333',
-        dockerImage: 'kortix/computer:latest',
-        entrypoint: undefined,
       },
     });
   });

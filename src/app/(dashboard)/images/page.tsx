@@ -211,7 +211,7 @@ function ImageCard({ image, onDelete }: { image: Image; onDelete: () => void }) 
   const status = statusConfig[image.status] || statusConfig.failed;
   const isCreating = image.status === "creating";
   const canDelete = !image.is_template;
-  const kindLabel = image.kind === "template" ? "Template" : "Snapshot";
+  const kindLabel = image.kind === "template" ? "Template" : "Saved image";
 
   return (
     <div className="group relative p-4 rounded-xl bg-card transition-colors hover:bg-muted/40">

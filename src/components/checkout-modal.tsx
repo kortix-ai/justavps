@@ -121,6 +121,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
   const [showImagePicker, setShowImagePicker] = useState(false);
   const [dockerImage, setDockerImage] = useState("");
   const [entrypoint, setEntrypoint] = useState("");
+  const [command, setCommand] = useState("");
   const [showDockerConfig, setShowDockerConfig] = useState(false);
   const [selectedSSHKeyIds, setSelectedSSHKeyIds] = useState<string[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -215,6 +216,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
         image_id: imageId,
         docker_image: showDockerConfig ? dockerImage || undefined : undefined,
         entrypoint: showDockerConfig ? entrypoint || undefined : undefined,
+        command: showDockerConfig ? command || undefined : undefined,
         ssh_key_ids: selectedSSHKeyIds.length > 0 ? selectedSSHKeyIds : undefined,
       },
       {
@@ -505,7 +507,11 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                       {showDockerConfig && (
                         <div className="space-y-2 pl-1">
                           <Input id="co-docker-image" placeholder="nginx:latest" value={dockerImage} onChange={(e) => setDockerImage(e.target.value)} className="h-8 text-xs font-mono" />
-                          <Input id="co-docker-entry" placeholder="Entrypoint (optional)" value={entrypoint} onChange={(e) => setEntrypoint(e.target.value)} className="h-8 text-xs font-mono" />
+                          <Input id="co-docker-entry" placeholder="Entrypoint, e.g. /bin/sh" value={entrypoint} onChange={(e) => setEntrypoint(e.target.value)} className="h-8 text-xs font-mono" />
+                          <Input id="co-docker-command" placeholder="Command, e.g. -lc 'python -m http.server 80'" value={command} onChange={(e) => setCommand(e.target.value)} className="h-8 text-xs font-mono" />
+                          <p className="text-[10px] text-muted-foreground/70">
+                            Entrypoint maps to Docker `--entrypoint`; command args run after the image name.
+                          </p>
                         </div>
                       )}
                     </div>

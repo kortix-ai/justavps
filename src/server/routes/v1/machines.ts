@@ -168,8 +168,6 @@ machinesApp.openapi(createMachineRoute, async (c) => {
   // 2. Resolve image — explicit template/snapshot → default JustAVPS base snapshot → fallback public image → Ubuntu
   let resolvedImage = 'ubuntu-24.04';
   let machineImageId: string | null = null;
-  let resolvedDockerImage = data.docker_image;
-  let resolvedEntrypoint = data.entrypoint;
   if (data.image_id) {
     const [img] = await db.select().from(images).where(eq(images.id, data.image_id));
     if (!img || (img.ownerId !== ownerId && !img.isTemplate)) {
@@ -184,8 +182,6 @@ machinesApp.openapi(createMachineRoute, async (c) => {
 
     resolvedImage = resolved.selection.providerImage;
     machineImageId = resolved.selection.machineImageId;
-    resolvedDockerImage = resolvedDockerImage ?? resolved.selection.dockerImage;
-    resolvedEntrypoint = resolvedEntrypoint ?? resolved.selection.entrypoint;
   } else {
     const [baseImage] = await db.select().from(images)
       .where(and(eq(images.isTemplate, true), eq(images.status, 'ready'), eq(images.name, DEFAULT_TEMPLATE_NAME)))
@@ -203,6 +199,10 @@ machinesApp.openapi(createMachineRoute, async (c) => {
     resolvedImage = resolved.selection.providerImage;
     machineImageId = resolved.selection.machineImageId;
   }
+
+  const resolvedDockerImage = data.docker_image;
+  const resolvedEntrypoint = data.entrypoint;
+  const resolvedCommand = data.command;
 
   const { priceMonthly, specs } = await lookupPriceAndSpecs(provider, data.region, data.server_type);
 
@@ -231,6 +231,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
           image_id: data.image_id ?? machineImageId,
           docker_image: resolvedDockerImage,
           entrypoint: resolvedEntrypoint,
+          command: resolvedCommand,
           env_vars: data.env_vars,
           ssh_key_ids: data.ssh_key_ids,
           specs,
@@ -297,7 +298,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       : [];
 
     const providerKeyId = await uploadSSHKeyToProvider(provider, slug, autoKey.publicKey);
-    const userdata = buildMachineUserData(slug, autoKey.publicKey, machineToken, data.env_vars, resolvedDockerImage, resolvedEntrypoint, extraSSHKeys);
+    const userdata = buildMachineUserData(slug, autoKey.publicKey, machineToken, data.env_vars, resolvedDockerImage, resolvedEntrypoint, resolvedCommand, extraSSHKeys);
 
     const machine = await createMachineRecord({
       ownerId,
@@ -315,6 +316,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       priceMonthly,
       dockerImage: resolvedDockerImage || null,
       entrypoint: resolvedEntrypoint || null,
+      dockerCommand: resolvedCommand || null,
     });
 
     if (stripeSubId) {

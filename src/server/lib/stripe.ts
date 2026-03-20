@@ -33,6 +33,7 @@ export interface CheckoutMachineConfig {
   image_id?: string | null;
   docker_image?: string;
   entrypoint?: string;
+  command?: string;
   env_vars?: Record<string, string>;
   ssh_key_ids?: string[];
   /** Machine specs for Stripe product display — optional, falls back to generic name */

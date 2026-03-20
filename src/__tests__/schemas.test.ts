@@ -81,14 +81,28 @@ describe('validation schemas', () => {
     it('should accept entrypoint field', () => {
       const data = {
         ...validData,
-        entrypoint: 'sleep infinity',
+        entrypoint: '/bin/sh',
       };
       
       const result = CreateMachineSchema.safeParse(data);
       
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.entrypoint).toBe('sleep infinity');
+        expect(result.data.entrypoint).toBe('/bin/sh');
+      }
+    });
+
+    it('should accept command field', () => {
+      const data = {
+        ...validData,
+        command: 'sleep infinity',
+      };
+
+      const result = CreateMachineSchema.safeParse(data);
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.command).toBe('sleep infinity');
       }
     });
 

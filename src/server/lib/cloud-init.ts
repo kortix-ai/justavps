@@ -18,6 +18,7 @@ interface CloudInitOpts {
   envVars?: Record<string, string>;
   dockerImage?: string;
   entrypoint?: string;
+  command?: string;
   extraSSHKeys?: string[];
   daemonChannel?: 'dev' | 'latest';
 }
@@ -49,8 +50,11 @@ export function buildCloudInit(opts: CloudInitOpts): string {
   const dockerImageBase64 = opts.dockerImage
     ? Buffer.from(opts.dockerImage).toString('base64')
     : '';
-  const dockerCommandBase64 = opts.entrypoint
+  const dockerEntrypointBase64 = opts.entrypoint
     ? Buffer.from(opts.entrypoint).toString('base64')
+    : '';
+  const dockerCommandBase64 = opts.command
+    ? Buffer.from(opts.command).toString('base64')
     : '';
 
   const dockerBlock = opts.dockerImage ? `
@@ -89,7 +93,24 @@ if [ ! -s "$ENV_FILE" ]; then
 fi
 
 DOCKER_IMAGE="$(printf '%s' '${dockerImageBase64}' | base64 -d)"
+DOCKER_ENTRYPOINT="$(printf '%s' '${dockerEntrypointBase64}' | base64 -d 2>/dev/null || true)"
 DOCKER_COMMAND="$(printf '%s' '${dockerCommandBase64}' | base64 -d 2>/dev/null || true)"
+
+append_command_args() {
+  local command_text="$1"
+  [ -n "$command_text" ] || return 0
+
+  while IFS= read -r -d '' arg; do
+    RUN_ARGS+=("$arg")
+  done < <(python3 - "$command_text" <<'PY'
+import shlex
+import sys
+
+for token in shlex.split(sys.argv[1]):
+    sys.stdout.buffer.write(token.encode('utf-8') + b'\\0')
+PY
+)
+}
 
 resolve_host_port() {
   case "$1" in
@@ -131,24 +152,34 @@ fi
 
 docker rm -f justavps-workload 2>/dev/null || true
 
-RUN_CMD="docker run --rm --name justavps-workload --env-file $(printf '%q' \"$ENV_FILE\") --cap-add SYS_ADMIN --security-opt seccomp=unconfined --shm-size 2g -v justavps-data:/workspace"
+RUN_ARGS=(
+  docker run --rm
+  --name justavps-workload
+  --env-file "$ENV_FILE"
+  --cap-add SYS_ADMIN
+  --security-opt seccomp=unconfined
+  --shm-size 2g
+  -v justavps-data:/workspace
+)
 for arg in "\${PORT_ARGS[@]}"; do
-  RUN_CMD+=" $(printf '%q' \"$arg\")"
+  RUN_ARGS+=("$arg")
 done
-RUN_CMD+=" $(printf '%q' \"$DOCKER_IMAGE\")"
-if [ -n "$DOCKER_COMMAND" ]; then
-  RUN_CMD+=" $DOCKER_COMMAND"
+if [ -n "$DOCKER_ENTRYPOINT" ]; then
+  RUN_ARGS+=(--entrypoint "$DOCKER_ENTRYPOINT")
 fi
+RUN_ARGS+=("$DOCKER_IMAGE")
+append_command_args "$DOCKER_COMMAND"
 
 printf '%s\n' "\${HOST_PORTS[@]}" > /etc/justavps/docker-host-ports
 
-exec bash -lc "$RUN_CMD"
+exec "\${RUN_ARGS[@]}"
 DOCKERSTARTEOF
 chmod +x /usr/local/bin/justavps-docker-start.sh
 
-if ! docker image inspect ${opts.dockerImage} >/dev/null 2>&1; then
-  echo "[justavps] Pulling ${opts.dockerImage}..."
-  docker pull ${opts.dockerImage}
+BOOT_DOCKER_IMAGE="$(printf '%s' '${dockerImageBase64}' | base64 -d)"
+if ! docker image inspect "$BOOT_DOCKER_IMAGE" >/dev/null 2>&1; then
+  echo "[justavps] Pulling $BOOT_DOCKER_IMAGE..."
+  docker pull "$BOOT_DOCKER_IMAGE"
 fi
 
 systemctl daemon-reload
@@ -164,12 +195,15 @@ for i in $(seq 1 120); do
 done
 
 echo "[justavps] Waiting for services to be ready..."
-PRIMARY_PORT="$(sed -n '1p' /etc/justavps/docker-host-ports 2>/dev/null || true)"
+SERVICE_READY=0
 for i in $(seq 1 120); do
-  if [ -n "$PRIMARY_PORT" ] && (curl -sf "http://localhost:\${PRIMARY_PORT}/" >/dev/null 2>&1 || curl -sf "http://localhost:\${PRIMARY_PORT}/health" >/dev/null 2>&1); then
-    ${stageCallback('services_ready', 'All services are up')}
-    break
-  fi
+  for host_port in "\${HOST_PORTS[@]}"; do
+    if curl -sf "http://localhost:\${host_port}/" >/dev/null 2>&1 || curl -sf "http://localhost:\${host_port}/health" >/dev/null 2>&1; then
+      ${stageCallback('services_ready', 'All services are up')}
+      SERVICE_READY=1
+      break 2
+    fi
+  done
   sleep 2
 done
 ` : '';
