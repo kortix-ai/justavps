@@ -122,7 +122,6 @@ if [ -n "$PS1" ] && [ -z "$JUSTAVPS_BANNER_SHOWN" ]; then
   echo -e "  \033[90m─────────────────────────────────────────\033[0m"
   echo -e "  \033[37mPorts:\033[0m  https://\033[1;36mPORT\033[0m--__SLUG__.__DOMAIN__"
   echo -e "  \033[37mHelp:\033[0m   \033[33mporturl\033[0m \033[90m[PORT]\033[0m  — get public URL"
-  echo -e "          \033[33mportwatch\033[0m       — live port notifications"
   echo ""
 
   # Show currently active ports if any
@@ -139,6 +138,29 @@ if [ -n "$PS1" ] && [ -z "$JUSTAVPS_BANNER_SHOWN" ]; then
     done
     echo ""
   fi
+
+  # ── Auto-start portwatch in background ──────────────────────────────
+  # Silently watches for new ports and prints notifications inline.
+  # Killed automatically when the shell exits (subshell + disown).
+  _portwatch_events="/run/justavps/port-events"
+  (
+    _pw_last=0
+    [ -f "$_portwatch_events" ] && _pw_last=$(wc -c < "$_portwatch_events" 2>/dev/null || echo 0)
+    while kill -0 $$ 2>/dev/null; do
+      sleep 2
+      [ -f "$_portwatch_events" ] || continue
+      _pw_cur=$(wc -c < "$_portwatch_events" 2>/dev/null || echo 0)
+      if [ "$_pw_cur" -gt "$_pw_last" ]; then
+        tail -c +"$((_pw_last + 1))" "$_portwatch_events" 2>/dev/null | while IFS=' ' read -r _ts _action _port _url _rest; do
+          if [ "$_action" = "open" ]; then
+            echo -e "\r\033[1;32m⚡ Port $_port is now available:\033[0m $_url"
+          fi
+        done
+        _pw_last=$_pw_cur
+      fi
+    done
+  ) &
+  disown $! 2>/dev/null
 fi
 `
 	script = strings.ReplaceAll(script, "__SLUG__", slug)
