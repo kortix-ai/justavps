@@ -144,7 +144,8 @@ describe('cloud-init', () => {
 
     it('should enable and start daemon as the primary service', () => {
       const script = buildCloudInit(defaultOpts);
-      expect(script).toContain('systemctl enable --now justavps-daemon');
+      expect(script).toContain('systemctl enable justavps-daemon 2>/dev/null || true');
+      expect(script).toContain('systemctl restart justavps-daemon 2>/dev/null || true');
     });
   });
 
@@ -184,7 +185,8 @@ describe('cloud-init', () => {
       expect(script).toContain('RUN_ARGS=(');
       expect(script).toContain('--name justavps-workload');
       expect(script).toContain('bXlhcHA6bGF0ZXN0');
-      expect(script).toContain('systemctl enable --now justavps-docker');
+      expect(script).toContain('systemctl enable justavps-docker 2>/dev/null || true');
+      expect(script).toContain('systemctl restart justavps-docker');
       expect(script).toContain('docker-host-ports');
     });
 
