@@ -12,6 +12,11 @@ on:
     branches: [production, main]
     paths:
       - 'daemon/**'
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
 
 concurrency:
   group: release-daemon-${{ github.ref_name }}
@@ -23,6 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - uses: actions/setup-go@v5
         with:
@@ -46,7 +53,8 @@ jobs:
       - name: Set R2 path prefix
         id: r2path
         run: |
-          if [ "${{ github.ref_name }}" = "production" ]; then
+          REF="${{ inputs.ref || github.ref_name }}"
+          if [[ "$REF" == "production" || "$REF" == "refs/heads/production" ]]; then
             echo "prefix=daemon" >> "$GITHUB_OUTPUT"
           else
             echo "prefix=daemon/dev" >> "$GITHUB_OUTPUT"

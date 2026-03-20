@@ -1,6 +1,9 @@
 name: Promote to Production
 
-# Manually promote main → production via GitHub Actions UI
+# Manually promote main → production via GitHub Actions UI.
+# After fast-forward, triggers daemon release + worker deploy for the production branch
+# (GITHUB_TOKEN pushes don't cascade-trigger workflows, so we call them explicitly).
+
 on:
   workflow_dispatch:
     inputs:
@@ -28,3 +31,19 @@ jobs:
           git push origin production
           echo "### Promoted main → production" >> $GITHUB_STEP_SUMMARY
           echo "Commit: $(git rev-parse --short HEAD)" >> $GITHUB_STEP_SUMMARY
+
+  release-daemon:
+    name: Release Daemon (production)
+    needs: promote
+    uses: ./.github/workflows/release-daemon.yml
+    with:
+      ref: production
+    secrets: inherit
+
+  deploy-worker:
+    name: Deploy Worker (production)
+    needs: promote
+    uses: ./.github/workflows/deploy-worker.yml
+    with:
+      ref: production
+    secrets: inherit

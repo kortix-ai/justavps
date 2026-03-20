@@ -10,6 +10,11 @@ on:
     branches: [main, production]
     paths:
       - 'workers/proxy/**'
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
 
 concurrency:
   group: deploy-worker-${{ github.ref_name }}
@@ -21,6 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
 
@@ -42,6 +49,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
 
