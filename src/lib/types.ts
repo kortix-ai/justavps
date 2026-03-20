@@ -160,6 +160,7 @@ export interface AccountProfile {
   machines_count: number;
   stripe_customer_id: string | null;
   has_password: boolean;
+  is_admin: boolean;
   created_at: string;
 }
 

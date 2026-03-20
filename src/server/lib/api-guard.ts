@@ -7,6 +7,7 @@ import { decode } from 'next-auth/jwt';
 
 export type AuthVariables = {
   userId: string;
+  isAdmin: boolean;
 };
 
 function extractSessionCookie(cookieHeader: string): { value: string; salt: string } | null {
@@ -41,7 +42,11 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(
               .set({ lastUsed: new Date() })
               .where(eq(apiKeys.id, k.id))
               .catch((err) => console.error('[API_GUARD] Failed to update lastUsed:', err));
+
+            // Fetch isAdmin for API key owner
+            const [user] = await db.select({ isAdmin: users.isAdmin }).from(users).where(eq(users.id, k.ownerId));
             c.set('userId', k.ownerId);
+            c.set('isAdmin', user?.isAdmin ?? false);
             return next();
           }
         }
@@ -70,12 +75,13 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(
 
           if (token?.sub) {
             const [user] = await db
-              .select({ id: users.id })
+              .select({ id: users.id, isAdmin: users.isAdmin })
               .from(users)
               .where(eq(users.id, token.sub));
 
             if (user) {
               c.set('userId', user.id);
+              c.set('isAdmin', user.isAdmin);
               return next();
             }
           }
@@ -89,17 +95,19 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(
       console.warn('[API_GUARD] No AUTH_SECRET — using dev fallback (non-production only)');
       try {
         const [firstUser] = await db
-          .select({ id: users.id })
+          .select({ id: users.id, isAdmin: users.isAdmin })
           .from(users)
           .limit(1);
         if (firstUser) {
           c.set('userId', firstUser.id);
+          c.set('isAdmin', firstUser.isAdmin);
           return next();
         }
       } catch (err) {
         console.error('[API_GUARD] Dev fallback DB error:', err);
       }
       c.set('userId', 'dev-user-00000000-0000-0000-0000-000000000000');
+      c.set('isAdmin', false);
       return next();
     }
 

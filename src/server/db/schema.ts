@@ -14,6 +14,7 @@ export const users = pgTable('users', {
   githubId: text('github_id').unique(),
   name: text('name'),
   stripeCustomerId: text('stripe_customer_id'),
+  isAdmin: boolean('is_admin').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

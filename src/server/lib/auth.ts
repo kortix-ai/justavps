@@ -48,6 +48,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           const valid = await verifyPassword(password, user.passwordHash);
           if (!valid) return null;
 
+          // Auto-promote kortix.ai / kortix.com users to admin
+          const isKortixDomain = email.endsWith('@kortix.ai') || email.endsWith('@kortix.com');
+          if (isKortixDomain && !user.isAdmin) {
+            await db.update(users).set({ isAdmin: true }).where(eq(users.id, user.id));
+          }
+
           return { id: user.id, email: user.email, name: user.name };
         } catch (err) {
           console.error('[AUTH] authorize error:', err);
@@ -69,13 +75,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
       if (!email) return false;
 
+      const isKortixEmail = email.endsWith('@kortix.ai') || email.endsWith('@kortix.com');
+
       try {
         const [existingByGithub] = await db.select().from(users)
           .where(eq(users.githubId, githubId));
 
         if (existingByGithub) {
-          if (name && name !== existingByGithub.name) {
-            await db.update(users).set({ name }).where(eq(users.id, existingByGithub.id));
+          const updates: Record<string, unknown> = {};
+          if (name && name !== existingByGithub.name) updates.name = name;
+          if (isKortixEmail && !existingByGithub.isAdmin) updates.isAdmin = true;
+          if (Object.keys(updates).length) {
+            await db.update(users).set(updates).where(eq(users.id, existingByGithub.id));
           }
           user.id = existingByGithub.id;
           return true;
@@ -85,10 +96,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           .where(eq(users.email, email));
 
         if (existingByEmail) {
-          await db.update(users).set({
-            githubId,
-            ...(name && !existingByEmail.name ? { name } : {}),
-          }).where(eq(users.id, existingByEmail.id));
+          const updates: Record<string, unknown> = { githubId };
+          if (name && !existingByEmail.name) updates.name = name;
+          if (isKortixEmail && !existingByEmail.isAdmin) updates.isAdmin = true;
+          await db.update(users).set(updates).where(eq(users.id, existingByEmail.id));
           user.id = existingByEmail.id;
           return true;
         }
@@ -97,6 +108,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           email,
           name,
           githubId,
+          isAdmin: isKortixEmail,
         }).returning({ id: users.id });
 
         user.id = newUser.id;
@@ -107,7 +119,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       }
     },
 
-    async jwt({ token, user, account }) {
+    async jwt({ token, user }) {
       if (user) {
         token.sub = user.id;
         token.email = user.email;

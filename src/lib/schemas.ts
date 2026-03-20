@@ -233,6 +233,7 @@ export const AccountResponseSchema = z.object({
   machines_count: z.number(),
   stripe_customer_id: z.string().nullable(),
   has_password: z.boolean(),
+  is_admin: z.boolean(),
   created_at: z.string(),
 });
 

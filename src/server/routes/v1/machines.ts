@@ -154,6 +154,7 @@ const createMachineRoute = createRoute({
 machinesApp.openapi(createMachineRoute, async (c) => {
   const data = c.req.valid('json');
   const ownerId = c.get('userId');
+  const isAdmin = c.get('isAdmin');
 
   // 0. Check account machine limit
   const machineLimit = await checkMachineLimit(ownerId);
@@ -210,7 +211,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
   let stripeSubId: string | null = null;
   let stripeSubItemId: string | null = null;
 
-  if (stripeClient.isConfigured()) {
+  if (stripeClient.isConfigured() && !isAdmin) {
     const [user] = await db.select().from(users).where(eq(users.id, ownerId));
     if (!user) return errorResponse(c, 404, 'User not found') as any;
 

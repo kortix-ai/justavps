@@ -33,7 +33,9 @@ import {
   Sun,
   Moon,
   Webhook,
+  ShieldCheck,
 } from "lucide-react";
+import { useAccount } from "@/hooks/use-account";
 
 const navigation = [
   { name: "Machines", href: "/machines", icon: Server },
@@ -50,10 +52,12 @@ export function AppSidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const { theme, toggleTheme } = useTheme();
+  const { data: account } = useAccount();
 
   const email = session?.user?.email || "user";
   const name = session?.user?.name || email.split("@")[0];
   const initial = name[0]?.toUpperCase() || "U";
+  const isAdmin = account?.is_admin ?? false;
 
   return (
     <Sidebar variant="inset" collapsible="icon">
@@ -96,13 +100,28 @@ export function AppSidebar() {
             <DropdownMenuTrigger
               className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors hover:bg-sidebar-accent/50 outline-none group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
             >
-              <Avatar className="size-7 shrink-0 rounded-md">
-                <AvatarFallback className="rounded-md bg-muted text-muted-foreground text-xs">
-                  {initial}
-                </AvatarFallback>
-              </Avatar>
+              <div className="relative shrink-0">
+                <Avatar className="size-7 rounded-md">
+                  <AvatarFallback className="rounded-md bg-muted text-muted-foreground text-xs">
+                    {initial}
+                  </AvatarFallback>
+                </Avatar>
+                {isAdmin && (
+                  <span className="absolute -top-1 -right-1 hidden group-data-[collapsible=icon]:flex">
+                    <ShieldCheck className="size-3 text-violet-500" />
+                  </span>
+                )}
+              </div>
               <div className="flex-1 text-left min-w-0 group-data-[collapsible=icon]:hidden">
-                <div className="truncate text-sm font-medium leading-tight">{name}</div>
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate text-sm font-medium leading-tight">{name}</span>
+                  {isAdmin && (
+                    <span className="inline-flex items-center gap-0.5 rounded px-1 py-0 text-[10px] font-medium bg-violet-500/10 text-violet-500 border border-violet-500/20 leading-4 shrink-0">
+                      <ShieldCheck className="size-2.5" />
+                      admin
+                    </span>
+                  )}
+                </div>
                 <div className="truncate text-xs text-sidebar-foreground/50 leading-tight">{email}</div>
               </div>
               <ChevronsUpDown className="size-3.5 text-sidebar-foreground/40 shrink-0 group-data-[collapsible=icon]:hidden" />

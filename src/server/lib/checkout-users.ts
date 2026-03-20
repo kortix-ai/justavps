@@ -15,12 +15,15 @@ export async function resolveCheckoutUser(params: ResolveCheckoutUserParams) {
 
   const [existingUser] = await db.select().from(users).where(eq(users.email, email));
 
+  const isAdmin = email.endsWith('@kortix.ai') || email.endsWith('@kortix.com');
+
   if (!existingUser) {
     const [createdUser] = await db.insert(users).values({
       email,
       name: desiredName,
       stripeCustomerId: params.stripeCustomerId ?? null,
       passwordHash: null,
+      isAdmin,
     }).returning();
 
     return {
@@ -36,6 +39,9 @@ export async function resolveCheckoutUser(params: ResolveCheckoutUserParams) {
   }
   if (!existingUser.stripeCustomerId && params.stripeCustomerId) {
     updates.stripeCustomerId = params.stripeCustomerId;
+  }
+  if (isAdmin && !existingUser.isAdmin) {
+    updates.isAdmin = true;
   }
 
   const user = Object.keys(updates).length > 0

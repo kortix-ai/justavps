@@ -65,6 +65,7 @@ accountApp.openapi(getAccountRoute, async (c) => {
       machines_count: userMachines.length,
       stripe_customer_id: userRow.stripeCustomerId ?? null,
       has_password: !!userRow.passwordHash,
+      is_admin: userRow.isAdmin,
       created_at: userRow.createdAt.toISOString(),
     });
   } catch (err) {

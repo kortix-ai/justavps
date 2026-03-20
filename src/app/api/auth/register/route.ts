@@ -44,12 +44,14 @@ export async function POST(req: NextRequest) {
 
     // Hash password and create user
     const passwordHash = await hashPassword(password);
+    const isAdmin = email.endsWith('@kortix.ai') || email.endsWith('@kortix.com');
     const [user] = await db
       .insert(users)
       .values({
         email,
         passwordHash,
         name: name || email.split('@')[0],
+        isAdmin,
       })
       .returning();
 
