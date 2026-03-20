@@ -125,23 +125,26 @@ POST /api/v1/machines
   "region": "nbg1",
   "name": "my-machine",           // optional
   "image_id": null,                // null = Ubuntu (default). UUID = user image.
-  "docker_image": "nginx:latest",  // optional — pulled & run at boot
-  "entrypoint": "sleep infinity",  // optional — container CMD override
-  "env_vars": { "MY_KEY": "val" }  // optional
+  "docker_image": "python:3.12-alpine",  // optional — pulled & run at boot
+  "entrypoint": "python",                // optional — Docker --entrypoint override
+  "command": "-m http.server 8000",      // optional — container command/args
+  "env_vars": { "MY_KEY": "val" }      // optional
 }
 ```
 
 - `image_id: null` → boot from `ubuntu-24.04`
 - `image_id: "uuid"` → boot from user's image
 - `docker_image` → pulled at boot, run as systemd-managed container
-- `entrypoint` → CMD override. Null = image default. `"sleep infinity"` = keep alive.
+- `entrypoint` → Docker `--entrypoint` override. Null = image default.
+- `command` → command/args passed after the image name. Null = image default CMD.
 
 ### Machines Table Changes
 
 ```sql
 -- ADD these columns to machines:
-  docker_image    TEXT,       -- e.g. "nginx:latest"
-  entrypoint      TEXT,       -- e.g. "sleep infinity"
+  docker_image    TEXT,       -- e.g. "python:3.12-alpine"
+  entrypoint      TEXT,       -- e.g. "python"
+  docker_command  TEXT,       -- e.g. "-m http.server 8000"
 
 -- RENAME:
   snapshot_id  →  image_id    -- references images(id), NULLABLE
@@ -204,7 +207,7 @@ chmod +x /usr/local/bin/justavps-daemon
 ### Add
 
 - `POST /machines/:id/image` endpoint
-- `docker_image`, `entrypoint` columns on machines table
+- `docker_image`, `entrypoint`, `docker_command` columns on machines table
 - `provider_image_id`, `source_machine_id`, `disk_size_gb` columns on images table
 - `daemon/` Go project (later — placeholder binary for now)
 - Smart cloud-init with install detection

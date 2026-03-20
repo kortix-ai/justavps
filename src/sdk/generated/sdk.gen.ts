@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { DeleteApiV1ApiKeysByIdData, DeleteApiV1ApiKeysByIdErrors, DeleteApiV1ApiKeysByIdResponses, DeleteApiV1ImagesByIdData, DeleteApiV1ImagesByIdErrors, DeleteApiV1ImagesByIdResponses, DeleteApiV1MachinesByIdData, DeleteApiV1MachinesByIdErrors, DeleteApiV1MachinesByIdResponses, DeleteApiV1MachinesByMachineIdToolboxFilesData, DeleteApiV1MachinesByMachineIdToolboxFilesErrors, DeleteApiV1MachinesByMachineIdToolboxFilesResponses, DeleteApiV1SshKeysByIdData, DeleteApiV1SshKeysByIdErrors, DeleteApiV1SshKeysByIdResponses, DeleteApiV1WebhooksByIdData, DeleteApiV1WebhooksByIdErrors, DeleteApiV1WebhooksByIdResponses, GetApiV1AccountBillingData, GetApiV1AccountBillingErrors, GetApiV1AccountBillingResponses, GetApiV1AccountData, GetApiV1AccountErrors, GetApiV1AccountLimitsData, GetApiV1AccountLimitsErrors, GetApiV1AccountLimitsResponses, GetApiV1AccountResponses, GetApiV1AccountUsageData, GetApiV1AccountUsageErrors, GetApiV1AccountUsageResponses, GetApiV1ApiKeysData, GetApiV1ApiKeysErrors, GetApiV1ApiKeysResponses, GetApiV1ImagesByIdData, GetApiV1ImagesByIdErrors, GetApiV1ImagesByIdResponses, GetApiV1ImagesData, GetApiV1ImagesErrors, GetApiV1ImagesResponses, GetApiV1InternalValidateKeyData, GetApiV1InternalValidateKeyErrors, GetApiV1InternalValidateKeyResponses, GetApiV1MachinesByIdBackupsData, GetApiV1MachinesByIdBackupsErrors, GetApiV1MachinesByIdBackupsResponses, GetApiV1MachinesByIdData, GetApiV1MachinesByIdErrors, GetApiV1MachinesByIdResponses, GetApiV1MachinesByIdStatusStreamData, GetApiV1MachinesByIdStatusStreamErrors, GetApiV1MachinesByIdStatusStreamResponses, GetApiV1MachinesByMachineIdToolboxFilesData, GetApiV1MachinesByMachineIdToolboxFilesDownloadData, GetApiV1MachinesByMachineIdToolboxFilesDownloadErrors, GetApiV1MachinesByMachineIdToolboxFilesDownloadResponses, GetApiV1MachinesByMachineIdToolboxFilesErrors, GetApiV1MachinesByMachineIdToolboxFilesExistsData, GetApiV1MachinesByMachineIdToolboxFilesExistsErrors, GetApiV1MachinesByMachineIdToolboxFilesExistsResponses, GetApiV1MachinesByMachineIdToolboxFilesFindData, GetApiV1MachinesByMachineIdToolboxFilesFindErrors, GetApiV1MachinesByMachineIdToolboxFilesFindResponses, GetApiV1MachinesByMachineIdToolboxFilesInfoData, GetApiV1MachinesByMachineIdToolboxFilesInfoErrors, GetApiV1MachinesByMachineIdToolboxFilesInfoResponses, GetApiV1MachinesByMachineIdToolboxFilesResponses, GetApiV1MachinesByMachineIdToolboxProcessListData, GetApiV1MachinesByMachineIdToolboxProcessListErrors, GetApiV1MachinesByMachineIdToolboxProcessListResponses, GetApiV1MachinesData, GetApiV1MachinesErrors, GetApiV1MachinesResponses, GetApiV1ServerTypesData, GetApiV1ServerTypesErrors, GetApiV1ServerTypesProvidersData, GetApiV1ServerTypesProvidersResponses, GetApiV1ServerTypesRegionsData, GetApiV1ServerTypesRegionsErrors, GetApiV1ServerTypesRegionsResponses, GetApiV1ServerTypesResponses, GetApiV1SshKeysData, GetApiV1SshKeysErrors, GetApiV1SshKeysResponses, GetApiV1WebhooksData, GetApiV1WebhooksErrors, GetApiV1WebhooksResponses, PostApiV1AccountBillingSetupData, PostApiV1AccountBillingSetupErrors, PostApiV1AccountBillingSetupResponses, PostApiV1ApiKeysData, PostApiV1ApiKeysErrors, PostApiV1ApiKeysResponses, PostApiV1InternalHeartbeatData, PostApiV1InternalHeartbeatErrors, PostApiV1InternalHeartbeatResponses, PostApiV1InternalStageData, PostApiV1InternalStageErrors, PostApiV1InternalStageResponses, PostApiV1MachinesByIdBackupsData, PostApiV1MachinesByIdBackupsDisableData, PostApiV1MachinesByIdBackupsDisableErrors, PostApiV1MachinesByIdBackupsDisableResponses, PostApiV1MachinesByIdBackupsEnableData, PostApiV1MachinesByIdBackupsEnableErrors, PostApiV1MachinesByIdBackupsEnableResponses, PostApiV1MachinesByIdBackupsErrors, PostApiV1MachinesByIdBackupsResponses, PostApiV1MachinesByIdImageData, PostApiV1MachinesByIdImageErrors, PostApiV1MachinesByIdImageResponses, PostApiV1MachinesByIdRebootData, PostApiV1MachinesByIdRebootErrors, PostApiV1MachinesByIdRebootResponses, PostApiV1MachinesByIdResizeData, PostApiV1MachinesByIdResizeErrors, PostApiV1MachinesByIdResizeResponses, PostApiV1MachinesByMachineIdToolboxFilesBulkDownloadData, PostApiV1MachinesByMachineIdToolboxFilesBulkDownloadErrors, PostApiV1MachinesByMachineIdToolboxFilesBulkDownloadResponses, PostApiV1MachinesByMachineIdToolboxFilesFolderData, PostApiV1MachinesByMachineIdToolboxFilesFolderErrors, PostApiV1MachinesByMachineIdToolboxFilesFolderResponses, PostApiV1MachinesByMachineIdToolboxFilesMoveData, PostApiV1MachinesByMachineIdToolboxFilesMoveErrors, PostApiV1MachinesByMachineIdToolboxFilesMoveResponses, PostApiV1MachinesByMachineIdToolboxFilesPermissionsData, PostApiV1MachinesByMachineIdToolboxFilesPermissionsErrors, PostApiV1MachinesByMachineIdToolboxFilesPermissionsResponses, PostApiV1MachinesByMachineIdToolboxFilesReplaceData, PostApiV1MachinesByMachineIdToolboxFilesReplaceErrors, PostApiV1MachinesByMachineIdToolboxFilesReplaceResponses, PostApiV1MachinesByMachineIdToolboxFilesUploadData, PostApiV1MachinesByMachineIdToolboxFilesUploadErrors, PostApiV1MachinesByMachineIdToolboxFilesUploadResponses, PostApiV1MachinesByMachineIdToolboxProcessCodeRunData, PostApiV1MachinesByMachineIdToolboxProcessCodeRunErrors, PostApiV1MachinesByMachineIdToolboxProcessCodeRunResponses, PostApiV1MachinesByMachineIdToolboxProcessExecuteData, PostApiV1MachinesByMachineIdToolboxProcessExecuteErrors, PostApiV1MachinesByMachineIdToolboxProcessExecuteResponses, PostApiV1MachinesByMachineIdToolboxProcessExecuteStreamData, PostApiV1MachinesByMachineIdToolboxProcessExecuteStreamErrors, PostApiV1MachinesByMachineIdToolboxProcessExecuteStreamResponses, PostApiV1MachinesByMachineIdToolboxProcessKillData, PostApiV1MachinesByMachineIdToolboxProcessKillErrors, PostApiV1MachinesByMachineIdToolboxProcessKillResponses, PostApiV1MachinesData, PostApiV1MachinesErrors, PostApiV1MachinesResponses, PostApiV1SshKeysData, PostApiV1SshKeysErrors, PostApiV1SshKeysResponses, PostApiV1WebhooksData, PostApiV1WebhooksErrors, PostApiV1WebhooksResponses } from './types.gen';
+import type { DeleteApiV1ApiKeysByIdData, DeleteApiV1ApiKeysByIdErrors, DeleteApiV1ApiKeysByIdResponses, DeleteApiV1ImagesByIdData, DeleteApiV1ImagesByIdErrors, DeleteApiV1ImagesByIdResponses, DeleteApiV1MachinesByIdData, DeleteApiV1MachinesByIdErrors, DeleteApiV1MachinesByIdResponses, DeleteApiV1MachinesByMachineIdToolboxFilesData, DeleteApiV1MachinesByMachineIdToolboxFilesErrors, DeleteApiV1MachinesByMachineIdToolboxFilesResponses, DeleteApiV1SshKeysByIdData, DeleteApiV1SshKeysByIdErrors, DeleteApiV1SshKeysByIdResponses, DeleteApiV1WebhooksByIdData, DeleteApiV1WebhooksByIdErrors, DeleteApiV1WebhooksByIdResponses, GetApiV1AccountBillingData, GetApiV1AccountBillingErrors, GetApiV1AccountBillingResponses, GetApiV1AccountData, GetApiV1AccountErrors, GetApiV1AccountLimitsData, GetApiV1AccountLimitsErrors, GetApiV1AccountLimitsResponses, GetApiV1AccountResponses, GetApiV1AccountUsageData, GetApiV1AccountUsageErrors, GetApiV1AccountUsageResponses, GetApiV1ApiKeysData, GetApiV1ApiKeysErrors, GetApiV1ApiKeysResponses, GetApiV1ImagesByIdData, GetApiV1ImagesByIdErrors, GetApiV1ImagesByIdResponses, GetApiV1ImagesData, GetApiV1ImagesErrors, GetApiV1ImagesResponses, GetApiV1ImportKortixCallbackData, GetApiV1ImportKortixCallbackErrors, GetApiV1ImportKortixMachinesData, GetApiV1ImportKortixMachinesErrors, GetApiV1ImportKortixMachinesResponses, GetApiV1ImportKortixStartData, GetApiV1ImportKortixStartErrors, GetApiV1ImportKortixStartResponses, GetApiV1ImportKortixStatusData, GetApiV1ImportKortixStatusErrors, GetApiV1ImportKortixStatusResponses, GetApiV1InternalValidateKeyData, GetApiV1InternalValidateKeyErrors, GetApiV1InternalValidateKeyResponses, GetApiV1MachinesByIdBackupsData, GetApiV1MachinesByIdBackupsErrors, GetApiV1MachinesByIdBackupsResponses, GetApiV1MachinesByIdData, GetApiV1MachinesByIdErrors, GetApiV1MachinesByIdResponses, GetApiV1MachinesByIdStatusStreamData, GetApiV1MachinesByIdStatusStreamErrors, GetApiV1MachinesByIdStatusStreamResponses, GetApiV1MachinesByMachineIdToolboxFilesData, GetApiV1MachinesByMachineIdToolboxFilesDownloadData, GetApiV1MachinesByMachineIdToolboxFilesDownloadErrors, GetApiV1MachinesByMachineIdToolboxFilesDownloadResponses, GetApiV1MachinesByMachineIdToolboxFilesErrors, GetApiV1MachinesByMachineIdToolboxFilesExistsData, GetApiV1MachinesByMachineIdToolboxFilesExistsErrors, GetApiV1MachinesByMachineIdToolboxFilesExistsResponses, GetApiV1MachinesByMachineIdToolboxFilesFindData, GetApiV1MachinesByMachineIdToolboxFilesFindErrors, GetApiV1MachinesByMachineIdToolboxFilesFindResponses, GetApiV1MachinesByMachineIdToolboxFilesInfoData, GetApiV1MachinesByMachineIdToolboxFilesInfoErrors, GetApiV1MachinesByMachineIdToolboxFilesInfoResponses, GetApiV1MachinesByMachineIdToolboxFilesResponses, GetApiV1MachinesByMachineIdToolboxProcessListData, GetApiV1MachinesByMachineIdToolboxProcessListErrors, GetApiV1MachinesByMachineIdToolboxProcessListResponses, GetApiV1MachinesData, GetApiV1MachinesErrors, GetApiV1MachinesResponses, GetApiV1ServerTypesData, GetApiV1ServerTypesErrors, GetApiV1ServerTypesProvidersData, GetApiV1ServerTypesProvidersResponses, GetApiV1ServerTypesRegionsData, GetApiV1ServerTypesRegionsErrors, GetApiV1ServerTypesRegionsResponses, GetApiV1ServerTypesResponses, GetApiV1SshKeysData, GetApiV1SshKeysErrors, GetApiV1SshKeysResponses, GetApiV1WebhooksData, GetApiV1WebhooksErrors, GetApiV1WebhooksResponses, PostApiV1AccountBillingSetupData, PostApiV1AccountBillingSetupErrors, PostApiV1AccountBillingSetupResponses, PostApiV1AccountPasswordData, PostApiV1AccountPasswordErrors, PostApiV1AccountPasswordResponses, PostApiV1ApiKeysData, PostApiV1ApiKeysErrors, PostApiV1ApiKeysResponses, PostApiV1ImportKortixClaimData, PostApiV1ImportKortixClaimErrors, PostApiV1ImportKortixClaimResponses, PostApiV1InternalHeartbeatData, PostApiV1InternalHeartbeatErrors, PostApiV1InternalHeartbeatResponses, PostApiV1InternalStageData, PostApiV1InternalStageErrors, PostApiV1InternalStageResponses, PostApiV1MachinesByIdBackupsData, PostApiV1MachinesByIdBackupsDisableData, PostApiV1MachinesByIdBackupsDisableErrors, PostApiV1MachinesByIdBackupsDisableResponses, PostApiV1MachinesByIdBackupsEnableData, PostApiV1MachinesByIdBackupsEnableErrors, PostApiV1MachinesByIdBackupsEnableResponses, PostApiV1MachinesByIdBackupsErrors, PostApiV1MachinesByIdBackupsResponses, PostApiV1MachinesByIdImageData, PostApiV1MachinesByIdImageErrors, PostApiV1MachinesByIdImageResponses, PostApiV1MachinesByIdRebootData, PostApiV1MachinesByIdRebootErrors, PostApiV1MachinesByIdRebootResponses, PostApiV1MachinesByIdResizeData, PostApiV1MachinesByIdResizeErrors, PostApiV1MachinesByIdResizeResponses, PostApiV1MachinesByMachineIdToolboxFilesBulkDownloadData, PostApiV1MachinesByMachineIdToolboxFilesBulkDownloadErrors, PostApiV1MachinesByMachineIdToolboxFilesBulkDownloadResponses, PostApiV1MachinesByMachineIdToolboxFilesFolderData, PostApiV1MachinesByMachineIdToolboxFilesFolderErrors, PostApiV1MachinesByMachineIdToolboxFilesFolderResponses, PostApiV1MachinesByMachineIdToolboxFilesMoveData, PostApiV1MachinesByMachineIdToolboxFilesMoveErrors, PostApiV1MachinesByMachineIdToolboxFilesMoveResponses, PostApiV1MachinesByMachineIdToolboxFilesPermissionsData, PostApiV1MachinesByMachineIdToolboxFilesPermissionsErrors, PostApiV1MachinesByMachineIdToolboxFilesPermissionsResponses, PostApiV1MachinesByMachineIdToolboxFilesReplaceData, PostApiV1MachinesByMachineIdToolboxFilesReplaceErrors, PostApiV1MachinesByMachineIdToolboxFilesReplaceResponses, PostApiV1MachinesByMachineIdToolboxFilesUploadData, PostApiV1MachinesByMachineIdToolboxFilesUploadErrors, PostApiV1MachinesByMachineIdToolboxFilesUploadResponses, PostApiV1MachinesByMachineIdToolboxProcessCodeRunData, PostApiV1MachinesByMachineIdToolboxProcessCodeRunErrors, PostApiV1MachinesByMachineIdToolboxProcessCodeRunResponses, PostApiV1MachinesByMachineIdToolboxProcessExecuteData, PostApiV1MachinesByMachineIdToolboxProcessExecuteErrors, PostApiV1MachinesByMachineIdToolboxProcessExecuteResponses, PostApiV1MachinesByMachineIdToolboxProcessExecuteStreamData, PostApiV1MachinesByMachineIdToolboxProcessExecuteStreamErrors, PostApiV1MachinesByMachineIdToolboxProcessExecuteStreamResponses, PostApiV1MachinesByMachineIdToolboxProcessKillData, PostApiV1MachinesByMachineIdToolboxProcessKillErrors, PostApiV1MachinesByMachineIdToolboxProcessKillResponses, PostApiV1MachinesData, PostApiV1MachinesErrors, PostApiV1MachinesResponses, PostApiV1SshKeysData, PostApiV1SshKeysErrors, PostApiV1SshKeysResponses, PostApiV1WebhooksData, PostApiV1WebhooksErrors, PostApiV1WebhooksResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<TData, ThrowOnError> & {
     /**
@@ -410,6 +410,25 @@ export const postApiV1AccountBillingSetup = <ThrowOnError extends boolean = fals
 });
 
 /**
+ * Set account password
+ *
+ * Sets the initial password for passwordless checkout-created accounts.
+ */
+export const postApiV1AccountPassword = <ThrowOnError extends boolean = false>(options: Options<PostApiV1AccountPasswordData, ThrowOnError>) => (options.client ?? client).post<PostApiV1AccountPasswordResponses, PostApiV1AccountPasswordErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/account/password',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
  * Get account limits
  *
  * Returns the resource limits and current usage for the authenticated user.
@@ -797,5 +816,66 @@ export const deleteApiV1WebhooksById = <ThrowOnError extends boolean = false>(op
             type: 'apiKey'
         }],
     url: '/api/v1/webhooks/{id}',
+    ...options
+});
+
+/**
+ * Start Kortix OAuth flow
+ */
+export const getApiV1ImportKortixStart = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1ImportKortixStartData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1ImportKortixStartResponses, GetApiV1ImportKortixStartErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/import/kortix/start',
+    ...options
+});
+
+/**
+ * Kortix OAuth callback
+ */
+export const getApiV1ImportKortixCallback = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ImportKortixCallbackData, ThrowOnError>) => (options.client ?? client).get<unknown, GetApiV1ImportKortixCallbackErrors, ThrowOnError>({ url: '/api/v1/import/kortix/callback', ...options });
+
+/**
+ * List claimable Kortix machines
+ */
+export const getApiV1ImportKortixMachines = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1ImportKortixMachinesData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1ImportKortixMachinesResponses, GetApiV1ImportKortixMachinesErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/import/kortix/machines',
+    ...options
+});
+
+/**
+ * Claim Kortix machines
+ */
+export const postApiV1ImportKortixClaim = <ThrowOnError extends boolean = false>(options: Options<PostApiV1ImportKortixClaimData, ThrowOnError>) => (options.client ?? client).post<PostApiV1ImportKortixClaimResponses, PostApiV1ImportKortixClaimErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/import/kortix/claim',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Kortix link status
+ */
+export const getApiV1ImportKortixStatus = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1ImportKortixStatusData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1ImportKortixStatusResponses, GetApiV1ImportKortixStatusErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/import/kortix/status',
     ...options
 });

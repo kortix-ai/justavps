@@ -120,8 +120,7 @@
                       "string",
                       "null"
                     ],
-                    "format": "uuid",
-                    "description": "Image to boot from. Null = Ubuntu 24.04"
+                    "description": "Image or built-in template to boot from. Null = default JustAVPS base"
                   },
                   "provider": {
                     "type": "string",
@@ -158,7 +157,11 @@
                   },
                   "entrypoint": {
                     "type": "string",
-                    "description": "Entrypoint for the Docker container"
+                    "description": "Optional Docker --entrypoint override (binary/path only)"
+                  },
+                  "command": {
+                    "type": "string",
+                    "description": "Optional container command/args passed after the image name"
                   },
                   "ssh_key_ids": {
                     "type": "array",
@@ -167,6 +170,16 @@
                       "format": "uuid"
                     },
                     "description": "IDs of user SSH keys to add to the machine. Auto-generated key is always included."
+                  },
+                  "billing_interval": {
+                    "type": "string",
+                    "enum": [
+                      "monthly",
+                      "yearly",
+                      "2year"
+                    ],
+                    "default": "monthly",
+                    "description": "Billing interval: monthly, yearly (20% off), or 2year (30% off, billed annually)"
                   }
                 },
                 "required": [
@@ -224,8 +237,7 @@
                       "type": [
                         "string",
                         "null"
-                      ],
-                      "format": "uuid"
+                      ]
                     },
                     "server_type": {
                       "type": "string"
@@ -627,8 +639,7 @@
                             "type": [
                               "string",
                               "null"
-                            ],
-                            "format": "uuid"
+                            ]
                           },
                           "server_type": {
                             "type": "string"
@@ -939,8 +950,7 @@
                       "type": [
                         "string",
                         "null"
-                      ],
-                      "format": "uuid"
+                      ]
                     },
                     "server_type": {
                       "type": "string"
@@ -1645,11 +1655,16 @@
                   "type": "object",
                   "properties": {
                     "id": {
-                      "type": "string",
-                      "format": "uuid"
+                      "type": "string"
                     },
                     "name": {
                       "type": "string"
+                    },
+                    "description": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     },
                     "status": {
                       "type": "string",
@@ -1660,12 +1675,21 @@
                         "deleted"
                       ]
                     },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "template",
+                        "snapshot"
+                      ]
+                    },
+                    "is_template": {
+                      "type": "boolean"
+                    },
                     "source_machine_id": {
                       "type": [
                         "string",
                         "null"
-                      ],
-                      "format": "uuid"
+                      ]
                     },
                     "provider": {
                       "type": "string"
@@ -1698,7 +1722,10 @@
                   "required": [
                     "id",
                     "name",
+                    "description",
                     "status",
+                    "kind",
+                    "is_template",
                     "source_machine_id",
                     "provider",
                     "provider_image_id",
@@ -2311,11 +2338,16 @@
                         "type": "object",
                         "properties": {
                           "id": {
-                            "type": "string",
-                            "format": "uuid"
+                            "type": "string"
                           },
                           "name": {
                             "type": "string"
+                          },
+                          "description": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
                           },
                           "status": {
                             "type": "string",
@@ -2326,12 +2358,21 @@
                               "deleted"
                             ]
                           },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "template",
+                              "snapshot"
+                            ]
+                          },
+                          "is_template": {
+                            "type": "boolean"
+                          },
                           "source_machine_id": {
                             "type": [
                               "string",
                               "null"
-                            ],
-                            "format": "uuid"
+                            ]
                           },
                           "provider": {
                             "type": "string"
@@ -2364,7 +2405,10 @@
                         "required": [
                           "id",
                           "name",
+                          "description",
                           "status",
+                          "kind",
+                          "is_template",
                           "source_machine_id",
                           "provider",
                           "provider_image_id",
@@ -2461,11 +2505,16 @@
                   "type": "object",
                   "properties": {
                     "id": {
-                      "type": "string",
-                      "format": "uuid"
+                      "type": "string"
                     },
                     "name": {
                       "type": "string"
+                    },
+                    "description": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     },
                     "status": {
                       "type": "string",
@@ -2476,12 +2525,21 @@
                         "deleted"
                       ]
                     },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "template",
+                        "snapshot"
+                      ]
+                    },
+                    "is_template": {
+                      "type": "boolean"
+                    },
                     "source_machine_id": {
                       "type": [
                         "string",
                         "null"
-                      ],
-                      "format": "uuid"
+                      ]
                     },
                     "provider": {
                       "type": "string"
@@ -2514,7 +2572,10 @@
                   "required": [
                     "id",
                     "name",
+                    "description",
                     "status",
+                    "kind",
+                    "is_template",
                     "source_machine_id",
                     "provider",
                     "provider_image_id",
@@ -3743,6 +3804,9 @@
                         "null"
                       ]
                     },
+                    "has_password": {
+                      "type": "boolean"
+                    },
                     "created_at": {
                       "type": "string"
                     }
@@ -3753,6 +3817,7 @@
                     "name",
                     "machines_count",
                     "stripe_customer_id",
+                    "has_password",
                     "created_at"
                   ]
                 }
@@ -4099,6 +4164,126 @@
           },
           "503": {
             "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/account/password": {
+      "post": {
+        "tags": [
+          "Account"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Set account password",
+        "description": "Sets the initial password for passwordless checkout-created accounts.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "password": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Password set successfully"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
             "content": {
               "application/json": {
                 "schema": {
@@ -7575,6 +7760,435 @@
             "source": "client.webhooks.delete(\"webhook-id\")"
           }
         ]
+      }
+    },
+    "/api/v1/import/kortix/start": {
+      "get": {
+        "tags": [
+          "Import"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Start Kortix OAuth flow",
+        "responses": {
+          "200": {
+            "description": "Authorization URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "authorize_url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "authorize_url"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/import/kortix/callback": {
+      "get": {
+        "tags": [
+          "Import"
+        ],
+        "summary": "Kortix OAuth callback",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "state",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "code",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to machines page"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/import/kortix/machines": {
+      "get": {
+        "tags": [
+          "Import"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List claimable Kortix machines",
+        "responses": {
+          "200": {
+            "description": "Claimable machines",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "machines": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "sandbox_id": {
+                            "type": "string"
+                          },
+                          "external_id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "created_at": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "sandbox_id",
+                          "external_id",
+                          "name",
+                          "status",
+                          "created_at"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "machines"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/import/kortix/claim": {
+      "post": {
+        "tags": [
+          "Import"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Claim Kortix machines",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "machine_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "machine_ids"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Claim result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "claimed": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "skipped": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "reason": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "reason"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "claimed",
+                    "skipped"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/import/kortix/status": {
+      "get": {
+        "tags": [
+          "Import"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Kortix link status",
+        "responses": {
+          "200": {
+            "description": "Link status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "linked": {
+                      "type": "boolean"
+                    },
+                    "kortix_email": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "linked",
+                    "kortix_email"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ]
+                }
+              }
+            }
+          }
+        }
       }
     }
   },

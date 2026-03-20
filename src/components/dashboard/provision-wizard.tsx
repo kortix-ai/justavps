@@ -143,6 +143,7 @@ export function ProvisionWizard() {
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [dockerImage, setDockerImage] = useState("");
   const [entrypoint, setEntrypoint] = useState("");
+  const [command, setCommand] = useState("");
   const [selectedSSHKeyIds, setSelectedSSHKeyIds] = useState<string[]>([]);
 
   const createMachine = useCreateMachine();
@@ -212,6 +213,7 @@ export function ProvisionWizard() {
         image_id: imageId,
         docker_image: templateMode === "docker" ? dockerImage || undefined : undefined,
         entrypoint: templateMode === "docker" ? entrypoint || undefined : undefined,
+        command: templateMode === "docker" ? command || undefined : undefined,
         ssh_key_ids: selectedSSHKeyIds.length > 0 ? selectedSSHKeyIds : undefined,
       },
       {
@@ -353,18 +355,39 @@ export function ProvisionWizard() {
                     Pulled and started with Docker on top of the Ubuntu base machine.
                     Your container stays separate from the default JustAVPS setup.
                   </p>
+                  <p className="text-[11px] text-muted-foreground/70">
+                    Port `80` maps to `8080`, `443` maps to `8443`, and SSH stays reserved for the base machine.
+                  </p>
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="prov-docker-entrypoint" className="text-xs text-muted-foreground">
-                    Entrypoint command <span className="text-muted-foreground/60">(optional)</span>
+                    Entrypoint <span className="text-muted-foreground/60">(optional)</span>
                   </label>
                   <Input
                     id="prov-docker-entrypoint"
-                    placeholder="/bin/sh -c 'my-command'"
+                    placeholder="/bin/sh"
                     value={entrypoint}
                     onChange={(e) => setEntrypoint(e.target.value)}
                     className="font-mono text-sm"
                   />
+                  <p className="text-[11px] text-muted-foreground/70">
+                    Real Docker `--entrypoint` override. Leave blank to use the image default.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="prov-docker-command" className="text-xs text-muted-foreground">
+                    Command <span className="text-muted-foreground/60">(optional)</span>
+                  </label>
+                  <Input
+                    id="prov-docker-command"
+                    placeholder="-lc 'python -m http.server 80'"
+                    value={command}
+                    onChange={(e) => setCommand(e.target.value)}
+                    className="font-mono text-sm"
+                  />
+                  <p className="text-[11px] text-muted-foreground/70">
+                    Command and args passed after the image name. Example: `sleep infinity`.
+                  </p>
                 </div>
               </div>
             ) : null}

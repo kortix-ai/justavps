@@ -80,7 +80,7 @@ export type GetApiV1MachinesResponse = GetApiV1MachinesResponses[keyof GetApiV1M
 export type PostApiV1MachinesData = {
     body: {
         /**
-         * Image to boot from. Null = Ubuntu 24.04
+         * Image or built-in template to boot from. Null = default JustAVPS base
          */
         image_id?: string | null;
         /**
@@ -110,13 +110,21 @@ export type PostApiV1MachinesData = {
          */
         docker_image?: string;
         /**
-         * Entrypoint for the Docker container
+         * Optional Docker --entrypoint override (binary/path only)
          */
         entrypoint?: string;
+        /**
+         * Optional container command/args passed after the image name
+         */
+        command?: string;
         /**
          * IDs of user SSH keys to add to the machine. Auto-generated key is always included.
          */
         ssh_key_ids?: Array<string>;
+        /**
+         * Billing interval: monthly, yearly (20% off), or 2year (30% off, billed annually)
+         */
+        billing_interval?: 'monthly' | 'yearly' | '2year';
     };
     path?: never;
     query?: never;
@@ -511,7 +519,10 @@ export type PostApiV1MachinesByIdImageResponses = {
     202: {
         id: string;
         name: string;
+        description: string | null;
         status: 'creating' | 'ready' | 'failed' | 'deleted';
+        kind: 'template' | 'snapshot';
+        is_template: boolean;
         source_machine_id: string | null;
         provider: string;
         provider_image_id: string | null;
@@ -728,7 +739,10 @@ export type GetApiV1ImagesResponses = {
         images: Array<{
             id: string;
             name: string;
+            description: string | null;
             status: 'creating' | 'ready' | 'failed' | 'deleted';
+            kind: 'template' | 'snapshot';
+            is_template: boolean;
             source_machine_id: string | null;
             provider: string;
             provider_image_id: string | null;
@@ -824,7 +838,10 @@ export type GetApiV1ImagesByIdResponses = {
     200: {
         id: string;
         name: string;
+        description: string | null;
         status: 'creating' | 'ready' | 'failed' | 'deleted';
+        kind: 'template' | 'snapshot';
+        is_template: boolean;
         source_machine_id: string | null;
         provider: string;
         provider_image_id: string | null;
@@ -1259,6 +1276,7 @@ export type GetApiV1AccountResponses = {
         name: string | null;
         machines_count: number;
         stripe_customer_id: string | null;
+        has_password: boolean;
         created_at: string;
     };
 };
@@ -1384,6 +1402,51 @@ export type PostApiV1AccountBillingSetupResponses = {
 };
 
 export type PostApiV1AccountBillingSetupResponse = PostApiV1AccountBillingSetupResponses[keyof PostApiV1AccountBillingSetupResponses];
+
+export type PostApiV1AccountPasswordData = {
+    body: {
+        password: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/account/password';
+};
+
+export type PostApiV1AccountPasswordErrors = {
+    /**
+     * Bad Request
+     */
+    400: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+    /**
+     * Unauthorized
+     */
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+    /**
+     * Not Found
+     */
+    404: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+};
+
+export type PostApiV1AccountPasswordError = PostApiV1AccountPasswordErrors[keyof PostApiV1AccountPasswordErrors];
+
+export type PostApiV1AccountPasswordResponses = {
+    /**
+     * Password set successfully
+     */
+    200: unknown;
+};
 
 export type GetApiV1AccountLimitsData = {
     body?: never;
@@ -2726,3 +2789,179 @@ export type DeleteApiV1WebhooksByIdResponses = {
 };
 
 export type DeleteApiV1WebhooksByIdResponse = DeleteApiV1WebhooksByIdResponses[keyof DeleteApiV1WebhooksByIdResponses];
+
+export type GetApiV1ImportKortixStartData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/import/kortix/start';
+};
+
+export type GetApiV1ImportKortixStartErrors = {
+    /**
+     * Bad Request
+     */
+    400: {
+        error: boolean;
+        message: string;
+    };
+    /**
+     * Unauthorized
+     */
+    401: {
+        error: boolean;
+        message: string;
+    };
+};
+
+export type GetApiV1ImportKortixStartError = GetApiV1ImportKortixStartErrors[keyof GetApiV1ImportKortixStartErrors];
+
+export type GetApiV1ImportKortixStartResponses = {
+    /**
+     * Authorization URL
+     */
+    200: {
+        authorize_url: string;
+    };
+};
+
+export type GetApiV1ImportKortixStartResponse = GetApiV1ImportKortixStartResponses[keyof GetApiV1ImportKortixStartResponses];
+
+export type GetApiV1ImportKortixCallbackData = {
+    body?: never;
+    path?: never;
+    query: {
+        state: string;
+        code: string;
+    };
+    url: '/api/v1/import/kortix/callback';
+};
+
+export type GetApiV1ImportKortixCallbackErrors = {
+    /**
+     * Bad Request
+     */
+    400: {
+        error: boolean;
+        message: string;
+    };
+};
+
+export type GetApiV1ImportKortixCallbackError = GetApiV1ImportKortixCallbackErrors[keyof GetApiV1ImportKortixCallbackErrors];
+
+export type GetApiV1ImportKortixMachinesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/import/kortix/machines';
+};
+
+export type GetApiV1ImportKortixMachinesErrors = {
+    /**
+     * Unauthorized
+     */
+    401: {
+        error: boolean;
+        message: string;
+    };
+    /**
+     * Not Found
+     */
+    404: {
+        error: boolean;
+        message: string;
+    };
+};
+
+export type GetApiV1ImportKortixMachinesError = GetApiV1ImportKortixMachinesErrors[keyof GetApiV1ImportKortixMachinesErrors];
+
+export type GetApiV1ImportKortixMachinesResponses = {
+    /**
+     * Claimable machines
+     */
+    200: {
+        machines: Array<{
+            sandbox_id: string;
+            external_id: string;
+            name: string;
+            status: string;
+            created_at: string;
+        }>;
+    };
+};
+
+export type GetApiV1ImportKortixMachinesResponse = GetApiV1ImportKortixMachinesResponses[keyof GetApiV1ImportKortixMachinesResponses];
+
+export type PostApiV1ImportKortixClaimData = {
+    body: {
+        machine_ids: Array<string>;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/import/kortix/claim';
+};
+
+export type PostApiV1ImportKortixClaimErrors = {
+    /**
+     * Unauthorized
+     */
+    401: {
+        error: boolean;
+        message: string;
+    };
+    /**
+     * Not Found
+     */
+    404: {
+        error: boolean;
+        message: string;
+    };
+};
+
+export type PostApiV1ImportKortixClaimError = PostApiV1ImportKortixClaimErrors[keyof PostApiV1ImportKortixClaimErrors];
+
+export type PostApiV1ImportKortixClaimResponses = {
+    /**
+     * Claim result
+     */
+    200: {
+        claimed: Array<string>;
+        skipped: Array<{
+            id: string;
+            reason: string;
+        }>;
+    };
+};
+
+export type PostApiV1ImportKortixClaimResponse = PostApiV1ImportKortixClaimResponses[keyof PostApiV1ImportKortixClaimResponses];
+
+export type GetApiV1ImportKortixStatusData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/import/kortix/status';
+};
+
+export type GetApiV1ImportKortixStatusErrors = {
+    /**
+     * Unauthorized
+     */
+    401: {
+        error: boolean;
+        message: string;
+    };
+};
+
+export type GetApiV1ImportKortixStatusError = GetApiV1ImportKortixStatusErrors[keyof GetApiV1ImportKortixStatusErrors];
+
+export type GetApiV1ImportKortixStatusResponses = {
+    /**
+     * Link status
+     */
+    200: {
+        linked: boolean;
+        kortix_email: string | null;
+    };
+};
+
+export type GetApiV1ImportKortixStatusResponse = GetApiV1ImportKortixStatusResponses[keyof GetApiV1ImportKortixStatusResponses];

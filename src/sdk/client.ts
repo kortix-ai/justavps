@@ -29,6 +29,7 @@ export interface Machine {
   image_id?: string | null;
   docker_image?: string | null;
   entrypoint?: string | null;
+  command?: string | null;
   server_type: string;
   region: string;
   ip?: string | null;
@@ -190,7 +191,7 @@ class HttpClient {
   }
 
   /** Opens an SSE connection and yields parsed events */
-  async *sse(path: string): AsyncGenerator<{ type: string; data: any }> {
+  async *sse(path: string): AsyncGenerator<{ type: string; data: unknown }> {
     const res = await this.fetchFn(`${this.baseUrl}${path}`, {
       headers: { Authorization: this.headers.Authorization, Accept: 'text/event-stream' },
     });

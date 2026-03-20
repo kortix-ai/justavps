@@ -60,12 +60,11 @@ export function handleCORSPreflight(request: Request): Response | null {
 }
 
 /**
- * Proxy an HTTP request to the VPS via origin hostname.
+ * Proxy an HTTP request to the VPS via the DNS-only origin hostname.
  *
- * CF Workers cannot fetch raw IPs that are behind CF's own proxy (error 1003).
- * Instead, we use a DNS-only (grey-cloud) origin record:
- *   origin.slug.kortix.cloud → VPS_IP (not proxied)
- * This bypasses CF's proxy layer and reaches the VPS directly.
+ * Default port 80 stays on the machine's primary reverse proxy entrypoint.
+ * Non-default ports are fetched directly so Docker-published ports and user
+ * services work even when no local `/_caddy_port/*` bridge is present.
  */
 export async function proxyHTTPRequest(
   request: Request,
@@ -76,15 +75,13 @@ export async function proxyHTTPRequest(
   try {
     const url = new URL(request.url);
 
-    // Use origin hostname (DNS-only, grey-cloud) to bypass CF proxy
-    // origin-slug.kortix.cloud → VPS_IP (not proxied)
-    // ALL traffic goes through Caddy on port 80 — Caddy proxies to localhost:PORT
-    // This handles services that bind to 127.0.0.1 (not 0.0.0.0)
+    // Use origin hostname (DNS-only, grey-cloud) to bypass CF proxy.
+    // Root traffic stays on port 80. Explicit port traffic goes directly to that port.
     const originHost = machineInfo.origin_hostname || machineInfo.ip;
     const path = rewrittenPath || url.pathname;
     const search = rewrittenPath ? '' : url.search;
-    const targetPort = port === 80 ? 80 : 80; // Always through Caddy
-    const targetPath = port === 80 ? `${path}${search}` : `/_caddy_port/${port}${path}${search}`;
+    const targetPort = port;
+    const targetPath = `${path}${search}`;
     const targetUrl = `http://${originHost}:${targetPort}${targetPath}`;
 
     // Build forwarded headers
@@ -101,11 +98,12 @@ export async function proxyHTTPRequest(
     };
 
     // Duplex for streaming bodies
-    if (init.body && typeof (init as any).duplex === 'undefined') {
-      (init as any).duplex = 'half';
+    const streamingInit = init as RequestInit & { duplex?: 'half' };
+    if (streamingInit.body && typeof streamingInit.duplex === 'undefined') {
+      streamingInit.duplex = 'half';
     }
 
-    const response = await fetch(targetUrl, init);
+    const response = await fetch(targetUrl, streamingInit);
 
     // Build response with CORS
     const responseHeaders = new Headers(response.headers);
@@ -149,9 +147,7 @@ export async function proxyWebSocket(
   try {
     const url = new URL(request.url);
     const originHost = machineInfo.origin_hostname || machineInfo.ip;
-    // Route WebSocket through Caddy on port 80 too (same as HTTP)
-    const wsPath = port === 80 ? url.pathname : `/_caddy_port/${port}${url.pathname}`;
-    const targetUrl = `http://${originHost}:80${wsPath}${url.search}`;
+    const targetUrl = `http://${originHost}:${port}${url.pathname}${url.search}`;
 
     // Connect to origin WebSocket (CF Workers pattern: fetch with Upgrade header)
     const originResp = await fetch(targetUrl, {

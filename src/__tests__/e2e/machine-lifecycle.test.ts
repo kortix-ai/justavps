@@ -11,9 +11,9 @@
  *   5. Security: no cloudflared, correct firewall, correct config (no tunnel secrets)
  *   6. CF Worker auth: unauthenticated → 302/401, wrong key → 401
  *   7. CF Worker proxy: authenticated → 200 (OpenCode via Caddy)
- *   8. Port forwarding: start custom server on port 9000, proxy via /_port/9000/ → 200
- *   9. Port forwarding: daemon health via /_port/7777/health → 200 JSON
- *  10. Port forwarding: sandbox-agent via /_port/2468/ → 200
+ *   8. Port forwarding: start custom server on port 9000, proxy via 9000--slug.kortix.cloud → 200
+ *   9. Port forwarding: daemon health via 7777--slug.kortix.cloud/health → 200 JSON
+ *  10. Port forwarding: sandbox-agent via 2468--slug.kortix.cloud → 200
  *  11. API contract tests (images, docker machines)
  *  12. Cleanup + deletion
  *
@@ -31,6 +31,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execSync } from 'child_process';
+import { writeFileSync } from 'fs';
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 
@@ -53,6 +54,8 @@ let machineId = '';
 let machineSlug = '';
 let machineIp = '';
 let sshKeyPath = '';
+let sessionCookieHeader = '';
+let sessionApiKeyId = '';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -81,11 +84,11 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function ssh(cmd: string, timeoutSec = 10): string | null {
-  if (!sshKeyPath || !machineIp) return null;
+function sshWithKey(ip: string | null, keyPath: string | null, cmd: string, timeoutSec = 10): string | null {
+  if (!keyPath || !ip) return null;
   try {
     return execSync(
-      `ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=${timeoutSec} root@${machineIp} '${cmd}'`,
+      `ssh -i ${keyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=${timeoutSec} root@${ip} '${cmd}'`,
       { timeout: (timeoutSec + 5) * 1000, encoding: 'utf8' },
     ).trim();
   } catch {
@@ -93,18 +96,91 @@ function ssh(cmd: string, timeoutSec = 10): string | null {
   }
 }
 
-/** curl to CF Worker proxy (slug.kortix.cloud) with optional auth + path */
-function proxyGet(path: string, opts?: { auth?: boolean; accept?: string }): string {
+function ssh(cmd: string, timeoutSec = 10): string | null {
+  return sshWithKey(machineIp, sshKeyPath, cmd, timeoutSec);
+}
+
+function savePrivateKey(slug: string, privateKey: string): string {
+  const path = `/tmp/e2e_ssh_${slug}`;
+  writeFileSync(path, privateKey.endsWith('\n') ? privateKey : `${privateKey}\n`, { mode: 0o600 });
+  return path;
+}
+
+function machineProxyUrl(slug: string, path = '/', port?: number): string {
+  const prefix = port ? `${port}--` : '';
+  return `https://${prefix}${slug}.kortix.cloud${path}`;
+}
+
+function proxyGetForSlug(slug: string, path: string, opts?: { auth?: boolean; accept?: string; port?: number }): string {
   const authHeader = opts?.auth ? `-H "Authorization: Bearer ${API_KEY}"` : '';
   const acceptHeader = opts?.accept ? `-H "Accept: ${opts.accept}"` : '';
   try {
     return execSync(
-      `curl -sk -w "\\n%{http_code}" ${authHeader} ${acceptHeader} "https://${machineSlug}.kortix.cloud${path}"`,
+      `curl -sk -w "\\n%{http_code}" ${authHeader} ${acceptHeader} "${machineProxyUrl(slug, path, opts?.port)}"`,
       { encoding: 'utf8', timeout: 15_000 },
     ).trim();
   } catch {
     return '\n000';
   }
+}
+
+async function waitForMachineReady(targetMachineId: string, label: string) {
+  const start = Date.now();
+  let ip = '';
+
+  while (Date.now() - start < PROVISION_TIMEOUT) {
+    const { data } = await apiGet(`/v1/machines/${targetMachineId}`);
+    if (data.status === 'ready') {
+      const resolvedIp = data.ip || ip;
+      console.log(`[E2E] ${label} ready: ip=${resolvedIp} (${Math.round((Date.now() - start) / 1000)}s)`);
+      return { ip: resolvedIp, data };
+    }
+    if (data.status === 'error') {
+      throw new Error(`${label} failed: ${data.provisioning_stage}`);
+    }
+    if (data.ip && !ip) {
+      ip = data.ip;
+      console.log(`[E2E] ${label} got IP: ${ip}, stage: ${data.provisioning_stage}`);
+    }
+    await sleep(POLL_INTERVAL);
+  }
+
+  throw new Error(`${label} did not become ready within 5 minutes`);
+}
+
+async function waitForSSHReady(ip: string, keyPath: string, label: string) {
+  const attempts = Math.ceil(CLOUD_INIT_TIMEOUT / 10_000);
+  for (let i = 0; i < attempts; i++) {
+    if (sshWithKey(ip, keyPath, 'echo OK', 15) === 'OK') {
+      console.log(`[E2E] ${label} SSH connected after ${i * 10}s`);
+      return;
+    }
+    await sleep(10_000);
+  }
+
+  throw new Error(`${label} SSH never became reachable`);
+}
+
+async function waitForCloudInitDone(ip: string, keyPath: string, label: string) {
+  const attempts = Math.ceil(CLOUD_INIT_TIMEOUT / 10_000);
+  for (let i = 0; i < attempts; i++) {
+    const status = sshWithKey(ip, keyPath, 'cloud-init status 2>/dev/null | grep -o "done\\|running\\|error"', 10);
+    if (status === 'done') {
+      console.log(`[E2E] ${label} cloud-init done after ${i * 10}s`);
+      return;
+    }
+    if (status === 'error') {
+      throw new Error(`${label} cloud-init failed: ${sshWithKey(ip, keyPath, 'tail -20 /var/log/cloud-init-output.log', 10)}`);
+    }
+    await sleep(10_000);
+  }
+
+  throw new Error(`${label} cloud-init did not complete in time`);
+}
+
+/** curl to CF Worker proxy (slug.kortix.cloud) with optional auth + path */
+function proxyGet(path: string, opts?: { auth?: boolean; accept?: string; port?: number }): string {
+  return proxyGetForSlug(machineSlug, path, opts);
 }
 
 /** Parse curl output into {body, status} */
@@ -115,6 +191,43 @@ function parseCurl(raw: string): { body: string; status: string } {
   return { body, status };
 }
 
+async function createSessionBackedApiKey() {
+  const baseUrl = BASE_URL.replace('/api', '');
+  const csrfRes = await fetch(`${baseUrl}/api/auth/csrf`);
+  const csrfData = await csrfRes.json() as { csrfToken: string };
+  const cookies = csrfRes.headers.getSetCookie?.() || [];
+
+  const loginRes = await fetch(`${baseUrl}/api/auth/callback/credentials`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cookie': cookies.join('; '),
+    },
+    body: `email=e2e-prod@justavps.com&password=testpassword123&csrfToken=${csrfData.csrfToken}`,
+    redirect: 'manual',
+  });
+
+  const sessionCookies = loginRes.headers.getSetCookie?.() || [];
+  sessionCookieHeader = [...cookies, ...sessionCookies].join('; ');
+
+  const createKeyRes = await fetch(`${BASE_URL}/v1/api-keys`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Cookie': sessionCookieHeader,
+    },
+    body: JSON.stringify({ name: `e2e-machine-lifecycle-${Date.now()}` }),
+  });
+  const keyData = await createKeyRes.json().catch(() => null) as { id?: string; key?: string; message?: string } | null;
+
+  if (!createKeyRes.ok || !keyData?.key || !keyData.id) {
+    throw new Error(`Failed to create E2E API key: ${keyData?.message || createKeyRes.status}`);
+  }
+
+  sessionApiKeyId = keyData.id;
+  API_KEY = keyData.key;
+}
+
 // ─── Setup / Teardown ───────────────────────────────────────────────────────
 
 beforeAll(async () => {
@@ -123,15 +236,22 @@ beforeAll(async () => {
   if (!API_KEY) {
     API_KEY = 'sk_live_0b3f3fdcfc4ffa293cb94e2ca3c1a8fa3b6d99ab3b45f0b0c8a9de48d30e008a';
   }
-  const { status } = await apiGet('/v1/machines');
+  let { status } = await apiGet('/v1/machines');
   if (status === 401) {
-    console.error('[E2E] API key invalid — set E2E_API_KEY or seed a test user');
-    return;
+    console.warn('[E2E] Default API key invalid — creating one via session login');
+    await createSessionBackedApiKey();
+    status = (await apiGet('/v1/machines')).status;
   }
   expect(status).toBe(200);
 });
 
 afterAll(async () => {
+  if (sessionApiKeyId && sessionCookieHeader) {
+    await fetch(`${BASE_URL}/v1/api-keys/${sessionApiKeyId}`, {
+      method: 'DELETE',
+      headers: { 'Cookie': sessionCookieHeader },
+    }).catch(() => {});
+  }
   if (!machineId || SKIP_REASON) return;
   console.log(`[E2E] Cleaning up machine ${machineSlug} (${machineId})...`);
   await apiDelete(`/v1/machines/${machineId}`);
@@ -191,9 +311,7 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
       privateKey = d2?.ssh_key?.private_key;
     }
     if (privateKey) {
-      sshKeyPath = `/tmp/e2e_ssh_${machineSlug}`;
-      const { writeFileSync } = await import('fs');
-      writeFileSync(sshKeyPath, privateKey.endsWith('\n') ? privateKey : privateKey + '\n', { mode: 0o600 });
+      sshKeyPath = savePrivateKey(machineSlug, privateKey);
       console.log(`[E2E] SSH key saved to ${sshKeyPath}`);
     }
 
@@ -295,10 +413,11 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
     expect(Number(ssh('ss -tlnp | grep 3456 | wc -l'))).toBeGreaterThan(0);
   });
 
-  it('7. Caddy active on port 80', () => {
+  it('7. justavps-daemon handles port 80 and Caddy stays disabled', () => {
     if (!sshKeyPath) return;
-    expect(ssh('systemctl is-active caddy')).toBe('active');
-    expect(Number(ssh('ss -tlnp | grep caddy | grep -c ":80"'))).toBeGreaterThan(0);
+    expect(ssh('systemctl is-active justavps-daemon')).toBe('active');
+    expect(Number(ssh('ss -tlnp | grep 0.0.0.0:80 | wc -l'))).toBeGreaterThan(0);
+    expect(ssh('systemctl is-active caddy 2>/dev/null || true')).not.toBe('active');
   });
 
   it('8. Docker active', () => {
@@ -470,7 +589,7 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
   //  PHASE 7: PORT FORWARDING — start custom server, proxy through CF Worker
   // ═══════════════════════════════════════════════════════════════════════════
 
-  it('20. starts custom HTTP server on port 9000 via SSH', () => {
+  it('20. starts custom HTTP server on port 9000 via SSH', async () => {
     if (!sshKeyPath) return;
     // Write a Python server script via base64 to avoid shell escaping issues
     const script = `import http.server
@@ -498,21 +617,21 @@ http.server.HTTPServer(("0.0.0.0", 9000), H).serve_forever()
     for (let i = 0; i < 10; i++) {
       const result = ssh('curl -sf http://localhost:9000/ 2>/dev/null || echo ""');
       if (result === 'HELLO_FROM_PORT_9000') { running = true; break; }
-      execSync('sleep 1');
+      await sleep(1_000);
     }
     console.log(`[E2E] Custom server on port 9000: ${running ? 'running' : 'failed to start'}`);
     expect(running).toBe(true);
   });
 
-  it('21. /_port/9000/ with API key → 200 "HELLO_FROM_PORT_9000"', async () => {
-    const { status, body } = parseCurl(proxyGet('/_port/9000/', { auth: true }));
+  it('21. 9000--slug.kortix.cloud with API key → 200 "HELLO_FROM_PORT_9000"', async () => {
+    const { status, body } = parseCurl(proxyGet('/', { auth: true, port: 9000 }));
     console.log(`[E2E] Port 9000 proxy: ${status} body="${body.slice(0, 50)}"`);
     expect(status).toBe('200');
     expect(body).toContain('HELLO_FROM_PORT_9000');
   });
 
-  it('22. /_port/7777/health with API key → 200 daemon health JSON', async () => {
-    const { status, body } = parseCurl(proxyGet('/_port/7777/health', { auth: true }));
+  it('22. 7777--slug.kortix.cloud/health with API key → 200 daemon health JSON', async () => {
+    const { status, body } = parseCurl(proxyGet('/health', { auth: true, port: 7777 }));
     console.log(`[E2E] Port 7777 daemon: ${status} body="${body.slice(0, 80)}"`);
     expect(status).toBe('200');
     const json = JSON.parse(body);
@@ -520,16 +639,17 @@ http.server.HTTPServer(("0.0.0.0", 9000), H).serve_forever()
     expect(json.load).toBeDefined();
   });
 
-  it('23. /_port/2468/ with API key → 200 sandbox-agent', async () => {
-    const { status } = parseCurl(proxyGet('/_port/2468/', { auth: true }));
+  it('23. 2468--slug.kortix.cloud with API key → 200 sandbox-agent', async () => {
+    const { status } = parseCurl(proxyGet('/', { auth: true, port: 2468 }));
     console.log(`[E2E] Port 2468 sandbox-agent: ${status}`);
     expect(['200', '404']).toContain(status); // 404 = agent running but no route at /
   });
 
-  it('24. /_port/9000/ WITHOUT auth → 401', async () => {
-    const { status, body } = parseCurl(proxyGet('/_port/9000/'));
+  it('24. 9000--slug.kortix.cloud WITHOUT auth → 401', async () => {
+    const { status, body } = parseCurl(proxyGet('/', { port: 9000 }));
     console.log(`[E2E] Port 9000 no auth: ${status} ${body}`);
-    expect(status).toBe('401');
+    expect(['401', '302']).toContain(status);
+    if (status === '401') expect(body).toMatch(/auth|unauthorized|invalid/i);
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -542,20 +662,71 @@ http.server.HTTPServer(("0.0.0.0", 9000), H).serve_forever()
     expect(Array.isArray(data.images)).toBe(true);
   });
 
-  it('26. POST /machines with docker_image validates API contract', async () => {
-    const { status, data } = await apiPost('/v1/machines', {
-      provider: 'hetzner',
-      server_type: 'cpx22',
-      region: 'hel1',
-      name: 'e2e-docker-contract',
-      docker_image: 'nginx:latest',
-      entrypoint: 'sleep infinity',
-    });
-    expect(status).toBe(202);
-    expect(data.status).toBe('provisioning');
-    if (data.id) {
-      await sleep(3_000);
-      await apiDelete(`/v1/machines/${data.id}`);
+  it('26. provisions a real Docker workload machine and verifies reachability', async () => {
+    let dockerMachineId = '';
+    let dockerMachineSlug = '';
+    let dockerMachineIp = '';
+    let dockerKeyPath = '';
+
+    try {
+      const { status, data } = await apiPost('/v1/machines', {
+        provider: 'hetzner',
+        server_type: 'cpx22',
+        region: 'hel1',
+        name: 'e2e-docker-python-http',
+        docker_image: 'python:3.12-alpine',
+        entrypoint: 'python',
+        command: '-m http.server 8000',
+      });
+
+      expect(status).toBe(202);
+      expect(data.status).toBe('provisioning');
+      dockerMachineId = data.id;
+      dockerMachineSlug = data.slug;
+
+      const privateKey = data.ssh_key?.private_key || (await apiGet(`/v1/machines/${dockerMachineId}`)).data?.ssh_key?.private_key;
+      expect(privateKey).toBeTruthy();
+      dockerKeyPath = savePrivateKey(dockerMachineSlug, privateKey);
+
+      const ready = await waitForMachineReady(dockerMachineId, 'Docker machine');
+      dockerMachineIp = ready.ip;
+      expect(dockerMachineIp).toBeTruthy();
+
+      await waitForSSHReady(dockerMachineIp, dockerKeyPath, 'Docker machine');
+      await waitForCloudInitDone(dockerMachineIp, dockerKeyPath, 'Docker machine');
+
+      expect(sshWithKey(dockerMachineIp, dockerKeyPath, 'systemctl is-active justavps-docker')).toBe('active');
+      expect(sshWithKey(dockerMachineIp, dockerKeyPath, 'docker ps --format "{{.Names}}" | grep -x justavps-workload')).toBe('justavps-workload');
+
+      const runtime = sshWithKey(
+        dockerMachineIp,
+        dockerKeyPath,
+        'docker inspect justavps-workload --format "{{.Path}} {{json .Args}}"',
+      );
+      console.log(`[E2E] Docker runtime: ${runtime}`);
+      expect(runtime).toContain('python');
+      expect(runtime).toContain('["-m","http.server","8000"]');
+
+      const localResponse = sshWithKey(dockerMachineIp, dockerKeyPath, 'curl -sf http://localhost:8000/ | tr -d "\n" | head -c 120');
+      console.log(`[E2E] Docker localhost:8000 body="${localResponse}"`);
+      expect(localResponse).toContain('Directory listing');
+
+      let proxied: { status: string; body: string } = { status: '000', body: '' };
+      for (let i = 0; i < PROXY_RETRIES; i++) {
+        proxied = parseCurl(proxyGetForSlug(dockerMachineSlug, '/', { auth: true, port: 8000 }));
+        if (proxied.status === '200') break;
+        await sleep(PROXY_POLL_INTERVAL);
+      }
+      console.log(`[E2E] Docker proxy ${dockerMachineSlug}: ${proxied.status} body="${proxied.body.slice(0, 120)}"`);
+      expect(proxied.status).toBe('200');
+      expect(proxied.body).toContain('Directory listing');
+    } finally {
+      if (dockerMachineId) {
+        await apiDelete(`/v1/machines/${dockerMachineId}`);
+      }
+      if (dockerKeyPath) {
+        try { execSync(`rm -f ${dockerKeyPath}`); } catch {}
+      }
     }
   });
 

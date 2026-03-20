@@ -17,8 +17,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/server/lib/auth';
 import { signProxyToken, buildProxyCookieHeader } from '@/server/lib/proxy-token';
+import { config } from '@/server/lib/config';
 
-const ALLOWED_REDIRECT_PATTERN = /^https:\/\/[a-z0-9-]+\.kortix\.cloud(\/.*)?$/;
+const escapedProxyDomain = config.PROXY_DOMAIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const ALLOWED_REDIRECT_PATTERN = new RegExp(`^https:\\/\\/(?:[0-9]+--)?[a-z0-9-]+\\.${escapedProxyDomain}(?:\\/.*)?$`);
 
 export async function GET(request: NextRequest) {
   try {
@@ -36,7 +38,7 @@ export async function GET(request: NextRequest) {
     const redirect = request.nextUrl.searchParams.get('redirect');
     if (!redirect || !ALLOWED_REDIRECT_PATTERN.test(redirect)) {
       return NextResponse.json(
-        { error: 'Invalid or missing redirect URL. Must be https://<slug>.kortix.cloud/...' },
+        { error: `Invalid or missing redirect URL. Must be https://<slug>.${config.PROXY_DOMAIN}/... or https://<port>--<slug>.${config.PROXY_DOMAIN}/...` },
         { status: 400 },
       );
     }
@@ -64,7 +66,7 @@ export async function GET(request: NextRequest) {
  * Requires Authorization header (API key or session).
  * Returns the JWT in the response body (for WebSocket connections, iframes, etc.)
  */
-export async function POST(request: NextRequest) {
+export async function POST() {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Authentication required' }, { status: 401 });

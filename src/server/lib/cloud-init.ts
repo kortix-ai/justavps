@@ -195,15 +195,14 @@ for i in $(seq 1 120); do
 done
 
 echo "[justavps] Waiting for services to be ready..."
-SERVICE_READY=0
 for i in $(seq 1 120); do
-  for host_port in "\${HOST_PORTS[@]}"; do
+  while IFS= read -r host_port; do
+    [ -n "$host_port" ] || continue
     if curl -sf "http://localhost:\${host_port}/" >/dev/null 2>&1 || curl -sf "http://localhost:\${host_port}/health" >/dev/null 2>&1; then
       ${stageCallback('services_ready', 'All services are up')}
-      SERVICE_READY=1
       break 2
     fi
-  done
+  done < /etc/justavps/docker-host-ports
   sleep 2
 done
 ` : '';

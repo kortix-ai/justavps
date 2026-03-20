@@ -7,10 +7,10 @@
  *   3. Verify wrong API key → 401
  *   4. Verify no auth → 401
  *   5. Verify unauthenticated browser → 302 redirect to proxy-auth
- *   6. Verify port forwarding: daemon health on /_port/7777/health → 200 JSON
- *   7. Verify port forwarding: sandbox-agent on /_port/2468/ → 200
- *   8. Verify port forwarding: no auth on port route → 401
- *   9. Start HTTP server on port 9000, verify /_port/9000/ → 200 custom body
+ *   6. Verify port forwarding: daemon health on 7777--slug.kortix.cloud/health → 200 JSON
+ *   7. Verify port forwarding: sandbox-agent on 2468--slug.kortix.cloud → 200
+ *   8. Verify port forwarding: no auth on port subdomain → 401/302
+ *   9. Start HTTP server on port 9000, verify 9000--slug.kortix.cloud → 200 custom body
  *  10. Verify machine detail page in browser (proxy URL, terminal section, IP)
  *  11. Clean up
  *
@@ -158,9 +158,9 @@ test.describe('Proxy Auth + Port Forwarding E2E', () => {
   //  PORT FORWARDING TESTS
   // ═════════════════════════════════════════════════════════════════════════
 
-  test('06 — /_port/7777/health → 200 daemon health JSON', async ({ request }) => {
+  test('06 — 7777--slug.kortix.cloud/health → 200 daemon health JSON', async ({ request }) => {
     test.skip(!machineSlug, 'No machine');
-    const res = await request.get(`https://${machineSlug}.kortix.cloud/_port/7777/health`, {
+    const res = await request.get(`https://7777--${machineSlug}.kortix.cloud/health`, {
       headers: { Authorization: `Bearer ${API_KEY}` },
     });
     expect(res.status()).toBe(200);
@@ -172,18 +172,18 @@ test.describe('Proxy Auth + Port Forwarding E2E', () => {
     expect(typeof body.load.disk).toBe('number');
   });
 
-  test('07 — /_port/2468/ → sandbox-agent responds', async ({ request }) => {
+  test('07 — 2468--slug.kortix.cloud → sandbox-agent responds', async ({ request }) => {
     test.skip(!machineSlug, 'No machine');
-    const res = await request.get(`https://${machineSlug}.kortix.cloud/_port/2468/`, {
+    const res = await request.get(`https://2468--${machineSlug}.kortix.cloud/`, {
       headers: { Authorization: `Bearer ${API_KEY}` },
     });
     expect([200, 404]).toContain(res.status()); // 404 = agent running, no route at /
   });
 
-  test('08 — /_port/9000/ without auth → 401', async ({ request }) => {
+  test('08 — 9000--slug.kortix.cloud without auth → 401/302', async ({ request }) => {
     test.skip(!machineSlug, 'No machine');
-    const res = await request.get(`https://${machineSlug}.kortix.cloud/_port/9000/`);
-    expect(res.status()).toBe(401);
+    const res = await request.get(`https://9000--${machineSlug}.kortix.cloud/`, { maxRedirects: 0 });
+    expect([401, 302]).toContain(res.status());
   });
 
   test('09 — start HTTP server on 9000, proxy returns custom body', async ({ request }) => {
@@ -221,7 +221,7 @@ http.server.HTTPServer(("0.0.0.0", 9000), H).serve_forever()
     }
 
     // Now test through CF Worker proxy
-    const res = await request.get(`https://${machineSlug}.kortix.cloud/_port/9000/`, {
+    const res = await request.get(`https://9000--${machineSlug}.kortix.cloud/`, {
       headers: { Authorization: `Bearer ${API_KEY}` },
     });
     expect(res.status()).toBe(200);
