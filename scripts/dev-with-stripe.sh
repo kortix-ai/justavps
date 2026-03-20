@@ -97,7 +97,7 @@ echo -e "${GREEN}[dev-with-stripe]${NC} Listening for events: $EVENTS"
 echo ""
 
 # Start Next.js dev server
-pnpm exec next dev -p 4100 &
+pnpm dev &
 NEXT_PID=$!
 
 # Wait for either process to exit
