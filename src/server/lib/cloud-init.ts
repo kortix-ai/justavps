@@ -248,7 +248,8 @@ cat > /etc/justavps/config.json << 'CONFIGEOF'
 {
   "slug": "${opts.slug}",
   "callback_url": "${opts.platformCallbackUrl}",
-  "machine_token": "${opts.machineToken}"
+  "machine_token": "${opts.machineToken}",
+  "proxy_domain": "${opts.proxyDomain}"
 }
 CONFIGEOF
 

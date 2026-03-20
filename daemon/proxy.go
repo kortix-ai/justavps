@@ -41,6 +41,7 @@ var sharedTransport = &http.Transport{
 
 // ProxyRouter implements http.Handler. Single ServeHTTP with path-based routing.
 type ProxyRouter struct {
+	cfg         *Config
 	opencode    *httputil.ReverseProxy
 	agent       *httputil.ReverseProxy
 	daemon      *httputil.ReverseProxy
@@ -48,8 +49,9 @@ type ProxyRouter struct {
 	toolboxExec http.Handler
 }
 
-func NewProxyRouter() *ProxyRouter {
+func NewProxyRouter(cfg *Config) *ProxyRouter {
 	return &ProxyRouter{
+		cfg:         cfg,
 		opencode:    newUpstreamProxy(opencodeAddr, ""),
 		agent:       newUpstreamProxy(sandboxAgentAddr, "/agent"),
 		daemon:      newUpstreamProxy(internalAPIAddr, "/daemon"),
@@ -64,7 +66,7 @@ func (p *ProxyRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	// Standalone web terminal page — serves xterm.js UI
 	case path == "/_terminal":
-		handleTerminalPage(w, r)
+		handleTerminalPage(w, r, p.cfg)
 
 	// WebSocket PTY — dashboard terminal
 	case path == "/_pty":

@@ -62,8 +62,14 @@ func main() {
 	updater := NewUpdater()
 	heartbeat := NewHeartbeater(cfg, health, updater)
 
+	// ── Port forwarding setup — shell integration + port watcher ─────────
+	if err := SetupPortForwarding(cfg); err != nil {
+		log.Printf("WARNING: port forwarding setup failed: %v", err)
+	}
+	portWatcher := NewPortWatcher(cfg)
+
 	// ── Public server :80 — the single front door ────────────────────────
-	proxy := NewProxyRouter()
+	proxy := NewProxyRouter(cfg)
 	publicServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", *publicPort),
 		Handler: proxy,
@@ -76,6 +82,7 @@ func main() {
 	defer cancel()
 
 	go heartbeat.Run(ctx)
+	go portWatcher.Run(ctx)
 
 	go func() {
 		log.Printf("Listening :%d (public) :%d (api)", *publicPort, *apiPort)

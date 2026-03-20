@@ -1053,7 +1053,7 @@ func TestProxyRouterToolboxFS(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "test.txt"), []byte("proxy test"), 0644)
 
-	router := NewProxyRouter()
+	router := NewProxyRouter(&Config{Slug: "test", CallbackURL: "http://localhost", MachineToken: "mt_test", ProxyDomain: "kortix.cloud"})
 	req := httptest.NewRequest("GET", "/toolbox/files?path="+dir, nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -1070,7 +1070,7 @@ func TestProxyRouterToolboxFS(t *testing.T) {
 }
 
 func TestProxyRouterToolboxProcess(t *testing.T) {
-	router := NewProxyRouter()
+	router := NewProxyRouter(&Config{Slug: "test", CallbackURL: "http://localhost", MachineToken: "mt_test", ProxyDomain: "kortix.cloud"})
 	body := `{"command":"echo proxy_test"}`
 	req := httptest.NewRequest("POST", "/toolbox/process/execute", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

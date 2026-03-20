@@ -6,14 +6,20 @@
 //
 // The page is designed to work both embedded (in an iframe on the dashboard)
 // and standalone (opened in a new tab for a full terminal experience).
+//
+// Localhost URLs (localhost:PORT, 127.0.0.1:PORT, 0.0.0.0:PORT) are
+// automatically rewritten to public port-forwarded URLs (PORT--slug.domain).
 
 package main
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 )
 
-const terminalHTML = `<!DOCTYPE html>
+func buildTerminalHTML(slug, domain string) string {
+	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -22,9 +28,9 @@ const terminalHTML = `<!DOCTYPE html>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{height:100%;overflow:hidden;background:#09090b}
-#terminal{height:100%;width:100%}
-.xterm{height:100%!important}
+html,body{height:100%%;overflow:hidden;background:#09090b}
+#terminal{height:100%%;width:100%%}
+.xterm{height:100%%!important}
 
 /* Status bar — only shown standalone (not in iframe) */
 #status-bar{
@@ -42,7 +48,7 @@ html,body{height:100%;overflow:hidden;background:#09090b}
   color:#a1a1aa;
 }
 #status-bar .dots{display:flex;gap:6px}
-#status-bar .dot{width:10px;height:10px;border-radius:50%}
+#status-bar .dot{width:10px;height:10px;border-radius:50%%}
 #status-bar .dot-red{background:#ef4444cc}
 #status-bar .dot-yellow{background:#eab308cc}
 #status-bar .dot-green{background:#22c55ecc}
@@ -62,7 +68,7 @@ html,body{height:100%;overflow:hidden;background:#09090b}
 #status-bar button:hover{color:#e4e4e7;background:#27272a}
 
 body.standalone #status-bar{display:flex}
-body.standalone #terminal{height:calc(100% - 32px);margin-top:32px}
+body.standalone #terminal{height:calc(100%% - 32px);margin-top:32px}
 </style>
 </head>
 <body>
@@ -84,6 +90,46 @@ body.standalone #terminal{height:calc(100% - 32px);margin-top:32px}
 import{Terminal}from'https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/+esm';
 import{FitAddon}from'https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/+esm';
 import{WebLinksAddon}from'https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/+esm';
+
+// ── Port forwarding config (injected by daemon) ────────────────────────
+const SLUG = '%s';
+const DOMAIN = '%s';
+
+// ── Localhost URL rewriting ─────────────────────────────────────────────
+// Matches: http://localhost:PORT, http://127.0.0.1:PORT, http://0.0.0.0:PORT
+// Also matches bare localhost:PORT without protocol
+const LOCAL_URL_RE = /(?:https?:\/\/)?(?:localhost|127\.0\.0\.1|0\.0\.0\.0):(\d{1,5})([\/\w\-.~:?#[\]@!$&'()*+,;=]*)?/g;
+
+function rewriteLocalUrl(match, port, path) {
+  const p = parseInt(port, 10);
+  if (p <= 0 || p > 65535 || p === 22 || p === 80 || p === 7777) return null;
+  return 'https://' + p + '--' + SLUG + '.' + DOMAIN + (path || '');
+}
+
+// Custom link provider that detects localhost URLs and opens the port-forwarded URL
+class LocalhostLinkProvider {
+  provideLinks(y, callback) {
+    const term = window._term;
+    if (!term) { callback(undefined); return; }
+    const line = term.buffer.active.getLine(y - 1);
+    if (!line) { callback(undefined); return; }
+    const text = line.translateToString(true);
+    const links = [];
+    let m;
+    LOCAL_URL_RE.lastIndex = 0;
+    while ((m = LOCAL_URL_RE.exec(text)) !== null) {
+      const url = rewriteLocalUrl(m[0], m[1], m[2]);
+      if (!url) continue;
+      links.push({
+        range: { start: { x: m.index + 1, y }, end: { x: m.index + m[0].length, y } },
+        text: url,
+        activate: () => window.open(url, '_blank'),
+        tooltip: url,
+      });
+    }
+    callback(links.length > 0 ? links : undefined);
+  }
+}
 
 // Detect if we're in an iframe
 const inIframe = window.self !== window.top;
@@ -123,10 +169,15 @@ const term = new Terminal({
     brightWhite: '#fafafa',
   },
 });
+window._term = term;
 
 const fit = new FitAddon();
 term.loadAddon(fit);
 term.loadAddon(new WebLinksAddon());
+// Register localhost URL rewriting (Port → PORT--SLUG.DOMAIN)
+if (SLUG && DOMAIN) {
+  term.registerLinkProvider(new LocalhostLinkProvider());
+}
 term.open(document.getElementById('terminal'));
 fit.fit();
 
@@ -215,13 +266,24 @@ window.addEventListener('message', (e) => {
 connect();
 </script>
 </body>
-</html>`
+</html>`, slug, domain)
+}
 
-func handleTerminalPage(w http.ResponseWriter, r *http.Request) {
+func handleTerminalPage(w http.ResponseWriter, r *http.Request, cfg *Config) {
+	domain := cfg.ProxyDomain
+	if domain == "" {
+		domain = "kortix.cloud"
+	}
+	// Sanitize slug for safe embedding in JS string literal
+	slug := strings.ReplaceAll(cfg.Slug, "'", "")
+	slug = strings.ReplaceAll(slug, "\\", "")
+	domain = strings.ReplaceAll(domain, "'", "")
+	domain = strings.ReplaceAll(domain, "\\", "")
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	// Allow iframe embedding from any origin (the dashboard embeds this)
 	w.Header().Set("X-Frame-Options", "ALLOWALL")
 	w.Header().Del("X-Frame-Options")
-	w.Write([]byte(terminalHTML))
+	w.Write([]byte(buildTerminalHTML(slug, domain)))
 }

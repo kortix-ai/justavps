@@ -171,10 +171,15 @@ func TestHeartbeatPayload(t *testing.T) {
 	}
 }
 
+// testConfig returns a Config for use in tests.
+func testConfig() *Config {
+	return &Config{Slug: "test-machine", CallbackURL: "http://localhost:4100", MachineToken: "mt_test", ProxyDomain: "kortix.cloud"}
+}
+
 // ── ProxyRouter tests ────────────────────────────────────────────────────
 
 func TestProxyRouterPTY(t *testing.T) {
-	router := NewProxyRouter()
+	router := NewProxyRouter(testConfig())
 	// /_pty without WebSocket upgrade should get 400 from gorilla/websocket
 	req := httptest.NewRequest("GET", "/_pty", nil)
 	w := httptest.NewRecorder()
@@ -185,7 +190,7 @@ func TestProxyRouterPTY(t *testing.T) {
 }
 
 func TestProxyRouterPortProxy(t *testing.T) {
-	router := NewProxyRouter()
+	router := NewProxyRouter(testConfig())
 	// /_port/59999/test — port not listening, expect 502 (bad gateway)
 	req := httptest.NewRequest("GET", "/_port/59999/test", nil)
 	w := httptest.NewRecorder()
@@ -197,7 +202,7 @@ func TestProxyRouterPortProxy(t *testing.T) {
 }
 
 func TestProxyRouterLegacyCaddyPort(t *testing.T) {
-	router := NewProxyRouter()
+	router := NewProxyRouter(testConfig())
 	// /_caddy_port/59999/test — legacy path, should also work
 	req := httptest.NewRequest("GET", "/_caddy_port/59999/test", nil)
 	w := httptest.NewRecorder()
@@ -208,7 +213,7 @@ func TestProxyRouterLegacyCaddyPort(t *testing.T) {
 }
 
 func TestProxyRouterPortProxyInvalid(t *testing.T) {
-	router := NewProxyRouter()
+	router := NewProxyRouter(testConfig())
 	// /_port/abc — invalid port number
 	req := httptest.NewRequest("GET", "/_port/abc/test", nil)
 	w := httptest.NewRecorder()
@@ -219,7 +224,7 @@ func TestProxyRouterPortProxyInvalid(t *testing.T) {
 }
 
 func TestProxyRouterAgent(t *testing.T) {
-	router := NewProxyRouter()
+	router := NewProxyRouter(testConfig())
 	// /agent/health — sandbox agent not running, expect 502
 	req := httptest.NewRequest("GET", "/agent/health", nil)
 	w := httptest.NewRecorder()
@@ -230,7 +235,7 @@ func TestProxyRouterAgent(t *testing.T) {
 }
 
 func TestProxyRouterDefault(t *testing.T) {
-	router := NewProxyRouter()
+	router := NewProxyRouter(testConfig())
 	// / — OpenCode not running, expect 502
 	req := httptest.NewRequest("GET", "/", nil)
 	w := httptest.NewRecorder()

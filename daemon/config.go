@@ -11,6 +11,26 @@ type Config struct {
 	Slug         string `json:"slug"`
 	CallbackURL  string `json:"callback_url"`
 	MachineToken string `json:"machine_token"`
+	ProxyDomain  string `json:"proxy_domain"` // e.g. "kortix.cloud" — used for port URL generation
+}
+
+// PortURLTemplate returns the URL template for accessing a port on this machine.
+// Example: https://{{port}}--xoydduba.kortix.cloud
+func (c *Config) PortURLTemplate() string {
+	domain := c.ProxyDomain
+	if domain == "" {
+		domain = "kortix.cloud"
+	}
+	return "https://{{port}}--" + c.Slug + "." + domain
+}
+
+// PortURL returns the public URL for a specific port on this machine.
+func (c *Config) PortURL(port int) string {
+	domain := c.ProxyDomain
+	if domain == "" {
+		domain = "kortix.cloud"
+	}
+	return fmt.Sprintf("https://%d--%s.%s", port, c.Slug, domain)
 }
 
 func LoadConfig(path string) (*Config, error) {
