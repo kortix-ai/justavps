@@ -313,7 +313,8 @@ ${stageCallback('cloud_init_done', 'Starting services')}
 
 # ── Start services ────────────────────────────────────────────────────────
 systemctl daemon-reload
-systemctl enable --now justavps-daemon 2>/dev/null || true
+systemctl enable justavps-daemon 2>/dev/null || true
+systemctl restart justavps-daemon 2>/dev/null || true
 systemctl enable --now sandbox-agent 2>/dev/null || true
 systemctl enable --now opencode-web 2>/dev/null || true
 ${dockerBlock}
