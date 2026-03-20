@@ -82,7 +82,6 @@ internalApp.openapi(heartbeatRoute, async (c) => {
         origin_hostname: `origin-${slug}.${config.PROXY_DOMAIN}`,
         status: 'ready',
         server_type: machine.serverType,
-        platform_url: config.PLATFORM_URL,
       }).catch(() => {});
     }
 

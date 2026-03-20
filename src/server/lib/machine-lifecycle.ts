@@ -111,7 +111,6 @@ export async function setupProxyDNS(
     origin_hostname: `origin-${slug}.${config.PROXY_DOMAIN}`,
     status: 'provisioning',
     server_type: serverType,
-    platform_url: config.PLATFORM_URL,
   }).catch((err: unknown) => {
     console.warn(`[CF KV] Failed to write machine:${slug}:`, err);
   });
@@ -263,20 +262,45 @@ export async function cleanupMachineResources(
     .where(eq(machines.id, machine.id));
 }
 
+/**
+ * Provisioning timeout — if a machine has been provisioning for longer than
+ * this without receiving a heartbeat, mark it as error.
+ *
+ * Cloud-init downloads daemon + sandbox-agent + optionally Docker images,
+ * so 5 minutes is a reasonable upper bound for non-Docker machines and
+ * 10 minutes for Docker workloads.
+ */
+const PROVISION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const PROVISION_TIMEOUT_DOCKER_MS = 10 * 60 * 1000; // 10 minutes for Docker workloads
+
 export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
   if (machine.status !== 'provisioning' || !machine.providerServerId) return machine;
 
-  try {
-    const { getProvider } = await import('./providers');
-    const provider = getProvider(machine.provider);
-    const providerStatus = await provider.getServerStatus(machine.providerServerId);
-    if (providerStatus === 'running') {
-      const now = new Date();
-      await db.update(machines).set({ status: 'ready', readyAt: now }).where(eq(machines.id, machine.id));
-      return { ...machine, status: 'ready' as const, readyAt: now };
-    }
-  } catch (err) {
-    console.error(`[MACHINES] syncMachineStatus error for ${machine.id}:`, err);
+  const elapsed = Date.now() - machine.createdAt.getTime();
+  const timeoutMs = machine.dockerImage ? PROVISION_TIMEOUT_DOCKER_MS : PROVISION_TIMEOUT_MS;
+
+  // If provisioning has exceeded the timeout and we still haven't received
+  // a heartbeat, mark the machine as error so the user isn't stuck waiting.
+  if (elapsed > timeoutMs && !machine.lastHeartbeatAt) {
+    console.warn(`[MACHINES] Provisioning timeout for ${machine.slug} (${Math.round(elapsed / 1000)}s elapsed, no heartbeat)`);
+    await db.update(machines).set({
+      status: 'error',
+      provisioningStage: 'timeout',
+    }).where(eq(machines.id, machine.id));
+
+    const { eventBus } = await import('./event-bus');
+    await eventBus.emitStatusChange(machine.id, machine.ownerId, 'error', 'Provisioning timed out — no heartbeat received');
+
+    return { ...machine, status: 'error' as const, provisioningStage: 'timeout' };
+  }
+
+  // Fallback: if Hetzner says running AND we have a heartbeat, promote to ready.
+  // This handles the edge case where the heartbeat was received but the status
+  // wasn't updated (shouldn't happen, but defensive).
+  if (machine.lastHeartbeatAt) {
+    const now = new Date();
+    await db.update(machines).set({ status: 'ready', readyAt: now }).where(eq(machines.id, machine.id));
+    return { ...machine, status: 'ready' as const, readyAt: now };
   }
 
   return machine;

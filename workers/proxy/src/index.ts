@@ -85,15 +85,8 @@ export default {
         const error = authResult.error || 'Authentication required';
         const isAccessDenied = error === 'Access denied' || error === 'Machine is deleted';
 
-        // Resolve platform URL: check KV for per-machine platform_url, fall back to env
-        let platformUrl = env.PLATFORM_URL;
-        try {
-          const raw = await env.KV.get(`machine:${slug}`);
-          if (raw) {
-            const info = JSON.parse(raw) as { platform_url?: string };
-            if (info.platform_url) platformUrl = info.platform_url;
-          }
-        } catch { /* fall back to env */ }
+        // Each Worker (prod/dev) has its own PLATFORM_URL — no per-machine override needed.
+        const platformUrl = env.PLATFORM_URL;
 
         // If user IS authenticated but doesn't own the machine → show error, don't redirect
         // (redirecting causes infinite loop: login → proxy-auth → JWT → ownership fail → redirect)
