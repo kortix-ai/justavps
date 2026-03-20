@@ -729,71 +729,6 @@ export default function MachineDetailPage() {
       )}
 
       {/* ════════════════════════════════════════════════════════════════
-          STATS STRIP
-          ════════════════════════════════════════════════════════════════ */}
-      {machine.health ? (
-        /* Live health data — show progress bars */
-        <div className="rounded-xl border bg-card p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Resource Usage</span>
-            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <DollarSign className="size-3" />
-              <span className="font-medium text-foreground">${machine.price_monthly ?? 0}</span>
-              <span>/mo</span>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <HealthRow
-              icon={Cpu}
-              label="CPU"
-              value={`${Math.round(machine.health.cpu)}%`}
-              progress={machine.health.cpu}
-              colorClass={cpuColor}
-            />
-            <HealthRow
-              icon={MemoryStick}
-              label="Memory"
-              value={`${Math.round(machine.health.memory)}%`}
-              progress={machine.health.memory}
-              colorClass={memColor}
-            />
-            <HealthRow
-              icon={HardDrive}
-              label="Disk"
-              value={`${Math.round(machine.health.disk)}%`}
-              progress={machine.health.disk}
-              colorClass={diskColor}
-            />
-          </div>
-        </div>
-      ) : (
-        /* No health data — clean inline info strip */
-        <div className="rounded-xl border bg-card px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-2">
-          <div className="flex items-center gap-2">
-            <Server className="size-3.5 text-muted-foreground shrink-0" />
-            <span className="text-sm font-medium">{planName(machine.server_type)}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <MapPin className="size-3.5 text-muted-foreground shrink-0" />
-            <span className="text-sm">{regionDisplay(machine.region).label}</span>
-          </div>
-          {machine.ip && (
-            <div className="flex items-center gap-2">
-              <Globe className="size-3.5 text-muted-foreground shrink-0" />
-              <span className="text-sm font-mono">{machine.ip}</span>
-            </div>
-          )}
-          <div className="flex items-center gap-2 ml-auto">
-            <DollarSign className="size-3.5 text-muted-foreground shrink-0" />
-            <span className="text-sm">
-              <span className="font-semibold">${machine.price_monthly ?? 0}</span>
-              <span className="text-muted-foreground">/mo</span>
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* ════════════════════════════════════════════════════════════════
           TABS
           ════════════════════════════════════════════════════════════════ */}
       {isReady ? (
@@ -810,6 +745,10 @@ export default function MachineDetailPage() {
             <TabsTrigger value="proxy" className="gap-1.5 text-xs h-7">
               <Globe className="size-3.5" />
               Proxy
+            </TabsTrigger>
+            <TabsTrigger value="stats" className="gap-1.5 text-xs h-7">
+              <Cpu className="size-3.5" />
+              Stats
             </TabsTrigger>
             <TabsTrigger value="backups" className="gap-1.5 text-xs h-7">
               <Archive className="size-3.5" />
@@ -977,6 +916,67 @@ export default function MachineDetailPage() {
                 {/* Port forward */}
                 <PortForwardCard slug={machine.slug} />
               </div>
+            </div>
+          </TabsContent>
+
+          {/* ── STATS ─────────────────────────────────────────────────── */}
+          <TabsContent value="stats" className="mt-0">
+            <div className="rounded-xl border bg-card p-4 space-y-4">
+              {machine.health ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Resource Usage</span>
+                    <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <DollarSign className="size-3" />
+                      <span className="font-medium text-foreground">${machine.price_monthly ?? 0}</span>
+                      <span>/mo</span>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <HealthRow icon={Cpu} label="CPU" value={`${Math.round(machine.health.cpu)}%`} progress={machine.health.cpu} colorClass={cpuColor} />
+                    <HealthRow icon={MemoryStick} label="Memory" value={`${Math.round(machine.health.memory)}%`} progress={machine.health.memory} colorClass={memColor} />
+                    <HealthRow icon={HardDrive} label="Disk" value={`${Math.round(machine.health.disk)}%`} progress={machine.health.disk} colorClass={diskColor} />
+                  </div>
+                  <div className="pt-2 border-t space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2 text-muted-foreground"><Server className="size-3.5" /><span>Plan</span></div>
+                      <span className="font-medium">{planName(machine.server_type)}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2 text-muted-foreground"><MapPin className="size-3.5" /><span>Region</span></div>
+                      <span className="font-medium">{regionDisplay(machine.region).label}</span>
+                    </div>
+                    {machine.ip && (
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2 text-muted-foreground"><Globe className="size-3.5" /><span>IP</span></div>
+                        <span className="font-mono font-medium">{machine.ip}</span>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2 text-muted-foreground"><Server className="size-3.5" /><span>Plan</span></div>
+                    <span className="font-medium">{planName(machine.server_type)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2 text-muted-foreground"><MapPin className="size-3.5" /><span>Region</span></div>
+                    <span className="font-medium">{regionDisplay(machine.region).label}</span>
+                  </div>
+                  {machine.ip && (
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2 text-muted-foreground"><Globe className="size-3.5" /><span>IP</span></div>
+                      <span className="font-mono font-medium">{machine.ip}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2 text-muted-foreground"><DollarSign className="size-3.5" /><span>Cost</span></div>
+                    <span className="font-medium">${machine.price_monthly ?? 0}/mo</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground pt-1">Live CPU, memory and disk metrics appear once the machine reports health data.</p>
+                </div>
+              )}
             </div>
           </TabsContent>
 

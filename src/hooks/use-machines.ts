@@ -104,6 +104,28 @@ export function useRebootMachine() {
   });
 }
 
+export function useStopMachine() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post(`/machines/${id}/stop`),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: machineKeys.detail(id) });
+      qc.invalidateQueries({ queryKey: machineKeys.all });
+    },
+  });
+}
+
+export function useStartMachine() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post(`/machines/${id}/start`),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: machineKeys.detail(id) });
+      qc.invalidateQueries({ queryKey: machineKeys.all });
+    },
+  });
+}
+
 interface ResizeInput {
   id: string;
   server_type: string;

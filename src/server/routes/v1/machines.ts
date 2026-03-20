@@ -79,8 +79,8 @@ function serializeMachine(m: typeof machines.$inferSelect) {
     created_at: m.createdAt.toISOString(),
     ready_at: m.readyAt?.toISOString() ?? null,
     urls: m.ip ? {
-      vscode: `https://${m.slug}.${proxyDomain}`,
-      pty: `wss://${m.slug}.${proxyDomain}/_pty`,
+      proxy: `https://${m.slug}.${proxyDomain}`,
+      terminal: `https://${m.slug}.${proxyDomain}/_terminal`,
       port_template: `https://{port}--${m.slug}.${proxyDomain}`,
     } : null,
     ssh: sshCommand,
@@ -529,6 +529,104 @@ machinesApp.openapi(rebootMachineRoute, async (c) => {
 
   await lookup.provider.rebootServer(owned.resource.providerServerId);
   return c.json({ action: 'reboot', status: 'initiated' }, 202);
+});
+
+// ─── POST /:id/stop ─────────────────────────────────────────────────────────
+
+const stopMachineRoute = createRoute({
+  method: 'post',
+  path: '/{id}/stop',
+  tags: ['Machines'],
+  security: bearerSecurity,
+  summary: 'Stop a machine',
+  description: 'Powers off the machine (graceful shutdown). Billing continues while stopped.',
+  request: {
+    params: z.object({ id: z.string().uuid().openapi({ description: 'Machine ID' }) }),
+  },
+  responses: {
+    202: {
+      description: 'Stop initiated',
+      content: { 'application/json': { schema: ActionResponseSchema } },
+    },
+    400: { description: 'Bad Request', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+machinesApp.openapi(stopMachineRoute, async (c) => {
+  const { id } = c.req.valid('param');
+  const ownerId = c.get('userId');
+
+  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  if (owned.response) return owned.response as any;
+
+  if (!owned.resource.providerServerId) {
+    return errorResponse(c, 404, 'Machine not found') as any;
+  }
+  if (owned.resource.status !== 'ready') {
+    return errorResponse(c, 400, 'Machine must be running to stop') as any;
+  }
+
+  const lookup = requireProvider(c, owned.resource.provider);
+  if (lookup.response) return lookup.response as any;
+
+  await lookup.provider.stopServer(owned.resource.providerServerId);
+
+  await db.update(machines)
+    .set({ status: 'stopped' })
+    .where(eq(machines.id, id));
+
+  return c.json({ action: 'stop', status: 'initiated' }, 202);
+});
+
+// ─── POST /:id/start ────────────────────────────────────────────────────────
+
+const startMachineRoute = createRoute({
+  method: 'post',
+  path: '/{id}/start',
+  tags: ['Machines'],
+  security: bearerSecurity,
+  summary: 'Start a stopped machine',
+  description: 'Powers on a previously stopped machine.',
+  request: {
+    params: z.object({ id: z.string().uuid().openapi({ description: 'Machine ID' }) }),
+  },
+  responses: {
+    202: {
+      description: 'Start initiated',
+      content: { 'application/json': { schema: ActionResponseSchema } },
+    },
+    400: { description: 'Bad Request', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+machinesApp.openapi(startMachineRoute, async (c) => {
+  const { id } = c.req.valid('param');
+  const ownerId = c.get('userId');
+
+  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  if (owned.response) return owned.response as any;
+
+  if (!owned.resource.providerServerId) {
+    return errorResponse(c, 404, 'Machine not found') as any;
+  }
+  if (owned.resource.status !== 'stopped') {
+    return errorResponse(c, 400, 'Machine must be stopped to start') as any;
+  }
+
+  const lookup = requireProvider(c, owned.resource.provider);
+  if (lookup.response) return lookup.response as any;
+
+  await lookup.provider.startServer(owned.resource.providerServerId);
+
+  await db.update(machines)
+    .set({ status: 'ready' })
+    .where(eq(machines.id, id));
+
+  return c.json({ action: 'start', status: 'initiated' }, 202);
 });
 
 // ─── POST /:id/resize ───────────────────────────────────────────────────────
