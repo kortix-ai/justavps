@@ -82,7 +82,7 @@ imagesApp.openapi(getImageRoute, async (c) => {
   const { id } = c.req.valid('param');
   const ownerId = c.get('userId');
   const owned = await requireOwnedResource<ImageRow>(c, images, images.id, id, ownerId, 'Image');
-  if (owned.response) return owned.response as Response;
+  if (owned.response) return owned.response as any;
   return c.json(serializeImage(owned.resource));
 });
 
@@ -109,13 +109,13 @@ imagesApp.openapi(deleteImageRoute, async (c) => {
   const { id } = c.req.valid('param');
   const ownerId = c.get('userId');
   const owned = await requireOwnedResource<ImageRow>(c, images, images.id, id, ownerId, 'Image');
-  if (owned.response) return owned.response as Response;
+  if (owned.response) return owned.response as any;
 
   const img = owned.resource;
 
   // Prevent deletion of public/template images
   if (img.isTemplate) {
-    return errorResponse(c, 403, 'Cannot delete a template image') as Response;
+    return errorResponse(c, 403, 'Cannot delete a template image') as any;
   }
   if (img.providerImageId) {
     try {
