@@ -5,7 +5,6 @@ import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MachineCard } from "@/components/dashboard/machine-card";
-import { ImportKortixModal } from "@/components/dashboard/import-kortix-modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAccountLimits } from "@/hooks/use-account";
 import { useMachines, useDeleteMachine } from "@/hooks/use-machines";
@@ -17,7 +16,6 @@ import {
   Trash2,
   AlertTriangle,
   Loader2,
-  Download,
   Activity,
   Search,
 } from "lucide-react";
@@ -27,17 +25,8 @@ import { CheckoutModal } from "@/components/checkout-modal";
 export default function MachinesPage() {
   const searchParams = useSearchParams();
   const isPostCheckout = searchParams.get("checkout") === "success";
-  const isKortixImport = searchParams.get("import") === "kortix";
-  const [importModalOpen, setImportModalOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-
-  useEffect(() => {
-    if (isKortixImport) {
-      setImportModalOpen(true);
-      window.history.replaceState({}, "", "/machines");
-    }
-  }, [isKortixImport]);
 
   // Use ref to survive URL changes — once we start waiting, we keep waiting
   const startedWaiting = useRef(false);
@@ -152,15 +141,6 @@ export default function MachinesPage() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setImportModalOpen(true)}
-            className="h-8 text-xs"
-          >
-            <Download className="size-3.5" />
-            Import
-          </Button>
           {machineLimitReached ? (
             <Button size="sm" disabled className="h-8 text-xs">
               <Plus className="size-3.5" />
@@ -343,10 +323,6 @@ export default function MachinesPage() {
       )}
 
       <ConfirmDialog />
-      <ImportKortixModal
-        open={importModalOpen}
-        onOpenChange={setImportModalOpen}
-      />
       <CheckoutModal
         open={checkoutOpen}
         onClose={() => setCheckoutOpen(false)}
