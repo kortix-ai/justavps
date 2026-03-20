@@ -318,7 +318,7 @@ Cloudflare handles SSL for `*.kortix.cloud` via their Universal SSL (wildcard). 
 **We do NOT install from scratch.** A pre-built Hetzner snapshot contains everything:
 - Ubuntu 24.04 + code-server + Caddy + Docker + Node + Python + justavps-agent + all dev tools
 
-Cloud-init only injects user-specific config (SSH key, slug, password). This cuts provisioning from ~4 min to **~60 seconds**.
+Cloud-init only injects user-specific config (SSH key, slug, password). This cuts provisioning from ~4 min to **~90–180 seconds** (depending on whether daemon/sandbox-agent are pre-baked in the snapshot).
 
 #### Snapshot Build Process (done once, updated periodically)
 
@@ -378,7 +378,7 @@ User clicks "Create Machine"
   └─ 12. Dashboard shows machine as "Ready" with connect details
 ```
 
-Total time from click to ready: **~60 seconds** (Hetzner boots snapshot in ~30s, cloud-init config injection ~10s, services start ~10s, DNS propagation ~5s)
+Total time from click to ready: **~90–180 seconds** (Hetzner boots snapshot in ~30s, cloud-init config injection ~10s, daemon/sandbox-agent download ~15–30s if not pre-baked, services start ~10s, DNS propagation ~5s). With pre-baked snapshots containing daemon + sandbox-agent, this drops to ~60s. A provisioning timeout watchdog marks machines as `error` after 5 min (10 min for Docker workloads) if no heartbeat is received.
 
 #### Future: Warm Pool (get to ~10s)
 

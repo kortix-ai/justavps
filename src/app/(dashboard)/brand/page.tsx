@@ -725,7 +725,7 @@ export const roobert = localFont({
               </div>
               <h2 className="font-heading text-xl mb-1.5">No machines yet</h2>
               <p className="text-sm text-muted-foreground mb-6 text-center max-w-xs">
-                Deploy your first VPS in under 60 seconds. Pick a plan and go.
+                Deploy your first VPS in minutes. Pick a plan and go.
               </p>
               <Button>
                 <Plus className="size-4" />
@@ -911,7 +911,7 @@ export const roobert = localFont({
             </div>
             <div>
               <p className="text-sm font-medium text-yellow-600 dark:text-yellow-400">Provisioning</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Usually takes about 60 seconds.</p>
+              <p className="text-xs text-muted-foreground mt-0.5">This usually takes 1–3 minutes.</p>
             </div>
           </div>
         </div>

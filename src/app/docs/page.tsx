@@ -262,14 +262,14 @@ export default function DocsPage() {
         {/*  GETTING STARTED                                            */}
         {/* ──────────────────────────────────────────────────────────── */}
         <H2 id="getting-started">Getting Started</H2>
-        <P>Get a machine running in under 60 seconds.</P>
+        <P>Get a machine running in minutes.</P>
 
         <Step n={1} title="Choose a machine">
           <p>Pick a plan from the landing page or dashboard. Starter (2 vCPU / 4 GB), Pro (4 vCPU / 8 GB), Power (8 vCPU / 16 GB), or Ultra (16 vCPU / 32 GB). Choose your region (EU Central or US West).</p>
         </Step>
 
         <Step n={2} title="Deploy">
-          <p>Click <B>Deploy</B>. Your machine provisions in ~60 seconds. You get a dedicated IP, SSH key, and an authenticated subdomain for every port.</p>
+          <p>Click <B>Deploy</B>. Your machine provisions in 1–3 minutes. You get a dedicated IP, SSH key, and an authenticated subdomain for every port.</p>
         </Step>
 
         <Step n={3} title="Connect">

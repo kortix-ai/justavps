@@ -1,7 +1,7 @@
 import { eq, inArray, and } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db';
-import { machines, users, sshKeys } from '../db/schema';
+import { machines, users, sshKeys, subscriptions } from '../db/schema';
 import { generateMachineToken, fingerprintSSHKey } from './crypto';
 import { generateSSHKeyPair } from './ssh-keygen';
 import { buildCloudInit } from './cloud-init';
@@ -224,9 +224,13 @@ export async function createStripeSubscription(
     const { subscriptionId, subscriptionItemId } = await stripeClient.createMachineSubscription(
       customerId, machineId, slug, priceMonthly, serverType, specs,
     );
-    await db.update(machines).set({
-      stripeSubItemId: `${subscriptionId}|${subscriptionItemId}`,
-    }).where(eq(machines.id, machineId));
+    await db.insert(subscriptions).values({
+      machineId,
+      ownerId,
+      stripeSubscriptionId: subscriptionId,
+      stripeSubscriptionItemId: subscriptionItemId,
+      status: 'active',
+    });
   } catch (err) {
     console.error('[MACHINES] Stripe subscription creation failed (non-fatal):', err);
   }
@@ -252,9 +256,11 @@ export async function cleanupMachineResources(
     await cloudflareClient.deleteKVMachine(machine.slug);
   }
 
-  if (stripeClient.isConfigured() && machine.stripeSubItemId) {
-    const subId = machine.stripeSubItemId.split('|')[0];
-    await stripeClient.cancelMachineSubscription(subId).catch(() => {});
+  if (stripeClient.isConfigured()) {
+    const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.machineId, machine.id));
+    if (sub) {
+      await stripeClient.cancelMachineSubscription(sub.stripeSubscriptionId).catch(() => {});
+    }
   }
 
   await db.update(machines)

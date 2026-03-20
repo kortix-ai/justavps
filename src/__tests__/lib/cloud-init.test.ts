@@ -117,10 +117,12 @@ describe('cloud-init', () => {
   });
 
   describe('daemon', () => {
-    it('should download latest daemon binary (non-fatal fallback)', () => {
+    it('should download latest daemon binary (with fallback for snapshot)', () => {
       const script = buildCloudInit(defaultOpts);
       expect(script).toContain('justavps-daemon-linux-amd64');
-      expect(script).toContain('daemon download failed, using image version');
+      // Either fresh download or background update for snapshot-based installs
+      expect(script).toContain('Downloading daemon');
+      expect(script).toContain('background-updating');
     });
 
     it('should use production R2 path by default (no daemonChannel)', () => {
@@ -165,6 +167,13 @@ describe('cloud-init', () => {
       const script = buildCloudInit(defaultOpts);
       expect(script).toContain('"stage":"cloud_init_running"');
       expect(script).toContain('"stage":"cloud_init_done"');
+    });
+
+    it('should include error reporting trap', () => {
+      const script = buildCloudInit(defaultOpts);
+      expect(script).toContain('report_error');
+      expect(script).toContain('cloud_init_error');
+      expect(script).toContain('trap');
     });
   });
 

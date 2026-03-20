@@ -153,7 +153,7 @@ export default function MachinesPage() {
           <div>
             <p className="text-sm font-medium">Setting up your machine…</p>
             <p className="text-xs text-muted-foreground">
-              Payment complete. Your machine is being provisioned — usually takes about 60 seconds.
+              Payment complete. Your machine is being provisioned — usually takes 1–3 minutes.
             </p>
           </div>
         </div>
@@ -202,7 +202,7 @@ export default function MachinesPage() {
           </div>
           <h2 className="font-heading text-xl mb-1.5">No machines yet</h2>
           <p className="text-sm text-muted-foreground mb-6 text-center max-w-xs">
-            Deploy your first VPS in under 60 seconds. Pick a plan and go.
+            Deploy your first VPS in minutes. Pick a plan and go.
           </p>
           {machineLimitReached ? (
             <Button disabled><Plus className="size-4" />Limit Reached</Button>

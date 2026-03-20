@@ -124,7 +124,7 @@ export default function Home() {
             </button>
             <Link href="/docs" className={cn(buttonVariants({ variant: "outline", size: "lg" }), "text-sm px-7 h-12 font-medium rounded-xl")}>Docs</Link>
           </div>
-          <p className="mt-3 text-xs text-muted-foreground">Running in 60 seconds. Cancel anytime. No credit card lock-in.</p>
+          <p className="mt-3 text-xs text-muted-foreground">Running in minutes. Cancel anytime. No credit card lock-in.</p>
           <div className="mt-8 flex items-center justify-center gap-1.5 flex-wrap">
             <LogoPill icon={<LogoOpenCode />} label="OpenCode" />
             <LogoPill icon={<LogoCursor />} label="Cursor" />
@@ -223,7 +223,7 @@ export default function Home() {
             <button onClick={() => setCheckoutOpen(true)} className={cn(buttonVariants({ size: "lg" }), "text-sm px-7 h-11 font-medium rounded-xl")}>
               Get your machine <svg className="ml-2 size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
             </button>
-            <p className="mt-2 text-xs text-muted-foreground">Deploys in under 60 seconds</p>
+            <p className="mt-2 text-xs text-muted-foreground">Deploys in minutes</p>
           </div>
         </div>
       </section>
@@ -368,7 +368,7 @@ export default function Home() {
           <div className="space-y-4">
             <Objection q="What if I don't like it?" a="Cancel anytime. No contracts, no lock-in. Your data is yours — download it and leave whenever you want." />
             <Objection q="Is it really cheaper?" a="Do the math yourself. Daytona, E2B, Modal and others charge per-second — $0.05+/h per vCPU, $0.016+/h per GiB RAM. Run that 24/7 for a month and compare. We're 8–10x cheaper, every time." />
-            <Objection q="How fast can I get started?" a="Under 60 seconds. Pick a plan, we provision your machine, you SSH in. That's it." />
+            <Objection q="How fast can I get started?" a="A couple of minutes. Pick a plan, we provision your machine, you SSH in. That's it." />
             <Objection q="What about security?" a="Browser access is gated by the authenticated proxy, and SSH uses keys instead of passwords. API keys and session-based access are both supported." />
             <Objection q="Which agents can I run?" a="OpenCode, Codex, Cursor workflows, and other Linux-based agent setups. It is a persistent Linux machine with the platform tooling already wired in." />
           </div>
@@ -378,7 +378,7 @@ export default function Home() {
       {/* FINAL CTA */}
       <section className="px-6 py-20 sm:py-28 border-t border-border text-center">
         <h2 className="text-3xl sm:text-4xl font-medium tracking-tighter mb-3">Get a machine.</h2>
-        <p className="text-sm text-muted-foreground mb-6">From $20/mo. Running in 60 seconds. Cancel anytime.</p>
+          <p className="text-sm text-muted-foreground mb-6">From $20/mo. Running in minutes. Cancel anytime.</p>
         <button onClick={() => setCheckoutOpen(true)} className={cn(buttonVariants({ size: "lg" }), "text-sm px-8 h-12 font-medium rounded-xl")}>
           Deploy now <svg className="ml-2 size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
         </button>

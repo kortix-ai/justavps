@@ -211,6 +211,14 @@ done
 export HOME=/root
 export DEBIAN_FRONTEND=noninteractive
 
+# ── Error reporting ───────────────────────────────────────────────────
+report_error() {
+  local msg="\$1"
+  echo "[justavps] ERROR: \$msg"
+  ${stageCallback('cloud_init_error', '"\$msg"')}
+}
+trap 'report_error "cloud-init failed at line $LINENO"' ERR
+
 echo "[justavps] Configuring machine ${opts.slug}..."
 ${stageCallback('cloud_init_running', 'Cloud-init started')}
 
@@ -256,11 +264,20 @@ CONFIGEOF
 # ── Environment variables ─────────────────────────────────────────────────
 echo '${envLinesBase64}' | base64 -d > /etc/justavps/env
 
-# ── Update daemon to latest ───────────────────────────────────────────────
+# ── Update daemon to latest (skip download if snapshot has it) ────────────
 DAEMON_URL="https://pub-caf7762051b942d5a801397d750a0dc3.r2.dev/${opts.daemonChannel === 'dev' ? 'daemon/dev/latest' : 'daemon/latest'}/justavps-daemon-linux-amd64"
-curl -fsSL -o /usr/local/bin/justavps-daemon "$DAEMON_URL" \
-  || echo "[justavps] WARNING: daemon download failed, using image version"
-chmod +x /usr/local/bin/justavps-daemon 2>/dev/null || true
+if [ -x /usr/local/bin/justavps-daemon ]; then
+  echo "[justavps] Daemon exists in snapshot, background-updating..."
+  (curl -fsSL -o /tmp/justavps-daemon-new "$DAEMON_URL" \
+    && mv /tmp/justavps-daemon-new /usr/local/bin/justavps-daemon \
+    && chmod +x /usr/local/bin/justavps-daemon \
+    || echo "[justavps] WARNING: background daemon update failed, using snapshot version") &
+else
+  echo "[justavps] Downloading daemon..."
+  curl -fsSL -o /usr/local/bin/justavps-daemon "$DAEMON_URL" \
+    || report_error "daemon download failed"
+  chmod +x /usr/local/bin/justavps-daemon 2>/dev/null || true
+fi
 
 # ── Disable Caddy (daemon handles :80 now) ────────────────────────────────
 systemctl disable --now caddy 2>/dev/null || true

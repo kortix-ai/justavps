@@ -9,7 +9,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 export const metadata: Metadata = {
   title: "justavps.com — AI Sandbox",
-  description: "24/7 always-on sandbox for AI agents. Dedicated VPS with OpenCode, SSH access, and persistent state. Ready in 60 seconds.",
+  description: "24/7 always-on sandbox for AI agents. Dedicated VPS with OpenCode, SSH access, and persistent state. Ready in minutes.",
 };
 
 // Runs before React hydration — reads localStorage, applies class, zero flash

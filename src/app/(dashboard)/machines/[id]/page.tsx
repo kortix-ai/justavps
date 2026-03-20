@@ -15,13 +15,11 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
-  DialogDescription,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
 import {
   useMachine,
-  useDeleteMachine,
   useRebootMachine,
   useStopMachine,
   useStartMachine,
@@ -33,7 +31,6 @@ import { useCreateImage } from "@/hooks/use-images";
 import {
   ArrowLeft,
   RotateCw,
-  Trash2,
   Copy,
   Check,
   ArrowUp,
@@ -58,6 +55,7 @@ import {
   Power,
   PowerOff,
   MapPin,
+  CalendarX2,
 } from "lucide-react";
 import { RescaleDialog } from "@/components/dashboard/rescale-dialog";
 import Link from "next/link";
@@ -496,11 +494,7 @@ export default function MachineDetailPage() {
   const [createImageOpen, setCreateImageOpen] = useState(false);
   const [rescaleOpen, setRescaleOpen] = useState(false);
   const [imageName, setImageName] = useState("");
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteConfirmText, setDeleteConfirmText] = useState("");
-
   const { data: machine, isLoading, error } = useMachine(machineId);
-  const deleteMachine = useDeleteMachine();
   const rebootMachine = useRebootMachine();
   const stopMachine = useStopMachine();
   const startMachine = useStartMachine();
@@ -540,16 +534,6 @@ export default function MachineDetailPage() {
         onError: (err) => toast.error(err.message),
       },
     );
-  };
-
-  const handleDeleteConfirmed = () => {
-    deleteMachine.mutate(machineId, {
-      onSuccess: () => {
-        toast.success("Machine deleted");
-        router.push("/machines");
-      },
-      onError: (err) => toast.error(err.message),
-    });
   };
 
   /* ── Loading ───────────────────────────────────────────────────────── */
@@ -639,6 +623,15 @@ export default function MachineDetailPage() {
                 <span className={cn("size-1.5 rounded-full", statusInfo.dotClass)} />
                 {statusInfo.label}
               </Badge>
+              {machine.subscription?.cancel_at_period_end && (
+                <Badge
+                  variant="outline"
+                  className="gap-1 text-[11px] font-medium h-5 px-2 shrink-0 bg-destructive/10 text-destructive border-destructive/20"
+                >
+                  <CalendarX2 className="size-2.5" />
+                  Cancelling
+                </Badge>
+              )}
             </div>
             <p className="text-xs text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
               <span className="font-mono">{machine.slug}</span>
@@ -747,18 +740,38 @@ export default function MachineDetailPage() {
               )}
               Start
             </Button>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20"
-            onClick={() => { setDeleteConfirmText(""); setDeleteOpen(true); }}
-          >
-            <Trash2 className="size-3.5" />
-            Delete
-          </Button>
+           )}
         </div>
       </div>
+
+      {/* ════════════════════════════════════════════════════════════════
+          CANCELLATION BANNER
+          ════════════════════════════════════════════════════════════════ */}
+      {machine.subscription?.cancel_at_period_end && (
+        <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+          <div className="rounded-lg bg-destructive/10 p-1.5 shrink-0 mt-0.5">
+            <CalendarX2 className="size-4 text-destructive" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-destructive">
+              Subscription cancelled
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              This sandbox will be deleted on{" "}
+              <span className="font-medium text-foreground">
+                {machine.subscription.cancel_at
+                  ? new Date(machine.subscription.cancel_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+                  : "the end of your billing period"}
+              </span>
+              . To undo, reactivate your subscription in{" "}
+              <Link href="/billing" className="text-primary hover:underline font-medium">
+                Billing
+              </Link>
+              .
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ════════════════════════════════════════════════════════════════
           PROVISIONING BANNER
@@ -1118,6 +1131,7 @@ export default function MachineDetailPage() {
               </Link>
             </div>
           </TabsContent>
+
         </Tabs>
       ) : (
         /* ── NOT READY ─────────────────────────────────────────────────── */
@@ -1133,74 +1147,6 @@ export default function MachineDetailPage() {
           </div>
         </div>
       )}
-
-      {/* ════════════════════════════════════════════════════════════════
-          DELETE CONFIRMATION DIALOG
-          ════════════════════════════════════════════════════════════════ */}
-      <Dialog
-        open={deleteOpen}
-        onOpenChange={(o) => {
-          if (!o) {
-            setDeleteOpen(false);
-            setDeleteConfirmText("");
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-destructive">
-              <Trash2 className="size-4" />
-              Delete Machine
-            </DialogTitle>
-            <DialogDescription>
-              This will permanently destroy{" "}
-              <span className="font-semibold text-foreground">{machine.slug}</span>{" "}
-              and all data on it. This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2 py-1">
-            <Label htmlFor="delete-confirm" className="text-sm">
-              Type <span className="font-mono font-bold">DELETE</span> to confirm
-            </Label>
-            <Input
-              id="delete-confirm"
-              placeholder="DELETE"
-              value={deleteConfirmText}
-              onChange={(e) => setDeleteConfirmText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && deleteConfirmText === "DELETE") handleDeleteConfirmed();
-              }}
-              className="font-mono"
-              autoComplete="off"
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setDeleteOpen(false);
-                setDeleteConfirmText("");
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={deleteConfirmText !== "DELETE" || deleteMachine.isPending}
-              onClick={handleDeleteConfirmed}
-            >
-              {deleteMachine.isPending ? (
-                <>
-                  <Loader2 className="size-4 animate-spin mr-2" />
-                  Deleting…
-                </>
-              ) : (
-                "Delete Forever"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {machine && (
         <RescaleDialog open={rescaleOpen} onOpenChange={setRescaleOpen} machine={machine} />
