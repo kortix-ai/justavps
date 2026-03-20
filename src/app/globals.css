@@ -136,3 +136,30 @@
     @apply cursor-pointer;
   }
 }
+
+/* ── Shiki dual-theme via CSS variables ──────────────────────────── */
+/* Shiki's defaultColor:false mode uses --shiki-light / --shiki-dark  */
+/* vars. We tell it which var to read via `color` in light/dark mode. */
+
+.shiki-block pre.shiki {
+  font-family: var(--font-mono), "JetBrains Mono", ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  background: transparent !important;
+  margin: 0;
+}
+
+.shiki-block pre.shiki code {
+  background: transparent !important;
+  font-family: inherit;
+}
+
+/* Light mode: use --shiki-light values */
+.shiki-block pre.shiki span {
+  color: var(--shiki-light);
+}
+
+/* Dark mode: use --shiki-dark values */
+.dark .shiki-block pre.shiki span {
+  color: var(--shiki-dark);
+}

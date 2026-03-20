@@ -38,7 +38,7 @@ I have successfully built the **complete Dashboard UI for JustAVPS.com** - a VPS
 - **Detail Pages:** Connection guides, embedded terminal, resource monitoring, actions
 
 **✅ Advanced Features**
-- Multi-tab connection guides (VS Code, Cursor, Claude Code, OpenCode, Browser IDE)
+- Multi-tab connection guides (VS Code, Cursor, Claude Code, OpenCode, Machine URL)
 - Copy-to-clipboard for all credentials and commands
 - xterm.js terminal integration (SSR-safe with dynamic imports)
 - Real-time resource monitoring with progress bars

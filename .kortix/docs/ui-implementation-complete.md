@@ -19,7 +19,7 @@ Successfully built the complete Dashboard UI for JustAVPS.com - a VPS provisioni
 
 ### Landing Page (`/`)
 - **Hero Section:** Clean, minimal design with "Just a VPS. For Devs & AI Agents" tagline
-- **Feature Grid:** 6 key features (1-click deploy, browser IDE, SSH ready, port proxy, AI agent ready, fair pricing)
+- **Feature Grid:** 6 key features (1-click deploy, machine URL access, SSH ready, port proxy, AI agent ready, fair pricing)
 - **Pricing Section:** Dynamic pricing cards fetching from `/api/v1/server-types`
 - **Footer:** Simple footer with navigation links
 
@@ -43,7 +43,7 @@ Successfully built the complete Dashboard UI for JustAVPS.com - a VPS provisioni
 
 #### Machine Detail (`/machines/[id]`)
 - **Overview Card:** Status, specs, costs, creation dates
-- **Connection Guide:** Tabbed interface for VS Code, Cursor, Claude Code, OpenCode, Browser IDE
+- **Connection Guide:** Tabbed interface for VS Code, Cursor, Claude Code, OpenCode, Machine URL
 - **Copy-to-clipboard:** All connection strings and credentials
 - **Embedded Terminal:** xterm.js terminal component (SSR-safe with dynamic imports)
 - **Resource Monitoring:** CPU/RAM/Disk usage with progress bars

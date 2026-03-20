@@ -53,7 +53,7 @@ The AI agent space has split into two camps:
 - **Burst/ephemeral compute** — e2b, Modal, Daytona. MicroVMs. Spin up in 200ms, killed after an hour. $500+/mo for 24/7. Built for stateless code execution.
 - **24/7 always-on compute** — agents that run continuously, output tokens around the clock, live on triggers and heartbeats. These need a *home*. A real computer. A VPS.
 
-The problem: raw VPS providers (Hetzner, OVH, Contabo) have terrible DX. No instant setup. No browser IDE. No port proxying. No shareable URLs. No 1-click templates.
+The problem: raw VPS providers (Hetzner, OVH, Contabo) have terrible DX. No instant setup. No authenticated port proxying. No shareable machine URLs. No 1-click templates.
 
 **JustAVPS is the premium DX wrapper over commodity VPS.** Same Hetzner hardware. 50-100x cheaper than microVM sandboxes for 24/7 workloads. Great DX out of the box.
 
@@ -211,7 +211,7 @@ The agent runs as a `systemd` service with `Restart=always`. Even if the user ki
 
 | Action | Impact | Recovery |
 |---|---|---|
-| Kill code-server | No browser IDE | systemd restarts it in 5s |
+| Kill code-server | Legacy service interruption | systemd restarts it in 5s |
 | Kill justavps-agent | No PTY, no health checks | systemd restarts it in 5s |
 | Kill Caddy | Proxy breaks | systemd restarts it in 5s |
 | Disable systemd services | Services stay down until reboot | User clicks "Reboot" in dashboard → cloud-init re-enables |
@@ -1267,7 +1267,7 @@ The dashboard includes **full in-depth documentation** as a first-class section.
 | Decision | Choice | Reason |
 |---|---|---|
 | VPS Provider | Hetzner only | Best API, EU privacy, cheapest reliable option |
-| Base image | Ubuntu 24.04 + code-server | code-server gives browser IDE + port proxy for free |
+| Base image | Ubuntu 24.04 + OpenCode/platform services | Prewired machine access plus authenticated proxying |
 | Brand domain | justavps.com (marketing + dashboard) | Clean brand, separate from infra |
 | Infra domain | kortix.cloud (API + proxy subdomains) | Shared infra domain, extensible to multi-brand |
 | Machine URLs | abc123.kortix.cloud | Infra domain, not brand — allows multi-brand later |

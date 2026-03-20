@@ -12,6 +12,25 @@ import {
 } from "lucide-react";
 import { SiPython, SiTypescript } from "react-icons/si";
 import { TbApi } from "react-icons/tb";
+import type { Highlighter } from "shiki";
+
+/* ------------------------------------------------------------------ */
+/*  Syntax Highlighting — shiki singleton                              */
+/* ------------------------------------------------------------------ */
+
+let highlighterPromise: Promise<Highlighter> | null = null;
+
+function getHighlighter(): Promise<Highlighter> {
+  if (!highlighterPromise) {
+    highlighterPromise = import("shiki").then(({ createHighlighter }) =>
+      createHighlighter({
+        themes: ["github-light", "github-dark"],
+        langs: ["bash", "typescript", "python", "json", "shell"],
+      })
+    );
+  }
+  return highlighterPromise;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Navigation                                                         */
@@ -21,7 +40,7 @@ const NAV = [
   { id: "getting-started", title: "Getting Started", icon: Zap },
   { id: "personal-use",    title: "Personal Use",    icon: Monitor },
   { id: "infrastructure",  title: "Infrastructure Use", icon: Wrench },
-  { id: "snapshots",       title: "Snapshots",       icon: HardDrive },
+  { id: "images",          title: "Images",          icon: HardDrive },
   { id: "security",        title: "Security",        icon: Shield },
   { id: "billing",         title: "Billing",         icon: CreditCard },
   { id: "support",         title: "Support",         icon: LifeBuoy },
@@ -62,7 +81,29 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
   );
 }
 
-function CodeBlock({ children, title }: { children: string; title?: string }) {
+type Lang = "bash" | "typescript" | "python" | "json" | "shell";
+
+function CodeBlock({ children, title, lang }: { children: string; title?: string; lang?: Lang }) {
+  const [highlightedHtml, setHighlightedHtml] = useState<string | null>(null);
+  const resolvedLang: Lang = lang ?? "bash";
+
+  useEffect(() => {
+    let cancelled = false;
+    getHighlighter().then((hl) => {
+      if (cancelled) return;
+      const html = hl.codeToHtml(children.trim(), {
+        lang: resolvedLang,
+        themes: {
+          light: "github-light",
+          dark: "github-dark",
+        },
+        defaultColor: false,
+      });
+      setHighlightedHtml(html);
+    });
+    return () => { cancelled = true; };
+  }, [children, resolvedLang]);
+
   return (
     <div className={cn("group relative my-4 rounded-lg border overflow-hidden", "border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950")}>
       {title && (
@@ -72,7 +113,14 @@ function CodeBlock({ children, title }: { children: string; title?: string }) {
         </div>
       )}
       {!title && <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity z-10"><CopyButton text={children.trim()} /></div>}
-      <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed"><code className="font-mono text-zinc-800 dark:text-zinc-200">{children.trim()}</code></pre>
+      {highlightedHtml ? (
+        <div
+          className="shiki-block overflow-x-auto p-4 text-[13px] leading-relaxed [&_pre]:!bg-transparent [&_code]:!text-[13px] [&_code]:!leading-relaxed [&_code]:!font-mono"
+          dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+        />
+      ) : (
+        <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed"><code className="font-mono text-zinc-800 dark:text-zinc-200">{children.trim()}</code></pre>
+      )}
     </div>
   );
 }
@@ -107,13 +155,6 @@ function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
 }
 function Hr() { return <hr className="my-10 border-zinc-200 dark:border-zinc-800/50" />; }
 
-function ImagePlaceholder({ alt }: { alt: string }) {
-  return (
-    <div className={cn("my-4 rounded-lg border-2 border-dashed flex items-center justify-center py-16 px-6", "border-zinc-300 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900/30")}>
-      <span className="text-xs text-muted-foreground/60 text-center">{alt}</span>
-    </div>
-  );
-}
 
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
@@ -233,9 +274,9 @@ export default function DocsPage() {
 
         <Step n={3} title="Connect">
           <p>Copy the one-click SSH command from the dashboard and paste it into your terminal. That&apos;s it — you&apos;re in.</p>
-          <CodeBlock title="One-click connect (from dashboard)">{`mkdir -p ~/.ssh && echo '<key>' > ~/.ssh/justavps_mybox && chmod 600 ~/.ssh/justavps_mybox && ssh -i ~/.ssh/justavps_mybox root@95.217.x.x`}</CodeBlock>
+          <CodeBlock title="One-click connect (from dashboard)" lang="bash">{`mkdir -p ~/.ssh && echo '<key>' > ~/.ssh/justavps_mybox && chmod 600 ~/.ssh/justavps_mybox && ssh -i ~/.ssh/justavps_mybox root@95.217.x.x`}</CodeBlock>
           <p>After the first connect, reconnect anytime:</p>
-          <CodeBlock>{`ssh -i ~/.ssh/justavps_mybox root@95.217.x.x`}</CodeBlock>
+          <CodeBlock lang="bash">{`ssh -i ~/.ssh/justavps_mybox root@95.217.x.x`}</CodeBlock>
         </Step>
 
         <Hr />
@@ -247,24 +288,23 @@ export default function DocsPage() {
         <P>Use your machine as a remote dev environment. SSH in, connect your IDE, and let your AI agents run 24/7 while you close your laptop. Come back tomorrow — everything&apos;s still there.</P>
 
         <H3 id="ide-connect">Connect from Cursor / VS Code</H3>
-        <P>Use <B>Remote-SSH</B> for a local-feeling experience with automatic port forwarding:</P>
+        <P>Use <B>Remote-SSH</B> for a local-feeling experience with built-in port forwarding:</P>
         <Ul>
           <Li>Run the one-click setup command from the dashboard (saves your SSH key)</Li>
           <Li>Add the host to <IC>~/.ssh/config</IC> — the dashboard shows the exact config block to copy</Li>
           <Li><B>Cmd+Shift+P</B> → <B>Remote-SSH: Connect to Host</B> → select your machine</Li>
         </Ul>
-        <ImagePlaceholder alt="📸 Screenshot: VS Code connected via Remote-SSH, showing the file explorer on the remote machine" />
-        <Callout type="tip">Port forwarding is automatic. Start a server on port 3000 on your machine, and it appears at <IC>localhost:3000</IC> on your laptop.</Callout>
+        <Callout type="tip">If you start a server on port 3000 on the machine, you can forward it back to your laptop as <IC>localhost:3000</IC> from your SSH client or editor.</Callout>
 
         <H3 id="run-agents">Run AI Agents</H3>
-        <P>Your machine comes with <B>Claude Code</B> and <B>OpenCode</B> ready to go. Just SSH in and run them:</P>
-        <CodeBlock title="Claude Code">{`claude "build a REST API with authentication"`}</CodeBlock>
-        <CodeBlock title="OpenCode">{`opencode`}</CodeBlock>
-        <P>We recommend <B>OpenCode</B> for personal use — it includes a web UI that you can access from any browser, including your phone. Check on your agents from anywhere.</P>
-        <Callout type="info">OpenCode web UI runs on port 1337 by default. Access it at <IC>1337-&#123;id&#125;.justavps.com</IC> with your API key, or use SSH port forwarding for <IC>localhost:1337</IC>.</Callout>
+        <P>Your machine comes with <B>OpenCode</B> available out of the box. You can SSH in for CLI tools, and the dashboard shows the machine URL plus SSH commands under <B>Connect</B>.</P>
+        <CodeBlock title="OpenCode CLI" lang="bash">{`opencode`}</CodeBlock>
+        <CodeBlock title="Machine URL" lang="bash">{`https://<slug>.kortix.cloud`}</CodeBlock>
+        <P>If you run your own HTTP service on a custom port, use the corresponding proxied port URL.</P>
+        <Callout type="info">Use <IC>&#123;port&#125;--&#123;slug&#125;.kortix.cloud</IC> for custom HTTP services, or plain SSH port forwarding when you want local-only access.</Callout>
 
         <H3 id="mobile-access">Access from Mobile</H3>
-        <P>Use the <B>OpenCode Web UI</B> from any mobile browser — it works via the authenticated proxy with zero setup. Or use the dashboard <B>web terminal</B> for quick shell access.</P>
+        <P>Open the machine URL from the dashboard in any mobile browser, or use the dashboard <B>web terminal</B> for quick shell access.</P>
 
         <Hr />
 
@@ -275,15 +315,15 @@ export default function DocsPage() {
         <P>Build on JustAVPS as a platform. Create machines, manage files, run bash, and launch coding agents — all programmatically. One REST API, Python SDK, and TypeScript SDK.</P>
 
         <H3 id="api-sdks">API & SDKs</H3>
-        <P>One REST API with full coverage — machines, filesystem, process execution, snapshots, and coding agents. Available via REST, TypeScript SDK (<IC>@kortix/justavps</IC>), and Python SDK (<IC>kortix-justavps</IC>).</P>
+        <P>One REST API with full coverage — machines, filesystem, process execution, images, and coding agents. Available via REST, TypeScript SDK (<IC>@kortix/justavps</IC>), and Python SDK (<IC>kortix-justavps</IC>).</P>
         <P>Generate an API key in the dashboard under <B>Keys</B> (prefix <IC>sk_live_</IC>). Quick test:</P>
-        <CodeBlock>{`curl https://justavps.com/api/v1/machines -H "Authorization: Bearer sk_live_xxx"`}</CodeBlock>
+        <CodeBlock lang="bash">{`curl https://justavps.com/api/v1/machines -H "Authorization: Bearer sk_live_xxx"`}</CodeBlock>
 
         <Table headers={["API Surface", "What You Can Do"]} rows={[
           ["Machines", "Create, list, get, resize, rebuild, delete"],
           ["Filesystem", "Read, write, upload, download, search, replace, mkdir, move"],
           ["Process", "Exec commands, stream output (SSE), run code snippets, list, kill"],
-          ["Snapshots", "Create from Docker images, list, delete"],
+          ["Images", "List templates and saved images, create images from running machines, delete your own saved images"],
           ["Coding Agents", "Run Claude Code, OpenCode, Codex — unified API with session management"],
         ]} />
 
@@ -311,22 +351,25 @@ export default function DocsPage() {
         {/* ──────────────────────────────────────────────────────────── */}
         {/*  SNAPSHOTS                                                  */}
         {/* ──────────────────────────────────────────────────────────── */}
-        <H2 id="snapshots">Snapshots</H2>
-        <P>Every machine boots from a snapshot — a bootable image. Use the default or create your own from any Docker image.</P>
+        <H2 id="images">Templates And Images</H2>
+        <P>Every machine boots from an image. JustAVPS uses two kinds: built-in templates managed by the platform, and private images you create from your own running machines.</P>
 
-        <H3 id="default-image">Default Image</H3>
-        <P>The default snapshot is a full dev environment ready for AI agents:</P>
+        <H3 id="default-image">Built-in Templates</H3>
+        <P>Built-in templates appear in <B>Images</B> as templates and cannot be deleted from the dashboard.</P>
+        <Table headers={["Template", "Description"]} rows={[
+          ["justavps standard", "Default base image used for new machines"],
+          ["Kortix", "Starts from the standard base image and applies the Kortix preset workload"],
+        ]} />
+        <P>The default <IC>justavps standard</IC> template includes the platform services needed to connect and run workloads:</P>
         <Table headers={["Software", "Details"]} rows={[
           ["Ubuntu 24.04 LTS", "Base OS"],
-          ["Docker CE", "Container runtime, ready to use"],
-          ["Node.js 22 LTS", "System-wide via nodesource"],
-          ["Python 3 + pip", "Python toolchain"],
-          ["Claude Code + OpenCode", "AI coding agents, pre-installed"],
-          ["git, tmux, vim, nano, htop", "Dev tools"],
-          ["curl, wget, jq, unzip", "Utilities"],
-          ["build-essential", "C/C++ compiler toolchain"],
+          ["justavps-daemon", "Primary machine service on port 80"],
+          ["opencode-web", "Started by the opencode-web service"],
+          ["sandbox-agent", "Coding-agent API on port 2468"],
+          ["Docker", "Used for workload containers and Docker-image boot flows"],
+          ["SSH key auth", "Root login via keys only; password auth disabled"],
         ]} />
-        <P>Storage is NVMe SSD, persistent across reboots. Daily backups are enabled by default.</P>
+        <P>Storage is persistent across reboots, and automatic backups are enabled by default on new machines.</P>
 
         <H3 id="coding-agents-api">Coding Agents API</H3>
         <P>Every machine ships with <a href="https://sandboxagent.dev" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2">sandbox-agent</a> pre-installed — a unified API for running Claude Code, Codex, OpenCode, Amp, and other coding agents over one consistent interface.</P>
@@ -337,7 +380,7 @@ export default function DocsPage() {
           <Li><B>Universal schema</B> — standardized events for tool calls, permission requests, file edits, and more</Li>
           <Li><B>Runs inside any sandbox</B> — lightweight static binary that also works in Docker, E2B, Daytona, and Vercel Sandboxes</Li>
         </Ul>
-        <CodeBlock title="sandbox-agent session example">{`import { SandboxAgent } from "sandbox-agent";
+        <CodeBlock title="sandbox-agent session example" lang="typescript">{`import { SandboxAgent } from "sandbox-agent";
 import { local } from "sandbox-agent/local";
 
 const client = await SandboxAgent.start({
@@ -357,13 +400,35 @@ for await (const event of client.streamEvents("my-session")) {
 }`}</CodeBlock>
         <P><a href="https://sandboxagent.dev/docs/agent-sessions" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2">Agent Sessions</a> covers the full session lifecycle — create sessions, send messages, persist transcripts, and replay or audit every event. sandbox-agent runs on port 2468 by default.</P>
 
-        <H3 id="custom-snapshots">Custom Snapshots</H3>
-        <P>Create snapshots from any Docker image. Useful for pre-installing dependencies, custom toolchains, or per-customer environments.</P>
-        <CodeBlock title="Create via API">{`curl -X POST https://justavps.com/api/v1/snapshots \\
-  -H "Authorization: Bearer sk_live_xxx" \\
-  -H "Content-Type: application/json" \\
-  -d '{"name": "my-app", "docker_image": "node:20-slim"}'`}</CodeBlock>
-        <P>You can also define an entry point command that runs on boot. Pass <IC>snapshot_id</IC> when creating a machine to boot from your custom snapshot.</P>
+        <H3 id="custom-snapshots">Your Own Images</H3>
+        <P>Create a private image from any running machine when you want to preserve installed dependencies, cloned repos, custom toolchains, or customer-specific setup. These bootable images appear in <B>Images</B> under your account.</P>
+        <CodeBlock title="Create via API" lang="bash">{`curl -X POST https://justavps.com/api/v1/machines/{machine_id}/image \
+  -H "Authorization: Bearer sk_live_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-app-snapshot"}'`}</CodeBlock>
+        <P>Poll <IC>GET /api/v1/images</IC> or <IC>GET /api/v1/images/{'{id}'}</IC> until the image status becomes <IC>ready</IC>, then pass its <IC>image_id</IC> when creating a new machine.</P>
+
+        <H3 id="docker-workloads">Docker On Boot</H3>
+        <P>If you provide a <IC>docker_image</IC> while creating a machine, JustAVPS still boots the underlying base image and then starts your container on top of it. This is separate from templates and separate from your saved images.</P>
+        <CodeBlock title="Create a machine from the Kortix template" lang="bash">{`curl -X POST https://justavps.com/api/v1/machines \
+  -H "Authorization: Bearer sk_live_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "provider": "cloud",
+    "server_type": "cpx42",
+    "region": "hel1",
+    "image_id": "<template-image-id>"
+  }'`}</CodeBlock>
+        <CodeBlock title="Create a machine with a custom Docker image" lang="bash">{`curl -X POST https://justavps.com/api/v1/machines \
+  -H "Authorization: Bearer sk_live_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "provider": "cloud",
+    "server_type": "cpx42",
+    "region": "hel1",
+    "docker_image": "nginx:latest"
+  }'`}</CodeBlock>
+        <P>Use <IC>image_id</IC> for built-in templates or your own saved images. Use <IC>docker_image</IC> when you want the base machine plus a container started automatically on boot.</P>
 
         <Hr />
 
@@ -371,30 +436,31 @@ for await (const event of client.streamEvents("my-session")) {
         {/*  SECURITY                                                   */}
         {/* ──────────────────────────────────────────────────────────── */}
         <H2 id="security">Security</H2>
-        <P>Secure by default. Every machine ships with zero open ports, authenticated proxies, and SSH-key-only access. No config needed.</P>
+        <P>Access is centered around the authenticated proxy plus SSH-key-only login. The dashboard can reuse your session for browser access, and API keys work for programmatic requests.</P>
 
         <H3 id="authenticated-proxy">Authenticated Proxy</H3>
-        <P>Every port on your machine is accessible via <IC>&#123;port&#125;-&#123;id&#125;.justavps.com</IC> — authenticated automatically. For example, if your app runs on port 8000:</P>
-        <CodeBlock>{`https://8000-abc123.justavps.com`}</CodeBlock>
-        <P>Three ways to authenticate:</P>
-        <CodeBlock title="API key — header">{`curl https://8000-abc123.justavps.com \\
+        <P>HTTP services on your machine are reachable through <IC>&#123;port&#125;--&#123;slug&#125;.kortix.cloud</IC>. For example, if your app runs on port 8000:</P>
+        <CodeBlock lang="bash">{`https://8000--abc123.kortix.cloud`}</CodeBlock>
+        <P>Two ways to authenticate programmatically:</P>
+        <CodeBlock title="API key — Authorization header" lang="bash">{`curl https://8000--abc123.kortix.cloud \
   -H "Authorization: Bearer sk_live_xxx"`}</CodeBlock>
-        <CodeBlock title="API key — query param">{`https://8000-abc123.justavps.com?api_key=sk_live_xxx`}</CodeBlock>
-        <P>Or just log in to the dashboard — the proxy recognizes your session cookie automatically.</P>
+        <CodeBlock title="JWT — query param (WebSocket / iframe)" lang="bash">{`https://8000--abc123.kortix.cloud?token=<jwt>`}</CodeBlock>
+        <P>Or just log in to the dashboard — the proxy issues a session-scoped cookie for browser access.</P>
 
         <H3 id="auth-model">Authentication</H3>
         <Table headers={["Method", "Use Case", "Details"]} rows={[
           ["SSH Key", "Personal — terminal, IDE", "Key-based only, password login disabled. Key generated per machine."],
-          ["API Key", "Infrastructure — programmatic", "Bearer sk_live_* header or query param. Manage in dashboard → Keys."],
+          ["API Key", "Infrastructure — programmatic", "Authorization: Bearer sk_live_* header. Manage in dashboard → Keys."],
           ["Web Session", "Personal — dashboard, proxy", "Session cookie set on login. Auth proxy recognizes it automatically."],
+          ["JWT query param", "WebSocket / iframe", "?token=<jwt> — for contexts where headers can't be set."],
         ]} />
 
         <H3 id="network-security">Network</H3>
         <Ul>
-          <Li><B>TLS</B> — handled at the edge, no certificate config needed</Li>
-          <Li><B>Firewall</B> — only Cloudflare IPs and SSH (port 22) allowed inbound</Li>
+          <Li><B>TLS</B> — handled at the edge for proxied browser traffic</Li>
+          <Li><B>SSH access</B> — key-based only, with password authentication disabled</Li>
           <Li><B>Static IP</B> — dedicated public IPv4 per machine</Li>
-          <Li><B>Daily backups</B> — enabled by default, automatic</Li>
+          <Li><B>Automatic backups</B> — enabled by default on new machines</Li>
         </Ul>
 
         <Hr />
@@ -406,15 +472,15 @@ for await (const event of client.streamEvents("my-session")) {
         <P>Fixed monthly pricing per machine. No per-second billing, no usage surprises.</P>
 
         <Table headers={["Plan", "Specs", "Price"]} rows={[
-          ["Starter", "2 vCPU / 4 GB / 40 GB SSD", "$15/mo"],
-          ["Pro", "4 vCPU / 8 GB / 80 GB SSD", "$27/mo"],
-          ["Power", "8 vCPU / 16 GB / 160 GB SSD", "$49/mo"],
-          ["Ultra", "16 vCPU / 32 GB / 320 GB SSD", "$97/mo"],
+          ["Starter", "2 vCPU / 4 GB / 80 GB SSD", "$15/mo"],
+          ["Pro", "4 vCPU / 8 GB / 160 GB SSD", "$27/mo"],
+          ["Power", "8 vCPU / 16 GB / 320 GB SSD", "$49/mo"],
+          ["Ultra", "16 vCPU / 32 GB / 640 GB SSD", "$97/mo"],
         ]} />
 
         <Ul>
           <Li><B>Machine created</B> → Stripe subscription starts immediately</Li>
-          <Li><B>Machine deleted</B> → subscription cancelled, prorated credit applied</Li>
+          <Li><B>Machine deleted</B> → subscription cancelled</Li>
           <Li><B>Machine resized</B> → price updated with proration</Li>
         </Ul>
         <P>Cancel anytime — no contracts, no lock-in. Manage billing, update payment methods, and view invoices in <B>Billing</B> in the dashboard.</P>

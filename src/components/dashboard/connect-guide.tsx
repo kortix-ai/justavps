@@ -188,11 +188,11 @@ export function ConnectGuide({ connectInfo, machineStatus, machineIp, sshKey }: 
               </div>
             </div>
 
-            {/* OpenCode Web IDE */}
+            {/* OpenCode URL */}
             <div className="space-y-2">
-              <p className="text-sm font-medium">OpenCode Web IDE</p>
+              <p className="text-sm font-medium">Machine URL</p>
               <p className="text-sm text-muted-foreground">
-                Open the browser-based IDE (no password needed — auth handled by proxy):
+                Open the machine URL in your browser (auth handled by proxy):
               </p>
               <div className="relative group">
                 <code className="block bg-[#09090b] p-2 rounded text-sm font-mono text-foreground">
