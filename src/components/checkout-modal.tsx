@@ -16,7 +16,6 @@ import {
   Loader2,
   ArrowRight,
   Check,
-  Box,
   Monitor,
   Container,
   HardDrive,
@@ -44,51 +43,6 @@ const DEFAULT_TEMPLATE_NAME = "justavps standard";
 
 /* ═══ Helpers ═══ */
 
-function CheckRow({
-  checked,
-  onToggle,
-  icon: Icon,
-  title,
-  description,
-  disabled,
-}: {
-  checked: boolean;
-  onToggle: () => void;
-  icon: React.ElementType;
-  title: string;
-  description?: string;
-  disabled?: boolean;
-}) {
-  return (
-    <div
-      onClick={disabled ? undefined : onToggle}
-      className={cn(
-        "flex items-center gap-2.5 rounded-lg border px-3 py-2 transition-colors",
-        disabled ? "cursor-not-allowed opacity-40" : "cursor-pointer",
-        checked && !disabled
-          ? "border-primary/30 bg-primary/5"
-          : !disabled && "hover:bg-muted/30",
-      )}
-    >
-      <div
-        className={cn(
-          "flex size-3.5 shrink-0 items-center justify-center rounded border-[1.5px] transition-colors",
-          checked ? "border-primary bg-primary" : "border-muted-foreground/30",
-        )}
-      >
-        {checked && <Check className="size-2 text-primary-foreground" />}
-      </div>
-      <Icon className="size-3 shrink-0 text-muted-foreground" />
-      <div className="min-w-0 flex-1">
-        <p className="text-xs leading-tight">{title}</p>
-        {description ? (
-          <p className="mt-0.5 text-[10px] text-muted-foreground truncate">{description}</p>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 function ImageChoiceRow({
   image,
   selected,
@@ -115,12 +69,12 @@ function ImageChoiceRow({
         {selected && <Check className="size-2 text-primary-foreground" />}
       </div>
       <HardDrive className="size-3 shrink-0 text-muted-foreground" />
-      <div className="min-w-0">
-        <p className="text-xs leading-tight">{image.name}</p>
-        <p className="text-[10px] text-muted-foreground truncate">
-          {image.kind === "template" ? "Template" : "Snapshot"}
-          {image.disk_size_gb ? ` · ${image.disk_size_gb} GB` : ""}
-        </p>
+        <div className="min-w-0">
+          <p className="text-xs leading-tight">{image.name}</p>
+          <p className="text-[10px] text-muted-foreground truncate">
+            {image.kind === "template" ? "Template" : "Saved image"}
+            {image.disk_size_gb ? ` · ${image.disk_size_gb} GB` : ""}
+          </p>
         {image.description ? (
           <p className="text-[10px] text-muted-foreground/80 line-clamp-2 mt-0.5">{image.description}</p>
         ) : null}
@@ -128,8 +82,6 @@ function ImageChoiceRow({
     </div>
   );
 }
-
-type TemplateMode = "default" | "template" | "snapshot" | "docker";
 
 /* ═══ Component ═══ */
 interface CheckoutModalProps {
@@ -165,10 +117,11 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
     useState<BillingInterval>("monthly");
 
   const [machineName, setMachineName] = useState("");
-  const [templateMode, setTemplateMode] = useState<TemplateMode>("default");
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
+  const [showImagePicker, setShowImagePicker] = useState(false);
   const [dockerImage, setDockerImage] = useState("");
   const [entrypoint, setEntrypoint] = useState("");
+  const [showDockerConfig, setShowDockerConfig] = useState(false);
   const [selectedSSHKeyIds, setSelectedSSHKeyIds] = useState<string[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -183,6 +136,8 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
     allImages?.filter(
       (img) => img.status === "ready" && img.kind === "snapshot",
     ) ?? [];
+  const otherImages = [...publicTemplates, ...userImages];
+  const selectedImage = otherImages.find((img) => img.id === selectedImageId) ?? null;
 
   const selectedST = serverTypes?.find((s) => s.name === selectedServerType);
   const displayMonthly = selectedST
@@ -199,12 +154,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
     machineMax !== undefined && machineUsage >= machineMax;
   const hasExistingKeys = Boolean(userSSHKeys && userSSHKeys.length > 0);
 
-  const selectionReady =
-    templateMode === "template" || templateMode === "snapshot"
-      ? Boolean(selectedImageId)
-      : templateMode === "docker"
-        ? Boolean(dockerImage.trim())
-        : true;
+  const selectionReady = !showDockerConfig || Boolean(dockerImage.trim());
   const canCreate = Boolean(
     selectedProvider &&
       selectedRegion &&
@@ -225,24 +175,11 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
     return () => window.removeEventListener("keydown", handleKey);
   }, [open, onClose]);
 
-  const chooseMode = (mode: TemplateMode) => {
-    setTemplateMode(mode);
-    if (mode === "template") {
-      setSelectedImageId((c) => c ?? publicTemplates[0]?.id ?? null);
-    } else if (mode === "snapshot") {
-      setSelectedImageId((c) => c ?? userImages[0]?.id ?? null);
-    } else {
-      setSelectedImageId(null);
-    }
-  };
-
   const handleDeploy = () => {
     if (!selectedProvider || !selectedRegion || !selectedServerType) return;
 
     const imageId =
-      templateMode === "template" || templateMode === "snapshot"
-        ? selectedImageId ?? undefined
-        : undefined;
+      selectedImageId ?? undefined;
 
     if (!isLoggedIn) {
       setGuestCheckoutPending(true);
@@ -276,8 +213,8 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
         billing_interval: billingInterval,
         name: machineName || undefined,
         image_id: imageId,
-        docker_image: templateMode === "docker" ? dockerImage || undefined : undefined,
-        entrypoint: templateMode === "docker" ? entrypoint || undefined : undefined,
+        docker_image: showDockerConfig ? dockerImage || undefined : undefined,
+        entrypoint: showDockerConfig ? entrypoint || undefined : undefined,
         ssh_key_ids: selectedSSHKeyIds.length > 0 ? selectedSSHKeyIds : undefined,
       },
       {
@@ -482,33 +419,96 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                       onChange={(e) => setMachineName(e.target.value)}
                       className="h-8 text-xs"
                     />
-                    <div className="grid grid-cols-4 gap-1.5">
-                      <CheckRow checked={templateMode === "default"} onToggle={() => chooseMode("default")} icon={Monitor} title="justavps standard" />
-                      <CheckRow checked={templateMode === "template"} onToggle={() => chooseMode("template")} icon={Box} title="Templates" disabled={publicTemplates.length === 0} />
-                      <CheckRow checked={templateMode === "snapshot"} onToggle={() => chooseMode("snapshot")} icon={HardDrive} title="My Images" disabled={userImages.length === 0} />
-                      <CheckRow checked={templateMode === "docker"} onToggle={() => chooseMode("docker")} icon={Container} title="Docker" />
-                    </div>
+                    <div className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedImageId(null);
+                          setShowImagePicker(false);
+                        }}
+                        className={cn(
+                          "flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors",
+                          selectedImageId === null ? "border-primary/30 bg-primary/5" : "hover:bg-muted/30",
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            "flex size-3.5 shrink-0 items-center justify-center rounded border-[1.5px] transition-colors",
+                            selectedImageId === null ? "border-primary bg-primary" : "border-muted-foreground/30",
+                          )}
+                        >
+                          {selectedImageId === null && <Check className="size-2 text-primary-foreground" />}
+                        </div>
+                        <Monitor className="size-3 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs leading-tight">justavps standard</p>
+                          <p className="mt-0.5 text-[10px] text-muted-foreground">Default template · Ubuntu 24.04 with the justavps stack preinstalled</p>
+                        </div>
+                      </button>
 
-                    {templateMode === "template" && publicTemplates.length > 0 && (
-                      <div className="space-y-1">
-                        {publicTemplates.map((image) => (
-                          <ImageChoiceRow key={image.id} image={image} selected={selectedImageId === image.id} onClick={() => setSelectedImageId(image.id)} />
-                        ))}
-                      </div>
-                    )}
-                    {templateMode === "snapshot" && userImages.length > 0 && (
-                      <div className="space-y-1">
-                        {userImages.map((image) => (
-                          <ImageChoiceRow key={image.id} image={image} selected={selectedImageId === image.id} onClick={() => setSelectedImageId(image.id)} />
-                        ))}
-                      </div>
-                    )}
-                    {templateMode === "docker" && (
-                      <div className="space-y-2">
-                        <Input id="co-docker-image" placeholder="nginx:latest" value={dockerImage} onChange={(e) => setDockerImage(e.target.value)} className="h-8 text-xs font-mono" />
-                        <Input id="co-docker-entry" placeholder="Entrypoint (optional)" value={entrypoint} onChange={(e) => setEntrypoint(e.target.value)} className="h-8 text-xs font-mono" />
-                      </div>
-                    )}
+                      {otherImages.length > 0 && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setShowImagePicker((current) => !current)}
+                            className={cn(
+                              "flex w-full items-center justify-between gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors",
+                              showImagePicker || selectedImage ? "border-primary/30 bg-primary/5" : "hover:bg-muted/30",
+                            )}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <HardDrive className="size-3 shrink-0 text-muted-foreground" />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs leading-tight">
+                                  {selectedImage ? selectedImage.name : "Choose another image"}
+                                </p>
+                                <p className="mt-0.5 text-[10px] text-muted-foreground truncate">
+                                  {selectedImage
+                                    ? `${selectedImage.kind === "template" ? "Template" : "Saved image"}${selectedImage.disk_size_gb ? ` · ${selectedImage.disk_size_gb} GB` : ""}`
+                                    : `${publicTemplates.length} template${publicTemplates.length === 1 ? "" : "s"}${userImages.length > 0 ? ` · ${userImages.length} saved image${userImages.length === 1 ? "" : "s"}` : ""}`}
+                                </p>
+                              </div>
+                            </div>
+                            <ChevronDown className={cn("size-3 shrink-0 text-muted-foreground transition-transform", showImagePicker && "rotate-180")} />
+                          </button>
+
+                          {showImagePicker && (
+                            <div className="space-y-1 pl-1">
+                              {otherImages.map((image) => (
+                                <ImageChoiceRow key={image.id} image={image} selected={selectedImageId === image.id} onClick={() => setSelectedImageId(image.id)} />
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => setShowDockerConfig((current) => !current)}
+                        className={cn(
+                          "flex w-full items-center justify-between gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors",
+                          showDockerConfig ? "border-primary/30 bg-primary/5" : "hover:bg-muted/30",
+                        )}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <Container className="size-3 shrink-0 text-muted-foreground" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs leading-tight">Docker auto-run</p>
+                            <p className="mt-0.5 text-[10px] text-muted-foreground truncate">
+                              {showDockerConfig && dockerImage ? dockerImage : "Optional container started on top of the selected image"}
+                            </p>
+                          </div>
+                        </div>
+                        <ChevronDown className={cn("size-3 shrink-0 text-muted-foreground transition-transform", showDockerConfig && "rotate-180")} />
+                      </button>
+
+                      {showDockerConfig && (
+                        <div className="space-y-2 pl-1">
+                          <Input id="co-docker-image" placeholder="nginx:latest" value={dockerImage} onChange={(e) => setDockerImage(e.target.value)} className="h-8 text-xs font-mono" />
+                          <Input id="co-docker-entry" placeholder="Entrypoint (optional)" value={entrypoint} onChange={(e) => setEntrypoint(e.target.value)} className="h-8 text-xs font-mono" />
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

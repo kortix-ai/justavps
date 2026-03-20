@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,7 +37,7 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
   const providers = allProviders ?? [];
   const { data: allImages } = useImages();
 
-  // All non-standard images (templates + snapshots, ready only)
+  // All non-standard images (templates + saved images, ready only)
   const otherImages = allImages?.filter((img) => img.status === "ready" && img.name !== DEFAULT_TEMPLATE_NAME) ?? [];
 
   // Selections
@@ -49,53 +49,25 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
   const [entrypoint, setEntrypoint] = useState("");
   const [showDockerConfig, setShowDockerConfig] = useState(false);
 
-  const [selectedProvider, setSelectedProvider] = useState("");
-  const [selectedRegion, setSelectedRegion] = useState("");
-  const [selectedServerType, setSelectedServerType] = useState("");
+  const [selectedProviderOverride, setSelectedProviderOverride] = useState<string | null>(null);
+  const [selectedRegionOverride, setSelectedRegionOverride] = useState<string | null>(null);
+  const [selectedServerTypeOverride, setSelectedServerTypeOverride] = useState<string | null>(null);
   const [machineName, setMachineName] = useState("");
   const [selectedSSHKeyIds, setSelectedSSHKeyIds] = useState<string[]>([]);
   const [showMore, setShowMore] = useState(false);
 
   // Dependent queries
+  const selectedProvider = selectedProviderOverride ?? providers[0]?.name ?? "";
   const { data: regions } = useRegions(selectedProvider || undefined);
+  const selectedRegion = selectedRegionOverride ?? regions?.[0]?.id ?? "";
   const { data: serverTypes } = useServerTypes(
     selectedProvider || undefined,
     selectedRegion || undefined,
   );
+  const selectedServerType = selectedServerTypeOverride ?? serverTypes?.[0]?.name ?? "";
   const { data: userSSHKeys } = useSSHKeys();
 
   const createMachine = useCreateMachine();
-
-  // Reset when dialog opens
-  useEffect(() => {
-    if (open) {
-      setSelectedImageId(null);
-      setShowImagePicker(false);
-      setDockerImage("");
-      setEntrypoint("");
-      setShowDockerConfig(false);
-      setSelectedProvider("");
-      setSelectedRegion("");
-      setSelectedServerType("");
-      setMachineName("");
-      setSelectedSSHKeyIds([]);
-      setShowMore(false);
-    }
-  }, [open]);
-
-  // Auto-select single provider
-  useEffect(() => {
-    if (providers.length === 1 && !selectedProvider) setSelectedProvider(providers[0].name);
-  }, [allProviders, open]);
-
-  // Auto-select first region/server type
-  useEffect(() => {
-    if (regions?.length && !selectedRegion) setSelectedRegion(regions[0].id);
-  }, [regions]);
-
-  useEffect(() => {
-    if (serverTypes?.length && !selectedServerType) setSelectedServerType(serverTypes[0].name);
-  }, [serverTypes]);
 
   const selectedST = serverTypes?.find((s) => s.name === selectedServerType);
   const displayed = showMore ? serverTypes : serverTypes?.slice(0, 3);
@@ -134,8 +106,26 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
     );
   };
 
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (nextOpen) {
+      setSelectedImageId(null);
+      setShowImagePicker(false);
+      setDockerImage("");
+      setEntrypoint("");
+      setShowDockerConfig(false);
+      setSelectedProviderOverride(null);
+      setSelectedRegionOverride(null);
+      setSelectedServerTypeOverride(null);
+      setMachineName("");
+      setSelectedSSHKeyIds([]);
+      setShowMore(false);
+    }
+
+    onOpenChange(nextOpen);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>New Machine</DialogTitle>
@@ -187,7 +177,7 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
                       </div>
                       {selectedImage ? (
                         <div className="text-xs text-muted-foreground">
-                          {selectedImage.kind === "template" ? "Template" : "Snapshot"} · {selectedImage.architecture || "x86"}
+                          {selectedImage.kind === "template" ? "Template" : "Saved image"} · {selectedImage.architecture || "x86"}
                           {selectedImage.disk_size_gb ? ` · ${selectedImage.disk_size_gb} GB` : ""}
                         </div>
                       ) : (
@@ -271,7 +261,11 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
               {providers.map((p) => (
                 <button
                   key={p.name}
-                  onClick={() => setSelectedProvider(p.name)}
+                    onClick={() => {
+                      setSelectedProviderOverride(p.name);
+                      setSelectedRegionOverride(null);
+                      setSelectedServerTypeOverride(null);
+                    }}
                   className={cn(
                     "px-3 py-1.5 rounded-md text-sm border transition-colors",
                     selectedProvider === p.name
@@ -293,7 +287,10 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
                 {regions.map((r) => (
                   <button
                     key={r.id}
-                    onClick={() => setSelectedRegion(r.id)}
+                    onClick={() => {
+                      setSelectedRegionOverride(r.id);
+                      setSelectedServerTypeOverride(null);
+                    }}
                     className={cn(
                       "px-3 py-1.5 rounded-md text-sm border transition-colors",
                       selectedRegion === r.id
@@ -317,7 +314,7 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
                   <OptionRow
                     key={s.name}
                     selected={selectedServerType === s.name}
-                    onClick={() => setSelectedServerType(s.name)}
+                    onClick={() => setSelectedServerTypeOverride(s.name)}
                   >
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-medium w-14">{planName(s.name)}</span>
@@ -456,7 +453,7 @@ function ImageRow({
         <div className="min-w-0">
           <div className="text-sm">{image.name}</div>
           <div className="text-xs text-muted-foreground">
-            {image.kind === "template" ? "Template" : "Snapshot"} · {image.architecture || "x86"}
+            {image.kind === "template" ? "Template" : "Saved image"} · {image.architecture || "x86"}
             {image.disk_size_gb && <> &middot; {image.disk_size_gb} GB</>}
           </div>
           {image.description ? (

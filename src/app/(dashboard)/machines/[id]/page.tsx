@@ -264,81 +264,99 @@ function BackupsPanel({ machineId }: { machineId: string }) {
   const toggleBackups = useToggleBackups();
   const backups = data?.backups ?? [];
   const enabled = data?.backups_enabled ?? false;
+  const loaded = !isLoading && data !== undefined;
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="rounded-xl border bg-card p-5">
-          <div className="flex items-start justify-between gap-3 mb-3">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <Shield className="size-3.5 text-muted-foreground" />
-                <span className="text-sm font-medium">Automatic</span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {enabled
-                  ? "Daily snapshots, up to 7 kept."
-                  : "20% of server price/mo."}
-              </p>
+    <div className="space-y-3">
+      {/* Free perk banner — only shown when disabled */}
+      {!enabled && loaded && (
+        <div className="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
+          <div className="size-7 rounded-md bg-emerald-500/10 flex items-center justify-center shrink-0 mt-0.5">
+            <Shield className="size-3.5 text-emerald-500" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 mb-0.5">
+              <p className="text-sm font-medium">Daily backups included — free</p>
+              <Badge variant="outline" className="text-[10px] h-4 px-1.5 border-emerald-500/30 text-emerald-600 dark:text-emerald-400">Included</Badge>
             </div>
-            <Button
-              variant={enabled ? "outline" : "default"}
-              size="sm"
-              className="h-7 text-xs shrink-0"
-              disabled={toggleBackups.isPending}
-              onClick={() =>
-                toggleBackups.mutate(
-                  { machineId, enable: !enabled },
-                  {
-                    onSuccess: () =>
-                      toast.success(enabled ? "Backups disabled" : "Backups enabled"),
-                    onError: (err) => toast.error(err.message),
-                  },
-                )
-              }
-            >
-              {toggleBackups.isPending && (
-                <Loader2 className="size-3 animate-spin mr-1" />
-              )}
-              {enabled ? "Disable" : "Enable"}
-            </Button>
+            <p className="text-xs text-muted-foreground">
+              Up to 7 daily snapshots at no extra cost. Enable it once — we handle the rest.
+            </p>
           </div>
         </div>
+      )}
 
-        <div className="rounded-xl border bg-card p-5">
-          <div className="flex items-start justify-between gap-3 mb-3">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <Camera className="size-3.5 text-muted-foreground" />
-                <span className="text-sm font-medium">Manual</span>
-              </div>
+      {/* Controls — single card, two rows */}
+      <div className="rounded-xl border bg-card divide-y overflow-hidden">
+        {/* Automatic backups */}
+        <div className="flex items-center justify-between px-4 py-3.5 gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className={cn(
+              "size-7 rounded-md flex items-center justify-center shrink-0",
+              enabled ? "bg-emerald-500/10" : "bg-muted",
+            )}>
+              <Shield className={cn("size-3.5", enabled ? "text-emerald-500" : "text-muted-foreground")} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium">Daily backups</p>
               <p className="text-xs text-muted-foreground">
-                Point-in-time snapshot on demand.
+                {enabled ? "Active — up to 7 daily snapshots kept" : "Free, included in your plan"}
               </p>
             </div>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 text-xs shrink-0"
-              disabled={createBackup.isPending}
-              onClick={() =>
-                createBackup.mutate(
-                  { machineId },
-                  {
-                    onSuccess: () => toast.success("Backup started"),
-                    onError: (err) => toast.error(err.message),
-                  },
-                )
-              }
-            >
-              {createBackup.isPending ? (
-                <Loader2 className="size-3 animate-spin" />
-              ) : (
-                <Camera className="size-3" />
-              )}
-              Run Now
-            </Button>
           </div>
+          <Button
+            variant={enabled ? "outline" : "default"}
+            size="sm"
+            className="h-7 text-xs shrink-0"
+            disabled={toggleBackups.isPending}
+            onClick={() =>
+              toggleBackups.mutate(
+                { machineId, enable: !enabled },
+                {
+                  onSuccess: () => toast.success(enabled ? "Backups disabled" : "Backups enabled"),
+                  onError: (err) => toast.error(err.message),
+                },
+              )
+            }
+          >
+            {toggleBackups.isPending && <Loader2 className="size-3 animate-spin mr-1" />}
+            {enabled ? "Disable" : "Enable"}
+          </Button>
+        </div>
+
+        {/* Manual backup — requires backups enabled */}
+        <div className="flex items-center justify-between px-4 py-3.5 gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="size-7 rounded-md bg-muted flex items-center justify-center shrink-0">
+              <Camera className="size-3.5 text-muted-foreground" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium">Manual backup</p>
+              <p className="text-xs text-muted-foreground">
+                {enabled
+                  ? "Trigger a one-off backup right now"
+                  : "Enable daily backups first to run manual backups"}
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs shrink-0"
+            disabled={createBackup.isPending || !enabled}
+            onClick={() =>
+              createBackup.mutate(
+                { machineId },
+                {
+                  onSuccess: () => toast.success("Backup started"),
+                  onError: (err) => toast.error(err.message),
+                },
+              )
+            }
+          >
+            {createBackup.isPending ? <Loader2 className="size-3 animate-spin" /> : <Camera className="size-3" />}
+            Run Now
+          </Button>
         </div>
       </div>
 
@@ -346,40 +364,35 @@ function BackupsPanel({ machineId }: { machineId: string }) {
       <div className="rounded-xl border bg-card overflow-hidden">
         <div className="px-4 py-3 border-b flex items-center justify-between">
           <span className="text-sm font-medium">History</span>
-          <span className="text-xs text-muted-foreground">{backups.length} snapshots</span>
+          {!isLoading && <span className="text-xs text-muted-foreground">{backups.length} snapshots</span>}
         </div>
         {isLoading ? (
-          <div className="p-4 space-y-2">
-            {[1, 2, 3].map((i) => (
-              <Skeleton key={i} className="h-12 rounded-lg" />
-            ))}
+          <div className="p-3 space-y-2">
+            {[1, 2, 3].map((i) => <Skeleton key={i} className="h-11 rounded-lg" />)}
           </div>
         ) : backups.length === 0 ? (
           <div className="flex flex-col items-center py-10 text-center">
             <Archive className="size-7 text-muted-foreground/25 mb-2" />
             <p className="text-sm text-muted-foreground">No backups yet</p>
+            {!enabled && (
+              <p className="text-xs text-muted-foreground/70 mt-0.5">Enable daily backups above to get started</p>
+            )}
           </div>
         ) : (
           <div className="divide-y">
             {backups.map((b) => (
-              <div
-                key={b.id}
-                className="flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors"
-              >
+              <div key={b.id} className="flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors">
                 <div className="min-w-0">
                   <p className="text-xs font-medium truncate">{b.description}</p>
                   <p className="text-[11px] text-muted-foreground">
-                    {timeAgo(b.created)}
-                    {b.size > 0 && ` · ${b.size.toFixed(1)} GB`}
+                    {timeAgo(b.created)}{b.size > 0 && ` · ${b.size.toFixed(1)} GB`}
                   </p>
                 </div>
                 <Badge
                   variant="outline"
                   className={cn(
                     "text-[10px] shrink-0 ml-3",
-                    b.status === "available"
-                      ? "border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
-                      : "",
+                    b.status === "available" ? "border-emerald-500/30 text-emerald-600 dark:text-emerald-400" : "",
                   )}
                 >
                   {b.status}
@@ -534,7 +547,7 @@ export default function MachineDetailPage() {
   const isReady = machine.status === "ready";
   const uptime = machine.ready_at ? timeAgo(machine.ready_at) : null;
   const sshKeyPath = `~/.ssh/justavps_${machine.slug}`;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://justavps.com";
+
 
   /* Health-based stat colors */
   const cpuColor =
@@ -880,13 +893,12 @@ export default function MachineDetailPage() {
           </TabsContent>
 
           {/* ── PROXY ──────────────────────────────────────────────────── */}
-          <TabsContent value="proxy" className="mt-0 space-y-3">
-            {/* Primary URL */}
+          <TabsContent value="proxy" className="mt-0">
             <div className="rounded-xl border bg-card overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3 border-b">
                 <div className="flex items-center gap-2">
                   <Globe className="size-3.5 text-muted-foreground" />
-                  <span className="text-sm font-medium">Public URL</span>
+                  <span className="text-sm font-medium">Web Proxy</span>
                 </div>
                 <a
                   href={`https://${machine.slug}.kortix.cloud`}
@@ -897,21 +909,21 @@ export default function MachineDetailPage() {
                   <ExternalLink className="size-3" /> Open
                 </a>
               </div>
-              <div className="p-4">
-                <CodeBlock text={`https://${machine.slug}.kortix.cloud`} label="URL" />
-              </div>
-            </div>
-
-            {/* Port forwarding */}
-            <div className="rounded-xl border bg-card overflow-hidden">
-              <div className="flex items-center gap-2 px-4 py-3 border-b">
-                <Link2 className="size-3.5 text-muted-foreground" />
-                <span className="text-sm font-medium">Port Forwarding</span>
-              </div>
-              <div className="p-4 space-y-3">
-                <p className="text-xs text-muted-foreground">
-                  Expose a port on your machine via a public URL.
-                </p>
+              <div className="p-4 space-y-4">
+                {/* Root URL */}
+                <div className="space-y-1.5">
+                  <p className="text-xs text-muted-foreground">Root URL — port 80 by default</p>
+                  <CodeBlock text={`https://${machine.slug}.kortix.cloud`} label="URL" />
+                </div>
+                {/* Divider */}
+                <div className="flex items-center gap-3">
+                  <div className="h-px flex-1 bg-border/60" />
+                  <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                    <Link2 className="size-3" /> Port forwarding
+                  </span>
+                  <div className="h-px flex-1 bg-border/60" />
+                </div>
+                {/* Port forward */}
                 <PortForwardCard slug={machine.slug} />
               </div>
             </div>
