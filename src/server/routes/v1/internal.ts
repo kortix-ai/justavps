@@ -52,7 +52,9 @@ internalApp.openapi(heartbeatRoute, async (c) => {
   const { slug, machine_token, daemon_version, uptime, services, load, network, security } = c.req.valid('json');
   try {
     const [machine] = await db.select().from(machines).where(eq(machines.slug, slug));
-    if (!machine || decryptSecret(machine.machineToken) !== machine_token) {
+    let tokenMatch = false;
+    try { tokenMatch = !!machine && decryptSecret(machine.machineToken) === machine_token; } catch {}
+    if (!machine || !tokenMatch) {
       return errorResponse(c, 401, 'Unauthorized') as any;
     }
 
@@ -220,7 +222,9 @@ internalApp.openapi(stageRoute, async (c) => {
 
   try {
     const [machine] = await db.select().from(machines).where(eq(machines.slug, slug));
-    if (!machine || decryptSecret(machine.machineToken) !== machine_token) {
+    let tokenMatch = false;
+    try { tokenMatch = !!machine && decryptSecret(machine.machineToken) === machine_token; } catch {}
+    if (!machine || !tokenMatch) {
       return errorResponse(c, 401, 'Unauthorized') as any;
     }
 

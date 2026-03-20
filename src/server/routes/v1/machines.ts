@@ -68,8 +68,17 @@ function serializeMachine(
   const proxyDomain = config.PROXY_DOMAIN;
   const sshKeyPath = `~/.ssh/justavps_${m.slug}`;
 
-  // Decrypt SSH private key from DB (may be encrypted at rest)
-  const sshPrivateKeyPlain = m.sshPrivateKey ? decryptSecret(m.sshPrivateKey) : null;
+  // Decrypt SSH private key from DB (may be encrypted at rest).
+  // If decryption fails (wrong key, corrupted data), degrade gracefully —
+  // the machine still shows up in the list, just without SSH key access.
+  let sshPrivateKeyPlain: string | null = null;
+  if (m.sshPrivateKey) {
+    try {
+      sshPrivateKeyPlain = decryptSecret(m.sshPrivateKey);
+    } catch (err) {
+      console.warn(`[MACHINES] Failed to decrypt SSH key for ${m.slug}: ${err instanceof Error ? err.message : err}`);
+    }
+  }
 
   const setupCommand = sshPrivateKeyPlain && m.ip
     ? `mkdir -p ~/.ssh && echo '${sshPrivateKeyPlain.replace(/'/g, "'\\''")}' > ${sshKeyPath} && chmod 600 ${sshKeyPath} && ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${m.ip}`
