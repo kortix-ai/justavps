@@ -18,10 +18,8 @@ import { handleCORSPreflight, proxyHTTPRequest, proxyWebSocket, isWebSocketUpgra
 
 export interface Env {
   KV: KVNamespace;
-  // MUST be identical across all platform environments (dev + prod) — single Worker verifies all JWTs
   PROXY_AUTH_SECRET: string;
-  // Fallback only — per-machine platform_url from KV takes precedence for login redirects
-  PLATFORM_URL: string; // e.g. https://justavps.com
+  PLATFORM_URL: string; // https://justavps.com (prod) or https://dev.justavps.com (dev)
   ENVIRONMENT?: string;
 }
 
@@ -45,7 +43,7 @@ export default {
 
       // Handle proxy token callback: platform redirects here with __proxy_token in query.
       // The platform already verified the user's session — we just need to verify the JWT
-      // signature (not ownership), set cookie on .kortix.cloud, and redirect to clean URL.
+      // signature (not ownership), set cookie on the proxy domain, and redirect to clean URL.
       // Ownership is checked on the NEXT request (after redirect) when the cookie is sent.
       const proxyToken = url.searchParams.get('__proxy_token');
       if (proxyToken && request.method === 'GET') {
@@ -58,7 +56,10 @@ export default {
             if (payload.sub && payload.exp && payload.exp > Date.now() / 1000) {
               // JWT is structurally valid + not expired — set cookie and redirect
               url.searchParams.delete('__proxy_token');
-              const cookieValue = `__justavps_proxy=${proxyToken}; Domain=.kortix.cloud; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400`;
+              // Derive cookie domain from hostname (e.g. "43179--slug.kortix-dev.cloud" → ".kortix-dev.cloud")
+              const hostParts = url.hostname.split('.');
+              const cookieDomain = '.' + hostParts.slice(-2).join('.');
+              const cookieValue = `__justavps_proxy=${proxyToken}; Domain=${cookieDomain}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400`;
               return new Response(null, {
                 status: 302,
                 headers: {
