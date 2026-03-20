@@ -28,8 +28,12 @@ export const authConfig = {
       }
 
       if (isAuthOnlyRoute(pathname) && isLoggedIn) {
+        // Respect callbackUrl if present (e.g. proxy-auth redirect flow).
+        // Only allow relative paths to prevent open redirect attacks.
+        const callbackUrl = request.nextUrl.searchParams.get('callbackUrl');
+        const redirectTo = callbackUrl?.startsWith('/') ? callbackUrl : DEFAULT_AUTHENTICATED_REDIRECT;
         return Response.redirect(
-          new URL(DEFAULT_AUTHENTICATED_REDIRECT, request.nextUrl),
+          new URL(redirectTo, request.nextUrl),
         );
       }
 

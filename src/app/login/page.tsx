@@ -33,7 +33,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const next = searchParams.get("next") || "/machines";
+  const next = searchParams.get("callbackUrl") || searchParams.get("next") || "/machines";
 
   useEffect(() => {
     getProviders().then((providers) => {
