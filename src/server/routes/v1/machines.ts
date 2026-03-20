@@ -53,6 +53,13 @@ machinesApp.use('*', apiGuard);
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+/** Safely convert a Date to ISO string, returning null for invalid/missing dates */
+function safeISO(d: Date | null | undefined): string | null {
+  if (!d) return null;
+  const iso = d.toISOString?.();
+  return iso && !iso.includes('Invalid') ? iso : null;
+}
+
 function serializeMachine(
   m: typeof machines.$inferSelect,
   sub?: typeof subscriptions.$inferSelect | null,
@@ -106,9 +113,9 @@ function serializeMachine(
     subscription: sub ? {
       status: sub.status,
       cancel_at_period_end: sub.cancelAtPeriodEnd,
-      cancel_at: sub.cancelAt?.toISOString() ?? null,
-      cancelled_at: sub.cancelledAt?.toISOString() ?? null,
-      current_period_end: sub.currentPeriodEnd?.toISOString() ?? null,
+      cancel_at: safeISO(sub.cancelAt),
+      cancelled_at: safeISO(sub.cancelledAt),
+      current_period_end: safeISO(sub.currentPeriodEnd),
     } : null,
     health: m.lastHeartbeat ? {
       ...m.lastHeartbeat,
@@ -576,11 +583,14 @@ machinesApp.openapi(cancelMachineRoute, async (c) => {
     const updated = await stripeClient.cancelAtPeriodEnd(sub.stripeSubscriptionId);
 
     // Sync cancellation state to our DB immediately (webhook will also sync, but be proactive)
+    const cancelAt = updated.cancel_at ? new Date(updated.cancel_at * 1000) : null;
+    const cancelledAt = updated.canceled_at ? new Date(updated.canceled_at * 1000) : null;
+    const periodEnd = (updated as unknown as { current_period_end?: number }).current_period_end;
     await db.update(subscriptions).set({
       cancelAtPeriodEnd: true,
-      cancelAt: updated.cancel_at ? new Date(updated.cancel_at * 1000) : null,
-      cancelledAt: updated.canceled_at ? new Date(updated.canceled_at * 1000) : null,
-      currentPeriodEnd: new Date((updated as unknown as { current_period_end: number }).current_period_end * 1000),
+      cancelAt,
+      cancelledAt,
+      ...(periodEnd ? { currentPeriodEnd: new Date(periodEnd * 1000) } : {}),
       updatedAt: new Date(),
     }).where(eq(subscriptions.id, sub.id));
 
