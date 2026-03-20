@@ -276,8 +276,8 @@ export async function cleanupMachineResources(
  * so 5 minutes is a reasonable upper bound for non-Docker machines and
  * 10 minutes for Docker workloads.
  */
-const PROVISION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-const PROVISION_TIMEOUT_DOCKER_MS = 10 * 60 * 1000; // 10 minutes for Docker workloads
+const PROVISION_TIMEOUT_MS = 20 * 60 * 1000; // 10 minutes
+const PROVISION_TIMEOUT_DOCKER_MS = 30 * 60 * 1000; // 15 minutes for Docker workloads
 
 export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
   if (machine.status !== 'provisioning' || !machine.providerServerId) return machine;

@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { db } from '../src/server/db/index.js';
 import { images, users } from '../src/server/db/schema.js';
 import { randomUUID } from 'crypto';
