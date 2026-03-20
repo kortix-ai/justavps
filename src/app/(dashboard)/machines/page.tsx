@@ -3,23 +3,20 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { MachineCard } from "@/components/dashboard/machine-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAccountLimits } from "@/hooks/use-account";
-import { useMachines, useDeleteMachine } from "@/hooks/use-machines";
-import { useConfirm } from "@/hooks/use-confirm";
-import { toast } from "sonner";
+import { useMachines } from "@/hooks/use-machines";
 import {
   Server,
   Plus,
-  Trash2,
   AlertTriangle,
   Loader2,
   Activity,
   Search,
 } from "lucide-react";
-import { Input } from "@/components/ui/input";
 import { CheckoutModal } from "@/components/checkout-modal";
 
 export default function MachinesPage() {
@@ -28,49 +25,38 @@ export default function MachinesPage() {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Use ref to survive URL changes — once we start waiting, we keep waiting
   const startedWaiting = useRef(false);
   const [waitingForMachine, setWaitingForMachine] = useState(false);
   const initialMachineCount = useRef<number | null>(null);
 
-  // Start waiting on first render if post-checkout
   useEffect(() => {
     if (isPostCheckout && !startedWaiting.current) {
       startedWaiting.current = true;
       setWaitingForMachine(true);
-      // Clean URL immediately without re-mounting
       window.history.replaceState({}, "", "/machines");
     }
   }, [isPostCheckout]);
 
-  // Poll every 3s while waiting
   const { data: machines, isLoading, error } = useMachines({
     refetchInterval: waitingForMachine ? 3000 : false,
   });
   const { data: limits } = useAccountLimits();
-  const deleteMachine = useDeleteMachine();
-  const [confirm, ConfirmDialog] = useConfirm();
 
-  // Capture initial machine count once data loads
   useEffect(() => {
     if (machines && initialMachineCount.current === null) {
       initialMachineCount.current = machines.length;
     }
   }, [machines]);
 
-  // Stop waiting once a NEW machine appears (count increased) or a provisioning machine exists
   useEffect(() => {
     if (!waitingForMachine || !machines) return;
     const hasNewMachine =
       initialMachineCount.current !== null &&
       machines.length > initialMachineCount.current;
     const hasProvisioning = machines.some((m) => m.status === "provisioning");
-    if (hasNewMachine || hasProvisioning) {
-      setWaitingForMachine(false);
-    }
+    if (hasNewMachine || hasProvisioning) setWaitingForMachine(false);
   }, [waitingForMachine, machines]);
 
-  // Timeout: stop waiting after 90s
   useEffect(() => {
     if (!waitingForMachine) return;
     const timer = setTimeout(() => setWaitingForMachine(false), 90_000);
@@ -79,32 +65,13 @@ export default function MachinesPage() {
 
   const machineUsage = limits?.usage.machines ?? 0;
   const machineMax = limits?.limits.max_machines;
-  const machineLimitReached =
-    machineMax !== undefined && machineUsage >= machineMax;
+  const machineLimitReached = machineMax !== undefined && machineUsage >= machineMax;
   const machineLimitNear =
     machineMax !== undefined &&
     machineMax > 0 &&
     machineUsage / machineMax >= 0.8 &&
     !machineLimitReached;
 
-  const handleDelete = async (id: string) => {
-    const machine = machines?.find((m) => m.id === id);
-    const ok = await confirm({
-      title: "Delete Machine",
-      description: `This will permanently destroy ${machine?.slug || "this machine"} and all data on it. This action cannot be undone.`,
-      confirmLabel: "Delete Forever",
-      variant: "destructive",
-      icon: <Trash2 className="size-4 text-destructive" />,
-    });
-    if (!ok) return;
-
-    deleteMachine.mutate(id, {
-      onSuccess: () => toast.success("Machine deleted"),
-      onError: (err) => toast.error(err.message),
-    });
-  };
-
-  // Filter machines by search
   const filteredMachines = machines?.filter((m) => {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
@@ -117,26 +84,21 @@ export default function MachinesPage() {
     );
   });
 
-  // Summary stats
   const totalMachines = machines?.length ?? 0;
-  const runningMachines =
-    machines?.filter((m) => m.status === "ready").length ?? 0;
-  const provisioningMachines =
-    machines?.filter((m) => m.status === "provisioning").length ?? 0;
+  const runningMachines = machines?.filter((m) => m.status === "ready").length ?? 0;
+  const provisioningMachines = machines?.filter((m) => m.status === "provisioning").length ?? 0;
 
   return (
     <div className="space-y-6">
-      {/* ── Header ───────────────────────────────────────────────────── */}
+      {/* ── Header ─────────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="font-heading text-3xl tracking-tight">Machines</h1>
           {!isLoading && totalMachines > 0 && (
             <p className="text-sm text-muted-foreground mt-0.5">
               {runningMachines} running
-              {provisioningMachines > 0 &&
-                ` · ${provisioningMachines} provisioning`}
-              {machineMax !== undefined &&
-                ` · ${machineUsage}/${machineMax} used`}
+              {provisioningMachines > 0 && ` · ${provisioningMachines} provisioning`}
+              {machineMax !== undefined && ` · ${machineUsage}/${machineMax} used`}
             </p>
           )}
         </div>
@@ -147,9 +109,7 @@ export default function MachinesPage() {
               Limit Reached
             </Button>
           ) : (
-            <Button
-              onClick={() => setCheckoutOpen(true)}
-            >
+            <Button onClick={() => setCheckoutOpen(true)}>
               <Plus className="size-4" />
               New Machine
             </Button>
@@ -157,7 +117,7 @@ export default function MachinesPage() {
         </div>
       </div>
 
-      {/* ── Alerts ───────────────────────────────────────────────────── */}
+      {/* ── Alerts ─────────────────────────────────────────────────────── */}
       {(machineLimitReached || machineLimitNear) && (
         <div
           className={cn(
@@ -175,9 +135,7 @@ export default function MachinesPage() {
           />
           <div className="space-y-0.5">
             <p className="text-sm font-medium">
-              {machineLimitReached
-                ? "Machine limit reached"
-                : "Approaching machine limit"}
+              {machineLimitReached ? "Machine limit reached" : "Approaching machine limit"}
             </p>
             <p className="text-xs text-muted-foreground">
               You are using {machineUsage} of {machineMax} machines.
@@ -195,62 +153,48 @@ export default function MachinesPage() {
           <div>
             <p className="text-sm font-medium">Setting up your machine…</p>
             <p className="text-xs text-muted-foreground">
-              Payment complete. Your machine is being provisioned — usually
-              takes about 60 seconds.
+              Payment complete. Your machine is being provisioned — usually takes about 60 seconds.
             </p>
           </div>
         </div>
       )}
 
-      {/* ── Error ────────────────────────────────────────────────────── */}
+      {/* ── Error ──────────────────────────────────────────────────────── */}
       {error && (
         <div className="text-center py-12">
           <p className="text-destructive text-sm">Error: {error.message}</p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => window.location.reload()}
-            className="mt-4"
-          >
+          <Button variant="outline" size="sm" onClick={() => window.location.reload()} className="mt-4">
             Retry
           </Button>
         </div>
       )}
 
-      {/* ── Loading ──────────────────────────────────────────────────── */}
+      {/* ── Loading ────────────────────────────────────────────────────── */}
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="rounded-xl border p-5 space-y-4">
-              <div className="flex items-start justify-between">
-                <div className="space-y-2">
-                  <Skeleton className="h-4 w-28" />
+            <div key={i} className="rounded-xl border p-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1.5 flex-1">
+                  <Skeleton className="h-4 w-32" />
                   <Skeleton className="h-3 w-20" />
                 </div>
-                <Skeleton className="h-5 w-16 rounded-full" />
+                <Skeleton className="h-5 w-16 rounded-full shrink-0" />
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                <Skeleton className="h-3 w-full" />
-                <Skeleton className="h-3 w-full" />
-                <Skeleton className="h-3 w-full" />
-              </div>
-              <Skeleton className="h-px w-full" />
-              <div className="flex justify-between">
+              <Skeleton className="h-3 w-3/4" />
+              <div className="flex justify-between pt-1">
                 <Skeleton className="h-3 w-16" />
-                <Skeleton className="h-4 w-12" />
+                <Skeleton className="h-3 w-12" />
               </div>
             </div>
           ))}
         </div>
       ) : !error && machines?.length === 0 ? (
-        /* ── Empty State ──────────────────────────────────────────── */
+        /* ── Empty State ──────────────────────────────────────────────── */
         <div className="flex flex-col items-center justify-center py-24">
           <div className="relative mb-6">
             <div className="rounded-2xl bg-muted p-5">
-              <Server
-                className="size-10 text-muted-foreground/50"
-                strokeWidth={1.5}
-              />
+              <Server className="size-10 text-muted-foreground/50" strokeWidth={1.5} />
             </div>
             <div className="absolute -bottom-1 -right-1 rounded-full bg-primary p-1.5">
               <Plus className="size-3 text-primary-foreground" />
@@ -261,27 +205,19 @@ export default function MachinesPage() {
             Deploy your first VPS in under 60 seconds. Pick a plan and go.
           </p>
           {machineLimitReached ? (
-            <Button disabled>
-              <Plus className="size-4" />
-              Limit Reached
-            </Button>
+            <Button disabled><Plus className="size-4" />Limit Reached</Button>
           ) : (
-            <Button
-              onClick={() => setCheckoutOpen(true)}
-            >
-              <Plus className="size-4" />
-              New Machine
-            </Button>
+            <Button onClick={() => setCheckoutOpen(true)}><Plus className="size-4" />New Machine</Button>
           )}
         </div>
       ) : (
         <>
-          {/* ── Search / Filter ─────────────────────────────────────── */}
+          {/* ── Search ──────────────────────────────────────────────────── */}
           {totalMachines > 3 && (
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
               <Input
-                placeholder="Search machines by name, IP, region…"
+                placeholder="Search by name, IP, region…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9 h-9 text-sm"
@@ -289,29 +225,18 @@ export default function MachinesPage() {
             </div>
           )}
 
-          {/* ── Machine Grid ─────────────────────────────────────────── */}
+          {/* ── Grid ────────────────────────────────────────────────────── */}
           {filteredMachines && filteredMachines.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {filteredMachines.map((machine) => (
-                <MachineCard
-                  key={machine.id}
-                  machine={machine}
-                  onDelete={handleDelete}
-                />
+                <MachineCard key={machine.id} machine={machine} />
               ))}
             </div>
           ) : (
             <div className="text-center py-12">
               <Activity className="mx-auto size-8 text-muted-foreground/30 mb-3" />
-              <p className="text-sm text-muted-foreground">
-                No machines match &quot;{searchQuery}&quot;
-              </p>
-              <Button
-                variant="link"
-                size="sm"
-                onClick={() => setSearchQuery("")}
-                className="mt-1 text-xs"
-              >
+              <p className="text-sm text-muted-foreground">No machines match &quot;{searchQuery}&quot;</p>
+              <Button variant="link" size="sm" onClick={() => setSearchQuery("")} className="mt-1 text-xs">
                 Clear search
               </Button>
             </div>
@@ -319,11 +244,7 @@ export default function MachinesPage() {
         </>
       )}
 
-      <ConfirmDialog />
-      <CheckoutModal
-        open={checkoutOpen}
-        onClose={() => setCheckoutOpen(false)}
-      />
+      <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} />
     </div>
   );
 }

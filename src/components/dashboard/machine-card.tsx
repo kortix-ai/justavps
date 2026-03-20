@@ -2,36 +2,25 @@
 
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Trash2,
-  Shield,
-  Globe,
-  Cpu,
-  ChevronRight,
-  Activity,
-} from "lucide-react";
-import { cn, regionDisplay, planName } from "@/lib/utils";
+import { Globe, Cpu, HardDrive, DollarSign, Clock, Shield } from "lucide-react";
+import { cn, regionDisplay, planName, planSpecs, timeAgo } from "@/lib/utils";
 import type { Machine } from "@/lib/types";
 
 const statusConfig = {
   provisioning: {
     label: "Provisioning",
     dotClass: "bg-yellow-500 animate-pulse",
-    badgeClass:
-      "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20",
+    badgeClass: "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20",
   },
   ready: {
     label: "Running",
     dotClass: "bg-emerald-500",
-    badgeClass:
-      "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+    badgeClass: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
   },
   error: {
     label: "Error",
     dotClass: "bg-red-500",
-    badgeClass:
-      "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20",
+    badgeClass: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20",
   },
   stopped: {
     label: "Stopped",
@@ -42,133 +31,86 @@ const statusConfig = {
 
 interface MachineCardProps {
   machine: Machine;
-  onDelete?: (id: string) => void;
 }
 
-export function MachineCard({ machine, onDelete }: MachineCardProps) {
+export function MachineCard({ machine }: MachineCardProps) {
   const status =
     statusConfig[machine.status as keyof typeof statusConfig] ||
     statusConfig.stopped;
+  const specs = planSpecs(machine.server_type);
 
   return (
-    <div className="group relative">
+    <div className="group rounded-xl border bg-card transition-all duration-200 hover:border-foreground/20 hover:shadow-md hover:shadow-black/[0.04] dark:hover:shadow-black/20">
       <Link
         href={`/machines/${machine.id}`}
         className={cn(
-          "block rounded-xl border bg-card p-5 transition-all duration-200",
-          "hover:border-foreground/15 hover:shadow-md hover:shadow-black/[0.04] dark:hover:shadow-black/20",
+          "block",
           machine.status === "error" && "border-red-500/20",
         )}
       >
-        {/* Top row: name + status */}
-        <div className="flex items-start justify-between gap-3 mb-4">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3 px-4 pt-4 pb-3">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 mb-1">
-              <h3 className="text-sm font-semibold truncate">
-                {machine.name || machine.slug}
-              </h3>
-              {machine.source === "kortix" && (
-                <Badge
-                  variant="outline"
-                  className="text-[10px] px-1.5 py-0 h-4 shrink-0"
-                >
-                  Kortix
-                </Badge>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground font-mono truncate">
+            <h3 className="text-sm font-semibold truncate leading-snug">
+              {machine.name || machine.slug}
+            </h3>
+            <p className="text-[11px] text-muted-foreground font-mono truncate mt-0.5">
               {machine.slug}
             </p>
           </div>
           <Badge
             variant="outline"
             className={cn(
-              "shrink-0 gap-1.5 text-[11px] font-medium h-5 px-2",
+              "shrink-0 gap-1.5 text-[11px] font-medium h-5 px-2 mt-0.5",
               status.badgeClass,
             )}
           >
-            <span
-              className={cn("size-1.5 rounded-full shrink-0", status.dotClass)}
-            />
+            <span className={cn("size-1.5 rounded-full shrink-0", status.dotClass)} />
             {status.label}
           </Badge>
         </div>
 
-        {/* Resource specs row */}
-        <div className="grid grid-cols-3 gap-3 mb-4">
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        {/* Specs */}
+        <div className="px-4 pb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Cpu className="size-3 shrink-0" />
-            <span className="font-mono text-foreground truncate">
-              {planName(machine.server_type)}
+            <span>{planName(machine.server_type)}{specs ? ` · ${specs.vcpu} vCPU` : ""}</span>
+          </span>
+          {specs && (
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <HardDrive className="size-3 shrink-0" />
+              <span>{specs.memory} GB · {specs.disk} GB SSD</span>
             </span>
-          </div>
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          )}
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Globe className="size-3 shrink-0" />
-            <span className="text-foreground">
-              {regionDisplay(machine.region).label}
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Activity className="size-3 shrink-0" />
-            <span className="font-mono text-foreground truncate">
-              {machine.ip || "Assigning..."}
-            </span>
-          </div>
-        </div>
-
-        {/* Bottom row: metadata + price */}
-        <div className="flex items-center justify-between pt-3 border-t border-border/60">
-          <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-            <span>
-              {new Date(machine.created_at).toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-              })}
-            </span>
-            {machine.backups_enabled && (
-              <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                <Shield className="size-2.5" />
-                Backups
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {machine.source === "kortix" ? (
-              <span className="text-[11px] text-muted-foreground">
-                via Kortix
-              </span>
-            ) : machine.price_monthly ? (
-              <span className="text-sm font-semibold tabular-nums">
-                ${machine.price_monthly}
-                <span className="text-[11px] text-muted-foreground font-normal">
-                  /mo
-                </span>
-              </span>
-            ) : null}
-            <ChevronRight className="size-3.5 text-muted-foreground/50 group-hover:text-foreground transition-colors" />
-          </div>
+            <span>{regionDisplay(machine.region).label}</span>
+          </span>
         </div>
       </Link>
 
-      {/* Delete button — overlaid */}
-      {onDelete && machine.source !== "kortix" && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className={cn(
-            "absolute top-3 right-3 size-7 p-0 rounded-lg",
-            "opacity-0 group-hover:opacity-100 transition-opacity",
-            "text-muted-foreground hover:text-destructive hover:bg-destructive/10",
+      {/* Footer — outside <Link> so delete button doesn't navigate */}
+      <div className="flex items-center justify-between px-4 py-2.5 border-t border-border/60">
+        <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <Clock className="size-3" />
+            {timeAgo(machine.created_at)}
+          </span>
+          {machine.backups_enabled && (
+            <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+              <Shield className="size-2.5" />
+              Backups
+            </span>
           )}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onDelete(machine.id);
-          }}
-        >
-          <Trash2 className="size-3.5" />
-        </Button>
-      )}
+        </div>
+        {machine.price_monthly ? (
+          <span className="flex items-center gap-0.5 text-xs text-muted-foreground">
+            <DollarSign className="size-3" />
+            <span className="font-semibold text-foreground tabular-nums">{machine.price_monthly}</span>
+            <span>/mo</span>
+          </span>
+        ) : null}
+      </div>
     </div>
   );
 }
