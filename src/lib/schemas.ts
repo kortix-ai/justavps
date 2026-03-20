@@ -55,8 +55,9 @@ export const MachineResponseSchema = z.object({
   created_at: z.string(),
   ready_at: z.string().nullable(),
   urls: z.object({
-    vscode: z.string(),
-    pty: z.string(),
+    proxy: z.string(),
+    terminal: z.string(),
+    port_template: z.string(),
   }).nullable(),
   ssh: z.string().nullable(),
   ssh_key: MachineSSHKeySchema,

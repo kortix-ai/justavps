@@ -246,8 +246,8 @@ async function main() {
   assert(readyMachine.status === 'ready', `Status: ${readyMachine.status} (should be ready)`);
   assert(readyMachine.ready_at !== null, `ready_at set: ${readyMachine.ready_at}`);
   assert(readyMachine.urls !== null, 'URLs populated');
-  assert(readyMachine.urls?.vscode?.includes(machineSlug!), `VS Code URL: ${readyMachine.urls?.vscode}`);
-  assert(readyMachine.urls?.pty?.includes(machineSlug!), `PTY URL: ${readyMachine.urls?.pty}`);
+  assert(readyMachine.urls?.proxy?.includes(machineSlug!), `Proxy URL: ${readyMachine.urls?.proxy}`);
+  assert(readyMachine.urls?.terminal?.includes(machineSlug!), `Terminal URL: ${readyMachine.urls?.terminal}`);
   assert(readyMachine.connect !== null, 'Connect info populated');
   assert(readyMachine.connect?.ssh_command?.includes(machineIp!), `SSH command has IP: ${readyMachine.connect?.ssh_command}`);
   assert(readyMachine.connect?.vscode_url?.includes(machineSlug!), `VS Code connect URL: ${readyMachine.connect?.vscode_url}`);

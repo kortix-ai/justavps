@@ -39,7 +39,7 @@ export interface Machine {
   deleted_at?: string | null;
   ssh_key?: { public_key: string; private_key: string };
   connect?: { vscode_url: string; ssh_command: string };
-  urls?: { ide: string; pty: string; proxy: string };
+  urls?: { proxy: string; terminal: string; port_template: string };
   provisioning_stage?: string | null;
   requires_checkout?: boolean;
 }

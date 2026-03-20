@@ -1,6 +1,7 @@
 // Reverse proxy router — the single HTTP front door on :80.
 //
 // Replaces Caddy entirely. Routes all inbound traffic:
+//   /_terminal         → Standalone web terminal page (xterm.js UI)
 //   /_pty              → WebSocket PTY handler (in-process)
 //   /toolbox/files/*   → Filesystem API (in-process)
 //   /toolbox/process/* → Process/Exec API (in-process)
@@ -61,6 +62,10 @@ func (p *ProxyRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
 	switch {
+	// Standalone web terminal page — serves xterm.js UI
+	case path == "/_terminal":
+		handleTerminalPage(w, r)
+
 	// WebSocket PTY — dashboard terminal
 	case path == "/_pty":
 		handlePTY(w, r)

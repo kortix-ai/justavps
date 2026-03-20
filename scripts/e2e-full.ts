@@ -429,7 +429,7 @@ async function main() {
 
   // 6.9 Machine detail API has correct connect info
   const detail = await api(`/v1/machines/${machineId}`);
-  assertContains('API has vscode URL', detail.urls?.vscode || '', fqdn);
+  assertContains('API has proxy URL', detail.urls?.proxy || '', fqdn);
   assertContains('API has SSH command', detail.ssh || '', machineIp);
   assertNotEmpty('API has SSH key', detail.ssh_key?.private_key || '');
 
