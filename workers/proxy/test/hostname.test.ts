@@ -69,4 +69,36 @@ describe('parseHostname', () => {
     const result = parseHostname('ABC123.kortix.cloud');
     expect(result?.slug).toBe('abc123');
   });
+
+  // ── kortix-dev.cloud support ──────────────────────────────────────────
+  describe('kortix-dev.cloud (dev domain)', () => {
+    it('should parse simple slug on dev domain', () => {
+      expect(parseHostname('abc123.kortix-dev.cloud')).toEqual({
+        slug: 'abc123', port: 80, isPty: false,
+      });
+    });
+
+    it('should parse PORT--SLUG on dev domain', () => {
+      expect(parseHostname('4096--abc123.kortix-dev.cloud')).toEqual({
+        slug: 'abc123', port: 4096, isPty: false,
+      });
+    });
+
+    it('should parse path-based port on dev domain', () => {
+      const result = parseHostname('abc123.kortix-dev.cloud', '/_port/3000/api');
+      expect(result).toEqual({
+        slug: 'abc123', port: 3000, isPty: false, rewrittenPath: '/api',
+      });
+    });
+
+    it('should detect PTY on dev domain', () => {
+      expect(parseHostname('abc123.kortix-dev.cloud', '/_pty')).toEqual({
+        slug: 'abc123', port: 80, isPty: true,
+      });
+    });
+
+    it('should reject bare dev domain', () => {
+      expect(parseHostname('kortix-dev.cloud')).toBeNull();
+    });
+  });
 });

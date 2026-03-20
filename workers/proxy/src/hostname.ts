@@ -18,10 +18,18 @@ export interface ParsedHostname {
  *   - Double-dash won't appear in slugs (generated alphanumeric)
  *   - Works with existing CF Worker route *.kortix.cloud/*
  */
-export function parseHostname(hostname: string, pathname?: string): ParsedHostname | null {
-  if (!hostname || !hostname.endsWith('.kortix.cloud')) return null;
+// Supported proxy domains — both prod and dev.
+const PROXY_DOMAINS = ['.kortix.cloud', '.kortix-dev.cloud'];
 
-  const subdomain = hostname.replace('.kortix.cloud', '').toLowerCase();
+export function parseHostname(hostname: string, pathname?: string): ParsedHostname | null {
+  if (!hostname) return null;
+
+  // Find which proxy domain suffix matches
+  const lowerHostname = hostname.toLowerCase();
+  const matchedDomain = PROXY_DOMAINS.find(d => lowerHostname.endsWith(d));
+  if (!matchedDomain) return null;
+
+  const subdomain = lowerHostname.slice(0, -matchedDomain.length);
   if (!subdomain) return null;
 
   let slug: string;
