@@ -120,7 +120,7 @@ export default function Home() {
           </p>
           <div className="mt-7 flex items-center justify-center gap-3">
             <button onClick={() => setCheckoutOpen(true)} className={cn(buttonVariants({ size: "lg" }), "text-sm px-7 h-12 font-medium rounded-xl")}>
-              Get a machine — from $15/mo <svg className="ml-2 size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+              Get a machine — from $20/mo <svg className="ml-2 size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
             </button>
             <Link href="/docs" className={cn(buttonVariants({ variant: "outline", size: "lg" }), "text-sm px-7 h-12 font-medium rounded-xl")}>Docs</Link>
           </div>
@@ -283,8 +283,8 @@ export default function Home() {
                 </tr>
               </thead>
               <tbody>
-                <CmpRow spec="2 vCPU / 4 GB" them="$121/mo" us="$15/mo" save="8x" />
-                <CmpRow spec="4 vCPU / 8 GB" them="$242/mo" us="$27/mo" save="9x" highlight />
+                <CmpRow spec="2 vCPU / 4 GB" them="$121/mo" us="$20/mo" save="6x" />
+                <CmpRow spec="4 vCPU / 8 GB" them="$242/mo" us="$29/mo" save="8x" highlight />
                 <CmpRow spec="8 vCPU / 16 GB" them="$483/mo" us="$49/mo" save="10x" />
                 <CmpRow spec="16 vCPU / 32 GB" them="$966/mo" us="$97/mo" save="10x" />
               </tbody>
@@ -324,7 +324,7 @@ export default function Home() {
           {/* Post-pricing CTA */}
           <div className="mt-10 text-center">
             <button onClick={() => setCheckoutOpen(true)} className={cn(buttonVariants({ size: "lg" }), "text-sm px-7 h-12 font-medium rounded-xl")}>
-              Get a machine — from $15/mo <svg className="ml-2 size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+              Get a machine — from $20/mo <svg className="ml-2 size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
             </button>
           </div>
         </div>
@@ -378,7 +378,7 @@ export default function Home() {
       {/* FINAL CTA */}
       <section className="px-6 py-20 sm:py-28 border-t border-border text-center">
         <h2 className="text-3xl sm:text-4xl font-medium tracking-tighter mb-3">Get a machine.</h2>
-        <p className="text-sm text-muted-foreground mb-6">From $15/mo. Running in 60 seconds. Cancel anytime.</p>
+        <p className="text-sm text-muted-foreground mb-6">From $20/mo. Running in 60 seconds. Cancel anytime.</p>
         <button onClick={() => setCheckoutOpen(true)} className={cn(buttonVariants({ size: "lg" }), "text-sm px-8 h-12 font-medium rounded-xl")}>
           Deploy now <svg className="ml-2 size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
         </button>
@@ -405,7 +405,7 @@ export default function Home() {
           showFloatingCta ? "translate-y-0 opacity-100" : "translate-y-20 opacity-0 pointer-events-none"
         )}
       >
-        <span className="text-xs text-muted-foreground hidden sm:inline">From <strong className="text-foreground">$15/mo</strong></span>
+        <span className="text-xs text-muted-foreground hidden sm:inline">From <strong className="text-foreground">$20/mo</strong></span>
         <button
           onClick={() => setCheckoutOpen(true)}
           className={cn(buttonVariants({ size: "sm" }), "rounded-full h-9 px-5 text-sm font-medium")}

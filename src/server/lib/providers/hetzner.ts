@@ -25,14 +25,14 @@ const POLL_INTERVAL_MS = 3_000;
  *
  *   Plan       vCPU   RAM    SSD     Price    EU SKU    US SKU
  *   ────────   ────   ────   ─────   ──────   ───────   ──────
- *   Starter      2    4 GB    80 GB   $15/mo   cpx32    cpx11
- *   Pro          4    8 GB   160 GB   $27/mo   cpx42    cpx21
+ *   Starter      2    4 GB    80 GB   $20/mo   cpx32    cpx11
+ *   Pro          4    8 GB   160 GB   $29/mo   cpx42    cpx21
  *   Power        8   16 GB   320 GB   $49/mo   cpx52    cpx31
  *   Ultra       16   32 GB   640 GB   $97/mo   cpx62    cpx41
  */
 export const PLAN_TIERS = [
-  { vcpu: 2,  memory: 4,  disk: 80,  price: 15, sku: { hel1: 'cpx32', nbg1: 'cpx32', hil: 'cpx11' } as Record<string, string> },
-  { vcpu: 4,  memory: 8,  disk: 160, price: 27, sku: { hel1: 'cpx42', nbg1: 'cpx42', hil: 'cpx21' } as Record<string, string> },
+  { vcpu: 2,  memory: 4,  disk: 80,  price: 20, sku: { hel1: 'cpx32', nbg1: 'cpx32', hil: 'cpx11' } as Record<string, string> },
+  { vcpu: 4,  memory: 8,  disk: 160, price: 29, sku: { hel1: 'cpx42', nbg1: 'cpx42', hil: 'cpx21' } as Record<string, string> },
   { vcpu: 8,  memory: 16, disk: 320, price: 49, sku: { hel1: 'cpx52', nbg1: 'cpx52', hil: 'cpx31' } as Record<string, string> },
   { vcpu: 16, memory: 32, disk: 640, price: 97, sku: { hel1: 'cpx62', nbg1: 'cpx62', hil: 'cpx41' } as Record<string, string> },
 ];

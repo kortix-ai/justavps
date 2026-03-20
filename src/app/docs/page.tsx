@@ -472,8 +472,8 @@ for await (const event of client.streamEvents("my-session")) {
         <P>Fixed monthly pricing per machine. No per-second billing, no usage surprises.</P>
 
         <Table headers={["Plan", "Specs", "Price"]} rows={[
-          ["Starter", "2 vCPU / 4 GB / 80 GB SSD", "$15/mo"],
-          ["Pro", "4 vCPU / 8 GB / 160 GB SSD", "$27/mo"],
+          ["Starter", "2 vCPU / 4 GB / 80 GB SSD", "$20/mo"],
+          ["Pro", "4 vCPU / 8 GB / 160 GB SSD", "$29/mo"],
           ["Power", "8 vCPU / 16 GB / 320 GB SSD", "$49/mo"],
           ["Ultra", "16 vCPU / 32 GB / 640 GB SSD", "$97/mo"],
         ]} />
