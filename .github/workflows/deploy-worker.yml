@@ -1,0 +1,72 @@
+name: Deploy Worker
+
+# Deploys the Cloudflare Worker proxy whenever workers/proxy/ code changes.
+# Single Worker handles both dev.justavps.com and justavps.com traffic
+# via *.kortix.cloud — auth token validation uses shared PROXY_AUTH_SECRET,
+# per-machine platform_url in KV handles login redirects to the correct env.
+
+on:
+  push:
+    branches: [main, production]
+    paths:
+      - 'workers/proxy/**'
+
+concurrency:
+  group: deploy-worker-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+
+      - name: Install dependencies
+        working-directory: workers/proxy
+        run: npm ci
+
+      - name: Type check
+        working-directory: workers/proxy
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        working-directory: workers/proxy
+        run: npx vitest run
+
+  deploy:
+    name: Deploy to Cloudflare
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+
+      - name: Install dependencies
+        working-directory: workers/proxy
+        run: npm ci
+
+      - name: Deploy Worker
+        working-directory: workers/proxy
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_GLOBAL_API_KEY }}
+        run: npx wrangler deploy
+
+      - name: Verify deployment
+        working-directory: workers/proxy
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_GLOBAL_API_KEY }}
+        run: |
+          VERSION=$(npx wrangler deployments list --name kortix-cloud-proxy 2>&1 | head -10)
+          echo "$VERSION"
+          echo "### Worker Deployed" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "$VERSION" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
