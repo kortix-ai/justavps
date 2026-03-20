@@ -53,6 +53,7 @@ export async function uploadSSHKeyToProvider(
 ): Promise<string> {
   const maxRetries = 3;
   let lastError: Error | undefined;
+  let didGC = false;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -60,6 +61,7 @@ export async function uploadSSHKeyToProvider(
       return result.keyId;
     } catch (err: unknown) {
       lastError = err instanceof Error ? err : new Error(String(err));
+
       // If the key already exists (409/conflict or "already added"), try with a unique suffix
       if (err instanceof Error && (err.message.includes('already') || err.message.includes('409') || err.message.includes('uniqueness_error'))) {
         try {
@@ -69,6 +71,31 @@ export async function uploadSSHKeyToProvider(
           lastError = retryErr instanceof Error ? retryErr : new Error(String(retryErr));
         }
       }
+
+      // If we hit the SSH key limit, auto-GC orphaned keys and retry
+      if (!didGC && err instanceof Error && (err.message.includes('resource_limit_exceeded') || err.message.includes('ssh_key_limit') || err.message.includes('ssh_key limit'))) {
+        didGC = true;
+        console.warn(`[MACHINES] SSH key limit reached — running GC to prune orphaned keys...`);
+        try {
+          const { HetznerProvider } = await import('./providers/hetzner');
+          if (provider instanceof HetznerProvider) {
+            const gc = await provider.gcSSHKeys();
+            console.log(`[MACHINES] SSH key GC complete: ${gc.deleted} deleted, ${gc.total} total`);
+            if (gc.deleted > 0) {
+              // Retry immediately after GC
+              try {
+                const result = await provider.uploadSSHKey(`justavps-${slug}`, publicKey);
+                return result.keyId;
+              } catch (retryErr: unknown) {
+                lastError = retryErr instanceof Error ? retryErr : new Error(String(retryErr));
+              }
+            }
+          }
+        } catch (gcErr) {
+          console.error(`[MACHINES] SSH key GC failed:`, gcErr);
+        }
+      }
+
       if (attempt < maxRetries) {
         console.warn(`[MACHINES] SSH key upload attempt ${attempt}/${maxRetries} failed, retrying...`);
         await new Promise(r => setTimeout(r, 1000 * attempt));

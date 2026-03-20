@@ -340,6 +340,41 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
+  //  PHASE 1b: SSH KEY CLEANUP (ephemeral key deleted from Hetzner)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  it('2b. Hetzner SSH key for this machine was cleaned up after provisioning', async () => {
+    if (!HETZNER_TOKEN || !machineSlug) { console.log('[E2E] No Hetzner token — skip'); return; }
+
+    // Check that no justavps-{slug} SSH key exists in Hetzner
+    // (it should have been deleted immediately after server creation)
+    const res = await fetch('https://api.hetzner.cloud/v1/ssh_keys?per_page=50', {
+      headers: { Authorization: `Bearer ${HETZNER_TOKEN}` },
+    });
+    const data = await res.json() as { ssh_keys: Array<{ id: number; name: string }> };
+
+    const machineKeys = data.ssh_keys.filter((k) =>
+      k.name === `justavps-${machineSlug}` || k.name.startsWith(`justavps-${machineSlug}-`)
+    );
+
+    console.log(`[E2E] Hetzner SSH keys for ${machineSlug}: ${machineKeys.length} found (expected 0)`);
+    expect(machineKeys).toHaveLength(0);
+  });
+
+  it('2c. SSH connect still works (cloud-init key, not Hetzner key)', async () => {
+    if (!sshKeyPath || !machineIp) { console.log('[E2E] No SSH key or IP — skip'); return; }
+
+    // Wait for SSH to be reachable
+    let connected = false;
+    for (let i = 0; i < 15; i++) {
+      if (ssh('echo OK', 15) === 'OK') { connected = true; break; }
+      await sleep(10_000);
+    }
+    expect(connected).toBe(true);
+    console.log('[E2E] SSH works after Hetzner key deletion — cloud-init key is independent ✓');
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
   //  PHASE 2: DNS RECORDS (Cloudflare API verification)
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -728,6 +763,23 @@ http.server.HTTPServer(("0.0.0.0", 9000), H).serve_forever()
         try { execSync(`rm -f ${dockerKeyPath}`); } catch {}
       }
     }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  PHASE 8b: SSH KEY GC ENDPOINT
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  it('26b. POST /internal/gc/ssh-keys cleans orphaned Hetzner keys', async () => {
+    const res = await fetch(`${BASE_URL}/v1/internal/gc/ssh-keys`, { method: 'POST' });
+    const data = await res.json() as { deleted: number; kept: number; total: number };
+
+    console.log(`[E2E] SSH Key GC: deleted=${data.deleted} kept=${data.kept} total=${data.total}`);
+    expect(res.status).toBe(200);
+    expect(typeof data.deleted).toBe('number');
+    expect(typeof data.kept).toBe('number');
+    expect(typeof data.total).toBe('number');
+    // After GC, total should be reasonable (well under Hetzner's 100 limit)
+    expect(data.total - data.deleted).toBeLessThan(100);
   });
 
   // ═══════════════════════════════════════════════════════════════════════════

@@ -11,7 +11,14 @@ export function useMachines(options?: { refetchInterval?: number | false }) {
   return useQuery({
     queryKey: machineKeys.all,
     queryFn: () => api.get<{ machines: Machine[] }>("/machines").then((d) => d.machines),
-    refetchInterval: options?.refetchInterval,
+    refetchInterval: (query) => {
+      // Explicit override from caller (e.g. post-checkout waiting)
+      if (options?.refetchInterval !== undefined) return options.refetchInterval;
+      // Auto-poll when any machine is provisioning so the list updates live
+      const machines = query.state.data;
+      if (machines?.some((m) => m.status === "provisioning")) return 5_000;
+      return false;
+    },
   });
 }
 

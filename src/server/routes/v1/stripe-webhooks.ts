@@ -373,6 +373,12 @@ function provisionMachineAsync(
         },
       });
 
+      // SSH key was only needed for createServer — delete it immediately
+      // to avoid hitting Hetzner's 100-key project limit.
+      provider.deleteSSHKey(providerKeyId).catch((err) => {
+        console.warn(`[STRIPE WEBHOOK] Non-critical: failed to delete ephemeral SSH key ${providerKeyId} for ${slug}:`, err);
+      });
+
       await db.update(machines).set({
         ip: server.publicIp,
         providerServerId: server.serverId,

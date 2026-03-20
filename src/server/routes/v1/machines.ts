@@ -385,6 +385,13 @@ machinesApp.openapi(createMachineRoute, async (c) => {
           },
         });
 
+        // SSH key was only needed for createServer — delete it immediately
+        // to avoid hitting Hetzner's 100-key project limit.
+        // The real per-machine key is injected via cloud-init into authorized_keys.
+        provider.deleteSSHKey(providerKeyId).catch((err) => {
+          console.warn(`[MACHINES] Non-critical: failed to delete ephemeral SSH key ${providerKeyId} for ${slug}:`, err);
+        });
+
         await db.update(machines).set({
           ip: server.publicIp,
           providerServerId: server.serverId,

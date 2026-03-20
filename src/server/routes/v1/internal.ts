@@ -234,6 +234,43 @@ internalApp.openapi(stageRoute, async (c) => {
   }
 });
 
+// ─── POST /gc/ssh-keys — Garbage-collect orphaned Hetzner SSH keys ──────────
+
+const gcSSHKeysRoute = createRoute({
+  method: 'post',
+  path: '/gc/ssh-keys',
+  tags: ['Internal'],
+  summary: 'Garbage-collect orphaned SSH keys',
+  description: 'Deletes SSH keys from Hetzner that belong to deleted/non-existent machines. Run this when hitting the ssh_key_limit.',
+  responses: {
+    200: {
+      description: 'GC results',
+      content: {
+        'application/json': {
+          schema: z.object({
+            deleted: z.number(),
+            kept: z.number(),
+            total: z.number(),
+          }),
+        },
+      },
+    },
+    500: { description: 'Internal Server Error', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+internalApp.openapi(gcSSHKeysRoute, async (c) => {
+  try {
+    const { HetznerProvider } = await import('../../lib/providers/hetzner');
+    const provider = new HetznerProvider();
+    const result = await provider.gcSSHKeys();
+    return c.json(result);
+  } catch (err) {
+    console.error('[GC] SSH key GC failed:', err);
+    return errorResponse(c, 500, `SSH key GC failed: ${err instanceof Error ? err.message : String(err)}`) as any;
+  }
+});
+
 // ─── GET /validate-key — Validate API key ───────────────────────────────────
 
 const validateKeyRoute = createRoute({

@@ -30,6 +30,7 @@ import {
   useCreateBackup,
   useToggleBackups,
 } from "@/hooks/use-machines";
+import { useMachineSSE } from "@/hooks/use-machine-sse";
 import { useCreateImage } from "@/hooks/use-images";
 import { useConfirm } from "@/hooks/use-confirm";
 import {
@@ -504,6 +505,7 @@ export default function MachineDetailPage() {
   const [imageName, setImageName] = useState("");
   const [confirmDelete, ConfirmDeleteDialog] = useConfirm();
   const { data: machine, isLoading, error } = useMachine(machineId);
+  useMachineSSE(machineId, machine?.status);
   const deleteMachine = useDeleteMachine();
   const rebootMachine = useRebootMachine();
   const stopMachine = useStopMachine();

@@ -376,7 +376,77 @@ export class HetznerProvider implements ComputeProvider {
   }
 
   async deleteSSHKey(keyId: string): Promise<void> {
-    await hetznerFetch(`/ssh_keys/${keyId}`, { method: 'DELETE' });
+    try {
+      await hetznerFetch(`/ssh_keys/${keyId}`, { method: 'DELETE' });
+    } catch (err) {
+      // 404 = already deleted — that's fine
+      if (err instanceof Error && err.message.includes('404')) return;
+      throw err;
+    }
+  }
+
+  /**
+   * List all SSH keys in the Hetzner project.
+   * Used by GC to prune orphaned keys.
+   */
+  async listSSHKeys(): Promise<Array<{ id: number; name: string }>> {
+    const keys: Array<{ id: number; name: string }> = [];
+    let page = 1;
+    while (true) {
+      const data = await hetznerFetch<{
+        ssh_keys: Array<{ id: number; name: string }>;
+        meta: { pagination: { next_page: number | null } };
+      }>(`/ssh_keys?per_page=50&page=${page}`);
+      keys.push(...data.ssh_keys);
+      if (!data.meta.pagination.next_page) break;
+      page = data.meta.pagination.next_page;
+    }
+    return keys;
+  }
+
+  /**
+   * Garbage-collect orphaned SSH keys.
+   *
+   * Hetzner has a limit of ~100 SSH keys per project. We upload one per machine
+   * and historically never cleaned them up. This function:
+   * 1. Lists all SSH keys in the project
+   * 2. Lists all active (non-deleted) servers
+   * 3. Deletes any `justavps-*` SSH key whose slug doesn't match an active server
+   *
+   * Returns the number of keys deleted.
+   */
+  async gcSSHKeys(): Promise<{ deleted: number; kept: number; total: number }> {
+    const [allKeys, serversData] = await Promise.all([
+      this.listSSHKeys(),
+      hetznerFetch<{ servers: HetznerServer[] }>('/servers?per_page=50&label_selector=justavps%3Dtrue'),
+    ]);
+
+    // Build set of active server slugs from server names (format: justavps-{slug})
+    const activeSlugs = new Set<string>();
+    for (const server of serversData.servers) {
+      const slug = server.name.replace(/^justavps-/, '');
+      activeSlugs.add(slug);
+    }
+
+    // Only GC keys that match our naming convention
+    const justavpsKeys = allKeys.filter((k) => k.name.startsWith('justavps-'));
+    let deleted = 0;
+
+    for (const key of justavpsKeys) {
+      // Extract slug from key name: "justavps-{slug}" or "justavps-{slug}-{timestamp}"
+      const slug = key.name.replace(/^justavps-/, '').replace(/-\d+$/, '');
+      if (!activeSlugs.has(slug)) {
+        try {
+          await this.deleteSSHKey(String(key.id));
+          deleted++;
+        } catch (err) {
+          console.warn(`[HETZNER GC] Failed to delete SSH key ${key.id} (${key.name}):`, err);
+        }
+      }
+    }
+
+    console.log(`[HETZNER GC] SSH keys: ${deleted} deleted, ${justavpsKeys.length - deleted} kept, ${allKeys.length} total in project`);
+    return { deleted, kept: justavpsKeys.length - deleted, total: allKeys.length };
   }
 
   async listServerTypes(region: string): Promise<ServerTypeInfo[]> {
