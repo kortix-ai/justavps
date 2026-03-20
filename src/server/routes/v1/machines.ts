@@ -6,9 +6,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, inArray } from 'drizzle-orm';
 import { db } from '../../db';
-import { machines, images, users } from '../../db/schema';
+import { machines, images, users, subscriptions } from '../../db/schema';
 import { config } from '../../lib/config';
 import { DEFAULT_TEMPLATE_NAME, resolveRequestedProviderImage } from '../../lib/image-catalog';
 
@@ -52,7 +52,10 @@ machinesApp.use('*', apiGuard);
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function serializeMachine(m: typeof machines.$inferSelect) {
+function serializeMachine(
+  m: typeof machines.$inferSelect,
+  sub?: typeof subscriptions.$inferSelect | null,
+) {
   const proxyDomain = config.PROXY_DOMAIN;
   const sshKeyPath = `~/.ssh/justavps_${m.slug}`;
 
@@ -99,6 +102,13 @@ function serializeMachine(m: typeof machines.$inferSelect) {
     source: m.source || 'user',
     kortix_sandbox_id: m.kortixSandboxId ?? null,
     daemon_version: m.daemonVersion ?? null,
+    subscription: sub ? {
+      status: sub.status,
+      cancel_at_period_end: sub.cancelAtPeriodEnd,
+      cancel_at: sub.cancelAt?.toISOString() ?? null,
+      cancelled_at: sub.cancelledAt?.toISOString() ?? null,
+      current_period_end: sub.currentPeriodEnd?.toISOString() ?? null,
+    } : null,
     health: m.lastHeartbeat ? {
       ...m.lastHeartbeat,
       last_heartbeat_at: m.lastHeartbeatAt?.toISOString() ?? null,
@@ -262,7 +272,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
           billingInterval,
         );
         stripeSubId = result.subscriptionId;
-        stripeSubItemId = `${result.subscriptionId}|${result.subscriptionItemId}`;
+        stripeSubItemId = result.subscriptionItemId;
         console.log(`[MACHINES] Subscription ${result.subscriptionId} created and charged for user ${ownerId}`);
       } catch (err) {
         console.warn(`[MACHINES] Direct subscription failed for user ${ownerId}, falling back to checkout:`, (err as Error).message);
@@ -324,11 +334,15 @@ machinesApp.openapi(createMachineRoute, async (c) => {
     if (stripeSubId) {
       await stripeClient.linkSubscriptionToMachine(stripeSubId, machine.id, slug)
         .catch((err: unknown) => console.warn(`[MACHINES] Failed to backfill subscription metadata for ${slug}:`, err));
-    }
 
-    // Link Stripe subscription to this machine
-    if (stripeSubItemId) {
-      await db.update(machines).set({ stripeSubItemId }).where(eq(machines.id, machine.id));
+      // Create subscription record linking machine ↔ Stripe subscription
+      await db.insert(subscriptions).values({
+        machineId: machine.id,
+        ownerId,
+        stripeSubscriptionId: stripeSubId,
+        stripeSubscriptionItemId: stripeSubItemId,
+        status: 'active',
+      });
     }
 
     await eventBus.emitStageChange(machine.id, ownerId, 'server_creating', 'Creating server on provider...');
@@ -419,7 +433,14 @@ machinesApp.openapi(listMachinesRoute, async (c) => {
 
   const synced = await Promise.all(result.map(syncMachineStatus));
 
-  return c.json({ machines: synced.map(m => serializeMachine(m)) }, 200);
+  // Batch-fetch subscriptions for all machines
+  const machineIds = synced.map(m => m.id);
+  const subs = machineIds.length
+    ? await db.select().from(subscriptions).where(inArray(subscriptions.machineId, machineIds))
+    : [];
+  const subsByMachineId = new Map(subs.map(s => [s.machineId, s]));
+
+  return c.json({ machines: synced.map(m => serializeMachine(m, subsByMachineId.get(m.id) ?? null)) }, 200);
 });
 
 // ─── GET /:id — Get Machine ────────────────────────────────────────────────
@@ -452,8 +473,9 @@ machinesApp.openapi(getMachineRoute, async (c) => {
   if (owned.response) return owned.response as any;
 
   const machine = await syncMachineStatus(owned.resource);
+  const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.machineId, id));
 
-  return c.json(serializeMachine(machine));
+  return c.json(serializeMachine(machine, sub ?? null));
 });
 
 // ─── DELETE /:id — Destroy Machine ──────────────────────────────────────────
@@ -708,27 +730,29 @@ machinesApp.openapi(resizeMachineRoute, async (c) => {
   const newPrice = newSt.priceMonthly;
   const newSpecs = { vcpus: newSt.cores, ramGb: newSt.memory, diskGb: newSt.disk, cpuType: newSt.cpuType } as const;
 
-  let stripeSubItemLink = machine.stripeSubItemId;
+  // Look up subscription for billing
+  let machineSub: typeof subscriptions.$inferSelect | null = null;
   if (stripeClient.isConfigured()) {
-    if (!stripeSubItemLink) {
-      return errorResponse(c, 400, 'Machine has no linked billing subscription — resize is blocked until billing is repaired') as any;
+    const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.machineId, id));
+    if (!sub) {
+      return errorResponse(c, 400, 'Machine has no linked billing subscription — resize is blocked') as any;
     }
+    machineSub = sub;
 
-    const [subscriptionId, maybeItemId, maybeCheckoutSessionId] = stripeSubItemLink.split('|');
-    if (subscriptionId && (!maybeItemId || maybeItemId === 'checkout')) {
+    // Repair: if subscription item ID is missing, fetch from Stripe
+    if (!sub.stripeSubscriptionItemId) {
       try {
-        const repairedItemId = await stripeClient.getSubscriptionItemId(subscriptionId);
+        const repairedItemId = await stripeClient.getSubscriptionItemId(sub.stripeSubscriptionId);
         if (!repairedItemId) {
-          return errorResponse(c, 400, 'Machine billing subscription is missing its subscription item — resize is blocked until billing is repaired') as any;
+          return errorResponse(c, 400, 'Billing subscription is missing its item — resize is blocked') as any;
         }
-
-        stripeSubItemLink = [subscriptionId, repairedItemId, maybeCheckoutSessionId].filter(Boolean).join('|');
-        await db.update(machines)
-          .set({ stripeSubItemId: stripeSubItemLink })
-          .where(eq(machines.id, id));
+        await db.update(subscriptions)
+          .set({ stripeSubscriptionItemId: repairedItemId, updatedAt: new Date() })
+          .where(eq(subscriptions.id, sub.id));
+        machineSub = { ...sub, stripeSubscriptionItemId: repairedItemId };
       } catch (err) {
         console.error(`[MACHINES] Failed to repair Stripe billing link for ${machine.slug}:`, err);
-        return errorResponse(c, 400, 'Machine billing subscription could not be verified — resize is blocked until billing is repaired') as any;
+        return errorResponse(c, 400, 'Billing subscription could not be verified — resize is blocked') as any;
       }
     }
   }
@@ -768,12 +792,9 @@ machinesApp.openapi(resizeMachineRoute, async (c) => {
         .where(eq(machines.id, id));
 
       // 3. Update Stripe subscription price with proration
-      if (stripeClient.isConfigured() && stripeSubItemLink) {
-        const subItemId = stripeSubItemLink.split('|')[1];
-        if (subItemId) {
-          await stripeClient.updateMachineSubscription(subItemId, newPrice, server_type, machine.id, newSpecs)
-            .catch(err => console.error('[MACHINES] Stripe resize billing update failed:', err));
-        }
+      if (stripeClient.isConfigured() && machineSub?.stripeSubscriptionItemId) {
+        await stripeClient.updateMachineSubscription(machineSub.stripeSubscriptionItemId, newPrice, server_type, machine.id, newSpecs)
+          .catch(err => console.error('[MACHINES] Stripe resize billing update failed:', err));
       }
 
       // 4. Emit success event

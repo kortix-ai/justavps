@@ -15,10 +15,10 @@
  */
 
 import { OpenAPIHono } from '@hono/zod-openapi';
-import { eq, and, like } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import Stripe from 'stripe';
 import { db } from '../../db';
-import { users, machines, images, stripeEvents } from '../../db/schema';
+import { users, machines, images, stripeEvents, subscriptions } from '../../db/schema';
 import { stripeClient, type CheckoutMachineConfig } from '../../lib/stripe';
 import { config } from '../../lib/config';
 import { getProvider } from '../../lib/providers';
@@ -178,15 +178,12 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     return;
   }
 
-  // DB-level idempotency: check if a machine was already provisioned for this checkout session
-  const existingMachines = await db.select({ id: machines.id })
-    .from(machines)
-    .where(and(
-      eq(machines.ownerId, userId),
-      like(machines.stripeSubItemId, `%|${session.id}`),
-    ));
+  // DB-level idempotency: check if a subscription was already created for this checkout session
+  const existingSubs = await db.select({ id: subscriptions.id })
+    .from(subscriptions)
+    .where(eq(subscriptions.stripeCheckoutSessionId, session.id));
 
-  if (existingMachines.length > 0) {
+  if (existingSubs.length > 0) {
     console.log(`[STRIPE WEBHOOK] Machine already provisioned for checkout ${session.id} — skipping`);
     return;
   }
@@ -226,10 +223,6 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     console.error(`[STRIPE WEBHOOK] Checkout session ${session.id} has no subscription id — refusing to provision unpaid machine`);
     return;
   }
-
-  const stripeSubItemIdValue = subscriptionId
-    ? `${subscriptionId}|${subscriptionItemId || 'checkout'}|${session.id}`
-    : null;
 
   const planLabel = machineConfig.specs
     ? `${machineConfig.specs.vcpus} vCPU / ${machineConfig.specs.ramGb} GB RAM / ${machineConfig.specs.diskGb} GB SSD`
@@ -324,13 +317,16 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     if (subscriptionId) {
       await stripeClient.linkSubscriptionToMachine(subscriptionId, machine.id, slug)
         .catch((err: unknown) => console.warn(`[STRIPE WEBHOOK] Failed to backfill subscription metadata for ${slug}:`, err));
-    }
 
-    // Store the subscription link (with checkout session ID for idempotency)
-    if (stripeSubItemIdValue) {
-      await db.update(machines).set({
-        stripeSubItemId: stripeSubItemIdValue,
-      }).where(eq(machines.id, machine.id));
+      // Create subscription record
+      await db.insert(subscriptions).values({
+        machineId: machine.id,
+        ownerId: userId,
+        stripeSubscriptionId: subscriptionId,
+        stripeSubscriptionItemId: subscriptionItemId || null,
+        stripeCheckoutSessionId: session.id,
+        status: 'active',
+      });
     }
 
     await eventBus.emitStageChange(machine.id, userId, 'server_creating', 'Creating server on provider...');
@@ -430,14 +426,14 @@ async function handlePaymentFailed(invoice: Stripe.Invoice) {
 
   if (!subscriptionId) return;
 
-  const affected = await db.select().from(machines)
-    .where(and(
-      eq(machines.ownerId, user.id),
-      like(machines.stripeSubItemId, `${subscriptionId}|%`),
-    ));
+  // Find machines via subscriptions table
+  const subs = await db.select().from(subscriptions)
+    .where(eq(subscriptions.stripeSubscriptionId, subscriptionId));
 
-  for (const m of affected) {
-    if (m.status === 'deleted') continue;
+  for (const sub of subs) {
+    if (!sub.machineId) continue;
+    const [m] = await db.select().from(machines).where(eq(machines.id, sub.machineId));
+    if (!m || m.status === 'deleted') continue;
 
     if (attemptCount >= 3 && m.status === 'ready') {
       console.warn(`[STRIPE WEBHOOK] Stopping machine ${m.slug} after ${attemptCount} failed payment attempts`);
@@ -457,12 +453,14 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
   const subscriptionId = subscription.id;
   console.log(`[STRIPE WEBHOOK] Subscription ${subscriptionId} deleted`);
 
-  // Find machines linked to this subscription
-  const affected = await db.select().from(machines)
-    .where(like(machines.stripeSubItemId, `${subscriptionId}|%`));
+  // Find machines via subscriptions table
+  const subs = await db.select().from(subscriptions)
+    .where(eq(subscriptions.stripeSubscriptionId, subscriptionId));
 
-  for (const machine of affected) {
-    if (machine.status === 'deleted') continue;
+  for (const sub of subs) {
+    if (!sub.machineId) continue;
+    const [machine] = await db.select().from(machines).where(eq(machines.id, sub.machineId));
+    if (!machine || machine.status === 'deleted') continue;
 
     console.log(`[STRIPE WEBHOOK] Subscription deleted for machine ${machine.slug} — destroying machine`);
 
@@ -472,14 +470,16 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
       console.log(`[STRIPE WEBHOOK] Machine ${machine.slug} destroyed after subscription cancellation`);
     } catch (err) {
       console.error(`[STRIPE WEBHOOK] Failed to destroy machine ${machine.slug}:`, err);
-      // At minimum, mark as deleted in DB
       await db.update(machines).set({ status: 'deleted', deletedAt: new Date() }).where(eq(machines.id, machine.id));
     }
+
+    // Mark subscription as canceled
+    await db.update(subscriptions).set({ status: 'canceled', updatedAt: new Date() }).where(eq(subscriptions.id, sub.id));
   }
 }
 
 // ─── customer.subscription.updated ──────────────────────────────────────────
-// Subscription was updated (e.g. price change, status change).
+// Subscription was updated (e.g. price change, status change, cancellation scheduled).
 // Sync relevant state to our DB.
 
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
@@ -488,13 +488,16 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
 
   console.log(`[STRIPE WEBHOOK] Subscription ${subscriptionId} updated — status: ${newStatus}`);
 
-  // Find machines linked to this subscription
-  const affected = await db.select().from(machines)
-    .where(like(machines.stripeSubItemId, `${subscriptionId}|%`));
+  // Find subscriptions linked to this Stripe subscription
+  const subs = await db.select().from(subscriptions)
+    .where(eq(subscriptions.stripeSubscriptionId, subscriptionId));
 
-  for (const machine of affected) {
-    if (machine.status === 'deleted') continue;
+  for (const sub of subs) {
+    if (!sub.machineId) continue;
+    const [machine] = await db.select().from(machines).where(eq(machines.id, sub.machineId));
+    if (!machine || machine.status === 'deleted') continue;
 
+    // Sync price
     const priceAmount = subscription.items.data[0]?.price?.unit_amount;
     if (priceAmount != null) {
       const newPriceMonthly = priceAmount / 100;
@@ -504,6 +507,24 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
       }
     }
 
+    // Sync cancel_at_period_end + cancel_at + status to subscriptions table
+    const cancelAt = subscription.cancel_at ? new Date(subscription.cancel_at * 1000) : null;
+    const cancelledAt = subscription.canceled_at ? new Date(subscription.canceled_at * 1000) : null;
+    await db.update(subscriptions).set({
+      status: newStatus,
+      cancelAtPeriodEnd: subscription.cancel_at_period_end,
+      cancelAt,
+      cancelledAt,
+      updatedAt: new Date(),
+    }).where(eq(subscriptions.id, sub.id));
+
+    if (subscription.cancel_at_period_end && !sub.cancelAtPeriodEnd) {
+      console.log(`[STRIPE WEBHOOK] Subscription ${subscriptionId} scheduled for cancellation — machine ${machine.slug}`);
+    } else if (!subscription.cancel_at_period_end && sub.cancelAtPeriodEnd) {
+      console.log(`[STRIPE WEBHOOK] Subscription ${subscriptionId} cancellation reversed — machine ${machine.slug}`);
+    }
+
+    // Sync machine status based on subscription status
     if ((newStatus === 'past_due' || newStatus === 'unpaid') && machine.status === 'ready') {
       console.warn(`[STRIPE WEBHOOK] Stopping machine ${machine.slug} — subscription is ${newStatus}`);
       await db.update(machines).set({ status: 'stopped' }).where(eq(machines.id, machine.id));

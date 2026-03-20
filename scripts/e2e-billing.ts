@@ -2,7 +2,7 @@
 import 'dotenv/config';
 import Stripe from 'stripe';
 import { db } from '../src/server/db';
-import { users, apiKeys, machines, sshKeys, machineEvents } from '../src/server/db/schema';
+import { users, apiKeys, machines, sshKeys, machineEvents, subscriptions } from '../src/server/db/schema';
 import { hashPassword, generateApiKey } from '../src/server/lib/crypto';
 import { eq, inArray } from 'drizzle-orm';
 
@@ -141,11 +141,10 @@ async function verifyInstantChargeAndResize() {
   assert(readyMachine.server_type === 'cpx32', 'initial machine type mismatch');
   assert(readyMachine.price_monthly === 15, 'initial monthly price mismatch');
 
-  const linkRow = await db.select({ stripeSubItemId: machines.stripeSubItemId })
-    .from(machines)
-    .where(eq(machines.id, machineId));
-  const billingLink = linkRow[0]?.stripeSubItemId || '';
-  assert(/sub_.*\|si_/.test(billingLink), `billing link missing subscription item: ${billingLink}`);
+  const [sub] = await db.select().from(subscriptions)
+    .where(eq(subscriptions.machineId, machineId));
+  assert(sub, 'subscription row missing for machine');
+  assert(sub.stripeSubscriptionId.startsWith('sub_'), `billing link missing subscription: ${sub.stripeSubscriptionId}`);
 
   const resizeRes = await api<{ status: string }>(`/machines/${machineId}/resize`, {
     method: 'POST',
@@ -161,15 +160,16 @@ async function verifyInstantChargeAndResize() {
   );
   assert(resizedMachine.price_monthly === 49, 'resized monthly price mismatch');
 
-  const [, subscriptionItemId] = billingLink.split('|');
-  const stripeItem = await stripe.subscriptionItems.retrieve(subscriptionItemId, { expand: ['price'] });
+  // Re-fetch subscription after resize to get updated item
+  const [subAfterResize] = await db.select().from(subscriptions).where(eq(subscriptions.machineId, machineId));
+  assert(subAfterResize.stripeSubscriptionItemId, 'subscription item ID missing after resize');
+  const stripeItem = await stripe.subscriptionItems.retrieve(subAfterResize.stripeSubscriptionItemId, { expand: ['price'] });
   assert(stripeItem.price.unit_amount === 4900, `expected Stripe unit_amount=4900, got ${stripeItem.price.unit_amount}`);
 
-  const [subscriptionId] = billingLink.split('|');
-  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  const subscription = await stripe.subscriptions.retrieve(subAfterResize.stripeSubscriptionId);
   const preview = await stripe.invoices.createPreview({
     customer: subscription.customer as string,
-    subscription: subscriptionId,
+    subscription: subAfterResize.stripeSubscriptionId,
   });
   const descriptions = (preview.lines?.data || []).map((line) => line.description || '');
   assert(descriptions.some((line) => line.includes('Unused time on JustAVPS')), 'missing old-plan proration credit');
@@ -190,6 +190,7 @@ async function cleanup() {
     const ownedMachines = await db.select({ id: machines.id }).from(machines).where(eq(machines.ownerId, testUser.userId));
     if (ownedMachines.length) {
       await db.delete(machineEvents).where(inArray(machineEvents.machineId, ownedMachines.map((m) => m.id)));
+      await db.delete(subscriptions).where(inArray(subscriptions.machineId, ownedMachines.map((m) => m.id)));
     }
     await db.delete(apiKeys).where(eq(apiKeys.ownerId, testUser.userId));
     await db.delete(sshKeys).where(eq(sshKeys.ownerId, testUser.userId));

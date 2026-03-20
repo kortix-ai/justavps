@@ -459,7 +459,6 @@ importKortixApp.openapi(claimRoute, async (c) => {
         ownerId: userId,
         source: 'kortix',
         kortixSandboxId: sandboxId,
-        stripeSubItemId: null,
       })
       .where(eq(machines.id, machineId));
 

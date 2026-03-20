@@ -3,7 +3,7 @@
  * This is the source of truth for the database structure.
  */
 
-import { pgTable, uuid, text, timestamp, integer, jsonb, decimal, boolean } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, integer, jsonb, boolean } from 'drizzle-orm/pg-core';
 
 // ─── Users ──────────────────────────────────────────────────────────────────
 
@@ -92,7 +92,6 @@ export const machines = pgTable('machines', {
 
   // Billing
   priceMonthly: integer('price_monthly'),
-  stripeSubItemId: text('stripe_sub_item_id'),
 
   // Networking
   domains: jsonb('domains').$type<string[]>().default([]),
@@ -135,24 +134,20 @@ export const apiKeys = pgTable('api_keys', {
 
 export const subscriptions = pgTable('subscriptions', {
   id: uuid('id').primaryKey().defaultRandom(),
+  machineId: uuid('machine_id').references(() => machines.id, { onDelete: 'cascade' }).unique(),       // 1:1 machine ↔ subscription
   ownerId: uuid('owner_id').references(() => users.id).notNull(),
   stripeSubscriptionId: text('stripe_subscription_id').notNull(),
+  stripeSubscriptionItemId: text('stripe_subscription_item_id'),              // si_xxx — needed for price updates on resize
+  stripeCheckoutSessionId: text('stripe_checkout_session_id'),                // cs_xxx — idempotency on checkout webhook
   stripePriceId: text('stripe_price_id'),
-  status: text('status').notNull().default('active'),
+  status: text('status').notNull().default('active'),                         // active | past_due | unpaid | canceled | incomplete
+  cancelAtPeriodEnd: boolean('cancel_at_period_end').default(false).notNull(),
+  cancelAt: timestamp('cancel_at'),                                           // when machine will be destroyed (set by Stripe)
+  cancelledAt: timestamp('cancelled_at'),                                     // when cancellation was initiated
   currentPeriodStart: timestamp('current_period_start'),
   currentPeriodEnd: timestamp('current_period_end'),
-});
-
-// ─── Machine Billing Records ────────────────────────────────────────────────
-
-export const machineBilling = pgTable('machine_billing', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  machineId: uuid('machine_id').references(() => machines.id).notNull(),
-  ownerId: uuid('owner_id').references(() => users.id).notNull(),
-  startedAt: timestamp('started_at').notNull(),
-  endedAt: timestamp('ended_at'),
-  serverType: text('server_type').notNull(),
-  hours: decimal('hours'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
 // ─── Machine Events (append-only log) ──────────────────────────────────────

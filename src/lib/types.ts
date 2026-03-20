@@ -43,6 +43,13 @@ export interface Machine {
   } | null;
   source: 'user' | 'kortix';
   kortix_sandbox_id: string | null;
+  subscription: {
+    status: string;
+    cancel_at_period_end: boolean;
+    cancel_at: string | null;
+    cancelled_at: string | null;
+    current_period_end: string | null;
+  } | null;
   health: {
     cpu: number;
     memory: number;

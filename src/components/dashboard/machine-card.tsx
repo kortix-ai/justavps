@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { Globe, Cpu, HardDrive, DollarSign, Clock, Shield } from "lucide-react";
+import { Globe, Cpu, HardDrive, DollarSign, Clock, Shield, CalendarX2 } from "lucide-react";
 import { cn, regionDisplay, planName, planSpecs, timeAgo } from "@/lib/utils";
 import type { Machine } from "@/lib/types";
 
@@ -58,16 +58,27 @@ export function MachineCard({ machine }: MachineCardProps) {
               {machine.slug}
             </p>
           </div>
-          <Badge
-            variant="outline"
-            className={cn(
-              "shrink-0 gap-1.5 text-[11px] font-medium h-5 px-2 mt-0.5",
-              status.badgeClass,
+          <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
+            <Badge
+              variant="outline"
+              className={cn(
+                "gap-1.5 text-[11px] font-medium h-5 px-2",
+                status.badgeClass,
+              )}
+            >
+              <span className={cn("size-1.5 rounded-full shrink-0", status.dotClass)} />
+              {status.label}
+            </Badge>
+            {machine.subscription?.cancel_at_period_end && (
+              <Badge
+                variant="outline"
+                className="gap-1 text-[10px] font-medium h-5 px-1.5 bg-destructive/10 text-destructive border-destructive/20"
+              >
+                <CalendarX2 className="size-2.5" />
+                Cancelling
+              </Badge>
             )}
-          >
-            <span className={cn("size-1.5 rounded-full shrink-0", status.dotClass)} />
-            {status.label}
-          </Badge>
+          </div>
         </div>
 
         {/* Specs */}

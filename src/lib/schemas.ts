@@ -67,6 +67,13 @@ export const MachineResponseSchema = z.object({
     vscode_url: z.string(),
     cursor_ssh: z.string().nullable(),
   }).nullable(),
+  subscription: z.object({
+    status: z.string(),
+    cancel_at_period_end: z.boolean(),
+    cancel_at: z.string().nullable(),
+    cancelled_at: z.string().nullable(),
+    current_period_end: z.string().nullable(),
+  }).nullable().optional(),
   health: z.object({
     cpu: z.number(),
     memory: z.number(),
