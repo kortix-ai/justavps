@@ -133,8 +133,15 @@ export default {
 
       // Handle origin errors with friendly pages
       if (response.status === 521 || response.status === 523) {
-        // 521/523 = origin server is down (Caddy not running yet)
+        // 521/523 = origin unreachable. On port 80 = machine not started yet.
+        // On non-default port = machine is up but that port's service isn't running.
         if (isBrowserRequest(request)) {
+          if (port !== 80) {
+            return new Response(PORT_NOT_LISTENING_HTML.replaceAll('{{PORT}}', String(port)), {
+              status: 502,
+              headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+            });
+          }
           return new Response(MACHINE_STARTING_HTML, {
             status: 503,
             headers: { 'Content-Type': 'text/html; charset=utf-8', 'Retry-After': '5', 'Cache-Control': 'no-store' },
@@ -144,14 +151,14 @@ export default {
       if (response.status === 502 && port !== 80) {
         // 502 on a non-default port = nothing listening on that port
         if (isBrowserRequest(request)) {
-          return new Response(PORT_NOT_LISTENING_HTML.replace('{{PORT}}', String(port)), {
+          return new Response(PORT_NOT_LISTENING_HTML.replaceAll('{{PORT}}', String(port)), {
             status: 502,
             headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
           });
         }
       }
       if (response.status === 502 && port === 80) {
-        // 502 on default port = Caddy/OpenCode still starting
+        // 502 on default port = daemon still starting
         if (isBrowserRequest(request)) {
           return new Response(MACHINE_STARTING_HTML, {
             status: 503,
@@ -212,7 +219,7 @@ function accessDeniedHTML(platformUrl: string) {
 const PORT_NOT_LISTENING_HTML = `<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Port {{PORT}} — Not Listening</title>
+<title>Port {{PORT}} — Not Reachable</title>
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #0a0a0a; color: #e5e5e5; }
   .card { text-align: center; max-width: 420px; padding: 40px; }
@@ -223,9 +230,9 @@ const PORT_NOT_LISTENING_HTML = `<!DOCTYPE html>
 </style>
 </head><body>
 <div class="card">
-  <h1>Port {{PORT}} — Nothing Listening</h1>
-  <p>No service is running on port <code>{{PORT}}</code> on this machine.</p>
-  <p>Start a server on that port and try again.</p>
+  <h1>Port {{PORT}} — Not Reachable</h1>
+  <p>No service is responding on port <code>{{PORT}}</code>.</p>
+  <p>Make sure the service is running, then try again.</p>
 </div>
 </body></html>`;
 

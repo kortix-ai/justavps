@@ -62,9 +62,10 @@ export function handleCORSPreflight(request: Request): Response | null {
 /**
  * Proxy an HTTP request to the VPS via the DNS-only origin hostname.
  *
- * Default port 80 stays on the machine's primary reverse proxy entrypoint.
- * Non-default ports are fetched directly so Docker-published ports and user
- * services work even when no local `/_caddy_port/*` bridge is present.
+ * All traffic goes through port 80 (the daemon's ProxyRouter).
+ * Non-default ports are forwarded via the daemon's /_port/PORT/path handler,
+ * which proxies to localhost:PORT on the machine. This way services bound to
+ * 127.0.0.1 (like opencode on :4096) are reachable without opening extra ports.
  */
 export async function proxyHTTPRequest(
   request: Request,
@@ -76,13 +77,21 @@ export async function proxyHTTPRequest(
     const url = new URL(request.url);
 
     // Use origin hostname (DNS-only, grey-cloud) to bypass CF proxy.
-    // Root traffic stays on port 80. Explicit port traffic goes directly to that port.
+    // All traffic goes to port 80. Non-default ports are routed via daemon's port proxy.
     const originHost = machineInfo.origin_hostname || machineInfo.ip;
-    const path = rewrittenPath || url.pathname;
-    const search = rewrittenPath ? '' : url.search;
-    const targetPort = port;
-    const targetPath = `${path}${search}`;
-    const targetUrl = `http://${originHost}:${targetPort}${targetPath}`;
+    let targetPath: string;
+    if (port === 80) {
+      // Default port — direct path through daemon's router
+      const path = rewrittenPath || url.pathname;
+      const search = rewrittenPath ? '' : url.search;
+      targetPath = `${path}${search}`;
+    } else {
+      // Non-default port — route through daemon's /_port proxy (handles localhost-bound services)
+      const path = rewrittenPath || url.pathname;
+      const search = rewrittenPath ? '' : url.search;
+      targetPath = `/_port/${port}${path === '/' ? '' : path}${search}`;
+    }
+    const targetUrl = `http://${originHost}:80${targetPath}`;
 
     // Build forwarded headers
     const headers = stripHopByHopHeaders(new Headers(request.headers));
@@ -147,7 +156,11 @@ export async function proxyWebSocket(
   try {
     const url = new URL(request.url);
     const originHost = machineInfo.origin_hostname || machineInfo.ip;
-    const targetUrl = `http://${originHost}:${port}${url.pathname}${url.search}`;
+    // Route all WS through port 80 (daemon's ProxyRouter), using /_port for non-default ports
+    const wsPath = port === 80
+      ? `${url.pathname}${url.search}`
+      : `/_port/${port}${url.pathname === '/' ? '' : url.pathname}${url.search}`;
+    const targetUrl = `http://${originHost}:80${wsPath}`;
 
     // Connect to origin WebSocket (CF Workers pattern: fetch with Upgrade header)
     const originResp = await fetch(targetUrl, {

@@ -113,7 +113,7 @@ describe('Worker integration — direct IP proxy', () => {
       );
     });
 
-    it('should proxy port subdomain to the requested VPS port directly', async () => {
+    it('should proxy port subdomain through daemon port proxy on port 80', async () => {
       await setupTestData();
 
       globalThis.fetch = vi.fn().mockResolvedValue(
@@ -127,13 +127,14 @@ describe('Worker integration — direct IP proxy', () => {
       const response = await worker.fetch(request, mockEnv, mockCtx);
 
       expect(response.status).toBe(200);
+      // Non-default ports route through daemon's /_port proxy on port 80
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://10.0.0.1:3000/app',
+        'http://10.0.0.1:80/_port/3000/app',
         expect.objectContaining({ method: 'GET' }),
       );
     });
 
-    it('should proxy PORT--SLUG format correctly', async () => {
+    it('should proxy PORT--SLUG format through daemon port proxy', async () => {
       await setupTestData();
 
       globalThis.fetch = vi.fn().mockResolvedValue(
@@ -147,8 +148,9 @@ describe('Worker integration — direct IP proxy', () => {
       const response = await worker.fetch(request, mockEnv, mockCtx);
 
       expect(response.status).toBe(200);
+      // Non-default ports route through daemon's /_port proxy on port 80
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://10.0.0.1:3456/',
+        'http://10.0.0.1:80/_port/3456',
         expect.objectContaining({ method: 'GET' }),
       );
     });
