@@ -15,6 +15,7 @@ export interface AuthResult {
   machineInfo?: MachineInfo;
   error?: string;
   shouldRefresh?: boolean; // true if JWT is within 6h of expiry
+  authSource?: 'cookie' | 'querytoken' | 'apikey'; // where the auth came from
 }
 
 export interface MachineInfo {
@@ -61,13 +62,14 @@ export async function validateAuth(
 
   // Check machine ownership
   const machineResult = await checkMachineAccess(slug, userId, kv);
-  if (!machineResult.success) return machineResult;
+  if (!machineResult.success) return { ...machineResult, authSource: auth.source };
 
   return {
     success: true,
     userId,
     machineInfo: machineResult.machineInfo,
     shouldRefresh: auth.type === 'jwt' ? auth.shouldRefresh : false,
+    authSource: auth.source,
   };
 }
 
@@ -75,6 +77,7 @@ export async function validateAuth(
 
 interface ExtractedAuth {
   type: 'jwt' | 'apikey';
+  source: 'cookie' | 'querytoken' | 'apikey';
   token: string;
   shouldRefresh?: boolean;
 }
@@ -86,23 +89,23 @@ function extractAuth(request: Request): ExtractedAuth | null {
     const token = authHeader.slice(7);
     // API keys start with sk_live_, JWTs start with eyJ
     if (token.startsWith('sk_live_')) {
-      return { type: 'apikey', token };
+      return { type: 'apikey', source: 'apikey', token };
     }
     // Treat as JWT
-    return { type: 'jwt', token };
+    return { type: 'jwt', source: 'apikey', token };
   }
 
-  // 2. Cookie — JWT
-  const cookie = parseCookie(request.headers.get('Cookie') || '', COOKIE_NAME);
-  if (cookie) {
-    return { type: 'jwt', token: cookie };
-  }
-
-  // 3. Query param — JWT
+  // 2. Query param — JWT (checked BEFORE cookie so an explicit ?token= always wins over a stale cookie)
   const url = new URL(request.url);
   const queryToken = url.searchParams.get('token');
   if (queryToken) {
-    return { type: 'jwt', token: queryToken };
+    return { type: 'jwt', source: 'querytoken', token: queryToken };
+  }
+
+  // 3. Cookie — JWT
+  const cookie = parseCookie(request.headers.get('Cookie') || '', COOKIE_NAME);
+  if (cookie) {
+    return { type: 'jwt', source: 'cookie', token: cookie };
   }
 
   return null;

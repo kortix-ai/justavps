@@ -166,6 +166,32 @@ describe('validateAuth', () => {
     });
   });
 
+  describe('Query token priority over stale cookie', () => {
+    it('should use ?token= over cookie when both present (fresh token wins over stale cookie)', async () => {
+      const ownerId = 'user_123';
+      const correctJwt = await createTestJWT(ownerId, PROXY_SECRET);
+      const staleJwt = await createTestJWT('user_other', PROXY_SECRET); // cookie has wrong user
+
+      mockKV.set('machine:abc123', JSON.stringify({
+        owner_id: ownerId,
+        ip: '1.2.3.4',
+        status: 'ready',
+        server_type: 'cx22',
+      }));
+
+      // Cookie has wrong user, ?token= has correct user
+      const request = new Request(`https://abc123.kortix.cloud?token=${correctJwt}`, {
+        headers: { 'Cookie': `__justavps_proxy=${staleJwt}` },
+      });
+
+      const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET);
+
+      expect(result.success).toBe(true);
+      expect(result.userId).toBe(ownerId);
+      expect(result.authSource).toBe('querytoken');
+    });
+  });
+
   describe('No authentication', () => {
     it('should reject requests without any auth', async () => {
       const request = new Request('https://abc123.kortix.cloud');
