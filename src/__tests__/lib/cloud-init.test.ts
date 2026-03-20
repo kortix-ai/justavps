@@ -187,6 +187,21 @@ describe('cloud-init', () => {
       expect(script).toContain('WatchdogSec=120');
     });
 
+    it('should install self-healing watchdog timer', () => {
+      const script = buildCloudInit(defaultOpts);
+      expect(script).toContain('justavps-watchdog.sh');
+      expect(script).toContain('justavps-watchdog.service');
+      expect(script).toContain('justavps-watchdog.timer');
+      expect(script).toContain('OnUnitActiveSec=120');
+      expect(script).toContain('systemctl enable --now justavps-watchdog.timer');
+      // Watchdog should re-download daemon if binary missing
+      expect(script).toContain('Daemon binary missing, re-downloading');
+      // Watchdog should re-enable fail2ban
+      expect(script).toContain('fail2ban not running, starting');
+      // Watchdog should re-enable UFW
+      expect(script).toContain('UFW inactive, re-enabling');
+    });
+
     it('should create user account with sudo + docker access', () => {
       const script = buildCloudInit(defaultOpts);
       expect(script).toContain('useradd -m -s /bin/bash -G sudo,docker user');

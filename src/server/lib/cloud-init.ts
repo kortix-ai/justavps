@@ -402,6 +402,81 @@ WatchdogSec=120
 WantedBy=multi-user.target
 DAEMONSERVICEEOF
 
+# ── Daemon self-healing watchdog (runs every 2 minutes via systemd timer) ──
+# If user kills daemon, disables the service, or deletes the binary:
+#   1. Re-downloads the daemon if missing
+#   2. Re-enables the systemd service
+#   3. Restarts the daemon
+#   4. Re-enables fail2ban and UFW if disabled
+# The timer itself is harder to find/disable than a cron job.
+
+DAEMON_WATCHDOG_URL="https://pub-caf7762051b942d5a801397d750a0dc3.r2.dev/${opts.daemonChannel === 'dev' ? 'daemon/dev/latest' : 'daemon/latest'}/justavps-daemon-linux-amd64"
+
+cat > /usr/local/bin/justavps-watchdog.sh << WATCHDOGEOF
+#!/bin/bash
+# JustAVPS self-healing watchdog — ensures critical platform services stay running.
+# Runs every 2 minutes via systemd timer.
+
+DAEMON_URL="$DAEMON_WATCHDOG_URL"
+
+# 1. Ensure daemon binary exists
+if [ ! -x /usr/local/bin/justavps-daemon ]; then
+  echo "[justavps-watchdog] Daemon binary missing, re-downloading..."
+  curl -fsSL -o /usr/local/bin/justavps-daemon "\$DAEMON_URL" 2>/dev/null && \\
+    chmod +x /usr/local/bin/justavps-daemon || true
+fi
+
+# 2. Ensure daemon service is enabled and running
+if ! systemctl is-enabled --quiet justavps-daemon 2>/dev/null; then
+  echo "[justavps-watchdog] Daemon service disabled, re-enabling..."
+  systemctl enable justavps-daemon 2>/dev/null || true
+fi
+if ! systemctl is-active --quiet justavps-daemon 2>/dev/null; then
+  echo "[justavps-watchdog] Daemon not running, starting..."
+  systemctl start justavps-daemon 2>/dev/null || true
+fi
+
+# 3. Ensure fail2ban is running
+if command -v fail2ban-server &>/dev/null; then
+  if ! systemctl is-active --quiet fail2ban 2>/dev/null; then
+    echo "[justavps-watchdog] fail2ban not running, starting..."
+    systemctl enable fail2ban 2>/dev/null || true
+    systemctl start fail2ban 2>/dev/null || true
+  fi
+fi
+
+# 4. Ensure UFW is active
+if command -v ufw &>/dev/null; then
+  if ! ufw status | grep -q "Status: active" 2>/dev/null; then
+    echo "[justavps-watchdog] UFW inactive, re-enabling..."
+    ufw --force enable 2>/dev/null || true
+  fi
+fi
+WATCHDOGEOF
+chmod +x /usr/local/bin/justavps-watchdog.sh
+
+cat > /etc/systemd/system/justavps-watchdog.service << 'WDSERVICEEOF'
+[Unit]
+Description=JustAVPS self-healing watchdog
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/justavps-watchdog.sh
+WDSERVICEEOF
+
+cat > /etc/systemd/system/justavps-watchdog.timer << 'WDTIMEREOF'
+[Unit]
+Description=JustAVPS watchdog timer (every 2 minutes)
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=120
+AccuracySec=30
+
+[Install]
+WantedBy=timers.target
+WDTIMEREOF
+
 ${stageCallback('cloud_init_done', 'Starting services')}
 
 # ── Start services ────────────────────────────────────────────────────────
@@ -411,6 +486,7 @@ systemctl enable justavps-daemon 2>/dev/null || true
 systemctl restart justavps-daemon 2>/dev/null || true
 systemctl enable --now sandbox-agent 2>/dev/null || true
 systemctl enable --now opencode-web 2>/dev/null || true
+systemctl enable --now justavps-watchdog.timer 2>/dev/null || true
 ${dockerBlock}
 echo "[justavps] Machine ${opts.slug} ready!"
 `;

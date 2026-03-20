@@ -1,7 +1,7 @@
 /**
  * Machine Watchdog — Platform-side monitoring that users cannot tamper with.
  *
- * Two layers:
+ * Three layers:
  *
  * 1. **Hetzner API Polling** — Fetches network metrics directly from Hetzner.
  *    Users can't fake this because it comes from the hypervisor, not the VPS.
@@ -10,6 +10,11 @@
  * 2. **Heartbeat Watchdog** — Checks for missed heartbeats + security tampering.
  *    If a user kills the daemon, heartbeats stop and we detect it here.
  *    If they disable UFW/fail2ban, the heartbeat reports it.
+ *
+ * 3. **Auto-Remediation** — When heartbeat is dead for 30+ minutes, triggers a
+ *    Hetzner API reboot. The VPS systemd timer will re-download and restart
+ *    the daemon automatically on boot. Fully tamper-proof — users can't
+ *    prevent a hypervisor-level reboot.
  *
  * Called via Vercel cron or external scheduler every 5 minutes.
  */
@@ -30,8 +35,18 @@ const HEARTBEAT_STALE_MS = 5 * 60 * 1000;
 /** Heartbeat considered dead after 15 minutes */
 const HEARTBEAT_DEAD_MS = 15 * 60 * 1000;
 
+/** Auto-reboot threshold: daemon dead for 30+ minutes triggers Hetzner reboot */
+const HEARTBEAT_REBOOT_MS = 30 * 60 * 1000;
+
+/** Cooldown: don't reboot the same machine within 60 minutes */
+const REBOOT_COOLDOWN_MS = 60 * 60 * 1000;
+
 /** Network rate threshold for Hetzner API metrics (bytes/sec averaged over 5min) */
 const HETZNER_NETWORK_ALERT_THRESHOLD = 50 * 1024 * 1024; // 50 MB/s sustained
+
+// ─── Reboot tracking (in-memory, resets on cold start — acceptable for cron) ─
+
+const recentReboots = new Map<string, number>(); // machineId -> timestamp
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -39,7 +54,7 @@ interface WatchdogAlert {
   machineId: string;
   slug: string;
   ownerId: string;
-  type: 'heartbeat_stale' | 'heartbeat_dead' | 'security_tamper' | 'network_anomaly';
+  type: 'heartbeat_stale' | 'heartbeat_dead' | 'security_tamper' | 'network_anomaly' | 'auto_reboot';
   details: string[];
 }
 
@@ -106,6 +121,47 @@ async function fetchHetznerNetworkMetrics(serverId: string): Promise<{
   }
 }
 
+// ─── Hetzner API Reboot ─────────────────────────────────────────────────────
+
+async function rebootViaHetzner(serverId: string): Promise<boolean> {
+  if (!config.HETZNER_API_KEY) return false;
+
+  try {
+    const res = await fetch(
+      `${HETZNER_API}/servers/${serverId}/actions/reboot`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${config.HETZNER_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+
+    if (!res.ok) {
+      // Soft reboot can fail — fall back to hard reset
+      const resetRes = await fetch(
+        `${HETZNER_API}/servers/${serverId}/actions/reset`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${config.HETZNER_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          signal: AbortSignal.timeout(15_000),
+        },
+      );
+      return resetRes.ok;
+    }
+
+    return true;
+  } catch (err) {
+    console.error(`[WATCHDOG] Failed to reboot server ${serverId}:`, err);
+    return false;
+  }
+}
+
 // ─── Watchdog Check ─────────────────────────────────────────────────────────
 
 /**
@@ -144,6 +200,29 @@ export async function runWatchdog(): Promise<WatchdogAlert[]> {
           type: 'heartbeat_dead',
           details: [`No heartbeat for ${Math.round(elapsed / 60_000)} minutes — daemon may be killed or machine unreachable`],
         });
+
+        // ── Auto-reboot if dead long enough and not recently rebooted ──
+        if (
+          elapsed > HEARTBEAT_REBOOT_MS &&
+          machine.providerServerId &&
+          machine.status === 'ready'
+        ) {
+          const lastReboot = recentReboots.get(machine.id) ?? 0;
+          if (now - lastReboot > REBOOT_COOLDOWN_MS) {
+            console.warn(`[WATCHDOG] Auto-rebooting ${machine.slug} (dead for ${Math.round(elapsed / 60_000)}min)`);
+            const rebooted = await rebootViaHetzner(machine.providerServerId);
+            if (rebooted) {
+              recentReboots.set(machine.id, now);
+              alerts.push({
+                machineId: machine.id,
+                slug: machine.slug,
+                ownerId: machine.ownerId,
+                type: 'auto_reboot',
+                details: [`Auto-rebooted via Hetzner API after ${Math.round(elapsed / 60_000)} minutes without heartbeat`],
+              });
+            }
+          }
+        }
       } else if (elapsed > HEARTBEAT_STALE_MS) {
         alerts.push({
           machineId: machine.id,
