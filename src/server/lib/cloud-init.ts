@@ -183,7 +183,8 @@ if ! docker image inspect "$BOOT_DOCKER_IMAGE" >/dev/null 2>&1; then
 fi
 
 systemctl daemon-reload
-systemctl enable --now justavps-docker
+systemctl enable justavps-docker 2>/dev/null || true
+systemctl restart justavps-docker
 
 echo "[justavps] Waiting for Docker workload..."
 for i in $(seq 1 120); do

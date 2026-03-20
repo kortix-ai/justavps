@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import dynamic from "next/dynamic";
 import {
   useMachine,
+  useDeleteMachine,
   useRebootMachine,
   useStopMachine,
   useStartMachine,
@@ -28,6 +29,7 @@ import {
   useToggleBackups,
 } from "@/hooks/use-machines";
 import { useCreateImage } from "@/hooks/use-images";
+import { useConfirm } from "@/hooks/use-confirm";
 import {
   ArrowLeft,
   RotateCw,
@@ -56,6 +58,7 @@ import {
   PowerOff,
   MapPin,
   CalendarX2,
+  Trash2,
 } from "lucide-react";
 import { RescaleDialog } from "@/components/dashboard/rescale-dialog";
 import Link from "next/link";
@@ -494,11 +497,14 @@ export default function MachineDetailPage() {
   const [createImageOpen, setCreateImageOpen] = useState(false);
   const [rescaleOpen, setRescaleOpen] = useState(false);
   const [imageName, setImageName] = useState("");
+  const [confirmDelete, ConfirmDeleteDialog] = useConfirm();
   const { data: machine, isLoading, error } = useMachine(machineId);
+  const deleteMachine = useDeleteMachine();
   const rebootMachine = useRebootMachine();
   const stopMachine = useStopMachine();
   const startMachine = useStartMachine();
   const createImage = useCreateImage();
+  const isDevMode = process.env.NEXT_PUBLIC_DEV_MODE === "true";
 
   const handleReboot = () => {
     rebootMachine.mutate(machineId, {
@@ -741,6 +747,37 @@ export default function MachineDetailPage() {
               Start
             </Button>
            )}
+          {isDevMode && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1.5 text-red-600 hover:text-red-600 hover:bg-red-500/10 border-red-500/30"
+              onClick={async () => {
+                const ok = await confirmDelete({
+                  title: "Delete Machine",
+                  description: "This will permanently destroy the server, remove DNS records, and cancel any active subscription. This cannot be undone.",
+                  confirmLabel: "Delete Machine",
+                  variant: "destructive",
+                });
+                if (!ok) return;
+                deleteMachine.mutate(machineId, {
+                  onSuccess: () => {
+                    toast.success("Machine deleted");
+                    router.push("/machines");
+                  },
+                  onError: (err) => toast.error(err.message),
+                });
+              }}
+              disabled={deleteMachine.isPending}
+            >
+              {deleteMachine.isPending ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="size-3.5" />
+              )}
+              Delete
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1147,6 +1184,8 @@ export default function MachineDetailPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDeleteDialog />
 
       {machine && (
         <RescaleDialog open={rescaleOpen} onOpenChange={setRescaleOpen} machine={machine} />
