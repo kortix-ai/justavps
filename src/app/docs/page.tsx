@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { cn } from "@/lib/utils";
 import {
   CreditCard, HardDrive,
@@ -287,21 +288,44 @@ export default function DocsPage() {
         <H2 id="personal-use">Personal Use</H2>
         <P>Use your machine as a remote dev environment. SSH in, connect your IDE, and let your AI agents run 24/7 while you close your laptop. Come back tomorrow — everything&apos;s still there.</P>
 
+        <Callout type="info">JustAVPS listens for every port you open on the machine. Whether you connect from Cursor, VS Code, or plain <IC>ssh</IC>, new ports are detected automatically and you get the correct public forwarded URL right in the terminal.</Callout>
+
+        <div className={cn("my-5 overflow-hidden rounded-xl border", "border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950") }>
+          <Image
+            src="/terminal-port-listener.png"
+            alt="SSH session showing automatic JustAVPS port detection and forwarded URLs"
+            width={672}
+            height={510}
+            className="h-auto w-full"
+          />
+        </div>
+
+        <P>That means you can simply connect over SSH, start any service, and keep working. As soon as a port opens, JustAVPS advertises the matching forwarded URL automatically, so there&apos;s no extra tunneling or manual proxy setup to think about.</P>
+
         <H3 id="ide-connect">Connect from Cursor / VS Code</H3>
-        <P>Use <B>Remote-SSH</B> for a local-feeling experience with built-in port forwarding:</P>
+        <P>Use <B>Remote-SSH</B> for a local-feeling experience in your editor:</P>
         <Ul>
           <Li>Run the one-click setup command from the dashboard (saves your SSH key)</Li>
           <Li>Add the host to <IC>~/.ssh/config</IC> — the dashboard shows the exact config block to copy</Li>
           <Li><B>Cmd+Shift+P</B> → <B>Remote-SSH: Connect to Host</B> → select your machine</Li>
         </Ul>
-        <Callout type="tip">If you start a server on port 3000 on the machine, you can forward it back to your laptop as <IC>localhost:3000</IC> from your SSH client or editor.</Callout>
+        <Callout type="tip">Remote-SSH still works great for local editor workflows, but it is not required for port access. The same automatic port listener also works when you connect straight from your terminal with plain <IC>ssh</IC>.</Callout>
+
+        <H3 id="direct-ssh">Connect Directly with SSH</H3>
+        <P>You do not need a special client to get a good experience. Copy the SSH command from the dashboard, connect from any terminal, and JustAVPS will watch the machine for newly opened ports while you work.</P>
+        <CodeBlock title="Direct SSH" lang="bash">{`ssh -i ~/.ssh/justavps_mybox root@95.217.x.x`}</CodeBlock>
+        <Ul>
+          <Li>OpenCode, web apps, previews, dashboards, and custom services are all detected automatically</Li>
+          <Li>Every listening port gets a matching public forwarded URL</Li>
+          <Li>The SSH session prints the forwarded URL immediately, so you can click it and keep going</Li>
+        </Ul>
 
         <H3 id="run-agents">Run AI Agents</H3>
         <P>Your machine comes with <B>OpenCode</B> available out of the box. You can SSH in for CLI tools, and the dashboard shows the machine URL plus SSH commands under <B>Connect</B>.</P>
         <CodeBlock title="OpenCode CLI" lang="bash">{`opencode`}</CodeBlock>
         <CodeBlock title="Machine URL" lang="bash">{`https://<slug>.kortix.cloud`}</CodeBlock>
-        <P>If you run your own HTTP service on a custom port, use the corresponding proxied port URL.</P>
-        <Callout type="info">Use <IC>&#123;port&#125;--&#123;slug&#125;.kortix.cloud</IC> for custom HTTP services, or plain SSH port forwarding when you want local-only access.</Callout>
+        <P>If you run your own HTTP service on a custom port, JustAVPS automatically exposes the corresponding proxied port URL and prints it in your SSH session.</P>
+        <Callout type="info">Public forwarded URLs follow <IC>https://&#123;port&#125;--&#123;slug&#125;.kortix.cloud</IC>. This happens automatically for all listening ports, including when you connected with plain <IC>ssh</IC> and never opened an editor.</Callout>
 
         <H3 id="mobile-access">Access from Mobile</H3>
         <P>Open the machine URL from the dashboard in any mobile browser, or use the dashboard <B>web terminal</B> for quick shell access.</P>
