@@ -1,13 +1,13 @@
 # JustAVPS Architecture — Source of Truth
 
-> Last updated: 2026-03-18
-> Status: Production (justavps.com)
+> Last updated: 2026-03-20
+> Status: Production (justavps.com + dev.justavps.com)
 
 ---
 
 ## Overview
 
-JustAVPS provisions on-demand cloud machines (Hetzner VPS) with a web IDE (code-server), terminal, and coding agent APIs. All web traffic is proxied through a Cloudflare Worker that handles authentication and port forwarding.
+JustAVPS provisions on-demand cloud machines (Hetzner VPS) with a web IDE (OpenCode), terminal, and coding agent APIs. All web traffic is proxied through a single Cloudflare Worker that handles authentication and port forwarding for both production and dev environments.
 
 ```
                                     CLOUDFLARE EDGE
@@ -17,30 +17,32 @@ JustAVPS provisions on-demand cloud machines (Hetzner VPS) with a web IDE (code-
                                     │  kortix-cloud-proxy             │
                                     │                                 │
                                     │  Route: *.kortix.cloud/*        │
-                                    │  Custom Domain: *.kortix.cloud  │
+                                    │  Single worker for dev + prod   │
                                     │                                 │
                                     └───────────┬─────────────────────┘
                                                 │
-                                                │ fetch(http://origin-SLUG.kortix.cloud:PORT)
+                                                │ fetch(http://origin-SLUG.kortix.cloud:80)
                                                 │ (DNS-only A record → VPS IP)
                                                 │
                                     ┌───────────▼─────────────────────┐
-                                    │  HETZNER VPS (cpx22)            │
+                                    │  HETZNER VPS                    │
                                     │                                 │
-                                    │  :80   Caddy (reverse proxy)    │
-                                    │    ├── / → code-server :8080    │
-                                    │    ├── /_pty → daemon :7777     │
+                                    │  :80   justavps-daemon          │
+                                    │    ├── /_terminal → web term UI │
+                                    │    ├── /_pty → WebSocket PTY    │
+                                    │    ├── /toolbox/* → FS/Exec API │
+                                    │    ├── /_port/PORT/ → port fwd  │
                                     │    ├── /agent/* → sandbox :2468 │
-                                    │    └── /opencode/* → OC :3456   │
+                                    │    ├── /daemon/* → API :7777    │
+                                    │    └── /* → OpenCode IDE :3456  │
                                     │                                 │
-                                    │  :7777  justavps-daemon         │
+                                    │  :7777  daemon internal API     │
                                     │    ├── /health (CPU/mem/disk)   │
-                                    │    ├── /_pty (WebSocket PTY)    │
-                                    │    └── heartbeat → platform     │
+                                    │    ├── /services (systemd)      │
+                                    │    └── /info (version/slug)     │
                                     │                                 │
-                                    │  :8080  code-server (web IDE)   │
+                                    │  :3456  opencode-web (IDE)      │
                                     │  :2468  sandbox-agent (Rivet)   │
-                                    │  :3456  opencode-web            │
                                     │  :9000+ user services           │
                                     │                                 │
                                     └─────────────────────────────────┘
@@ -181,17 +183,29 @@ Guard: `if ! command -v code-server &>/dev/null; then ... fi`
 
 ## Daemon (Go Binary)
 
-Binary: `justavps-daemon` — downloaded from R2 on every boot.
-Listens on `:7777` (localhost via Caddy, not exposed directly).
+Binary: `justavps-daemon` — the ONLY process on :80. Replaces Caddy entirely.
+Single front door: reverse proxy, PTY terminal, port forwarding, toolbox APIs, health.
 
 ```
-Responsibilities:
+Public :80 routes (ProxyRouter):
+  /_terminal           → Standalone web terminal page (xterm.js, served inline)
+  /_pty                → WebSocket PTY (gorilla/websocket + creack/pty)
+  /toolbox/files/*     → Filesystem CRUD API
+  /toolbox/process/*   → Process exec/run/list/kill API
+  /_port/PORT/path     → Dynamic port forwarding to localhost:PORT
+  /agent/*             → Reverse proxy to localhost:2468 (sandbox-agent)
+  /daemon/*            → Reverse proxy to localhost:7777 (internal API)
+  /*                   → Reverse proxy to localhost:3456 (OpenCode IDE)
+
+Internal :7777 routes (APIServer):
   /health              → JSON: CPU, memory, disk, uptime
   /services            → List systemd services + status
   /services/{name}/restart → Restart a managed service
   /info                → Machine slug, IP, daemon version
-  /_pty                → WebSocket PTY (gorilla/websocket + creack/pty)
-  heartbeat            → POST to platform every 30s
+
+Background:
+  Heartbeat            → POST to platform every 30s (includes daemon_version)
+  Self-updater         → Downloads + replaces binary when platform says to update
 ```
 
 ### PTY WebSocket Protocol
@@ -207,40 +221,82 @@ Server → Client:
   { "type": "error", "data": "..." }
 ```
 
-### WebSocket Proxy Chain
+### Web Terminal
+
+The daemon serves a standalone xterm.js page at `/_terminal` that connects to `/_pty` on the same host. The dashboard embeds this in an iframe. Users can also open it in a new tab for a full terminal experience.
 
 ```
-Browser (justavps.com dashboard)
-  → wss://SLUG.kortix.cloud/_pty?token=JWT
-  → CF Worker (verifies JWT, proxies WebSocket)
-  → http://origin-SLUG.kortix.cloud:80/_pty
-  → Caddy (handle /_pty → reverse_proxy localhost:7777)
-  → Daemon /_pty handler (gorilla/websocket → creack/pty → /bin/bash)
+Dashboard (iframe)  or  New Tab (standalone)
+  → https://SLUG.kortix.cloud/_terminal?token=JWT
+  → CF Worker (auth) → daemon :80 → serves HTML page
+  → Page connects ws://same-host/_pty (no cross-origin)
+  → Real PTY via creack/pty → /bin/bash
 ```
+
+### Daemon Self-Update System
+
+Machines auto-update their daemon binary within ~90 seconds of a new release.
+
+```
+Push daemon/ code to main
+    │
+    ▼
+CI/CD (release-daemon.yml)
+    ├── Build binary: version = ${GITHUB_SHA::7}
+    ├── Upload to R2: daemon/dev/latest/justavps-daemon-linux-amd64
+    ├── Write R2: daemon/dev/latest/version.txt → "a1b2c3d"
+    └── (production branch → daemon/latest/ instead)
+    
+Every 30s, each machine heartbeats:
+    │
+    ▼
+Daemon → POST /api/v1/internal/heartbeat
+    { slug, machine_token, daemon_version: "old1234", load, services, uptime }
+    │
+    ▼
+Platform:
+    ├── Stores daemon_version in DB (per machine)
+    ├── Reads latest version from R2 version.txt (cached 60s)
+    ├── version differs → { ack: true, update: { version: "a1b2c3d", url: "https://r2.../..." } }
+    └── version same → { ack: true }
+    │
+    ▼
+Daemon updater:
+    ├── Downloads new binary to /tmp
+    ├── Validates (runs --version)
+    ├── Backs up current binary (.bak)
+    ├── Atomically replaces /usr/local/bin/justavps-daemon
+    └── systemctl restart justavps-daemon
+```
+
+**Safety:**
+- 60s cooldown between update attempts
+- Binary validated before replacement (must pass `--version`)
+- Old binary kept as `.bak` for rollback
+- Env var override: `DAEMON_DESIRED_VERSION` + `DAEMON_DOWNLOAD_URL` to pin a version
+
+**Rollback:** Upload old binary to R2 `daemon/dev/latest/` and update `version.txt`. Fleet self-downgrades on next heartbeat.
+
+---
+
+## CI/CD
+
+| Workflow | Trigger | What it does |
+|----------|---------|-------------|
+| `ci.yml` | Push to main/production | Build, test, SDK drift check |
+| `release-daemon.yml` | Push to main/production (daemon/ changed) | Build Go binary, upload to R2, write version.txt |
+| `deploy-worker.yml` | Push to main/production (workers/proxy/ changed) | Test + deploy CF Worker via wrangler |
+| `promote.yml` | Manual (workflow_dispatch) | Fast-forward main → production |
+| `publish-sdks.yml` | Manual | Publish TS/Python SDKs to npm/PyPI |
+
+**Vercel** auto-deploys the Next.js app on push (not in GitHub Actions).
 
 ---
 
 ## Caddy Configuration (per machine)
 
-Written by cloud-init to `/etc/caddy/Caddyfile`:
-
-```
-:80 {
-    handle /_pty {
-        reverse_proxy localhost:7777    # Daemon PTY WebSocket
-    }
-    reverse_proxy localhost:8080        # code-server (default)
-    handle_path /agent/* {
-        reverse_proxy localhost:2468    # Sandbox Agent API
-    }
-    handle_path /opencode/* {
-        reverse_proxy localhost:3456    # OpenCode Web UI
-    }
-    handle_path /daemon/* {
-        reverse_proxy localhost:7777    # Daemon API
-    }
-}
-```
+> **DEPRECATED:** Caddy is disabled on all machines. The daemon handles :80 directly.
+> Kept here for historical reference only.
 
 ---
 
@@ -311,16 +367,6 @@ Source: `src/server/`
 
 ---
 
-## What's NOT Working Yet
-
-| Issue | Status | Fix |
-|-------|--------|-----|
-| Port subdomains (`4096.SLUG.kortix.cloud`) | SSL cert initializing (Google CA) | Wait — or use path-based `/_port/4096/` |
-| Terminal in dashboard | WebSocket proxy works, but PTY on some machines may need daemon update | New machines from snapshot have it |
-| Old machines (pre-snapshot) | Missing PTY handler + Caddy route | Recreate or manually update daemon+Caddy |
-
----
-
 ## File Map
 
 ```
@@ -328,40 +374,51 @@ justavps.com/
 ├── src/
 │   ├── server/
 │   │   ├── lib/
-│   │   │   ├── cloudflare.ts       # DNS A records + KV writes
-│   │   │   ├── cloud-init.ts       # Bash script generator
-│   │   │   ├── config.ts           # Env var config (trimmed)
-│   │   │   ├── machine-lifecycle.ts # Provision, cleanup, sync
-│   │   │   ├── proxy-token.ts      # JWT signing (jose)
-│   │   │   └── ssh-keygen.ts       # Pure JS ed25519 keygen
+│   │   │   ├── cloudflare.ts        # DNS A records + KV writes
+│   │   │   ├── cloud-init.ts        # Bash script generator
+│   │   │   ├── config.ts            # Env var config
+│   │   │   ├── daemon-version.ts    # R2 version checker (for self-update)
+│   │   │   ├── machine-lifecycle.ts  # Provision, cleanup, sync
+│   │   │   ├── proxy-token.ts       # JWT signing (jose)
+│   │   │   └── ssh-keygen.ts        # Pure JS ed25519 keygen
 │   │   ├── routes/v1/
-│   │   │   ├── machines.ts         # CRUD + provision
-│   │   │   ├── images.ts           # List (incl public), get, delete
-│   │   │   ├── internal.ts         # Heartbeat, stage callback
-│   │   │   └── stripe-webhooks.ts  # Billing
-│   │   └── db/schema.ts            # Drizzle schema
+│   │   │   ├── machines.ts          # CRUD + provision + stop/start
+│   │   │   ├── images.ts            # List, get, delete
+│   │   │   ├── internal.ts          # Heartbeat (+ update response), stage
+│   │   │   └── stripe-webhooks.ts   # Billing
+│   │   └── db/schema.ts             # Drizzle schema
 │   ├── app/
-│   │   ├── api/proxy-auth/route.ts # Browser auth flow
-│   │   └── (dashboard)/            # Next.js pages
+│   │   ├── api/proxy-auth/route.ts  # Browser auth flow
+│   │   └── (dashboard)/             # Next.js pages
 │   └── components/dashboard/
-│       └── terminal.tsx            # XTerm.js + WebSocket PTY
+│       └── terminal.tsx             # iframe-based web terminal
 ├── workers/proxy/
 │   └── src/
-│       ├── index.ts                # Worker entry (auth → proxy → 503 page)
-│       ├── auth.ts                 # JWT, API key, cookie verification
-│       ├── proxy.ts                # HTTP + WebSocket proxy
-│       └── hostname.ts             # Slug + port parser
+│       ├── index.ts                 # Worker entry (auth → proxy → error pages)
+│       ├── auth.ts                  # JWT, API key, cookie verification
+│       ├── proxy.ts                 # HTTP + WebSocket proxy
+│       └── hostname.ts              # Slug + port parser
 ├── daemon/
-│   ├── main.go                     # Entry: health API + heartbeat
-│   ├── pty.go                      # WebSocket PTY handler
-│   ├── config.go                   # /etc/justavps/config.json
-│   ├── api.go                      # /health, /services, /info
-│   ├── health.go                   # CPU/mem/disk monitoring
-│   └── heartbeat.go                # POST to platform every 30s
-├── e2e/
-│   └── 08-proxy-auth.spec.ts       # Playwright browser tests
-├── src/__tests__/e2e/
-│   └── machine-lifecycle.test.ts   # 28-test infra E2E (Hetzner + CF + SSH)
+│   ├── main.go                      # Entry: public :80 + internal :7777
+│   ├── proxy.go                     # ProxyRouter — single HTTP front door
+│   ├── pty.go                       # WebSocket PTY handler
+│   ├── terminal.go                  # Standalone web terminal page (/_terminal)
+│   ├── updater.go                   # Self-update: download, validate, replace, restart
+│   ├── config.go                    # /etc/justavps/config.json
+│   ├── api.go                       # Internal API: /health, /services, /info
+│   ├── health.go                    # CPU/mem/disk monitoring
+│   ├── heartbeat.go                 # POST to platform every 30s (includes version)
+│   ├── portproxy.go                 # Dynamic /_port/PORT/ forwarding
+│   ├── exec.go                      # Process/Exec toolbox API
+│   └── fs.go                        # Filesystem toolbox API
+├── .github/workflows/
+│   ├── ci.yml                       # Build + test + SDK drift check
+│   ├── release-daemon.yml           # Build Go binary → R2 + version.txt
+│   ├── deploy-worker.yml            # Test + deploy CF Worker
+│   ├── promote.yml                  # main → production (manual)
+│   └── publish-sdks.yml             # npm/PyPI SDK publish (manual)
+├── e2e/                             # Playwright browser tests
+├── scripts/                         # E2E provisioning tests
 └── docs/
-    └── ARCHITECTURE.md             # This file
+    └── ARCHITECTURE.md              # This file
 ```
