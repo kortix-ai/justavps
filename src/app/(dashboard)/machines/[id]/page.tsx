@@ -61,7 +61,7 @@ import {
 } from "lucide-react";
 import { RescaleDialog } from "@/components/dashboard/rescale-dialog";
 import Link from "next/link";
-import { timeAgo, cn, regionDisplay, planName } from "@/lib/utils";
+import { timeAgo, cn, regionDisplay, planName, planSpecs } from "@/lib/utils";
 
 const Terminal = dynamic(() => import("@/components/dashboard/terminal"), {
   ssr: false,
@@ -140,10 +140,10 @@ function CodeBlock({
 }) {
   const { copied, copy } = useCopy(text, label);
   return (
-    <div className="relative group cursor-pointer" onClick={copy}>
+    <div className="relative group cursor-pointer min-w-0 w-full" onClick={copy}>
       <pre
         className={cn(
-          "p-3 rounded-lg text-xs font-mono border overflow-x-auto transition-colors leading-relaxed",
+          "p-3 rounded-lg text-xs font-mono border overflow-x-auto transition-colors leading-relaxed max-w-full",
           "bg-zinc-950 border-zinc-800 hover:border-zinc-700",
           variant === "green" ? "text-green-400" : "text-zinc-300",
         )}
@@ -167,7 +167,7 @@ function SecretCodeBlock({ text, label }: { text: string; label?: string }) {
   );
 
   return (
-    <div className="relative group cursor-pointer" onClick={copy}>
+    <div className="relative group cursor-pointer min-w-0 w-full" onClick={copy}>
       <div
         className={cn(
           "rounded-lg border overflow-hidden transition-colors",
@@ -213,12 +213,14 @@ function HealthRow({
   icon: Icon,
   label,
   value,
+  subtitle,
   progress,
   colorClass,
 }: {
   icon: React.ElementType;
   label: string;
   value: string;
+  subtitle?: string;
   progress: number;
   colorClass: string;
 }) {
@@ -229,7 +231,10 @@ function HealthRow({
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-xs text-muted-foreground">{label}</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">{label}</span>
+            {subtitle && <span className="text-[10px] text-muted-foreground/60">{subtitle}</span>}
+          </div>
           <span className={cn("text-xs font-semibold tabular-nums", colorClass)}>{value}</span>
         </div>
         <Progress
@@ -240,7 +245,7 @@ function HealthRow({
               ? "[&>div]:bg-red-500"
               : progress > 60
                 ? "[&>div]:bg-yellow-500"
-                : "[&>div]:bg-emerald-500",
+                : "[&>div]:bg-foreground/20",
           )}
         />
       </div>
@@ -545,28 +550,22 @@ export default function MachineDetailPage() {
   const sshKeyPath = `~/.ssh/justavps_${machine.slug}`;
 
 
-  /* Health-based stat colors */
-  const cpuColor =
-    (machine.health?.cpu ?? 0) > 80
-      ? "text-red-500"
-      : (machine.health?.cpu ?? 0) > 60
-        ? "text-yellow-500"
-        : "text-emerald-500";
-  const memColor =
-    (machine.health?.memory ?? 0) > 80
-      ? "text-red-500"
-      : (machine.health?.memory ?? 0) > 60
-        ? "text-yellow-500"
-        : "text-emerald-500";
-  const diskColor =
-    (machine.health?.disk ?? 0) > 80
-      ? "text-red-500"
-      : (machine.health?.disk ?? 0) > 60
-        ? "text-yellow-500"
-        : "text-emerald-500";
+  /* Health values — daemon sends 0–1 fractions, normalise to 0–100 here */
+  const specs     = planSpecs(machine.server_type);
+  const cpuPct    = machine.health ? Math.round(machine.health.cpu    * 100) : 0;
+  const memPct    = machine.health ? Math.round(machine.health.memory * 100) : 0;
+  const diskPct   = machine.health ? Math.round(machine.health.disk   * 100) : 0;
+
+  /* Absolute usage values derived from plan specs */
+  const memUsedGb  = specs ? ((memPct  / 100) * specs.memory).toFixed(1) : null;
+  const diskUsedGb = specs ? ((diskPct / 100) * specs.disk  ).toFixed(0) : null;
+
+  const cpuColor  = cpuPct  > 80 ? "text-red-500" : cpuPct  > 60 ? "text-yellow-500" : "text-foreground";
+  const memColor  = memPct  > 80 ? "text-red-500" : memPct  > 60 ? "text-yellow-500" : "text-foreground";
+  const diskColor = diskPct > 80 ? "text-red-500" : diskPct > 60 ? "text-yellow-500" : "text-foreground";
 
   return (
-    <div className="max-w-5xl mx-auto pb-20 space-y-5">
+    <div className="max-w-5xl mx-auto pb-20 space-y-5 min-w-0 w-full">
 
       {/* ════════════════════════════════════════════════════════════════
           HEADER
@@ -760,8 +759,8 @@ export default function MachineDetailPage() {
             </TabsTrigger>
           </TabsList>
 
-          {/* ── CONNECT ────────────────────────────────────────────────── */}
-          <TabsContent value="connect" className="mt-0 space-y-3">
+           {/* ── CONNECT ────────────────────────────────────────────────── */}
+           <TabsContent value="connect" className="mt-0 space-y-3 min-w-0">
 
             {/* AI Agent shortcut — top of page, primary CTA */}
             <div className="rounded-xl border bg-card overflow-hidden">
@@ -802,11 +801,9 @@ export default function MachineDetailPage() {
                   <span>Contains private key</span>
                 </div>
               </div>
-              <div className="p-4 space-y-2.5">
+              <div className="p-4 space-y-2.5 min-w-0">
                 <p className="text-xs text-muted-foreground">
-                  Run once in your terminal — saves your key to{" "}
-                  <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-[11px]">{sshKeyPath}</code>{" "}
-                  and opens an SSH session immediately.
+                  Run once in your terminal — saves your key and opens an SSH session immediately.
                 </p>
                 {machine.ssh_key?.setup_command ? (
                   <SecretCodeBlock
@@ -816,12 +813,8 @@ export default function MachineDetailPage() {
                 ) : (
                   <p className="text-xs text-muted-foreground italic">Not available yet.</p>
                 )}
-                <p className="text-xs text-muted-foreground">
-                  Reconnect later:{" "}
-                  <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-[11px]">
-                    ssh -i {sshKeyPath} root@{machine.ip}
-                  </code>
-                </p>
+                <p className="text-xs text-muted-foreground">Reconnect later:</p>
+                <CodeBlock text={`ssh -i ${sshKeyPath} root@${machine.ip}`} label="SSH command" />
               </div>
             </div>
 
@@ -834,7 +827,7 @@ export default function MachineDetailPage() {
               <div className="divide-y divide-border/60">
 
                 {/* Cursor / VS Code */}
-                <div className="p-4 space-y-2.5">
+                <div className="p-4 space-y-2.5 min-w-0">
                   <div className="flex items-center gap-2">
                     <Monitor className="size-3.5 text-muted-foreground" />
                     <span className="text-sm font-medium">Cursor / VS Code</span>
@@ -852,12 +845,12 @@ export default function MachineDetailPage() {
                     Then press{" "}
                     <kbd className="bg-muted px-1.5 py-0.5 rounded text-[10px] border font-mono">Cmd+Shift+P</kbd>
                     {" → "}Remote-SSH: Connect to Host{" → "}
-                    <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-[11px]">{machine.slug}</code>
+                    <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-[11px] break-all">{machine.slug}</code>
                   </p>
                 </div>
 
                 {/* Plain SSH */}
-                <div className="p-4 space-y-2.5">
+                <div className="p-4 space-y-2.5 min-w-0">
                   <div className="flex items-center gap-2">
                     <TerminalIcon className="size-3.5 text-muted-foreground" />
                     <span className="text-sm font-medium">Terminal / Plain SSH</span>
@@ -933,9 +926,9 @@ export default function MachineDetailPage() {
                     </div>
                   </div>
                   <div className="space-y-3">
-                    <HealthRow icon={Cpu} label="CPU" value={`${Math.round(machine.health.cpu)}%`} progress={machine.health.cpu} colorClass={cpuColor} />
-                    <HealthRow icon={MemoryStick} label="Memory" value={`${Math.round(machine.health.memory)}%`} progress={machine.health.memory} colorClass={memColor} />
-                    <HealthRow icon={HardDrive} label="Disk" value={`${Math.round(machine.health.disk)}%`} progress={machine.health.disk} colorClass={diskColor} />
+                    <HealthRow icon={Cpu} label="CPU" subtitle={specs ? `${specs.vcpu} vCPU` : undefined} value={`${cpuPct}%`} progress={cpuPct} colorClass={cpuColor} />
+                    <HealthRow icon={MemoryStick} label="Memory" subtitle={specs ? `of ${specs.memory} GB` : undefined} value={memUsedGb ? `${memUsedGb} GB` : `${memPct}%`} progress={memPct} colorClass={memColor} />
+                    <HealthRow icon={HardDrive} label="Disk" subtitle={specs ? `of ${specs.disk} GB` : undefined} value={diskUsedGb ? `${diskUsedGb} GB` : `${diskPct}%`} progress={diskPct} colorClass={diskColor} />
                   </div>
                   <div className="pt-2 border-t space-y-2">
                     <div className="flex items-center justify-between text-sm">

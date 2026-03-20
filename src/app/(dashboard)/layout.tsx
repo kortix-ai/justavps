@@ -35,11 +35,11 @@ export default function DashboardLayout({
   return (
     <SidebarProvider>
       <AppSidebar />
-      <SidebarInset>
+      <SidebarInset className="min-w-0 overflow-hidden">
         <header className="flex h-14 shrink-0 items-center px-6">
           <SidebarTrigger className="-ml-2" />
         </header>
-        <main className="flex-1 overflow-auto p-8">{children}</main>
+        <main className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto p-4 md:p-8">{children}</main>
       </SidebarInset>
     </SidebarProvider>
   );

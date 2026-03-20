@@ -40,6 +40,27 @@ export function planName(serverType: string): string {
 }
 
 /**
+ * Map SKU → advertised specs (vcpu / memory GB / disk GB).
+ * Mirrors PLAN_TIERS in src/server/lib/providers/hetzner.ts.
+ */
+const PLAN_SPECS_MAP: Record<string, { vcpu: number; memory: number; disk: number }> = {
+  // EU SKUs
+  cpx32: { vcpu: 2,  memory: 4,  disk: 80  },
+  cpx42: { vcpu: 4,  memory: 8,  disk: 160 },
+  cpx52: { vcpu: 8,  memory: 16, disk: 320 },
+  cpx62: { vcpu: 16, memory: 32, disk: 640 },
+  // US SKUs
+  cpx11: { vcpu: 2,  memory: 4,  disk: 80  },
+  cpx21: { vcpu: 4,  memory: 8,  disk: 160 },
+  cpx31: { vcpu: 8,  memory: 16, disk: 320 },
+  cpx41: { vcpu: 16, memory: 32, disk: 640 },
+};
+
+export function planSpecs(serverType: string): { vcpu: number; memory: number; disk: number } | null {
+  return PLAN_SPECS_MAP[serverType] ?? null;
+}
+
+/**
  * Format a date string as a relative time (e.g. "2 hours ago").
  */
 export function timeAgo(date: string | null | undefined): string {
