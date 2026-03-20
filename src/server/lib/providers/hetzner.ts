@@ -12,6 +12,73 @@ const HETZNER_API = 'https://api.hetzner.cloud/v1';
 const API_TIMEOUT_MS = 30_000;
 const PROVISION_TIMEOUT_MS = 600_000;
 const POLL_INTERVAL_MS = 3_000;
+const CLOUDFLARE_IPV4_RANGES = [
+  '173.245.48.0/20',
+  '103.21.244.0/22',
+  '103.22.200.0/22',
+  '103.31.4.0/22',
+  '141.101.64.0/18',
+  '108.162.192.0/18',
+  '190.93.240.0/20',
+  '188.114.96.0/20',
+  '197.234.240.0/22',
+  '198.41.128.0/17',
+  '162.158.0.0/15',
+  '104.16.0.0/13',
+  '104.24.0.0/14',
+  '172.64.0.0/13',
+  '131.0.72.0/22',
+];
+const CLOUDFLARE_IPV6_RANGES = [
+  '2400:cb00::/32',
+  '2606:4700::/32',
+  '2803:f800::/32',
+  '2405:b500::/32',
+  '2405:8100::/32',
+  '2a06:98c0::/29',
+  '2c0f:f248::/32',
+];
+
+interface HetznerFirewall {
+  id: number;
+  name: string;
+}
+
+function firewallNameForDomain(domain: string): string {
+  return `justavps-managed-${domain.replace(/[^a-z0-9-]+/gi, '-').toLowerCase()}`;
+}
+
+async function getOrCreateManagedFirewall(): Promise<number> {
+  const firewallName = firewallNameForDomain(config.PROXY_DOMAIN);
+  const existing = await hetznerFetch<{ firewalls: HetznerFirewall[] }>('/firewalls?per_page=50');
+  const matched = existing.firewalls.find((firewall) => firewall.name === firewallName);
+  if (matched) return matched.id;
+
+  const created = await hetznerFetch<{ firewall: HetznerFirewall }>('/firewalls', {
+    method: 'POST',
+    body: {
+      name: firewallName,
+      rules: [
+        {
+          direction: 'in',
+          protocol: 'tcp',
+          port: '22',
+          source_ips: ['0.0.0.0/0', '::/0'],
+          description: 'SSH access',
+        },
+        {
+          direction: 'in',
+          protocol: 'tcp',
+          port: '80',
+          source_ips: [...CLOUDFLARE_IPV4_RANGES, ...CLOUDFLARE_IPV6_RANGES],
+          description: 'Cloudflare proxy ingress',
+        },
+      ],
+    },
+  });
+
+  return created.firewall.id;
+}
 
 /**
  * ═══ PLAN TIERS — single source of truth ═══
@@ -186,6 +253,7 @@ export class HetznerProvider implements ComputeProvider {
   }
 
   async createServer(opts: CreateServerOpts): Promise<ServerResult> {
+    const firewallId = await getOrCreateManagedFirewall();
     const body: Record<string, unknown> = {
       name: opts.name,
       server_type: opts.serverType,
@@ -196,6 +264,7 @@ export class HetznerProvider implements ComputeProvider {
       labels: opts.labels,
       automount: false,
       public_net: { enable_ipv4: true, enable_ipv6: false },
+      firewalls: [{ firewall: firewallId }],
     };
 
     if (opts.enableBackups) body.enable_backup = true;

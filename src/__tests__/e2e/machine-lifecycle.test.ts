@@ -461,12 +461,12 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
     expect(parsed.proxy_auth_secret).toBeUndefined();
   });
 
-  it('13. ufw allows SSH + port 80 + user ports 1024-65535', () => {
+  it('13. ufw allows SSH + port 80 only', () => {
     if (!sshKeyPath) return;
     const ufw = ssh('ufw status');
     expect(ufw).toContain('22/tcp');
     expect(ufw).toContain('80/tcp');
-    expect(ufw).toContain('1024:65535/tcp');
+    expect(ufw).not.toContain('1024:65535/tcp');
   });
 
   it('14. user account exists with sudo + docker groups', () => {

@@ -42,7 +42,7 @@ describe('cloud-init', () => {
       expect(script).toContain('https://releases.rivet.dev/sandbox-agent/0.3.x/install.sh');
       expect(script).toContain('sandbox-agent install-agent --all');
       expect(script).toContain('sandbox-agent.service');
-      expect(script).toContain('sandbox-agent server --no-token --host 0.0.0.0 --port 2468');
+      expect(script).toContain('sandbox-agent server --no-token --host 127.0.0.1 --port 2468');
     });
 
     it('should NOT use Caddy (daemon handles :80 now)', () => {
@@ -154,6 +154,17 @@ describe('cloud-init', () => {
       const script = buildCloudInit(defaultOpts);
       expect(script).toContain('systemctl enable --now opencode-web');
       expect(script).toContain('systemctl enable --now sandbox-agent');
+    });
+
+    it('should lock public ingress to SSH and proxy only', () => {
+      const script = buildCloudInit(defaultOpts);
+      expect(script).toContain('ufw default deny incoming');
+      expect(script).toContain('ufw allow 22/tcp');
+      expect(script).toContain('ufw allow 80/tcp');
+      expect(script).not.toContain('ufw allow 1024:65535/tcp');
+      expect(script).toContain('justavps-docker-guard.sh');
+      expect(script).toContain('JUSTAVPS-DOCKER-GUARD');
+      expect(script).toContain('systemctl enable --now justavps-docker-guard');
     });
 
     it('should create user account with sudo + docker access', () => {

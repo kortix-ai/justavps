@@ -283,6 +283,53 @@ fi
 # ── Disable Caddy (daemon handles :80 now) ────────────────────────────────
 systemctl disable --now caddy 2>/dev/null || true
 
+# ── Lock down network exposure (proxy-only public access) ─────────────────
+if command -v ufw &>/dev/null; then
+  ufw --force reset
+  ufw default deny incoming
+  ufw default allow outgoing
+  ufw allow 22/tcp
+  ufw allow 80/tcp
+  ufw --force enable
+fi
+
+if [ ! -f /usr/local/bin/justavps-docker-guard.sh ]; then
+  cat > /usr/local/bin/justavps-docker-guard.sh << 'DOCKERGUARDEOF'
+#!/bin/bash
+set -euo pipefail
+
+command -v iptables >/dev/null 2>&1 || exit 0
+
+iptables -N JUSTAVPS-DOCKER-GUARD 2>/dev/null || true
+iptables -F JUSTAVPS-DOCKER-GUARD
+iptables -A JUSTAVPS-DOCKER-GUARD -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+iptables -A JUSTAVPS-DOCKER-GUARD -i docker0 -j RETURN
+iptables -A JUSTAVPS-DOCKER-GUARD -i br+ -j RETURN
+iptables -A JUSTAVPS-DOCKER-GUARD -o docker0 -j DROP
+iptables -A JUSTAVPS-DOCKER-GUARD -o br+ -j DROP
+iptables -A JUSTAVPS-DOCKER-GUARD -j RETURN
+iptables -C DOCKER-USER -j JUSTAVPS-DOCKER-GUARD 2>/dev/null || iptables -I DOCKER-USER 1 -j JUSTAVPS-DOCKER-GUARD
+DOCKERGUARDEOF
+  chmod +x /usr/local/bin/justavps-docker-guard.sh
+fi
+
+if [ ! -f /etc/systemd/system/justavps-docker-guard.service ]; then
+  cat > /etc/systemd/system/justavps-docker-guard.service << 'DOCKERGUARDSERVICEEOF'
+[Unit]
+Description=JustAVPS Docker ingress guard
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/justavps-docker-guard.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+DOCKERGUARDSERVICEEOF
+fi
+
 # ── Install sandbox-agent (universal coding agent API by Rivet) ───────────
 if ! command -v sandbox-agent &>/dev/null; then
   echo "[justavps] Installing sandbox-agent..."
@@ -300,7 +347,7 @@ After=network.target
 [Service]
 Type=simple
 User=user
-ExecStart=/usr/local/bin/sandbox-agent server --no-token --host 0.0.0.0 --port 2468
+ExecStart=/usr/local/bin/sandbox-agent server --no-token --host 127.0.0.1 --port 2468
 Restart=always
 RestartSec=3
 Environment=HOME=/home/user
@@ -314,6 +361,7 @@ ${stageCallback('cloud_init_done', 'Starting services')}
 
 # ── Start services ────────────────────────────────────────────────────────
 systemctl daemon-reload
+systemctl enable --now justavps-docker-guard 2>/dev/null || true
 systemctl enable justavps-daemon 2>/dev/null || true
 systemctl restart justavps-daemon 2>/dev/null || true
 systemctl enable --now sandbox-agent 2>/dev/null || true

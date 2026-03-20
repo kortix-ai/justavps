@@ -171,7 +171,7 @@ Since `code-server` is already installed, cloud-init SKIPS all package installs 
 6. Write `/etc/justavps/env` (user environment variables)
 7. Write Caddyfile (with `/_pty` route)
 8. Write code-server config (`auth: none` — CF Worker handles auth)
-9. Configure ufw firewall (SSH + 80 + 1024-65535)
+9. Configure firewall (SSH + daemon proxy only; block direct user-port ingress)
 10. Enable + start all services
 
 ### Cloud-Init on Fresh Ubuntu (~100 seconds)
@@ -303,16 +303,18 @@ Daemon updater:
 ## Firewall
 
 ### Hetzner Firewall (external, tamper-proof)
-Should be configured to allow:
+Automatically created and attached at server provision time. Rules:
 - TCP 22 from 0.0.0.0/0 (SSH)
-- TCP 80 + 1024-65535 from CF IP ranges only
+- TCP 80 from Cloudflare IP ranges only (proxy ingress)
 
-### ufw on VPS (defense-in-depth)
+### Firewall on VPS (defense-in-depth)
 ```
 22/tcp       ALLOW    (SSH)
-80/tcp       ALLOW    (Caddy)
-1024:65535   ALLOW    (user services — CF Worker handles auth)
+80/tcp       ALLOW    (justavps-daemon / proxy ingress)
+all other inbound ports denied
 ```
+
+Docker-published ports are additionally blocked via a `DOCKER-USER` guard so users cannot bypass the authenticated proxy by binding host ports directly.
 
 ---
 

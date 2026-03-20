@@ -481,12 +481,43 @@ for await (const event of client.streamEvents("my-session")) {
           ["JWT query param", "WebSocket / iframe", "?token=<jwt> — for contexts where headers can't be set."],
         ]} />
 
-        <H3 id="network-security">Network</H3>
+        <H3 id="network-security">Network Isolation</H3>
+        <P>Every machine is locked down by default. Only two ports are publicly reachable — everything else is blocked at the network level.</P>
+
+        <Table headers={["Port", "Access", "Purpose"]} rows={[
+          ["22 (SSH)", "Open from anywhere", "Key-based SSH login only — password auth is disabled"],
+          ["80 (HTTP)", "Open from Cloudflare IPs only", "The daemon — single authenticated entry point for all proxy traffic"],
+          ["All other ports", "Blocked", "Not reachable from the public internet"],
+        ]} />
+
+        <P>This is enforced at three layers:</P>
+
+        <H3 id="firewall-layers">Firewall Layers</H3>
+        <Table headers={["Layer", "What It Does", "Can Be Bypassed?"]} rows={[
+          ["Hetzner Firewall", "External, provider-level firewall applied at provision. Only allows TCP 22 (anywhere) and TCP 80 (Cloudflare IPs). All other inbound traffic is dropped before it reaches the machine.", "No — managed by the platform, not editable from inside the VM"],
+          ["UFW (in-VM)", "Defense-in-depth. Denies all incoming traffic except SSH and port 80.", "Technically yes (root can change it), but the Hetzner Firewall still blocks externally"],
+          ["Docker ingress guard", "iptables DOCKER-USER chain rule that blocks external traffic from reaching Docker-published ports, even if a container binds a host port.", "No — survives Docker restarts and container recreation"],
+        ]} />
+
+        <Callout type="info">Services like the Kortix API, Supabase, and sandbox-agent all bind to <IC>127.0.0.1</IC> only. They are never directly accessible from the internet — all access goes through the authenticated daemon proxy on port 80.</Callout>
+
+        <H3 id="how-port-access-works">How Port Access Works</H3>
+        <P>Even though high ports are blocked publicly, you can still access any service running on your machine through the authenticated proxy:</P>
         <Ul>
-          <Li><B>TLS</B> — handled at the edge for proxied browser traffic</Li>
-          <Li><B>SSH access</B> — key-based only, with password authentication disabled</Li>
+          <Li>The Cloudflare Worker receives your request at <IC>{`{port}--{slug}.${PROXY_DOMAIN}`}</IC></Li>
+          <Li>It authenticates you (session cookie, API key, or JWT)</Li>
+          <Li>It proxies to the daemon on port 80, which internally forwards to <IC>localhost:{'{port}'}</IC></Li>
+          <Li>The response flows back through the same chain</Li>
+        </Ul>
+        <P>This means every port on your machine is accessible, but only through the authenticated proxy — never directly from the public internet.</P>
+
+        <H3 id="other-security">Other Security Measures</H3>
+        <Ul>
+          <Li><B>TLS</B> — handled at the Cloudflare edge for all proxied traffic</Li>
+          <Li><B>SSH access</B> — key-based only, password authentication disabled, root password locked</Li>
           <Li><B>Static IP</B> — dedicated public IPv4 per machine</Li>
           <Li><B>Automatic backups</B> — enabled by default on new machines</Li>
+          <Li><B>No exposed databases</B> — internal services (Postgres, Redis, etc.) are loopback-only</Li>
         </Ul>
 
         <Hr />

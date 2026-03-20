@@ -29,7 +29,7 @@ func NewAPIServer(cfg *Config, health *HealthChecker, port int) *APIServer {
 		cfg:    cfg,
 		health: health,
 		server: &http.Server{
-			Addr:         fmt.Sprintf(":%d", port),
+			Addr:         fmt.Sprintf("127.0.0.1:%d", port),
 			Handler:      mux,
 			ReadTimeout:  5 * time.Second,
 			WriteTimeout: 10 * time.Second,
