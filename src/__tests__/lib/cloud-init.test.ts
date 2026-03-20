@@ -171,9 +171,11 @@ describe('cloud-init', () => {
   describe('docker workload', () => {
     it('should include docker block when dockerImage is specified', () => {
       const script = buildCloudInit({ ...defaultOpts, dockerImage: 'myapp:latest' });
+      expect(script).toContain('justavps-docker.service');
       expect(script).toContain('docker run --rm --name justavps-workload');
       expect(script).toContain('myapp:latest');
       expect(script).toContain('systemctl enable --now justavps-docker');
+      expect(script).toContain('docker-host-ports');
     });
 
     it('should NOT include docker block when no dockerImage', () => {
@@ -187,7 +189,13 @@ describe('cloud-init', () => {
         dockerImage: 'myapp:latest',
         entrypoint: '/start.sh',
       });
-      expect(script).toContain('myapp:latest /start.sh');
+      expect(script).toContain("DOCKER_COMMAND=");
+      expect(script).toContain('L3N0YXJ0LnNo');
+    });
+
+    it('should remap container port 80 to host 8080', () => {
+      const script = buildCloudInit({ ...defaultOpts, dockerImage: 'nginx:latest' });
+      expect(script).toContain('80) echo 8080');
     });
   });
 });

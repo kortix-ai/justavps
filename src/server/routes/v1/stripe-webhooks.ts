@@ -37,6 +37,7 @@ import {
 } from '../../lib/machine-lifecycle';
 import { checkMachineLimit } from '../../lib/account-limits';
 import { desc } from 'drizzle-orm';
+import { DEFAULT_TEMPLATE_NAME, resolveRequestedProviderImage } from '../../lib/image-catalog';
 
 export const stripeWebhooksApp = new OpenAPIHono();
 
@@ -256,20 +257,32 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   try {
     const provider = getProvider(machineConfig.provider);
 
-    // Resolve image
-    let resolvedImage = 'ubuntu-24.04';
+    let explicitImage = null;
+    let resolvedDockerImage = machineConfig.docker_image;
+    let resolvedEntrypoint = machineConfig.entrypoint;
     if (machineConfig.image_id) {
       const [img] = await db.select().from(images).where(eq(images.id, machineConfig.image_id));
-      if (img?.status === 'ready' && img.providerImageId) {
-        resolvedImage = img.providerImageId;
-      }
-    } else {
-      const [baseImage] = await db.select().from(images)
-        .where(and(eq(images.isPublic, true), eq(images.status, 'ready')))
-        .orderBy(desc(images.createdAt))
-        .limit(1);
-      if (baseImage?.providerImageId) resolvedImage = baseImage.providerImageId;
+      explicitImage = img ?? null;
     }
+
+    const [baseImage] = await db.select().from(images)
+      .where(and(eq(images.isTemplate, true), eq(images.status, 'ready'), eq(images.name, DEFAULT_TEMPLATE_NAME)))
+      .orderBy(desc(images.createdAt))
+      .limit(1);
+
+    const resolvedImageResult = resolveRequestedProviderImage({
+      explicitImage,
+      fallbackPublicImage: baseImage,
+    });
+
+    if (!resolvedImageResult.ok) {
+      throw new Error(resolvedImageResult.message);
+    }
+
+    const resolvedImage = resolvedImageResult.selection.providerImage;
+    const machineImageId = resolvedImageResult.selection.machineImageId;
+    resolvedDockerImage = resolvedDockerImage ?? resolvedImageResult.selection.dockerImage;
+    resolvedEntrypoint = resolvedEntrypoint ?? resolvedImageResult.selection.entrypoint;
 
     const { slug, machineToken } = await generateMachineIdentity();
     const autoKey = await autoGenerateAndSaveSSHKey(userId, slug);
@@ -284,8 +297,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       autoKey.publicKey,
       machineToken,
       machineConfig.env_vars,
-      machineConfig.docker_image,
-      machineConfig.entrypoint,
+      resolvedDockerImage,
+      resolvedEntrypoint,
       extraSSHKeys,
     );
 
@@ -294,7 +307,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       slug,
       name: machineConfig.name || `machine-${slug}`,
       provider: machineConfig.provider,
-      imageId: machineConfig.image_id || null,
+      imageId: machineImageId,
       serverType: machineConfig.server_type,
       region: machineConfig.region,
       ip: null,
@@ -303,8 +316,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       sshPublicKey: autoKey.publicKey,
       sshPrivateKey: autoKey.privateKey,
       priceMonthly: priceMonthly || null,
-      dockerImage: machineConfig.docker_image || null,
-      entrypoint: machineConfig.entrypoint || null,
+      dockerImage: resolvedDockerImage || null,
+      entrypoint: resolvedEntrypoint || null,
     });
 
     if (subscriptionId) {

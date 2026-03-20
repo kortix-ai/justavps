@@ -210,6 +210,8 @@ export default function ImagesPage() {
 function ImageCard({ image, onDelete }: { image: Image; onDelete: () => void }) {
   const status = statusConfig[image.status] || statusConfig.failed;
   const isCreating = image.status === "creating";
+  const canDelete = !image.is_template;
+  const kindLabel = image.kind === "template" ? "Template" : "Snapshot";
 
   return (
     <div className="group relative p-4 rounded-xl bg-card transition-colors hover:bg-muted/40">
@@ -224,7 +226,12 @@ function ImageCard({ image, onDelete }: { image: Image; onDelete: () => void }) 
           </div>
           <div>
             <div className="font-medium text-sm">{image.name}</div>
-            <div className="font-mono text-xs text-muted-foreground">{image.architecture || "x86"}</div>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="rounded-full border border-border/70 bg-muted/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                {kindLabel}
+              </span>
+              <div className="font-mono text-xs text-muted-foreground">{image.architecture || "x86"}</div>
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -245,16 +252,24 @@ function ImageCard({ image, onDelete }: { image: Image; onDelete: () => void }) 
         <span>Created {timeAgo(image.created_at)}</span>
       </div>
 
-      <div className="flex items-center justify-end mt-3">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="size-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
-        >
-          <Trash2 className="size-3.5" />
-        </Button>
-      </div>
+      {image.description && (
+        <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+          {image.description}
+        </p>
+      )}
+
+      {canDelete && (
+        <div className="flex items-center justify-end mt-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="size-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

@@ -43,7 +43,7 @@ export async function countActiveImages(userId: string): Promise<number> {
     .where(and(
       eq(images.ownerId, userId),
       ne(images.status, 'deleted'),
-      eq(images.isPublic, false),
+      eq(images.isTemplate, false),
     ));
   return rows.length;
 }

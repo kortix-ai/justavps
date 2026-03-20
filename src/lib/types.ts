@@ -56,8 +56,10 @@ export interface Machine {
 export interface Image {
   id: string;
   name: string;
+  description: string | null;
   status: ImageStatus;
-  is_public: boolean;
+  kind: 'template' | 'snapshot';
+  is_template: boolean;
   source_machine_id: string | null;
   provider: string;
   provider_image_id: string | null;

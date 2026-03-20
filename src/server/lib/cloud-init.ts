@@ -7,20 +7,6 @@
  * The justavps-daemon is the ONLY service that needs to run on :80.
  * It handles reverse proxying, PTY terminal, port forwarding, health — everything.
  * No Caddy, no Nginx, no external reverse proxy.
- *
- * What this script does:
- *   1. SSH keys (unique per machine)
- *   2. Platform config (slug, token, callback URL)
- *   3. Environment variables
- *   4. Update daemon binary to latest
- *   5. Install sandbox-agent if missing (coding agent API)
- *   6. Start daemon + upstream services
- *   7. Docker workload (if configured)
- *
- * Security model (direct IP proxy — no tunnels):
- *   - CF Worker authenticates all requests at edge
- *   - Provider firewall allows only CF IPs on port 80
- *   - Daemon on :80 reverse-proxies to local services
  */
 
 interface CloudInitOpts {
@@ -32,9 +18,7 @@ interface CloudInitOpts {
   envVars?: Record<string, string>;
   dockerImage?: string;
   entrypoint?: string;
-  /** Additional SSH public keys (user-managed) to authorize on the machine */
   extraSSHKeys?: string[];
-  /** Daemon release channel: "dev" or "latest" (default). Controls which R2 path the binary is downloaded from. */
   daemonChannel?: 'dev' | 'latest';
 }
 
@@ -44,8 +28,9 @@ export function buildCloudInit(opts: CloudInitOpts): string {
     JUSTAVPS_MACHINE_TOKEN: opts.machineToken,
     ...opts.envVars,
   };
+
   const envLines = Object.entries(envEntries)
-    .map(([k, v]) => `${k}=${v}`)
+    .map(([key, value]) => `${key}=${value}`)
     .join('\n');
   const envLinesBase64 = Buffer.from(envLines).toString('base64');
 
@@ -55,16 +40,40 @@ export function buildCloudInit(opts: CloudInitOpts): string {
     `-d '{"slug":"${opts.slug}","machine_token":"${opts.machineToken}","stage":"${stage}","message":"${message}"}' ` +
     `>/dev/null 2>&1 || true`;
 
-  const resolvedEntrypoint = opts.entrypoint ?? '';
-
-  // Build extra SSH keys block (user-managed keys to add alongside the auto-generated one)
   const extraSSHKeysBlock = (opts.extraSSHKeys && opts.extraSSHKeys.length > 0)
-    ? opts.extraSSHKeys.map(k => `echo '${k}' >> /root/.ssh/authorized_keys\necho '${k}' >> /home/user/.ssh/authorized_keys`).join('\n')
+    ? opts.extraSSHKeys
+      .map((key) => `echo '${key}' >> /root/.ssh/authorized_keys\necho '${key}' >> /home/user/.ssh/authorized_keys`)
+      .join('\n')
+    : '';
+
+  const dockerImageBase64 = opts.dockerImage
+    ? Buffer.from(opts.dockerImage).toString('base64')
+    : '';
+  const dockerCommandBase64 = opts.entrypoint
+    ? Buffer.from(opts.entrypoint).toString('base64')
     : '';
 
   const dockerBlock = opts.dockerImage ? `
 # ── Configure Docker workload ─────────────────────────────────────────────
 ${stageCallback('docker_pulling', 'Configuring Docker workload...')}
+
+cat > /etc/systemd/system/justavps-docker.service << 'DOCKERSERVICEEOF'
+[Unit]
+Description=JustAVPS Docker workload
+After=network-online.target docker.service
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/justavps-docker-start.sh
+Restart=always
+RestartSec=5
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
+DOCKERSERVICEEOF
 
 cat > /usr/local/bin/justavps-docker-start.sh << 'DOCKERSTARTEOF'
 #!/bin/bash
@@ -79,23 +88,61 @@ if [ ! -s "$ENV_FILE" ]; then
   touch "$ENV_FILE"
 fi
 
+DOCKER_IMAGE="$(printf '%s' '${dockerImageBase64}' | base64 -d)"
+DOCKER_COMMAND="$(printf '%s' '${dockerCommandBase64}' | base64 -d 2>/dev/null || true)"
+
+resolve_host_port() {
+  case "$1" in
+    80) echo 8080 ;;
+    443) echo 8443 ;;
+    22) echo 22222 ;;
+    *) echo "$1" ;;
+  esac
+}
+
+PORT_ARGS=()
+HOST_PORTS=()
+while IFS= read -r exposed; do
+  [ -n "$exposed" ] || continue
+  port="\${exposed%/*}"
+  [ -n "$port" ] || continue
+  host_port="$(resolve_host_port "$port")"
+  PORT_ARGS+=("-p" "\${host_port}:\${port}")
+  HOST_PORTS+=("$host_port")
+done < <(docker image inspect "$DOCKER_IMAGE" --format '{{range $port, $_ := .Config.ExposedPorts}}{{println $port}}{{end}}' 2>/dev/null || true)
+
+if [ \${#PORT_ARGS[@]} -eq 0 ]; then
+  PORT_ARGS=(
+    -p 3000:3000
+    -p 3456:3456
+    -p 8000:8000
+    -p 8080:8080
+    -p 6080:6080
+    -p 6081:6081
+    -p 3111:3111
+    -p 3210:3210
+    -p 3211:3211
+    -p 9223:9223
+    -p 9224:9224
+    -p 22222:22
+  )
+  HOST_PORTS=(3000 3456 8000 8080 6080 6081 3111 3210 3211 9223 9224 22222)
+fi
+
 docker rm -f justavps-workload 2>/dev/null || true
-exec docker run --rm --name justavps-workload \\
-  --env-file "$ENV_FILE" \\
-  --cap-add SYS_ADMIN \\
-  --security-opt seccomp=unconfined \\
-  --shm-size 2g \\
-  -p 8000:8000 \\
-  -p 6080:6080 \\
-  -p 6081:6081 \\
-  -p 3456:3456 \\
-  -p 3111:3111 \\
-  -p 3210:3210 \\
-  -p 9223:9223 \\
-  -p 9224:9224 \\
-  -p 22222:22 \\
-  -v justavps-data:/workspace \\
-  ${opts.dockerImage}${resolvedEntrypoint ? ` ${resolvedEntrypoint}` : ''}
+
+RUN_CMD="docker run --rm --name justavps-workload --env-file $(printf '%q' \"$ENV_FILE\") --cap-add SYS_ADMIN --security-opt seccomp=unconfined --shm-size 2g -v justavps-data:/workspace"
+for arg in "\${PORT_ARGS[@]}"; do
+  RUN_CMD+=" $(printf '%q' \"$arg\")"
+done
+RUN_CMD+=" $(printf '%q' \"$DOCKER_IMAGE\")"
+if [ -n "$DOCKER_COMMAND" ]; then
+  RUN_CMD+=" $DOCKER_COMMAND"
+fi
+
+printf '%s\n' "\${HOST_PORTS[@]}" > /etc/justavps/docker-host-ports
+
+exec bash -lc "$RUN_CMD"
 DOCKERSTARTEOF
 chmod +x /usr/local/bin/justavps-docker-start.sh
 
@@ -104,6 +151,7 @@ if ! docker image inspect ${opts.dockerImage} >/dev/null 2>&1; then
   docker pull ${opts.dockerImage}
 fi
 
+systemctl daemon-reload
 systemctl enable --now justavps-docker
 
 echo "[justavps] Waiting for Docker workload..."
@@ -116,8 +164,9 @@ for i in $(seq 1 120); do
 done
 
 echo "[justavps] Waiting for services to be ready..."
+PRIMARY_PORT="$(sed -n '1p' /etc/justavps/docker-host-ports 2>/dev/null || true)"
 for i in $(seq 1 120); do
-  if curl -sf http://localhost:8000/ >/dev/null 2>&1 || curl -sf http://localhost:8000/health >/dev/null 2>&1; then
+  if [ -n "$PRIMARY_PORT" ] && (curl -sf "http://localhost:\${PRIMARY_PORT}/" >/dev/null 2>&1 || curl -sf "http://localhost:\${PRIMARY_PORT}/health" >/dev/null 2>&1); then
     ${stageCallback('services_ready', 'All services are up')}
     break
   fi
@@ -148,18 +197,15 @@ chmod 700 /home/user/.ssh && chmod 600 /home/user/.ssh/authorized_keys
 chown -R user:user /home/user/.ssh
 
 # ── Lock down password auth (SSH-key-only access) ────────────────────────
-# Clear any forced password expiry set by the provider image
 passwd -d root 2>/dev/null || true
 chage -M -1 root 2>/dev/null || true
 chage -E -1 root 2>/dev/null || true
 passwd -l root 2>/dev/null || true
 
-# Ensure sshd only allows key-based auth
 sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
 sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
 sed -i 's/^#\\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
 sed -i 's/^#\\?KbdInteractiveAuthentication.*/KbdInteractiveAuthentication no/' /etc/ssh/sshd_config
-# Drop any cloud-init overrides that might re-enable password auth
 rm -f /etc/ssh/sshd_config.d/50-cloud-init.conf 2>/dev/null || true
 systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null || true
 
@@ -178,7 +224,7 @@ echo '${envLinesBase64}' | base64 -d > /etc/justavps/env
 
 # ── Update daemon to latest ───────────────────────────────────────────────
 DAEMON_URL="https://pub-caf7762051b942d5a801397d750a0dc3.r2.dev/${opts.daemonChannel === 'dev' ? 'daemon/dev/latest' : 'daemon/latest'}/justavps-daemon-linux-amd64"
-curl -fsSL -o /usr/local/bin/justavps-daemon "$DAEMON_URL" \\
+curl -fsSL -o /usr/local/bin/justavps-daemon "$DAEMON_URL" \
   || echo "[justavps] WARNING: daemon download failed, using image version"
 chmod +x /usr/local/bin/justavps-daemon 2>/dev/null || true
 
@@ -215,7 +261,6 @@ fi
 ${stageCallback('cloud_init_done', 'Starting services')}
 
 # ── Start services ────────────────────────────────────────────────────────
-# justavps-daemon on :80 is the ONLY front door (reverse proxy + PTY + health)
 systemctl daemon-reload
 systemctl enable --now justavps-daemon 2>/dev/null || true
 systemctl enable --now sandbox-agent 2>/dev/null || true

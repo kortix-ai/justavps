@@ -18,12 +18,11 @@ import { useProviders, useRegions, useServerTypes } from "@/hooks/use-server-typ
 import { useCreateMachine } from "@/hooks/use-machines";
 import { useSSHKeys } from "@/hooks/use-ssh-keys";
 import { useImages } from "@/hooks/use-images";
-import { ChevronRight, Loader2, KeyRound, Check, Monitor, Container, HardDrive, Box } from "lucide-react";
+import { ChevronRight, Loader2, KeyRound, Check, Monitor, HardDrive, Container, ChevronDown } from "lucide-react";
 import { cn, planName } from "@/lib/utils";
 import type { Image } from "@/lib/types";
 
-// Template selection mode
-type TemplateMode = "default" | "template" | "snapshot" | "docker";
+const DEFAULT_TEMPLATE_NAME = "justavps standard";
 
 interface CreateMachineDialogProps {
   open: boolean;
@@ -38,19 +37,22 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
   const providers = allProviders ?? [];
   const { data: allImages } = useImages();
 
-  // Split images into public templates and user snapshots
-  const publicTemplates = allImages?.filter((img) => img.is_public && img.status === "ready") ?? [];
-  const userSnapshots = allImages?.filter((img) => !img.is_public && img.status === "ready") ?? [];
+  // All non-standard images (templates + snapshots, ready only)
+  const otherImages = allImages?.filter((img) => img.status === "ready" && img.name !== DEFAULT_TEMPLATE_NAME) ?? [];
 
   // Selections
-  const [templateMode, setTemplateMode] = useState<TemplateMode>("default");
-  const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
+  const [selectedImageId, setSelectedImageId] = useState<string | null>(null); // null = standard
+  const [showImagePicker, setShowImagePicker] = useState(false);
+
+  // Docker config — optional addon, layered on top of image selection
+  const [dockerImage, setDockerImage] = useState("");
+  const [entrypoint, setEntrypoint] = useState("");
+  const [showDockerConfig, setShowDockerConfig] = useState(false);
+
   const [selectedProvider, setSelectedProvider] = useState("");
   const [selectedRegion, setSelectedRegion] = useState("");
   const [selectedServerType, setSelectedServerType] = useState("");
   const [machineName, setMachineName] = useState("");
-  const [dockerImage, setDockerImage] = useState("");
-  const [entrypoint, setEntrypoint] = useState("");
   const [selectedSSHKeyIds, setSelectedSSHKeyIds] = useState<string[]>([]);
   const [showMore, setShowMore] = useState(false);
 
@@ -67,14 +69,15 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
   // Reset when dialog opens
   useEffect(() => {
     if (open) {
-      setTemplateMode("default");
       setSelectedImageId(null);
+      setShowImagePicker(false);
+      setDockerImage("");
+      setEntrypoint("");
+      setShowDockerConfig(false);
       setSelectedProvider("");
       setSelectedRegion("");
       setSelectedServerType("");
       setMachineName("");
-      setDockerImage("");
-      setEntrypoint("");
       setSelectedSSHKeyIds([]);
       setShowMore(false);
     }
@@ -98,14 +101,11 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
   const displayed = showMore ? serverTypes : serverTypes?.slice(0, 3);
   const canCreate = selectedProvider && selectedRegion && selectedServerType;
 
+  const selectedImage = otherImages.find((img) => img.id === selectedImageId);
+  const isStandard = selectedImageId === null;
+
   const handleCreate = () => {
     if (!canCreate) return;
-
-    // Resolve image_id based on template mode
-    let imageId: string | undefined;
-    if (templateMode === "template" || templateMode === "snapshot") {
-      imageId = selectedImageId ?? undefined;
-    }
 
     createMachine.mutate(
       {
@@ -113,9 +113,9 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
         server_type: selectedServerType,
         region: selectedRegion,
         name: machineName || undefined,
-        image_id: imageId,
-        docker_image: (templateMode === "docker" && dockerImage) ? dockerImage : undefined,
-        entrypoint: (templateMode === "docker" && entrypoint) ? entrypoint : undefined,
+        image_id: selectedImageId ?? undefined,
+        docker_image: (showDockerConfig && dockerImage) ? dockerImage : undefined,
+        entrypoint: (showDockerConfig && entrypoint) ? entrypoint : undefined,
         ssh_key_ids: selectedSSHKeyIds.length > 0 ? selectedSSHKeyIds : undefined,
       },
       {
@@ -139,105 +139,130 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
       <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>New Machine</DialogTitle>
-          <DialogDescription>Pick a template, size, and region to spin up a new machine.</DialogDescription>
+          <DialogDescription>Pick an image, size, and region to spin up a new machine.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-5">
-          {/* Step 1: Template */}
+
+          {/* Step 1: Image */}
           <div className="space-y-2">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Template</Label>
-            <div className="grid grid-cols-2 gap-1.5">
-              <TemplateOption
-                selected={templateMode === "default"}
-                onClick={() => { setTemplateMode("default"); setSelectedImageId(null); }}
-                icon={<Monitor className="size-4" />}
-                label="Default"
-                description="Ubuntu 24.04 + dev platform"
-              />
-              {publicTemplates.length > 0 && (
-                <TemplateOption
-                  selected={templateMode === "template"}
-                  onClick={() => setTemplateMode("template")}
-                  icon={<Box className="size-4" />}
-                  label="Templates"
-                  description={`${publicTemplates.length} available`}
-                />
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Image</Label>
+
+            {/* Standard — default, always shown */}
+            <div
+              onClick={() => { setSelectedImageId(null); setShowImagePicker(false); }}
+              className={cn(
+                "cursor-pointer flex items-center gap-3 p-3 rounded-lg border transition-colors",
+                isStandard ? "border-primary bg-primary/5" : "hover:bg-muted/30"
               )}
-              {userSnapshots.length > 0 && (
-                <TemplateOption
-                  selected={templateMode === "snapshot"}
-                  onClick={() => setTemplateMode("snapshot")}
-                  icon={<HardDrive className="size-4" />}
-                  label="My Snapshots"
-                  description={`${userSnapshots.length} saved`}
-                />
-              )}
-              <TemplateOption
-                selected={templateMode === "docker"}
-                onClick={() => setTemplateMode("docker")}
-                icon={<Container className="size-4" />}
-                label="Docker Image"
-                description="Run a container on boot"
-              />
-            </div>
-          </div>
-
-          {/* Template: public images picker */}
-          {templateMode === "template" && publicTemplates.length > 0 && (
-            <div className="space-y-1.5">
-              {publicTemplates.map((img) => (
-                <ImageRow
-                  key={img.id}
-                  image={img}
-                  selected={selectedImageId === img.id}
-                  onClick={() => setSelectedImageId(img.id)}
-                />
-              ))}
-            </div>
-          )}
-
-          {/* Snapshot: user images picker */}
-          {templateMode === "snapshot" && userSnapshots.length > 0 && (
-            <div className="space-y-1.5">
-              {userSnapshots.map((img) => (
-                <ImageRow
-                  key={img.id}
-                  image={img}
-                  selected={selectedImageId === img.id}
-                  onClick={() => setSelectedImageId(img.id)}
-                />
-              ))}
-            </div>
-          )}
-
-          {/* Docker: image input */}
-          {templateMode === "docker" && (
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <Input
-                  placeholder="nginx:latest"
-                  value={dockerImage}
-                  onChange={(e) => setDockerImage(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Public Docker Hub image to auto-start. Base OS is Ubuntu 24.04 (amd64).
-                </p>
+            >
+              <Monitor className={cn("size-4 shrink-0", isStandard ? "text-primary" : "text-muted-foreground")} />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium">justavps standard</div>
+                <div className="text-xs text-muted-foreground">Default base image · Ubuntu 24.04 (amd64)</div>
               </div>
-              {dockerImage && (
-                <div className="space-y-2">
-                  <Label htmlFor="docker-entrypoint" className="text-xs uppercase tracking-wider text-muted-foreground">
-                    Entrypoint <span className="normal-case">(optional)</span>
-                  </Label>
-                  <Input
-                    id="docker-entrypoint"
-                    placeholder="/bin/sh -c 'my-command'"
-                    value={entrypoint}
-                    onChange={(e) => setEntrypoint(e.target.value)}
-                  />
-                </div>
-              )}
+              {isStandard && <Check className="size-4 text-primary shrink-0" />}
             </div>
-          )}
+
+            {/* Other images — collapsible picker */}
+            {otherImages.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !showImagePicker;
+                    setShowImagePicker(next);
+                    if (!next) setSelectedImageId(null);
+                  }}
+                  className={cn(
+                    "w-full flex items-center justify-between gap-3 p-3 rounded-lg border transition-colors text-left",
+                    showImagePicker ? "border-primary bg-primary/5" : "hover:bg-muted/30"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <HardDrive className={cn("size-4 shrink-0", showImagePicker ? "text-primary" : "text-muted-foreground")} />
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium">
+                        {selectedImage ? selectedImage.name : "Choose another image"}
+                      </div>
+                      {selectedImage ? (
+                        <div className="text-xs text-muted-foreground">
+                          {selectedImage.kind === "template" ? "Template" : "Snapshot"} · {selectedImage.architecture || "x86"}
+                          {selectedImage.disk_size_gb ? ` · ${selectedImage.disk_size_gb} GB` : ""}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-muted-foreground">{otherImages.length} available</div>
+                      )}
+                    </div>
+                  </div>
+                  <ChevronDown className={cn("size-4 shrink-0 transition-transform text-muted-foreground", showImagePicker && "rotate-180")} />
+                </button>
+
+                {showImagePicker && (
+                  <div className="space-y-1.5 pl-1">
+                    {otherImages.map((img) => (
+                      <ImageRow
+                        key={img.id}
+                        image={img}
+                        selected={selectedImageId === img.id}
+                        onClick={() => setSelectedImageId(img.id)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Docker — optional collapsible addon */}
+            <button
+              type="button"
+              onClick={() => setShowDockerConfig((prev) => !prev)}
+              className={cn(
+                "w-full flex items-center justify-between gap-3 p-3 rounded-lg border transition-colors text-left",
+                showDockerConfig ? "border-primary bg-primary/5" : "hover:bg-muted/30"
+              )}
+            >
+              <div className="flex items-center gap-3">
+                <Container className={cn("size-4 shrink-0", showDockerConfig ? "text-primary" : "text-muted-foreground")} />
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">Docker</div>
+                  <div className="text-xs text-muted-foreground">
+                    {showDockerConfig && dockerImage ? dockerImage : "Auto-run a container on boot (optional)"}
+                  </div>
+                </div>
+              </div>
+              <ChevronDown className={cn("size-4 shrink-0 transition-transform text-muted-foreground", showDockerConfig && "rotate-180")} />
+            </button>
+
+            {showDockerConfig && (
+              <div className="space-y-3 pl-1">
+                <div className="space-y-2">
+                  <Input
+                    placeholder="nginx:latest"
+                    value={dockerImage}
+                    onChange={(e) => setDockerImage(e.target.value)}
+                    autoFocus
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Public Docker Hub image to auto-start on the selected base OS.
+                  </p>
+                </div>
+                {dockerImage && (
+                  <div className="space-y-2">
+                    <Label htmlFor="docker-entrypoint" className="text-xs uppercase tracking-wider text-muted-foreground">
+                      Entrypoint <span className="normal-case">(optional)</span>
+                    </Label>
+                    <Input
+                      id="docker-entrypoint"
+                      placeholder="/bin/sh -c 'my-command'"
+                      value={entrypoint}
+                      onChange={(e) => setEntrypoint(e.target.value)}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Step 2: Provider */}
           <div className="space-y-2">
@@ -324,7 +349,7 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
               </Label>
               <Input
                 id="machine-name"
-                placeholder="my-machine"
+                placeholder="auto-generated if blank"
                 value={machineName}
                 onChange={(e) => setMachineName(e.target.value)}
               />
@@ -413,45 +438,6 @@ export function CreateMachineDialog({ open, onOpenChange }: CreateMachineDialogP
   );
 }
 
-// --- Template option card ---
-
-function TemplateOption({
-  selected,
-  onClick,
-  icon,
-  label,
-  description,
-}: {
-  selected: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
-  description: string;
-}) {
-  return (
-    <div
-      onClick={onClick}
-      className={cn(
-        "cursor-pointer flex items-start gap-3 p-3 rounded-lg border transition-colors",
-        selected
-          ? "border-primary bg-primary/5"
-          : "hover:bg-muted/30"
-      )}
-    >
-      <div className={cn(
-        "mt-0.5 text-muted-foreground",
-        selected && "text-primary"
-      )}>
-        {icon}
-      </div>
-      <div className="min-w-0">
-        <div className="text-sm font-medium">{label}</div>
-        <div className="text-xs text-muted-foreground">{description}</div>
-      </div>
-    </div>
-  );
-}
-
 // --- Image selection row ---
 
 function ImageRow({
@@ -470,9 +456,12 @@ function ImageRow({
         <div className="min-w-0">
           <div className="text-sm">{image.name}</div>
           <div className="text-xs text-muted-foreground">
-            {image.architecture || "x86"}
+            {image.kind === "template" ? "Template" : "Snapshot"} · {image.architecture || "x86"}
             {image.disk_size_gb && <> &middot; {image.disk_size_gb} GB</>}
           </div>
+          {image.description ? (
+            <div className="text-[11px] text-muted-foreground/80 mt-0.5">{image.description}</div>
+          ) : null}
         </div>
       </div>
     </OptionRow>

@@ -10,6 +10,7 @@ import { images } from '../../db/schema';
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 import { getProvider } from '../../lib/providers';
 import { requireOwnedResource, errorResponse } from '../../lib/route-helpers';
+import { buildVisibleImageCatalog, serializeImageRow } from '../../lib/image-catalog';
 import {
   ImageResponseSchema,
   ImageListResponseSchema,
@@ -24,19 +25,7 @@ imagesApp.use('*', apiGuard);
 const bearerSecurity = [{ bearerAuth: [] as string[] }, { cookieAuth: [] as string[] }] as Record<string, string[]>[];
 
 function serializeImage(img: ImageRow) {
-  return {
-    id: img.id,
-    name: img.name,
-    status: img.status,
-    is_public: img.isPublic,
-    source_machine_id: img.sourceMachineId,
-    provider: img.provider,
-    provider_image_id: img.providerImageId,
-    disk_size_gb: img.diskSizeGb,
-    architecture: img.architecture,
-    created_at: img.createdAt.toISOString(),
-    updated_at: img.updatedAt.toISOString(),
-  };
+  return serializeImageRow(img);
 }
 
 // ─── GET / — List Images ────────────────────────────────────────────────────
@@ -62,9 +51,9 @@ imagesApp.openapi(listImagesRoute, async (c) => {
   const ownerId = c.get('userId');
   // Show user's own images + public base images (visible to everyone)
   const result = await db.select().from(images)
-    .where(or(eq(images.ownerId, ownerId), eq(images.isPublic, true)))
+    .where(or(eq(images.ownerId, ownerId), eq(images.isTemplate, true)))
     .then(rows => rows.filter(r => r.status !== 'deleted'));
-  return c.json({ images: result.map(serializeImage) }, 200);
+  return c.json({ images: buildVisibleImageCatalog(result) }, 200);
 });
 
 // ─── GET /:id — Get Image ───────────────────────────────────────────────────
@@ -93,7 +82,7 @@ imagesApp.openapi(getImageRoute, async (c) => {
   const { id } = c.req.valid('param');
   const ownerId = c.get('userId');
   const owned = await requireOwnedResource<ImageRow>(c, images, images.id, id, ownerId, 'Image');
-  if (owned.response) return owned.response as any;
+  if (owned.response) return owned.response as Response;
   return c.json(serializeImage(owned.resource));
 });
 
@@ -120,13 +109,13 @@ imagesApp.openapi(deleteImageRoute, async (c) => {
   const { id } = c.req.valid('param');
   const ownerId = c.get('userId');
   const owned = await requireOwnedResource<ImageRow>(c, images, images.id, id, ownerId, 'Image');
-  if (owned.response) return owned.response as any;
+  if (owned.response) return owned.response as Response;
 
   const img = owned.resource;
 
   // Prevent deletion of public/template images
-  if (img.isPublic) {
-    return errorResponse(c, 403, 'Cannot delete a public template image') as any;
+  if (img.isTemplate) {
+    return errorResponse(c, 403, 'Cannot delete a template image') as Response;
   }
   if (img.providerImageId) {
     try {

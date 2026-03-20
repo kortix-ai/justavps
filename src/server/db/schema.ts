@@ -39,9 +39,10 @@ export const images = pgTable('images', {
   id: uuid('id').primaryKey().defaultRandom(),
   ownerId: uuid('owner_id').references(() => users.id).notNull(),
   name: text('name').notNull(),
+  description: text('description'),
   status: text('status').notNull().default('creating'),
   // creating | ready | failed | deleted
-  isPublic: boolean('is_public').default(false).notNull(), // public = visible to all users (base images)
+  isTemplate: boolean('is_public').default(false).notNull(),
   sourceMachineId: uuid('source_machine_id'), // which machine was captured (no FK — machine may be deleted)
   provider: text('provider').notNull().default('cloud'),
   providerImageId: text('provider_image_id'), // Provider snapshot ID
