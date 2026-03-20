@@ -129,7 +129,7 @@ export default function MachinesPage() {
       {/* ── Header ───────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="font-heading text-2xl tracking-tight">Machines</h1>
+          <h1 className="font-heading text-3xl tracking-tight">Machines</h1>
           {!isLoading && totalMachines > 0 && (
             <p className="text-sm text-muted-foreground mt-0.5">
               {runningMachines} running
@@ -142,17 +142,15 @@ export default function MachinesPage() {
         </div>
         <div className="flex items-center gap-2">
           {machineLimitReached ? (
-            <Button size="sm" disabled className="h-8 text-xs">
-              <Plus className="size-3.5" />
+            <Button disabled>
+              <Plus className="size-4" />
               Limit Reached
             </Button>
           ) : (
             <Button
-              size="sm"
-              className="h-8 text-xs"
               onClick={() => setCheckoutOpen(true)}
             >
-              <Plus className="size-3.5" />
+              <Plus className="size-4" />
               New Machine
             </Button>
           )}
@@ -263,16 +261,15 @@ export default function MachinesPage() {
             Deploy your first VPS in under 60 seconds. Pick a plan and go.
           </p>
           {machineLimitReached ? (
-            <Button disabled size="sm">
-              <Plus className="size-3.5" />
+            <Button disabled>
+              <Plus className="size-4" />
               Limit Reached
             </Button>
           ) : (
             <Button
-              size="sm"
               onClick={() => setCheckoutOpen(true)}
             >
-              <Plus className="size-3.5" />
+              <Plus className="size-4" />
               New Machine
             </Button>
           )}

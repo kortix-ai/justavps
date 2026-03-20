@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { timeAgo } from "@/lib/utils";
+import { timeAgo, cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -31,7 +31,7 @@ import { HardDrive, Trash2, Container, Loader2, Plus, AlertTriangle } from "luci
 
 const statusConfig: Record<string, { label: string; dotClass: string }> = {
   creating: { label: "Creating", dotClass: "bg-yellow-500 animate-pulse" },
-  ready: { label: "Ready", dotClass: "bg-green-500" },
+  ready: { label: "Ready", dotClass: "bg-emerald-500" },
   failed: { label: "Failed", dotClass: "bg-red-500" },
 };
 
@@ -85,22 +85,28 @@ export default function ImagesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="font-heading text-3xl tracking-tight">Images</h1>
         <Button onClick={() => setCreateOpen(true)} disabled={readyMachines.length === 0 || imageLimitReached}>
-          <Plus className="size-4 mr-2" />
+          <Plus className="size-4" />
           Create Image
         </Button>
       </div>
 
       {(imageLimitReached || imageLimitNear) && (
-        <div className={`flex items-start gap-3 rounded-xl border p-4 ${imageLimitReached ? "border-destructive/20 bg-destructive/5" : "border-amber-500/20 bg-amber-500/10"}`}>
-          <AlertTriangle className={`mt-0.5 size-5 shrink-0 ${imageLimitReached ? "text-destructive" : "text-amber-500"}`} />
-          <div className="space-y-1">
+        <div className={cn(
+          "flex items-start gap-3 rounded-xl border p-4",
+          imageLimitReached ? "border-destructive/20 bg-destructive/5" : "border-amber-500/20 bg-amber-500/10",
+        )}>
+          <AlertTriangle className={cn(
+            "mt-0.5 size-4 shrink-0",
+            imageLimitReached ? "text-destructive" : "text-amber-500",
+          )} />
+          <div className="space-y-0.5">
             <p className="text-sm font-medium">
               {imageLimitReached ? "Image limit reached" : "Approaching image limit"}
             </p>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               You are using {imageUsage} of {imageMax} images.
               {imageLimitReached
                 ? " Delete an image to create another one."
@@ -120,31 +126,44 @@ export default function ImagesPage() {
       )}
 
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="p-4 rounded-xl bg-muted/30 space-y-3">
-              <Skeleton className="h-5 w-28" />
+            <div key={i} className="rounded-xl border p-5 space-y-4">
+              <div className="flex items-start justify-between">
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-28" />
+                  <Skeleton className="h-3 w-20" />
+                </div>
+                <Skeleton className="h-5 w-16 rounded-full" />
+              </div>
               <Skeleton className="h-3 w-40" />
               <Skeleton className="h-3 w-24" />
             </div>
           ))}
         </div>
       ) : !error && images?.length === 0 ? (
-        <div className="text-center py-20">
-          <HardDrive className="mx-auto size-12 text-muted-foreground/40 mb-4" strokeWidth={1} />
-          <h2 className="font-heading text-2xl mb-2">No images yet</h2>
-          <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
+        <div className="flex flex-col items-center justify-center py-24">
+          <div className="relative mb-6">
+            <div className="rounded-2xl bg-muted p-5">
+              <HardDrive className="size-10 text-muted-foreground/50" strokeWidth={1.5} />
+            </div>
+            <div className="absolute -bottom-1 -right-1 rounded-full bg-primary p-1.5">
+              <Plus className="size-3 text-primary-foreground" />
+            </div>
+          </div>
+          <h2 className="font-heading text-xl mb-1.5">No images yet</h2>
+          <p className="text-sm text-muted-foreground mb-6 text-center max-w-xs">
             Capture an image from a running machine to save its state and spin up identical machines later.
           </p>
           {readyMachines.length > 0 && !imageLimitReached && (
             <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="size-4 mr-2" />
+              <Plus className="size-4" />
               Create Your First Image
             </Button>
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {images?.map((image) => (
             <ImageCard
               key={image.id}
@@ -194,7 +213,7 @@ export default function ImagesPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
             <Button onClick={handleCreate} disabled={createImage.isPending || !imageName.trim() || !selectedMachineId || imageLimitReached}>
-              {createImage.isPending ? <><Loader2 className="size-4 animate-spin mr-2" />Creating...</> : "Create Image"}
+              {createImage.isPending ? <><Loader2 className="size-4 animate-spin" />Creating...</> : "Create Image"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -214,7 +233,7 @@ function ImageCard({ image, onDelete }: { image: Image; onDelete: () => void }) 
   const kindLabel = image.kind === "template" ? "Template" : "Saved image";
 
   return (
-    <div className="group relative p-4 rounded-xl bg-card transition-colors hover:bg-muted/40">
+    <div className="group relative p-4 rounded-xl border bg-card transition-colors hover:bg-muted/40">
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2.5">
           <div className="flex size-9 items-center justify-center rounded-lg bg-muted/60">

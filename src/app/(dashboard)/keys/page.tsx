@@ -89,7 +89,7 @@ function SSHKeysSection() {
         <p className="text-sm text-muted-foreground">SSH keys for secure access to your machines.</p>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger className={cn(buttonVariants())}>
-            <Plus className="mr-2 size-4" />
+            <Plus className="size-4" />
             Add SSH Key
           </DialogTrigger>
           <DialogContent className="sm:max-w-md">
@@ -108,8 +108,9 @@ function SSHKeysSection() {
               </div>
             </div>
             <DialogFooter>
+              <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
               <Button onClick={handleCreate} disabled={createSSHKey.isPending || !sshKeyName || !sshKeyContent}>
-                {createSSHKey.isPending ? <><Loader2 className="size-4 animate-spin mr-2" />Adding...</> : "Add Key"}
+                {createSSHKey.isPending ? <><Loader2 className="size-4 animate-spin" />Adding...</> : "Add Key"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -119,21 +120,26 @@ function SSHKeysSection() {
       {isLoading ? (
         <div className="space-y-2">
           {Array.from({ length: 2 }).map((_, i) => (
-            <div key={i} className="p-4 rounded-xl bg-card space-y-2">
+            <div key={i} className="p-4 rounded-xl border bg-card space-y-2">
               <Skeleton className="h-4 w-28" />
               <Skeleton className="h-3 w-48" />
             </div>
           ))}
         </div>
       ) : sshKeys?.length === 0 ? (
-        <div className="text-center py-16">
-          <KeyRound className="mx-auto size-10 text-muted-foreground/40 mb-3" strokeWidth={1} />
-          <p className="text-muted-foreground">No SSH keys configured</p>
+        <div className="flex flex-col items-center justify-center py-16">
+          <div className="rounded-2xl bg-muted p-5 mb-6">
+            <KeyRound className="size-10 text-muted-foreground/50" strokeWidth={1.5} />
+          </div>
+          <h2 className="font-heading text-xl mb-1.5">No SSH keys configured</h2>
+          <p className="text-sm text-muted-foreground text-center max-w-xs">
+            Add an SSH key to enable secure access to your machines.
+          </p>
         </div>
       ) : (
         <div className="space-y-2">
           {sshKeys?.map((key) => (
-            <div key={key.id} className="group flex items-center justify-between p-4 rounded-xl bg-card transition-colors hover:bg-muted/40">
+            <div key={key.id} className="group flex items-center justify-between p-4 rounded-xl border bg-card transition-colors hover:bg-muted/40">
               <div className="flex items-center gap-3 min-w-0">
                 <KeyRound className="size-4 text-muted-foreground shrink-0" />
                 <div className="min-w-0">
@@ -145,8 +151,8 @@ function SSHKeysSection() {
                 <span className="text-xs text-muted-foreground hidden sm:block">{timeAgo(key.created_at)}</span>
                 <Button
                   variant="ghost"
-                  size="sm"
-                  className="size-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                  size="icon-sm"
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
                   onClick={() => handleDelete(key.id, key.name)}
                 >
                   <Trash2 className="size-3.5" />
@@ -209,10 +215,10 @@ function APIKeysSection() {
     <>
       {/* New key banner */}
       {newAPIKey && (
-        <div className="mb-6 rounded-xl border border-green-500/20 bg-green-500/5 overflow-hidden">
-          <div className="flex items-center gap-2.5 px-4 py-3 border-b border-green-500/15">
-            <ShieldCheck className="size-4 text-green-500 shrink-0" />
-            <span className="text-sm font-medium text-green-500">API Key Created</span>
+        <div className="mb-6 rounded-xl border border-emerald-500/20 bg-emerald-500/5 overflow-hidden">
+          <div className="flex items-center gap-2.5 px-4 py-3 border-b border-emerald-500/15">
+            <ShieldCheck className="size-4 text-emerald-500 shrink-0" />
+            <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">API Key Created</span>
             <span className="ml-auto text-xs text-muted-foreground">Save it now — it won&apos;t be shown again</span>
           </div>
           <div className="p-4">
@@ -223,7 +229,7 @@ function APIKeysSection() {
               <span className="font-mono text-sm text-foreground truncate">{newAPIKey}</span>
               <span className="shrink-0 flex items-center gap-1.5 text-xs text-muted-foreground group-hover:text-foreground transition-colors">
                 {copied ? (
-                  <><Check className="size-3.5 text-green-500" /><span className="text-green-500">Copied</span></>
+                  <><Check className="size-3.5 text-emerald-500" /><span className="text-emerald-500">Copied</span></>
                 ) : (
                   <><Copy className="size-3.5" />Copy</>
                 )}
@@ -256,8 +262,9 @@ function APIKeysSection() {
               <Input id="api-name" placeholder="CI/CD Pipeline" value={apiKeyName} onChange={(e) => setAPIKeyName(e.target.value)} />
             </div>
             <DialogFooter>
+              <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
               <Button onClick={handleCreate} disabled={createAPIKey.isPending || !apiKeyName}>
-                {createAPIKey.isPending ? <><Loader2 className="size-4 animate-spin mr-2" />Creating...</> : "Create Key"}
+                {createAPIKey.isPending ? <><Loader2 className="size-4 animate-spin" />Creating...</> : "Create Key"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -267,21 +274,26 @@ function APIKeysSection() {
       {isLoading ? (
         <div className="space-y-2">
           {Array.from({ length: 2 }).map((_, i) => (
-            <div key={i} className="p-4 rounded-xl bg-card space-y-2">
+            <div key={i} className="p-4 rounded-xl border bg-card space-y-2">
               <Skeleton className="h-4 w-28" />
               <Skeleton className="h-3 w-48" />
             </div>
           ))}
         </div>
       ) : apiKeys?.length === 0 ? (
-        <div className="text-center py-16">
-          <Key className="mx-auto size-10 text-muted-foreground/40 mb-3" strokeWidth={1} />
-          <p className="text-muted-foreground">No API keys created</p>
+        <div className="flex flex-col items-center justify-center py-16">
+          <div className="rounded-2xl bg-muted p-5 mb-6">
+            <Key className="size-10 text-muted-foreground/50" strokeWidth={1.5} />
+          </div>
+          <h2 className="font-heading text-xl mb-1.5">No API keys created</h2>
+          <p className="text-sm text-muted-foreground text-center max-w-xs">
+            Create an API key for programmatic access to JustAVPS.
+          </p>
         </div>
       ) : (
         <div className="space-y-2">
           {apiKeys?.map((key) => (
-            <div key={key.id} className="group flex items-center justify-between p-4 rounded-xl bg-card transition-colors hover:bg-muted/40">
+            <div key={key.id} className="group flex items-center justify-between p-4 rounded-xl border bg-card transition-colors hover:bg-muted/40">
               <div className="flex items-center gap-3 min-w-0">
                 <Key className="size-4 text-muted-foreground shrink-0" />
                 <div className="min-w-0">
@@ -301,8 +313,8 @@ function APIKeysSection() {
               </div>
               <Button
                 variant="ghost"
-                size="sm"
-                className="size-7 p-0 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                size="icon-sm"
+                className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
                 onClick={() => handleDelete(key.id, key.name)}
               >
                 <Trash2 className="size-3.5" />

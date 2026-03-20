@@ -36,10 +36,10 @@ export default function BillingPage() {
       {/* Payment method status alert */}
       {!billingLoading && !hasPaymentMethod && (
         <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
-          <AlertTriangle className="size-5 text-amber-500 shrink-0 mt-0.5" />
+          <AlertTriangle className="size-4 text-amber-500 shrink-0 mt-0.5" />
           <div className="space-y-2">
             <p className="text-sm font-medium">No payment method on file</p>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Add a payment method to create machines. You&apos;ll be redirected to Stripe to securely add your card.
             </p>
             <Button
@@ -48,9 +48,9 @@ export default function BillingPage() {
               disabled={setupPayment.isPending}
             >
               {setupPayment.isPending ? (
-                <><Loader2 className="size-4 animate-spin mr-2" />Redirecting...</>
+                <><Loader2 className="size-4 animate-spin" />Redirecting...</>
               ) : (
-                <><Plus className="size-4 mr-2" />Add Payment Method</>
+                <><Plus className="size-4" />Add Payment Method</>
               )}
             </Button>
           </div>
@@ -65,8 +65,8 @@ export default function BillingPage() {
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="p-5 rounded-xl bg-card">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="p-5 rounded-xl border bg-card">
           <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
             <CreditCard className="size-4" />
             Active Machines
@@ -81,7 +81,7 @@ export default function BillingPage() {
           )}
         </div>
 
-        <div className="p-5 rounded-xl bg-card">
+        <div className="p-5 rounded-xl border bg-card">
           <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
             <Receipt className="size-4" />
             Estimated Monthly Cost
@@ -116,7 +116,7 @@ export default function BillingPage() {
       ) : null}
 
       {/* Stripe portal */}
-      <div className="p-5 rounded-xl bg-card space-y-3">
+      <div className="p-5 rounded-xl border bg-card space-y-3">
         <h2 className="text-sm font-medium">Payment & Invoices</h2>
         <p className="text-sm text-muted-foreground">
           View invoices, update payment methods, and manage subscriptions through Stripe.
@@ -125,7 +125,7 @@ export default function BillingPage() {
           {billing?.portal_url ? (
             <a href={billing.portal_url} target="_blank" rel="noopener noreferrer">
               <Button variant="outline">
-                <ExternalLink className="mr-2 size-4" />
+                <ExternalLink className="size-4" />
                 Open Billing Portal
               </Button>
             </a>
@@ -141,9 +141,9 @@ export default function BillingPage() {
               disabled={setupPayment.isPending}
             >
               {setupPayment.isPending ? (
-                <><Loader2 className="size-4 animate-spin mr-2" />Redirecting...</>
+                <><Loader2 className="size-4 animate-spin" />Redirecting...</>
               ) : (
-                <><Plus className="size-4 mr-2" />Add Payment Method</>
+                <><Plus className="size-4" />Add Payment Method</>
               )}
             </Button>
           )}

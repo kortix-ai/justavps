@@ -28,7 +28,6 @@ import {
   Plus,
   Trash2,
   Copy,
-  Webhook,
   Loader2,
   Globe,
   CheckCircle2,
@@ -125,8 +124,8 @@ export default function WebhooksPage() {
 
       {/* New webhook banner — shows secret (only visible once) */}
       {newWebhook && (
-        <div className="p-4 rounded-xl bg-green-500/5 border border-green-500/20">
-          <div className="text-sm font-medium text-green-500 mb-2">Webhook Created</div>
+        <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
+          <div className="text-sm font-medium text-emerald-600 dark:text-emerald-400 mb-2">Webhook Created</div>
           <p className="text-xs text-muted-foreground mb-3">
             Copy the signing secret now &mdash; you won&apos;t see it again. Use it to verify webhook signatures via the{" "}
             <code className="text-[11px] bg-muted px-1 py-0.5 rounded">X-JustAVPS-Signature</code> header.
@@ -261,13 +260,14 @@ export default function WebhooksPage() {
             </div>
 
             <DialogFooter>
+              <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
               <Button
                 onClick={handleCreate}
                 disabled={createWebhook.isPending || !url}
               >
                 {createWebhook.isPending ? (
                   <>
-                    <Loader2 className="size-4 animate-spin mr-2" />
+                    <Loader2 className="size-4 animate-spin" />
                     Creating...
                   </>
                 ) : (
@@ -283,17 +283,19 @@ export default function WebhooksPage() {
       {isLoading ? (
         <div className="space-y-2">
           {Array.from({ length: 2 }).map((_, i) => (
-            <div key={i} className="p-4 rounded-xl bg-card space-y-2">
+            <div key={i} className="p-4 rounded-xl border bg-card space-y-2">
               <Skeleton className="h-4 w-48" />
               <Skeleton className="h-3 w-32" />
             </div>
           ))}
         </div>
       ) : webhooks?.length === 0 ? (
-        <div className="text-center py-16">
-          <Globe className="mx-auto size-10 text-muted-foreground/40 mb-3" strokeWidth={1} />
-          <p className="text-muted-foreground">No webhooks configured</p>
-          <p className="text-xs text-muted-foreground/60 mt-1">
+        <div className="flex flex-col items-center justify-center py-16">
+          <div className="rounded-2xl bg-muted p-5 mb-6">
+            <Globe className="size-10 text-muted-foreground/50" strokeWidth={1.5} />
+          </div>
+          <h2 className="font-heading text-xl mb-1.5">No webhooks configured</h2>
+          <p className="text-sm text-muted-foreground text-center max-w-xs">
             Add a webhook to receive real-time machine events via HTTP.
           </p>
         </div>
@@ -302,7 +304,7 @@ export default function WebhooksPage() {
           {webhooks?.map((webhook) => (
             <div
               key={webhook.id}
-              className="group flex items-center justify-between p-4 rounded-xl bg-card transition-colors hover:bg-muted/40"
+              className="group flex items-center justify-between p-4 rounded-xl border bg-card transition-colors hover:bg-muted/40"
             >
               <div className="flex items-center gap-3 min-w-0">
                 <Globe className="size-4 text-muted-foreground shrink-0" />
@@ -330,8 +332,8 @@ export default function WebhooksPage() {
               </div>
               <Button
                 variant="ghost"
-                size="sm"
-                className="size-7 p-0 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                size="icon-sm"
+                className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
                 onClick={() => handleDelete(webhook.id, webhook.url)}
               >
                 <Trash2 className="size-3.5" />

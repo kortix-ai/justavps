@@ -32,6 +32,7 @@ import {
   LogOut,
   Sun,
   Moon,
+  Webhook,
 } from "lucide-react";
 
 const navigation = [
@@ -41,6 +42,7 @@ const navigation = [
   { name: "API Reference", href: "/api/docs", icon: Code2 },
   { name: "Docs", href: "/docs", icon: FileText },
   { name: "Billing", href: "/billing", icon: CreditCard },
+  { name: "Webhooks", href: "/webhooks", icon: Webhook },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 

@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
@@ -22,12 +23,13 @@ import {
   useMachine,
   useDeleteMachine,
   useRebootMachine,
+  useStopMachine,
+  useStartMachine,
   useBackups,
   useCreateBackup,
   useToggleBackups,
 } from "@/hooks/use-machines";
 import { useCreateImage } from "@/hooks/use-images";
-import { useConfirm } from "@/hooks/use-confirm";
 import {
   ArrowLeft,
   RotateCw,
@@ -53,6 +55,9 @@ import {
   Clock,
   Shield,
   KeyRound,
+  Power,
+  PowerOff,
+  MapPin,
 } from "lucide-react";
 import { RescaleDialog } from "@/components/dashboard/rescale-dialog";
 import Link from "next/link";
@@ -113,7 +118,7 @@ function CopyOverlay({ copied }: { copied: boolean }) {
       className={cn(
         "absolute top-2 right-2 flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md pointer-events-none transition-all",
         copied
-          ? "bg-green-500/20 text-green-400 opacity-100"
+          ? "bg-emerald-500/20 text-emerald-400 opacity-100"
           : "bg-zinc-800 text-zinc-400 opacity-0 group-hover:opacity-100",
       )}
     >
@@ -203,48 +208,34 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
   );
 }
 
-/* ─── Stat card ─────────────────────────────────────────────────────── */
-function StatCard({
+/* ─── Health stat row ───────────────────────────────────────────────── */
+function HealthRow({
   icon: Icon,
   label,
   value,
-  suffix,
-  colorClass,
   progress,
+  colorClass,
 }: {
   icon: React.ElementType;
   label: string;
-  value: string | number;
-  suffix?: string;
-  colorClass?: string;
-  progress?: number;
+  value: string;
+  progress: number;
+  colorClass: string;
 }) {
   return (
-    <div className="rounded-xl border bg-card p-4 space-y-2.5">
-      <div className="flex items-center gap-2">
-        <div className="size-7 rounded-md bg-muted flex items-center justify-center shrink-0">
-          <Icon className="size-3.5 text-muted-foreground" />
+    <div className="flex items-center gap-3 min-w-0">
+      <div className="size-7 rounded-md bg-muted flex items-center justify-center shrink-0">
+        <Icon className="size-3.5 text-muted-foreground" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-xs text-muted-foreground">{label}</span>
+          <span className={cn("text-xs font-semibold tabular-nums", colorClass)}>{value}</span>
         </div>
-        <span className="text-xs text-muted-foreground truncate">{label}</span>
-      </div>
-      <div className="flex items-baseline gap-1">
-        <span
-          className={cn(
-            "text-xl font-semibold tabular-nums tracking-tight leading-none truncate",
-            colorClass,
-          )}
-        >
-          {value}
-        </span>
-        {suffix && (
-          <span className="text-xs text-muted-foreground shrink-0">{suffix}</span>
-        )}
-      </div>
-      {progress !== undefined && (
         <Progress
           value={progress}
           className={cn(
-            "h-1 rounded-full",
+            "h-1.5 rounded-full",
             progress > 80
               ? "[&>div]:bg-red-500"
               : progress > 60
@@ -252,7 +243,7 @@ function StatCard({
                 : "[&>div]:bg-emerald-500",
           )}
         />
-      )}
+      </div>
     </div>
   );
 }
@@ -457,16 +448,33 @@ export default function MachineDetailPage() {
   const [createImageOpen, setCreateImageOpen] = useState(false);
   const [rescaleOpen, setRescaleOpen] = useState(false);
   const [imageName, setImageName] = useState("");
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
   const { data: machine, isLoading, error } = useMachine(machineId);
   const deleteMachine = useDeleteMachine();
   const rebootMachine = useRebootMachine();
+  const stopMachine = useStopMachine();
+  const startMachine = useStartMachine();
   const createImage = useCreateImage();
-  const [confirm, ConfirmDialog] = useConfirm();
 
   const handleReboot = () => {
     rebootMachine.mutate(machineId, {
       onSuccess: () => toast.success("Reboot initiated"),
+      onError: (err) => toast.error(err.message),
+    });
+  };
+
+  const handleStop = () => {
+    stopMachine.mutate(machineId, {
+      onSuccess: () => toast.success("Machine stopped"),
+      onError: (err) => toast.error(err.message),
+    });
+  };
+
+  const handleStart = () => {
+    startMachine.mutate(machineId, {
+      onSuccess: () => toast.success("Machine starting…"),
       onError: (err) => toast.error(err.message),
     });
   };
@@ -486,15 +494,7 @@ export default function MachineDetailPage() {
     );
   };
 
-  const handleDelete = async () => {
-    const ok = await confirm({
-      title: "Delete Machine",
-      description: `This will permanently destroy ${machine?.slug || "this machine"} and all data on it. This action cannot be undone.`,
-      confirmLabel: "Delete Forever",
-      variant: "destructive",
-      icon: <Trash2 className="size-4 text-destructive" />,
-    });
-    if (!ok) return;
+  const handleDeleteConfirmed = () => {
     deleteMachine.mutate(machineId, {
       onSuccess: () => {
         toast.success("Machine deleted");
@@ -515,11 +515,7 @@ export default function MachineDetailPage() {
             <Skeleton className="h-3 w-72 max-w-full" />
           </div>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-24 rounded-xl" />
-          ))}
-        </div>
+        <Skeleton className="h-14 rounded-xl" />
         <Skeleton className="h-10 w-72 max-w-full rounded-lg" />
         <Skeleton className="h-96 rounded-xl" />
       </div>
@@ -649,25 +645,59 @@ export default function MachineDetailPage() {
               </Button>
             </>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs gap-1.5"
-            onClick={handleReboot}
-            disabled={!isReady || rebootMachine.isPending}
-          >
-            {rebootMachine.isPending ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <RotateCw className="size-3.5" />
-            )}
-            Reboot
-          </Button>
+          {isReady && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs gap-1.5"
+                onClick={handleReboot}
+                disabled={rebootMachine.isPending}
+              >
+                {rebootMachine.isPending ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <RotateCw className="size-3.5" />
+                )}
+                Reboot
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs gap-1.5"
+                onClick={handleStop}
+                disabled={stopMachine.isPending}
+              >
+                {stopMachine.isPending ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <PowerOff className="size-3.5" />
+                )}
+                Stop
+              </Button>
+            </>
+          )}
+          {machine.status === "stopped" && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1.5 text-emerald-600 hover:text-emerald-600 hover:bg-emerald-500/10 border-emerald-500/30"
+              onClick={handleStart}
+              disabled={startMachine.isPending}
+            >
+              {startMachine.isPending ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Power className="size-3.5" />
+              )}
+              Start
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
             className="h-8 text-xs gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20"
-            onClick={handleDelete}
+            onClick={() => { setDeleteConfirmText(""); setDeleteOpen(true); }}
           >
             <Trash2 className="size-3.5" />
             Delete
@@ -701,45 +731,67 @@ export default function MachineDetailPage() {
       {/* ════════════════════════════════════════════════════════════════
           STATS STRIP
           ════════════════════════════════════════════════════════════════ */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {machine.health ? (
-          <>
-            <StatCard
+      {machine.health ? (
+        /* Live health data — show progress bars */
+        <div className="rounded-xl border bg-card p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Resource Usage</span>
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <DollarSign className="size-3" />
+              <span className="font-medium text-foreground">${machine.price_monthly ?? 0}</span>
+              <span>/mo</span>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <HealthRow
               icon={Cpu}
               label="CPU"
               value={`${Math.round(machine.health.cpu)}%`}
-              colorClass={cpuColor}
               progress={machine.health.cpu}
+              colorClass={cpuColor}
             />
-            <StatCard
+            <HealthRow
               icon={MemoryStick}
               label="Memory"
               value={`${Math.round(machine.health.memory)}%`}
-              colorClass={memColor}
               progress={machine.health.memory}
+              colorClass={memColor}
             />
-            <StatCard
+            <HealthRow
               icon={HardDrive}
               label="Disk"
               value={`${Math.round(machine.health.disk)}%`}
-              colorClass={diskColor}
               progress={machine.health.disk}
+              colorClass={diskColor}
             />
-          </>
-        ) : (
-          <>
-            <StatCard icon={Globe} label="Region" value={regionDisplay(machine.region).label} />
-            <StatCard icon={Server} label="Plan" value={planName(machine.server_type)} />
-            <StatCard icon={HardDrive} label="IP" value={machine.ip || "—"} />
-          </>
-        )}
-        <StatCard
-          icon={DollarSign}
-          label="Cost"
-          value={`$${machine.price_monthly ?? 0}`}
-          suffix="/mo"
-        />
-      </div>
+          </div>
+        </div>
+      ) : (
+        /* No health data — clean inline info strip */
+        <div className="rounded-xl border bg-card px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-2">
+          <div className="flex items-center gap-2">
+            <Server className="size-3.5 text-muted-foreground shrink-0" />
+            <span className="text-sm font-medium">{planName(machine.server_type)}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <MapPin className="size-3.5 text-muted-foreground shrink-0" />
+            <span className="text-sm">{regionDisplay(machine.region).label}</span>
+          </div>
+          {machine.ip && (
+            <div className="flex items-center gap-2">
+              <Globe className="size-3.5 text-muted-foreground shrink-0" />
+              <span className="text-sm font-mono">{machine.ip}</span>
+            </div>
+          )}
+          <div className="flex items-center gap-2 ml-auto">
+            <DollarSign className="size-3.5 text-muted-foreground shrink-0" />
+            <span className="text-sm">
+              <span className="font-semibold">${machine.price_monthly ?? 0}</span>
+              <span className="text-muted-foreground">/mo</span>
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* ════════════════════════════════════════════════════════════════
           TABS
@@ -884,11 +936,10 @@ export default function MachineDetailPage() {
           {/* ── TERMINAL ───────────────────────────────────────────────── */}
           <TabsContent value="terminal" className="mt-0">
             <Terminal
-              machineId={machine.id}
-              machineIp={machine.ip}
               machineSlug={machine.slug}
               machineStatus={machine.status}
-              ptyUrl={machine.urls?.pty ?? null}
+              machineIp={machine.ip}
+              terminalUrl={machine.urls?.terminal ?? null}
             />
           </TabsContent>
 
@@ -997,7 +1048,73 @@ export default function MachineDetailPage() {
         </div>
       )}
 
-      <ConfirmDialog />
+      {/* ════════════════════════════════════════════════════════════════
+          DELETE CONFIRMATION DIALOG
+          ════════════════════════════════════════════════════════════════ */}
+      <Dialog
+        open={deleteOpen}
+        onOpenChange={(o) => {
+          if (!o) {
+            setDeleteOpen(false);
+            setDeleteConfirmText("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="size-4" />
+              Delete Machine
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently destroy{" "}
+              <span className="font-semibold text-foreground">{machine.slug}</span>{" "}
+              and all data on it. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-1">
+            <Label htmlFor="delete-confirm" className="text-sm">
+              Type <span className="font-mono font-bold">DELETE</span> to confirm
+            </Label>
+            <Input
+              id="delete-confirm"
+              placeholder="DELETE"
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && deleteConfirmText === "DELETE") handleDeleteConfirmed();
+              }}
+              className="font-mono"
+              autoComplete="off"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeleteOpen(false);
+                setDeleteConfirmText("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteConfirmText !== "DELETE" || deleteMachine.isPending}
+              onClick={handleDeleteConfirmed}
+            >
+              {deleteMachine.isPending ? (
+                <>
+                  <Loader2 className="size-4 animate-spin mr-2" />
+                  Deleting…
+                </>
+              ) : (
+                "Delete Forever"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {machine && (
         <RescaleDialog open={rescaleOpen} onOpenChange={setRescaleOpen} machine={machine} />
@@ -1033,7 +1150,7 @@ export default function MachineDetailPage() {
             >
               {createImage.isPending ? (
                 <>
-                  <Loader2 className="size-4 animate-spin mr-2" />
+                  <Loader2 className="size-4 animate-spin" />
                   Creating…
                 </>
               ) : (

@@ -24,7 +24,7 @@ function LimitCard({
   const isNearLimit = pct >= 80 && !isAtLimit;
 
   return (
-    <div className="p-5 rounded-xl bg-card space-y-3">
+    <div className="p-5 rounded-xl border bg-card space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Icon className="size-4" />
@@ -68,7 +68,7 @@ export default function SettingsPage() {
       <h1 className="font-heading text-3xl tracking-tight">Settings</h1>
 
       {/* Account info */}
-      <div className="p-5 rounded-xl bg-card">
+      <div className="p-5 rounded-xl border bg-card">
         <h2 className="text-sm font-medium text-muted-foreground mb-4">Account</h2>
         <div className="flex items-center gap-4">
           <Avatar className="size-12 rounded-lg">
@@ -87,9 +87,9 @@ export default function SettingsPage() {
       <div>
         <h2 className="text-sm font-medium text-muted-foreground mb-3">Resource Limits</h2>
         {limitsLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {[1, 2].map((i) => (
-              <div key={i} className="p-5 rounded-xl bg-card space-y-3">
+              <div key={i} className="p-5 rounded-xl border bg-card space-y-3">
                 <Skeleton className="h-4 w-24" />
                 <Skeleton className="h-8 w-20" />
                 <Skeleton className="h-2 w-full" />
@@ -97,7 +97,7 @@ export default function SettingsPage() {
             ))}
           </div>
         ) : limits ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <LimitCard
               icon={Server}
               label="Machines"
