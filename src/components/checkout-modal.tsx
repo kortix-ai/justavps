@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useProviders, useRegions, useServerTypes } from "@/hooks/use-server-types";
+import { useProviders, useRegions, useServerTypes, pickDefaultRegion } from "@/hooks/use-server-types";
 import { useCreateMachine } from "@/hooks/use-machines";
 import { useAccountLimits } from "@/hooks/use-account";
 import { useSSHKeys } from "@/hooks/use-ssh-keys";
@@ -21,6 +21,7 @@ import {
   HardDrive,
   ChevronDown,
   AlertTriangle,
+  KeyRound,
 } from "lucide-react";
 import {
   BillingToggle,
@@ -103,7 +104,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
   const { data: allImages } = useImages();
 
   const [regionOverride, setRegionOverride] = useState("");
-  const selectedRegion = regionOverride || regions?.[0]?.id || "";
+  const selectedRegion = regionOverride || pickDefaultRegion(regions) || "";
   const { data: serverTypes } = useServerTypes(
     selectedProvider || undefined,
     selectedRegion || undefined,
@@ -362,48 +363,6 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
             {/* ─── Config (logged-in) ─── */}
             {isLoggedIn && (
               <div className="space-y-3">
-                {/* SSH — single compact row */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Check className="size-3 text-green-600 dark:text-green-400 shrink-0" />
-                    <span>SSH key auto-generated</span>
-                  </div>
-                  {hasExistingKeys && (
-                    <>
-                      <span className="text-border text-xs">·</span>
-                      {userSSHKeys?.map((key) => {
-                        const isSelected = selectedSSHKeyIds.includes(key.id);
-                        return (
-                          <button
-                            key={key.id}
-                            onClick={() =>
-                              setSelectedSSHKeyIds((prev) =>
-                                isSelected
-                                  ? prev.filter((id) => id !== key.id)
-                                  : [...prev, key.id],
-                              )
-                            }
-                            className={cn(
-                              "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] transition-colors",
-                              isSelected
-                                ? "border-primary/40 bg-primary/5 text-foreground"
-                                : "border-border text-muted-foreground hover:border-foreground/30",
-                            )}
-                          >
-                            <div className={cn(
-                              "flex size-2.5 shrink-0 items-center justify-center rounded-sm border transition-colors",
-                              isSelected ? "border-primary bg-primary" : "border-muted-foreground/30",
-                            )}>
-                              {isSelected && <Check className="size-1.5 text-primary-foreground" />}
-                            </div>
-                            {key.name}
-                          </button>
-                        );
-                      })}
-                    </>
-                  )}
-                </div>
-
                 {/* Advanced */}
                 <button
                   onClick={() => setShowAdvanced((v) => !v)}
@@ -415,89 +374,127 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
 
                 {showAdvanced && (
                   <div className="space-y-3 rounded-lg border border-border/50 bg-muted/5 p-3">
+                    {/* Machine name */}
                     <Input
                       placeholder="Machine name (auto-generated if blank)"
                       value={machineName}
                       onChange={(e) => setMachineName(e.target.value)}
                       className="h-8 text-xs"
                     />
-                    <div className="space-y-2">
+
+                    {/* Image picker — unified dropdown, "justavps standard" selected by default */}
+                    <div className="space-y-1.5">
                       <button
                         type="button"
-                        onClick={() => {
-                          setSelectedImageId(null);
-                          setShowImagePicker(false);
-                        }}
-                        className={cn(
-                          "flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors",
-                          selectedImageId === null ? "border-primary/30 bg-primary/5" : "hover:bg-muted/30",
-                        )}
+                        onClick={() => setShowImagePicker((v) => !v)}
+                        className="flex w-full items-center justify-between gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors hover:bg-muted/30"
                       >
-                        <div
-                          className={cn(
-                            "flex size-3.5 shrink-0 items-center justify-center rounded border-[1.5px] transition-colors",
-                            selectedImageId === null ? "border-primary bg-primary" : "border-muted-foreground/30",
-                          )}
-                        >
-                          {selectedImageId === null && <Check className="size-2 text-primary-foreground" />}
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <HardDrive className="size-3 shrink-0 text-muted-foreground" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs leading-tight">Choose image</p>
+                            <p className="mt-0.5 text-[10px] text-muted-foreground truncate">
+                              {selectedImage
+                                ? `${selectedImage.name} · ${selectedImage.kind === "template" ? "Template" : "Saved image"}${selectedImage.disk_size_gb ? ` · ${selectedImage.disk_size_gb} GB` : ""}`
+                                : "justavps standard · Default Ubuntu 24.04 + justavps stack"}
+                            </p>
+                          </div>
                         </div>
-                        <Monitor className="size-3 shrink-0 text-muted-foreground" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs leading-tight">justavps standard</p>
-                          <p className="mt-0.5 text-[10px] text-muted-foreground">Default template · Ubuntu 24.04 with the justavps stack preinstalled</p>
-                        </div>
+                        <ChevronDown className={cn("size-3 shrink-0 text-muted-foreground transition-transform", showImagePicker && "rotate-180")} />
                       </button>
 
-                      {otherImages.length > 0 && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => setShowImagePicker((current) => !current)}
+                      {showImagePicker && (
+                        <div className="space-y-1 pl-1">
+                          {/* Default image option */}
+                          <div
+                            onClick={() => { setSelectedImageId(null); setShowImagePicker(false); }}
                             className={cn(
-                              "flex w-full items-center justify-between gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors",
-                              showImagePicker || selectedImage ? "border-primary/30 bg-primary/5" : "hover:bg-muted/30",
+                              "flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 transition-colors",
+                              selectedImageId === null ? "border-foreground/20 bg-foreground/[0.03]" : "hover:bg-muted/30",
                             )}
                           >
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <HardDrive className="size-3 shrink-0 text-muted-foreground" />
-                              <div className="min-w-0 flex-1">
-                                <p className="text-xs leading-tight">
-                                  {selectedImage ? selectedImage.name : "Choose another image"}
-                                </p>
-                                <p className="mt-0.5 text-[10px] text-muted-foreground truncate">
-                                  {selectedImage
-                                    ? `${selectedImage.kind === "template" ? "Template" : "Saved image"}${selectedImage.disk_size_gb ? ` · ${selectedImage.disk_size_gb} GB` : ""}`
-                                    : `${publicTemplates.length} template${publicTemplates.length === 1 ? "" : "s"}${userImages.length > 0 ? ` · ${userImages.length} saved image${userImages.length === 1 ? "" : "s"}` : ""}`}
-                                </p>
-                              </div>
+                            <div className={cn(
+                              "flex size-3.5 shrink-0 items-center justify-center rounded border-[1.5px] transition-colors",
+                              selectedImageId === null ? "border-foreground bg-foreground" : "border-muted-foreground/30",
+                            )}>
+                              {selectedImageId === null && <Check className="size-2 text-background" />}
                             </div>
-                            <ChevronDown className={cn("size-3 shrink-0 text-muted-foreground transition-transform", showImagePicker && "rotate-180")} />
-                          </button>
-
-                          {showImagePicker && (
-                            <div className="space-y-1 pl-1">
-                              {otherImages.map((image) => (
-                                <ImageChoiceRow key={image.id} image={image} selected={selectedImageId === image.id} onClick={() => setSelectedImageId(image.id)} />
-                              ))}
+                            <Monitor className="size-3 shrink-0 text-muted-foreground" />
+                            <div className="min-w-0">
+                              <p className="text-xs leading-tight">justavps standard</p>
+                              <p className="text-[10px] text-muted-foreground">Default · Ubuntu 24.04 + justavps stack</p>
                             </div>
-                          )}
-                        </>
+                          </div>
+                          {/* Other images */}
+                          {otherImages.map((image) => (
+                            <ImageChoiceRow
+                              key={image.id}
+                              image={image}
+                              selected={selectedImageId === image.id}
+                              onClick={() => { setSelectedImageId(image.id); setShowImagePicker(false); }}
+                            />
+                          ))}
+                        </div>
                       )}
+                    </div>
 
+                    {/* SSH keys */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                        <KeyRound className="size-3 shrink-0" />
+                        <span>New SSH key auto-generated</span>
+                      </div>
+                      {hasExistingKeys && (
+                        <div className="space-y-1.5">
+                          <p className="text-[10px] text-muted-foreground/70">Add existing keys too</p>
+                          <div className="flex flex-wrap gap-1.5">
+                          {userSSHKeys?.map((key) => {
+                            const isSelected = selectedSSHKeyIds.includes(key.id);
+                            return (
+                              <button
+                                key={key.id}
+                                onClick={() =>
+                                  setSelectedSSHKeyIds((prev) =>
+                                    isSelected
+                                      ? prev.filter((id) => id !== key.id)
+                                      : [...prev, key.id],
+                                  )
+                                }
+                                className={cn(
+                                  "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] transition-colors",
+                                  isSelected
+                                    ? "border-foreground/30 bg-foreground/5 text-foreground"
+                                    : "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground",
+                                )}
+                              >
+                                <div className={cn(
+                                  "flex size-2.5 shrink-0 items-center justify-center rounded-sm border transition-colors",
+                                  isSelected ? "border-foreground bg-foreground" : "border-muted-foreground/30",
+                                )}>
+                                  {isSelected && <Check className="size-1.5 text-background" />}
+                                </div>
+                                {key.name}
+                              </button>
+                            );
+                          })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Docker auto-run */}
+                    <div className="space-y-1.5">
                       <button
                         type="button"
                         onClick={() => setShowDockerConfig((current) => !current)}
-                        className={cn(
-                          "flex w-full items-center justify-between gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors",
-                          showDockerConfig ? "border-primary/30 bg-primary/5" : "hover:bg-muted/30",
-                        )}
+                        className="flex w-full items-center justify-between gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors hover:bg-muted/30"
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
                           <Container className="size-3 shrink-0 text-muted-foreground" />
                           <div className="min-w-0 flex-1">
                             <p className="text-xs leading-tight">Docker auto-run</p>
                             <p className="mt-0.5 text-[10px] text-muted-foreground truncate">
-                              {showDockerConfig && dockerImage ? dockerImage : "Optional container started on top of the selected image"}
+                              {showDockerConfig && dockerImage ? dockerImage : "Optional — runs after boot"}
                             </p>
                           </div>
                         </div>
@@ -506,12 +503,9 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
 
                       {showDockerConfig && (
                         <div className="space-y-2 pl-1">
-                          <Input id="co-docker-image" placeholder="nginx:latest" value={dockerImage} onChange={(e) => setDockerImage(e.target.value)} className="h-8 text-xs font-mono" />
-                          <Input id="co-docker-entry" placeholder="Entrypoint, e.g. /bin/sh" value={entrypoint} onChange={(e) => setEntrypoint(e.target.value)} className="h-8 text-xs font-mono" />
-                          <Input id="co-docker-command" placeholder="Command, e.g. -lc 'python -m http.server 80'" value={command} onChange={(e) => setCommand(e.target.value)} className="h-8 text-xs font-mono" />
-                          <p className="text-[10px] text-muted-foreground/70">
-                            Entrypoint maps to Docker `--entrypoint`; command args run after the image name.
-                          </p>
+                          <Input id="co-docker-image" placeholder="python:3.12-alpine" value={dockerImage} onChange={(e) => setDockerImage(e.target.value)} className="h-8 text-xs font-mono" />
+                          <Input id="co-docker-entry" placeholder="Entrypoint override, e.g. /bin/sh" value={entrypoint} onChange={(e) => setEntrypoint(e.target.value)} className="h-8 text-xs font-mono" />
+                          <Input id="co-docker-command" placeholder="Command, e.g. -m http.server 8000" value={command} onChange={(e) => setCommand(e.target.value)} className="h-8 text-xs font-mono" />
                         </div>
                       )}
                     </div>
