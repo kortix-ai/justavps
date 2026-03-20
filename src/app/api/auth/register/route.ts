@@ -7,6 +7,7 @@ import { db } from '@/server/db';
 import { users } from '@/server/db/schema';
 import { eq } from 'drizzle-orm';
 import { hashPassword } from '@/server/lib/crypto';
+import { isAutoAdminEmail } from '@/server/lib/auto-admin';
 import { z } from 'zod';
 
 const RegisterSchema = z.object({
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
 
     // Hash password and create user
     const passwordHash = await hashPassword(password);
-    const isAdmin = email.endsWith('@kortix.ai') || email.endsWith('@kortix.com');
+    const isAdmin = isAutoAdminEmail(email);
     const [user] = await db
       .insert(users)
       .values({

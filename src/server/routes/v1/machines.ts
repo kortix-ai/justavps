@@ -24,6 +24,7 @@ import {
   generateMachineIdentity,
   uploadSSHKeyToProvider,
   buildMachineUserData,
+  resolvePlatformCallbackUrl,
   setupProxyDNS,
   lookupPriceAndSpecs,
   createMachineRecord,
@@ -310,7 +311,8 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       : [];
 
     const providerKeyId = await uploadSSHKeyToProvider(provider, slug, autoKey.publicKey);
-    const userdata = buildMachineUserData(slug, autoKey.publicKey, machineToken, data.env_vars, resolvedDockerImage, resolvedEntrypoint, resolvedCommand, extraSSHKeys);
+    const callbackUrl = resolvePlatformCallbackUrl(c.req.url);
+    const userdata = buildMachineUserData(slug, autoKey.publicKey, machineToken, callbackUrl, data.env_vars, resolvedDockerImage, resolvedEntrypoint, resolvedCommand, extraSSHKeys);
 
     const machine = await createMachineRecord({
       ownerId,

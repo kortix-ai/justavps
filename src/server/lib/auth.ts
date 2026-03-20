@@ -5,6 +5,7 @@ import { db } from '../db';
 import { users } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { verifyPassword } from './crypto';
+import { ensureAutoAdminUser, isAutoAdminEmail } from './auto-admin';
 import { authConfig } from '@/lib/auth-config';
 
 export { authConfig };
@@ -48,13 +49,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           const valid = await verifyPassword(password, user.passwordHash);
           if (!valid) return null;
 
-          // Auto-promote kortix.ai / kortix.com users to admin
-          const isKortixDomain = email.endsWith('@kortix.ai') || email.endsWith('@kortix.com');
-          if (isKortixDomain && !user.isAdmin) {
-            await db.update(users).set({ isAdmin: true }).where(eq(users.id, user.id));
-          }
+          const resolvedUser = await ensureAutoAdminUser(user);
 
-          return { id: user.id, email: user.email, name: user.name };
+          return { id: resolvedUser.id, email: resolvedUser.email, name: resolvedUser.name };
         } catch (err) {
           console.error('[AUTH] authorize error:', err);
           return null;
@@ -75,7 +72,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
       if (!email) return false;
 
-      const isKortixEmail = email.endsWith('@kortix.ai') || email.endsWith('@kortix.com');
+      const isKortixEmail = isAutoAdminEmail(email);
 
       try {
         const [existingByGithub] = await db.select().from(users)

@@ -17,6 +17,28 @@ export async function generateMachineIdentity() {
   return { slug, machineToken };
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+}
+
+export function resolvePlatformCallbackUrl(requestUrl?: string): string {
+  const configured = config.PLATFORM_URL;
+
+  if (requestUrl) {
+    try {
+      const requestOrigin = new URL(requestUrl).origin;
+      const requestHostname = new URL(requestOrigin).hostname;
+      if (!isLoopbackHostname(requestHostname)) {
+        return requestOrigin;
+      }
+    } catch {
+      // Ignore malformed request URLs and fall back to configured platform URL.
+    }
+  }
+
+  return configured;
+}
+
 /**
  * Upload SSH key to provider. This is MANDATORY for server creation —
  * without it, the provider sets a temporary root password with forced expiry,
@@ -64,6 +86,7 @@ export function buildMachineUserData(
   slug: string,
   sshPublicKey: string,
   machineToken: string,
+  platformCallbackUrl: string,
   envVars?: Record<string, string>,
   dockerImage?: string,
   entrypoint?: string,
@@ -74,7 +97,7 @@ export function buildMachineUserData(
     slug,
     sshPublicKey,
     machineToken,
-    platformCallbackUrl: config.PLATFORM_URL,
+    platformCallbackUrl,
     proxyDomain: config.PROXY_DOMAIN,
     envVars,
     dockerImage,

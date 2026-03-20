@@ -4,6 +4,7 @@ import { apiKeys, users } from '../db/schema';
 import { validateApiKey } from './crypto';
 import { eq } from 'drizzle-orm';
 import { decode } from 'next-auth/jwt';
+import { ensureAutoAdminUser } from './auto-admin';
 
 export type AuthVariables = {
   userId: string;
@@ -43,10 +44,15 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(
               .where(eq(apiKeys.id, k.id))
               .catch((err) => console.error('[API_GUARD] Failed to update lastUsed:', err));
 
-            // Fetch isAdmin for API key owner
-            const [user] = await db.select({ isAdmin: users.isAdmin }).from(users).where(eq(users.id, k.ownerId));
-            c.set('userId', k.ownerId);
-            c.set('isAdmin', user?.isAdmin ?? false);
+            const [user] = await db
+              .select({ id: users.id, email: users.email, isAdmin: users.isAdmin })
+              .from(users)
+              .where(eq(users.id, k.ownerId));
+
+            const resolvedUser = user ? await ensureAutoAdminUser(user) : null;
+
+            c.set('userId', resolvedUser?.id ?? k.ownerId);
+            c.set('isAdmin', resolvedUser?.isAdmin ?? false);
             return next();
           }
         }
@@ -75,13 +81,14 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(
 
           if (token?.sub) {
             const [user] = await db
-              .select({ id: users.id, isAdmin: users.isAdmin })
+              .select({ id: users.id, email: users.email, isAdmin: users.isAdmin })
               .from(users)
               .where(eq(users.id, token.sub));
 
             if (user) {
-              c.set('userId', user.id);
-              c.set('isAdmin', user.isAdmin);
+              const resolvedUser = await ensureAutoAdminUser(user);
+              c.set('userId', resolvedUser.id);
+              c.set('isAdmin', resolvedUser.isAdmin);
               return next();
             }
           }
@@ -95,12 +102,13 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(
       console.warn('[API_GUARD] No AUTH_SECRET — using dev fallback (non-production only)');
       try {
         const [firstUser] = await db
-          .select({ id: users.id, isAdmin: users.isAdmin })
+          .select({ id: users.id, email: users.email, isAdmin: users.isAdmin })
           .from(users)
           .limit(1);
         if (firstUser) {
-          c.set('userId', firstUser.id);
-          c.set('isAdmin', firstUser.isAdmin);
+          const resolvedUser = await ensureAutoAdminUser(firstUser);
+          c.set('userId', resolvedUser.id);
+          c.set('isAdmin', resolvedUser.isAdmin);
           return next();
         }
       } catch (err) {

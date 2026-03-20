@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../db';
 import { users } from '../db/schema';
+import { isAutoAdminEmail } from './auto-admin';
 
 type ResolveCheckoutUserParams = {
   email: string;
@@ -15,7 +16,7 @@ export async function resolveCheckoutUser(params: ResolveCheckoutUserParams) {
 
   const [existingUser] = await db.select().from(users).where(eq(users.email, email));
 
-  const isAdmin = email.endsWith('@kortix.ai') || email.endsWith('@kortix.com');
+  const isAdmin = isAutoAdminEmail(email);
 
   if (!existingUser) {
     const [createdUser] = await db.insert(users).values({
