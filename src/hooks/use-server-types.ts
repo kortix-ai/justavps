@@ -43,46 +43,23 @@ export function useServerTypes(provider: string | undefined, region: string | un
 /* ═══ Geo-based default region ═══ */
 
 const EU_LOCALE_REGIONS = new Set([
-  "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR",
-  "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK",
-  "SI", "ES", "SE", "IS", "LI", "NO", "CH", "GB",
+  "AL", "AD", "AT", "BE", "BA", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GI", "GR",
+  "HU", "IS", "IE", "IM", "IT", "XK", "LV", "LI", "LT", "LU", "MT", "MD", "MC", "ME", "NL", "MK",
+  "NO", "PL", "PT", "RO", "SM", "RS", "SK", "SI", "ES", "SE", "CH", "UA", "GB", "VA",
 ]);
 
-const US_TIMEZONES = new Set([
-  "America/New_York",
-  "America/Detroit",
-  "America/Kentucky/Louisville",
-  "America/Kentucky/Monticello",
-  "America/Indiana/Indianapolis",
-  "America/Indiana/Vincennes",
-  "America/Indiana/Winamac",
-  "America/Indiana/Marengo",
-  "America/Indiana/Petersburg",
-  "America/Indiana/Vevay",
-  "America/Chicago",
-  "America/Indiana/Tell_City",
-  "America/Indiana/Knox",
-  "America/Menominee",
-  "America/North_Dakota/Center",
-  "America/North_Dakota/New_Salem",
-  "America/North_Dakota/Beulah",
-  "America/Denver",
-  "America/Boise",
-  "America/Phoenix",
-  "America/Los_Angeles",
-  "America/Anchorage",
-  "America/Juneau",
-  "America/Sitka",
-  "America/Metlakatla",
-  "America/Yakutat",
-  "America/Nome",
-  "America/Adak",
-  "Pacific/Honolulu",
-]);
+const EU_TIMEZONE_PREFIXES = ["Europe/"];
+const US_TIMEZONE_PREFIXES = ["US/", "America/", "Pacific/Honolulu"];
+const EU_REFERENCE_TIMEZONE = "Europe/Berlin";
+const US_REFERENCE_TIMEZONE = "America/Los_Angeles";
 
-function detectRegionFromLocale(): string | null {
-  if (typeof navigator === "undefined") return null;
-  const locales = navigator.languages?.length ? navigator.languages : [navigator.language];
+export interface BrowserRegionSignals {
+  locales?: readonly string[];
+  timeZone?: string;
+  offsetMinutes?: number;
+}
+
+function detectRegionFromLocale(locales: readonly string[]): string | null {
   for (const locale of locales) {
     if (!locale) continue;
     try {
@@ -96,22 +73,79 @@ function detectRegionFromLocale(): string | null {
   return null;
 }
 
+function parseGMTOffsetToMinutes(value: string): number | null {
+  const normalized = value.replace("UTC", "GMT");
+  if (normalized === "GMT") return 0;
+  const match = normalized.match(/^GMT([+-])(\d{1,2})(?::?(\d{2}))?$/);
+  if (!match) return null;
+  const sign = match[1] === "+" ? 1 : -1;
+  const hours = Number(match[2]);
+  const minutes = Number(match[3] ?? "0");
+  return sign * (hours * 60 + minutes);
+}
+
+function getOffsetForTimeZone(timeZone: string, date: Date): number | null {
+  try {
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      timeZoneName: "shortOffset",
+    });
+    const zoneName = formatter.formatToParts(date).find((part) => part.type === "timeZoneName")?.value;
+    return zoneName ? parseGMTOffsetToMinutes(zoneName) : null;
+  } catch {
+    return null;
+  }
+}
+
+function detectRegionFromTimeZone(timeZone: string | undefined, offsetMinutes: number): string {
+  const now = new Date();
+
+  if (timeZone) {
+    if (EU_TIMEZONE_PREFIXES.some((prefix) => timeZone.startsWith(prefix))) return "hel1";
+    if (US_TIMEZONE_PREFIXES.some((prefix) => timeZone.startsWith(prefix))) return "hil";
+  }
+
+  const euOffset = getOffsetForTimeZone(EU_REFERENCE_TIMEZONE, now);
+  const usOffset = getOffsetForTimeZone(US_REFERENCE_TIMEZONE, now);
+
+  if (euOffset === null || usOffset === null) return "hil";
+
+  const euDistance = Math.abs(offsetMinutes - euOffset);
+  const usDistance = Math.abs(offsetMinutes - usOffset);
+
+  if (euDistance < usDistance) return "hel1";
+  return "hil";
+}
+
+export function detectDefaultRegionFromBrowserInfo({
+  locales = [],
+  timeZone,
+  offsetMinutes,
+}: BrowserRegionSignals): string {
+  const timezoneRegion = detectRegionFromTimeZone(timeZone, offsetMinutes ?? 0);
+  const localeRegion = detectRegionFromLocale(locales);
+
+  if (timeZone && EU_TIMEZONE_PREFIXES.some((prefix) => timeZone.startsWith(prefix))) return "hel1";
+  if (timeZone && US_TIMEZONE_PREFIXES.some((prefix) => timeZone.startsWith(prefix))) return "hil";
+
+  return localeRegion ?? timezoneRegion;
+}
+
 /**
- * Detect whether the user is likely in the EU based on their browser timezone.
- * Returns "hel1" for EU users, "hil" (US) for everyone else (default).
- * Safe to call on server (returns "hil" fallback).
+ * Detect the best default deploy region from browser locale + timezone.
+ * Locale wins when it clearly identifies EU/US; otherwise timezone proximity picks
+ * the closer deploy region between EU-Central and US-West. Fallback stays US.
  */
 export function detectDefaultRegion(): string {
   if (typeof Intl === "undefined") return "hil";
   try {
-    const localeRegion = detectRegionFromLocale();
-    if (localeRegion) return localeRegion;
+    const locales = typeof navigator === "undefined"
+      ? []
+      : (navigator.languages?.length ? navigator.languages : [navigator.language]).filter(Boolean);
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const offsetMinutes = -new Date().getTimezoneOffset();
 
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    if (!tz) return "hil";
-    if (tz.startsWith("Europe/")) return "hel1";
-    if (US_TIMEZONES.has(tz) || tz.startsWith("US/")) return "hil";
-    return "hil";
+    return detectDefaultRegionFromBrowserInfo({ locales, timeZone, offsetMinutes });
   } catch {
     return "hil";
   }
