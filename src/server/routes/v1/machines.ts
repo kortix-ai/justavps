@@ -10,6 +10,7 @@ import { eq, and, desc } from 'drizzle-orm';
 import { db } from '../../db';
 import { machines, images, users } from '../../db/schema';
 import { config } from '../../lib/config';
+import { DEFAULT_TEMPLATE_NAME, resolveRequestedProviderImage } from '../../lib/image-catalog';
 
 type Machine = typeof machines.$inferSelect;
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
@@ -164,30 +165,43 @@ machinesApp.openapi(createMachineRoute, async (c) => {
   if (lookup.response) return lookup.response as any;
   const provider = lookup.provider;
 
-  // 2. Resolve image — user image → latest public base image → fresh Ubuntu 24.04
+  // 2. Resolve image — explicit template/snapshot → default JustAVPS base snapshot → fallback public image → Ubuntu
   let resolvedImage = 'ubuntu-24.04';
+  let machineImageId: string | null = null;
+  let resolvedDockerImage = data.docker_image;
+  let resolvedEntrypoint = data.entrypoint;
   if (data.image_id) {
-    // User specified an image — must own it or it must be public
     const [img] = await db.select().from(images).where(eq(images.id, data.image_id));
-    if (!img || (img.ownerId !== ownerId && !img.isPublic)) {
+    if (!img || (img.ownerId !== ownerId && !img.isTemplate)) {
       return errorResponse(c, 404, 'Image not found') as any;
     }
-    if (img.status !== 'ready') {
-      return errorResponse(c, 400, `Image is not ready (status: ${img.status})`) as any;
+
+    const resolved = resolveRequestedProviderImage({ explicitImage: img });
+
+    if (!resolved.ok) {
+      return errorResponse(c, resolved.status, resolved.message) as any;
     }
-    if (!img.providerImageId) {
-      return errorResponse(c, 400, 'Image has no provider image ID') as any;
-    }
-    resolvedImage = img.providerImageId;
+
+    resolvedImage = resolved.selection.providerImage;
+    machineImageId = resolved.selection.machineImageId;
+    resolvedDockerImage = resolvedDockerImage ?? resolved.selection.dockerImage;
+    resolvedEntrypoint = resolvedEntrypoint ?? resolved.selection.entrypoint;
   } else {
-    // No image specified — use latest public base image from DB
     const [baseImage] = await db.select().from(images)
-      .where(and(eq(images.isPublic, true), eq(images.status, 'ready')))
+      .where(and(eq(images.isTemplate, true), eq(images.status, 'ready'), eq(images.name, DEFAULT_TEMPLATE_NAME)))
       .orderBy(desc(images.createdAt))
       .limit(1);
-    if (baseImage?.providerImageId) {
-      resolvedImage = baseImage.providerImageId;
+
+    const resolved = resolveRequestedProviderImage({
+      fallbackPublicImage: baseImage,
+    });
+
+    if (!resolved.ok) {
+      return errorResponse(c, resolved.status, resolved.message) as any;
     }
+
+    resolvedImage = resolved.selection.providerImage;
+    machineImageId = resolved.selection.machineImageId;
   }
 
   const { priceMonthly, specs } = await lookupPriceAndSpecs(provider, data.region, data.server_type);
@@ -204,6 +218,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, ownerId));
     }
 
+    const billingInterval = data.billing_interval ?? 'monthly';
     const createCheckout = async () => {
       const { url } = await stripeClient.createCheckoutSession({
         customerId,
@@ -213,14 +228,16 @@ machinesApp.openapi(createMachineRoute, async (c) => {
           server_type: data.server_type,
           region: data.region,
           name: data.name,
-          image_id: data.image_id ?? null,
-          docker_image: data.docker_image,
-          entrypoint: data.entrypoint,
+          image_id: data.image_id ?? machineImageId,
+          docker_image: resolvedDockerImage,
+          entrypoint: resolvedEntrypoint,
           env_vars: data.env_vars,
           ssh_key_ids: data.ssh_key_ids,
           specs,
+          billing_interval: billingInterval,
         },
         priceMonthlyUsd: priceMonthly,
+        billingInterval,
         successUrl: `${config.APP_URL}/machines`,
         cancelUrl: `${config.APP_URL}/machines`,
       });
@@ -239,6 +256,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
           priceMonthly,
           data.server_type,
           specs,
+          billingInterval,
         );
         stripeSubId = result.subscriptionId;
         stripeSubItemId = `${result.subscriptionId}|${result.subscriptionItemId}`;
@@ -279,14 +297,14 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       : [];
 
     const providerKeyId = await uploadSSHKeyToProvider(provider, slug, autoKey.publicKey);
-    const userdata = buildMachineUserData(slug, autoKey.publicKey, machineToken, data.env_vars, data.docker_image, data.entrypoint, extraSSHKeys);
+    const userdata = buildMachineUserData(slug, autoKey.publicKey, machineToken, data.env_vars, resolvedDockerImage, resolvedEntrypoint, extraSSHKeys);
 
     const machine = await createMachineRecord({
       ownerId,
       slug,
       name: data.name || `machine-${slug}`,
       provider: data.provider,
-      imageId: data.image_id || null,
+      imageId: machineImageId,
       serverType: data.server_type,
       region: data.region,
       ip: null,
@@ -295,8 +313,8 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       sshPublicKey: autoKey.publicKey,
       sshPrivateKey: autoKey.privateKey,
       priceMonthly,
-      dockerImage: data.docker_image || null,
-      entrypoint: data.entrypoint || null,
+      dockerImage: resolvedDockerImage || null,
+      entrypoint: resolvedEntrypoint || null,
     });
 
     if (stripeSubId) {

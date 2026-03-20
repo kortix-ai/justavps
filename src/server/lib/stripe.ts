@@ -23,6 +23,8 @@ export interface MachineSpecs {
   cpuType?: 'shared' | 'dedicated';
 }
 
+export type BillingInterval = 'monthly' | 'yearly' | '2year';
+
 export interface CheckoutMachineConfig {
   provider: string;
   server_type: string;
@@ -35,6 +37,46 @@ export interface CheckoutMachineConfig {
   ssh_key_ids?: string[];
   /** Machine specs for Stripe product display — optional, falls back to generic name */
   specs?: MachineSpecs;
+  /** Billing interval — determines Stripe recurring interval + discount */
+  billing_interval?: BillingInterval;
+}
+
+/**
+ * Compute the Stripe price and interval for a given billing interval.
+ *
+ * - monthly  → unit = monthly price,               interval = month
+ * - yearly   → unit = monthly price * 0.80 * 12,   interval = year   (20% off)
+ * - 2year    → unit = monthly price * 0.70 * 12,   interval = year   (30% off, billed annually)
+ */
+function resolveStripePrice(
+  monthlyUsd: number,
+  billingInterval: BillingInterval = 'monthly',
+): { unitAmountCents: number; interval: 'month' | 'year'; intervalLabel: string } {
+  switch (billingInterval) {
+    case 'yearly': {
+      const discounted = monthlyUsd * 0.80;
+      return {
+        unitAmountCents: Math.round(discounted * 12 * 100),
+        interval: 'year',
+        intervalLabel: '$' + (discounted * 12).toFixed(2) + '/yr (20% off)',
+      };
+    }
+    case '2year': {
+      const discounted = monthlyUsd * 0.70;
+      return {
+        unitAmountCents: Math.round(discounted * 12 * 100),
+        interval: 'year',
+        intervalLabel: '$' + (discounted * 12).toFixed(2) + '/yr (30% off, 2-year plan)',
+      };
+    }
+    default: {
+      return {
+        unitAmountCents: Math.round(monthlyUsd * 100),
+        interval: 'month',
+        intervalLabel: '$' + monthlyUsd.toFixed(2) + '/mo',
+      };
+    }
+  }
 }
 
 // ─── Product naming helpers ─────────────────────────────────────────────────
@@ -126,14 +168,17 @@ export const stripeClient = {
     priceMonthlyUsd: number;
     successUrl: string;
     cancelUrl: string;
+    billingInterval?: BillingInterval;
   }): Promise<{ sessionId: string; url: string }> {
     const specs = params.machineConfig.specs;
+    const billingInterval = params.billingInterval ?? params.machineConfig.billing_interval ?? 'monthly';
+    const resolved = resolveStripePrice(params.priceMonthlyUsd, billingInterval);
 
     // Create an ad-hoc price for the checkout
     const price = await stripe.prices.create({
       currency: 'usd',
-      unit_amount: Math.round(params.priceMonthlyUsd * 100),
-      recurring: { interval: 'month' },
+      unit_amount: resolved.unitAmountCents,
+      recurring: { interval: resolved.interval },
       product_data: {
         name: formatProductName(specs),
         metadata: {
@@ -143,7 +188,7 @@ export const stripeClient = {
       },
     });
 
-    // Checkout in subscription mode — charges the full month IMMEDIATELY at checkout.
+    // Checkout in subscription mode — charges IMMEDIATELY at checkout.
     // No trial, no deferred billing. User pays before machine is provisioned.
     const session = await stripe.checkout.sessions.create({
       ...(params.customerId ? { customer: params.customerId } : {}),
@@ -155,6 +200,7 @@ export const stripeClient = {
         justavps_action: 'create_machine',
         machine_config: JSON.stringify(params.machineConfig),
         price_monthly: String(params.priceMonthlyUsd),
+        billing_interval: billingInterval,
         ...(params.userId ? { justavps_user_id: params.userId } : {}),
       },
       subscription_data: {
@@ -162,6 +208,7 @@ export const stripeClient = {
           machine_provider: params.machineConfig.provider,
           machine_server_type: params.machineConfig.server_type,
           machine_region: params.machineConfig.region,
+          billing_interval: billingInterval,
           ...(params.userId ? { justavps_user_id: params.userId } : {}),
         },
       },
@@ -169,7 +216,7 @@ export const stripeClient = {
       payment_method_collection: 'always',
     });
 
-    console.log(`[STRIPE] Created checkout session ${session.id} for customer ${params.customerId || 'guest'} ($${params.priceMonthlyUsd}/mo)`);
+    console.log(`[STRIPE] Created checkout session ${session.id} for customer ${params.customerId || 'guest'} (${resolved.intervalLabel})`);
 
     return {
       sessionId: session.id,
@@ -219,12 +266,15 @@ export const stripeClient = {
     priceMonthlyUsd: number,
     serverType: string,
     specs?: MachineSpecs,
+    billingInterval: BillingInterval = 'monthly',
   ): Promise<{ subscriptionId: string; subscriptionItemId: string }> {
+    const resolved = resolveStripePrice(priceMonthlyUsd, billingInterval);
+
     // Create an ad-hoc price for this machine
     const price = await stripe.prices.create({
       currency: 'usd',
-      unit_amount: Math.round(priceMonthlyUsd * 100), // cents
-      recurring: { interval: 'month' },
+      unit_amount: resolved.unitAmountCents,
+      recurring: { interval: resolved.interval },
       product_data: {
         name: formatProductName(specs),
         metadata: {
@@ -248,12 +298,13 @@ export const stripeClient = {
       metadata: {
         machine_id: machineId,
         machine_slug: machineSlug,
+        billing_interval: billingInterval,
       },
     });
 
     const itemId = subscription.items.data[0]?.id || '';
 
-    console.log(`[STRIPE] Created subscription ${subscription.id} for machine ${machineSlug} ($${priceMonthlyUsd}/mo) — charged immediately`);
+    console.log(`[STRIPE] Created subscription ${subscription.id} for machine ${machineSlug} (${resolved.intervalLabel}) — charged immediately`);
 
     return {
       subscriptionId: subscription.id,
@@ -284,14 +335,17 @@ export const stripeClient = {
     serverType: string,
     machineId: string,
     specs?: MachineSpecs,
+    billingInterval: BillingInterval = 'monthly',
   ): Promise<void> {
     if (!subscriptionItemId) return;
+
+    const resolved = resolveStripePrice(newPriceMonthlyUsd, billingInterval);
 
     // Create new price
     const newPrice = await stripe.prices.create({
       currency: 'usd',
-      unit_amount: Math.round(newPriceMonthlyUsd * 100),
-      recurring: { interval: 'month' },
+      unit_amount: resolved.unitAmountCents,
+      recurring: { interval: resolved.interval },
       product_data: {
         name: formatProductName(specs),
         metadata: {
@@ -308,7 +362,7 @@ export const stripeClient = {
       proration_behavior: 'create_prorations',
     });
 
-    console.log(`[STRIPE] Updated subscription item ${subscriptionItemId} to $${newPriceMonthlyUsd}/mo`);
+    console.log(`[STRIPE] Updated subscription item ${subscriptionItemId} to ${resolved.intervalLabel}`);
   },
 
   /**

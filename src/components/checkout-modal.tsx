@@ -40,6 +40,8 @@ const PLAN_META: Record<number, { label: string; tag?: string }> = {
   3: { label: "Ultra" },
 };
 
+const DEFAULT_TEMPLATE_NAME = "justavps standard";
+
 /* ═══ Helpers ═══ */
 
 function CheckRow({
@@ -119,6 +121,9 @@ function ImageChoiceRow({
           {image.kind === "template" ? "Template" : "Snapshot"}
           {image.disk_size_gb ? ` · ${image.disk_size_gb} GB` : ""}
         </p>
+        {image.description ? (
+          <p className="text-[10px] text-muted-foreground/80 line-clamp-2 mt-0.5">{image.description}</p>
+        ) : null}
       </div>
     </div>
   );
@@ -172,9 +177,9 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
 
   const publicTemplates =
     allImages?.filter(
-      (img) => img.status === "ready" && img.kind === "template",
+      (img) => img.status === "ready" && img.kind === "template" && img.name !== DEFAULT_TEMPLATE_NAME,
     ) ?? [];
-  const userSnapshots =
+  const userImages =
     allImages?.filter(
       (img) => img.status === "ready" && img.kind === "snapshot",
     ) ?? [];
@@ -225,7 +230,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
     if (mode === "template") {
       setSelectedImageId((c) => c ?? publicTemplates[0]?.id ?? null);
     } else if (mode === "snapshot") {
-      setSelectedImageId((c) => c ?? userSnapshots[0]?.id ?? null);
+      setSelectedImageId((c) => c ?? userImages[0]?.id ?? null);
     } else {
       setSelectedImageId(null);
     }
@@ -418,14 +423,6 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
             {/* ─── Config (logged-in) ─── */}
             {isLoggedIn && (
               <div className="space-y-3">
-                {/* Name input */}
-                <Input
-                  placeholder="Machine name (auto-generated if blank)"
-                  value={machineName}
-                  onChange={(e) => setMachineName(e.target.value)}
-                  className="h-8 text-xs"
-                />
-
                 {/* SSH — single compact row */}
                 <div className="flex items-center gap-2 flex-wrap">
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -479,10 +476,16 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
 
                 {showAdvanced && (
                   <div className="space-y-3 rounded-lg border border-border/50 bg-muted/5 p-3">
+                    <Input
+                      placeholder="Machine name (auto-generated if blank)"
+                      value={machineName}
+                      onChange={(e) => setMachineName(e.target.value)}
+                      className="h-8 text-xs"
+                    />
                     <div className="grid grid-cols-4 gap-1.5">
-                      <CheckRow checked={templateMode === "default"} onToggle={() => chooseMode("default")} icon={Monitor} title="Default" />
-                      <CheckRow checked={templateMode === "template"} onToggle={() => chooseMode("template")} icon={Box} title="Template" disabled={publicTemplates.length === 0} />
-                      <CheckRow checked={templateMode === "snapshot"} onToggle={() => chooseMode("snapshot")} icon={HardDrive} title="Snapshot" disabled={userSnapshots.length === 0} />
+                      <CheckRow checked={templateMode === "default"} onToggle={() => chooseMode("default")} icon={Monitor} title="justavps standard" />
+                      <CheckRow checked={templateMode === "template"} onToggle={() => chooseMode("template")} icon={Box} title="Templates" disabled={publicTemplates.length === 0} />
+                      <CheckRow checked={templateMode === "snapshot"} onToggle={() => chooseMode("snapshot")} icon={HardDrive} title="My Images" disabled={userImages.length === 0} />
                       <CheckRow checked={templateMode === "docker"} onToggle={() => chooseMode("docker")} icon={Container} title="Docker" />
                     </div>
 
@@ -493,9 +496,9 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                         ))}
                       </div>
                     )}
-                    {templateMode === "snapshot" && userSnapshots.length > 0 && (
+                    {templateMode === "snapshot" && userImages.length > 0 && (
                       <div className="space-y-1">
-                        {userSnapshots.map((image) => (
+                        {userImages.map((image) => (
                           <ImageChoiceRow key={image.id} image={image} selected={selectedImageId === image.id} onClick={() => setSelectedImageId(image.id)} />
                         ))}
                       </div>

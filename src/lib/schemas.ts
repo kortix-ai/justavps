@@ -10,7 +10,7 @@ import { z } from '@hono/zod-openapi';
 // ─── Machine Schemas ────────────────────────────────────────────────────────
 
 export const CreateMachineSchema = z.object({
-  image_id: z.string().uuid().optional().nullable().describe('Image to boot from. Null = Ubuntu 24.04'),
+  image_id: z.string().optional().nullable().describe('Image or built-in template to boot from. Null = default JustAVPS base'),
   provider: z.string().min(1).default('cloud').describe('Cloud provider'),
   server_type: z.string().min(1).describe('Server type / plan identifier'),
   region: z.string().min(1).describe('Region (e.g. "eu", "us")'),
@@ -19,6 +19,7 @@ export const CreateMachineSchema = z.object({
   docker_image: z.string().optional().describe('Docker image to run on boot (e.g. "myapp:latest")'),
   entrypoint: z.string().optional().describe('Entrypoint for the Docker container'),
   ssh_key_ids: z.array(z.string().uuid()).optional().describe('IDs of user SSH keys to add to the machine. Auto-generated key is always included.'),
+  billing_interval: z.enum(['monthly', 'yearly', '2year']).optional().default('monthly').describe('Billing interval: monthly, yearly (20% off), or 2year (30% off, billed annually)'),
 });
 
 export const ResizeMachineSchema = z.object({
@@ -44,7 +45,7 @@ export const MachineResponseSchema = z.object({
   provisioning_stage: z.string().nullable(),
   provisioning_stage_updated_at: z.string().nullable(),
   provider: z.string(),
-  image_id: z.string().uuid().nullable(),
+  image_id: z.string().nullable(),
   server_type: z.string(),
   region: z.string(),
   ip: z.string().nullable(),
@@ -98,11 +99,13 @@ export const ResizeResponseSchema = z.object({
 // ─── Image Schemas ──────────────────────────────────────────────────────────
 
 export const ImageResponseSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string(),
   name: z.string(),
+  description: z.string().nullable(),
   status: z.enum(['creating', 'ready', 'failed', 'deleted']),
-  is_public: z.boolean(),
-  source_machine_id: z.string().uuid().nullable(),
+  kind: z.enum(['template', 'snapshot']),
+  is_template: z.boolean(),
+  source_machine_id: z.string().nullable(),
   provider: z.string(),
   provider_image_id: z.string().nullable(),
   disk_size_gb: z.number().nullable(),
