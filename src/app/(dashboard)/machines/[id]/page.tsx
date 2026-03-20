@@ -1044,7 +1044,7 @@ export default function MachineDetailPage() {
                   </div>
                   <p className="text-xs text-muted-foreground">Add host to SSH config (run once):</p>
                   <CodeBlock
-                    text={`grep -q "Host ${machine.slug}" ~/.ssh/config 2>/dev/null || printf '\\nHost ${machine.slug}\\n  HostName ${machine.ip}\\n  User root\\n  IdentityFile ${sshKeyPath}\\n  StrictHostKeyChecking no\\n' >> ~/.ssh/config`}
+                    text={`grep -q "Host ${machine.slug}" ~/.ssh/config 2>/dev/null || cat >> ~/.ssh/config << 'EOF'\n\nHost ${machine.slug}\n  HostName ${machine.ip}\n  User root\n  IdentityFile ${sshKeyPath}\n  StrictHostKeyChecking no\nEOF`}
                     label="SSH config"
                     variant="green"
                   />
