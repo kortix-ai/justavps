@@ -126,6 +126,30 @@ export function useStartMachine() {
   });
 }
 
+/** Cancel a machine subscription at the end of the current billing period */
+export function useCancelMachine() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post(`/machines/${id}/cancel`),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: machineKeys.detail(id) });
+      qc.invalidateQueries({ queryKey: machineKeys.all });
+    },
+  });
+}
+
+/** Reactivate a machine subscription (reverse scheduled cancellation) */
+export function useReactivateMachine() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post(`/machines/${id}/reactivate`),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: machineKeys.detail(id) });
+      qc.invalidateQueries({ queryKey: machineKeys.all });
+    },
+  });
+}
+
 interface ResizeInput {
   id: string;
   server_type: string;

@@ -529,6 +529,123 @@ machinesApp.openapi(destroyMachineRoute, async (c) => {
   }
 });
 
+// ─── POST /:id/cancel — Cancel subscription at period end ───────────────────
+
+const cancelMachineRoute = createRoute({
+  method: 'post',
+  path: '/{id}/cancel',
+  tags: ['Machines'],
+  security: bearerSecurity,
+  summary: 'Cancel a machine subscription',
+  description: 'Schedules the machine for cancellation at the end of the current billing period. The machine keeps running until then. Use `POST /:id/reactivate` to undo.',
+  request: {
+    params: z.object({ id: z.string().uuid().openapi({ description: 'Machine ID' }) }),
+  },
+  responses: {
+    200: {
+      description: 'Cancellation scheduled',
+      content: { 'application/json': { schema: ActionResponseSchema } },
+    },
+    400: { description: 'Bad Request', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+machinesApp.openapi(cancelMachineRoute, async (c) => {
+  const { id } = c.req.valid('param');
+  const ownerId = c.get('userId');
+
+  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  if (owned.response) return owned.response as any;
+
+  if (owned.resource.status === 'deleted') {
+    return errorResponse(c, 400, 'Machine is already deleted') as any;
+  }
+
+  // Find the linked subscription
+  const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.machineId, id));
+  if (!sub) {
+    return errorResponse(c, 400, 'No active subscription found for this machine') as any;
+  }
+  if (sub.cancelAtPeriodEnd) {
+    return errorResponse(c, 400, 'Subscription is already scheduled for cancellation') as any;
+  }
+
+  try {
+    const updated = await stripeClient.cancelAtPeriodEnd(sub.stripeSubscriptionId);
+
+    // Sync cancellation state to our DB immediately (webhook will also sync, but be proactive)
+    await db.update(subscriptions).set({
+      cancelAtPeriodEnd: true,
+      cancelAt: updated.cancel_at ? new Date(updated.cancel_at * 1000) : null,
+      cancelledAt: updated.canceled_at ? new Date(updated.canceled_at * 1000) : null,
+      currentPeriodEnd: new Date((updated as unknown as { current_period_end: number }).current_period_end * 1000),
+      updatedAt: new Date(),
+    }).where(eq(subscriptions.id, sub.id));
+
+    return c.json({ action: 'cancel', status: 'scheduled' }, 200);
+  } catch (err) {
+    return handleRouteError(c, err, 'MACHINES') as any;
+  }
+});
+
+// ─── POST /:id/reactivate — Reverse a scheduled cancellation ────────────────
+
+const reactivateMachineRoute = createRoute({
+  method: 'post',
+  path: '/{id}/reactivate',
+  tags: ['Machines'],
+  security: bearerSecurity,
+  summary: 'Reactivate a cancelled subscription',
+  description: 'Reverses a scheduled cancellation. The subscription continues as normal and the machine will not be deleted.',
+  request: {
+    params: z.object({ id: z.string().uuid().openapi({ description: 'Machine ID' }) }),
+  },
+  responses: {
+    200: {
+      description: 'Subscription reactivated',
+      content: { 'application/json': { schema: ActionResponseSchema } },
+    },
+    400: { description: 'Bad Request', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+machinesApp.openapi(reactivateMachineRoute, async (c) => {
+  const { id } = c.req.valid('param');
+  const ownerId = c.get('userId');
+
+  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  if (owned.response) return owned.response as any;
+
+  // Find the linked subscription
+  const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.machineId, id));
+  if (!sub) {
+    return errorResponse(c, 400, 'No subscription found for this machine') as any;
+  }
+  if (!sub.cancelAtPeriodEnd) {
+    return errorResponse(c, 400, 'Subscription is not scheduled for cancellation') as any;
+  }
+
+  try {
+    await stripeClient.reactivateSubscription(sub.stripeSubscriptionId);
+
+    // Sync reactivation state to our DB immediately
+    await db.update(subscriptions).set({
+      cancelAtPeriodEnd: false,
+      cancelAt: null,
+      cancelledAt: null,
+      updatedAt: new Date(),
+    }).where(eq(subscriptions.id, sub.id));
+
+    return c.json({ action: 'reactivate', status: 'completed' }, 200);
+  } catch (err) {
+    return handleRouteError(c, err, 'MACHINES') as any;
+  }
+});
+
 // ─── POST /:id/reboot ───────────────────────────────────────────────────────
 
 const rebootMachineRoute = createRoute({

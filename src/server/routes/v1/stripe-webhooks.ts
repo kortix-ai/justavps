@@ -509,14 +509,20 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
       }
     }
 
-    // Sync cancel_at_period_end + cancel_at + status to subscriptions table
+    // Sync cancel_at_period_end + cancel_at + period dates + status to subscriptions table
     const cancelAt = subscription.cancel_at ? new Date(subscription.cancel_at * 1000) : null;
     const cancelledAt = subscription.canceled_at ? new Date(subscription.canceled_at * 1000) : null;
+    const currentPeriodStart = (subscription as unknown as { current_period_start?: number }).current_period_start
+      ? new Date((subscription as unknown as { current_period_start: number }).current_period_start * 1000) : undefined;
+    const currentPeriodEnd = (subscription as unknown as { current_period_end?: number }).current_period_end
+      ? new Date((subscription as unknown as { current_period_end: number }).current_period_end * 1000) : undefined;
     await db.update(subscriptions).set({
       status: newStatus,
       cancelAtPeriodEnd: subscription.cancel_at_period_end,
       cancelAt,
       cancelledAt,
+      ...(currentPeriodStart ? { currentPeriodStart } : {}),
+      ...(currentPeriodEnd ? { currentPeriodEnd } : {}),
       updatedAt: new Date(),
     }).where(eq(subscriptions.id, sub.id));
 

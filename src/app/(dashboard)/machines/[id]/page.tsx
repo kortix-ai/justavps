@@ -24,6 +24,8 @@ import {
   useRebootMachine,
   useStopMachine,
   useStartMachine,
+  useCancelMachine,
+  useReactivateMachine,
   useBackups,
   useCreateBackup,
   useToggleBackups,
@@ -62,7 +64,7 @@ import {
 } from "lucide-react";
 import { RescaleDialog } from "@/components/dashboard/rescale-dialog";
 import Link from "next/link";
-import { timeAgo, cn, regionDisplay, planName, planSpecs } from "@/lib/utils";
+import { timeAgo, cn, regionDisplay, planName, planSpecs, PROXY_DOMAIN } from "@/lib/utils";
 
 const Terminal = dynamic(() => import("@/components/dashboard/terminal"), {
   ssr: false,
@@ -404,9 +406,12 @@ function BackupsPanel({ machineId }: { machineId: string }) {
 }
 
 /* ─── Port Forwarding (inline, no wrapper card) ─────────────────────── */
-function PortForwardCard({ slug }: { slug: string }) {
+function PortForwardCard({ slug, portTemplate }: { slug: string; portTemplate?: string | null }) {
   const [port, setPort] = useState("");
-  const url = port ? `https://${port}--${slug}.kortix.cloud` : "";
+  const template = portTemplate && portTemplate.includes('{port}')
+    ? portTemplate
+    : `https://{port}--${slug}.${PROXY_DOMAIN}`;
+  const url = port ? template.replace('{port}', port) : "";
   return (
     <div className="space-y-3">
       <div className="flex gap-2 flex-wrap items-center">
@@ -436,7 +441,7 @@ function PortForwardCard({ slug }: { slug: string }) {
         <p className="text-xs text-muted-foreground">
           Pattern:{" "}
           <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-[11px]">
-            {`{port}--${slug}.kortix.cloud`}
+            {template}
           </code>
         </p>
       )}
@@ -503,8 +508,11 @@ export default function MachineDetailPage() {
   const rebootMachine = useRebootMachine();
   const stopMachine = useStopMachine();
   const startMachine = useStartMachine();
+  const cancelMachine = useCancelMachine();
+  const reactivateMachine = useReactivateMachine();
   const createImage = useCreateImage();
   const isDevMode = process.env.NEXT_PUBLIC_DEV_MODE === "true";
+  const [confirmCancel, ConfirmCancelDialog] = useConfirm();
 
   const handleReboot = () => {
     rebootMachine.mutate(machineId, {
@@ -747,6 +755,55 @@ export default function MachineDetailPage() {
               Start
             </Button>
            )}
+          {/* Cancel / Reactivate subscription */}
+          {machine.subscription?.cancel_at_period_end ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1.5 text-emerald-600 hover:text-emerald-600 hover:bg-emerald-500/10 border-emerald-500/30"
+              onClick={() => {
+                reactivateMachine.mutate(machineId, {
+                  onSuccess: () => toast.success("Subscription reactivated"),
+                  onError: (err) => toast.error(err.message),
+                });
+              }}
+              disabled={reactivateMachine.isPending}
+            >
+              {reactivateMachine.isPending ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Power className="size-3.5" />
+              )}
+              Reactivate
+            </Button>
+          ) : machine.subscription && machine.status !== "deleted" ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1.5 text-red-600 hover:text-red-600 hover:bg-red-500/10 border-red-500/30"
+              onClick={async () => {
+                const ok = await confirmCancel({
+                  title: "Cancel Subscription",
+                  description: "Your machine will keep running until the end of your billing period, then it will be permanently deleted. You can reactivate at any time before then.",
+                  confirmLabel: "Cancel Subscription",
+                  variant: "destructive",
+                });
+                if (!ok) return;
+                cancelMachine.mutate(machineId, {
+                  onSuccess: () => toast.success("Subscription cancelled — machine will be deleted at the end of your billing period"),
+                  onError: (err) => toast.error(err.message),
+                });
+              }}
+              disabled={cancelMachine.isPending}
+            >
+              {cancelMachine.isPending ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <CalendarX2 className="size-3.5" />
+              )}
+              Cancel
+            </Button>
+          ) : null}
           {isDevMode && (
             <Button
               variant="outline"
@@ -794,18 +851,35 @@ export default function MachineDetailPage() {
               Subscription cancelled
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              This sandbox will be deleted on{" "}
+              This machine will be permanently deleted on{" "}
               <span className="font-medium text-foreground">
                 {machine.subscription.cancel_at
                   ? new Date(machine.subscription.cancel_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
-                  : "the end of your billing period"}
+                  : machine.subscription.current_period_end
+                    ? new Date(machine.subscription.current_period_end).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+                    : "the end of your billing period"}
               </span>
-              . To undo, reactivate your subscription in{" "}
-              <Link href="/billing" className="text-primary hover:underline font-medium">
-                Billing
-              </Link>
               .
             </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2 h-7 text-xs gap-1.5"
+              onClick={() => {
+                reactivateMachine.mutate(machineId, {
+                  onSuccess: () => toast.success("Subscription reactivated"),
+                  onError: (err) => toast.error(err.message),
+                });
+              }}
+              disabled={reactivateMachine.isPending}
+            >
+              {reactivateMachine.isPending ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : (
+                <Power className="size-3" />
+              )}
+              Reactivate Subscription
+            </Button>
           </div>
         </div>
       )}
@@ -1008,39 +1082,46 @@ export default function MachineDetailPage() {
 
           {/* ── PROXY ──────────────────────────────────────────────────── */}
           <TabsContent value="proxy" className="mt-0">
-            <div className="rounded-xl border bg-card overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 border-b">
-                <div className="flex items-center gap-2">
-                  <Globe className="size-3.5 text-muted-foreground" />
-                  <span className="text-sm font-medium">Web Proxy</span>
+            {(() => {
+              const proxyUrl = machine.urls?.proxy ?? `https://${machine.slug}.${PROXY_DOMAIN}`;
+              const portTemplate = machine.urls?.port_template ?? `https://{port}--${machine.slug}.${PROXY_DOMAIN}`;
+
+              return (
+                <div className="rounded-xl border bg-card overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 border-b">
+                    <div className="flex items-center gap-2">
+                      <Globe className="size-3.5 text-muted-foreground" />
+                      <span className="text-sm font-medium">Web Proxy</span>
+                    </div>
+                    <a
+                      href={proxyUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <ExternalLink className="size-3" /> Open
+                    </a>
+                  </div>
+                  <div className="p-4 space-y-4">
+                    {/* Root URL */}
+                    <div className="space-y-1.5">
+                      <p className="text-xs text-muted-foreground">Root URL — port 80 by default</p>
+                      <CodeBlock text={proxyUrl} label="URL" />
+                    </div>
+                    {/* Divider */}
+                    <div className="flex items-center gap-3">
+                      <div className="h-px flex-1 bg-border/60" />
+                      <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                        <Link2 className="size-3" /> Port forwarding
+                      </span>
+                      <div className="h-px flex-1 bg-border/60" />
+                    </div>
+                    {/* Port forward */}
+                    <PortForwardCard slug={machine.slug} portTemplate={portTemplate} />
+                  </div>
                 </div>
-                <a
-                  href={`https://${machine.slug}.kortix.cloud`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <ExternalLink className="size-3" /> Open
-                </a>
-              </div>
-              <div className="p-4 space-y-4">
-                {/* Root URL */}
-                <div className="space-y-1.5">
-                  <p className="text-xs text-muted-foreground">Root URL — port 80 by default</p>
-                  <CodeBlock text={`https://${machine.slug}.kortix.cloud`} label="URL" />
-                </div>
-                {/* Divider */}
-                <div className="flex items-center gap-3">
-                  <div className="h-px flex-1 bg-border/60" />
-                  <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                    <Link2 className="size-3" /> Port forwarding
-                  </span>
-                  <div className="h-px flex-1 bg-border/60" />
-                </div>
-                {/* Port forward */}
-                <PortForwardCard slug={machine.slug} />
-              </div>
-            </div>
+              );
+            })()}
           </TabsContent>
 
           {/* ── STATS ─────────────────────────────────────────────────── */}
@@ -1186,6 +1267,7 @@ export default function MachineDetailPage() {
       )}
 
       <ConfirmDeleteDialog />
+      <ConfirmCancelDialog />
 
       {machine && (
         <RescaleDialog open={rescaleOpen} onOpenChange={setRescaleOpen} machine={machine} />

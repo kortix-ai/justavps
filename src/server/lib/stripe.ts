@@ -328,6 +328,30 @@ export const stripeClient = {
   },
 
   /**
+   * Schedule a subscription to cancel at the end of the current billing period.
+   * The machine keeps running until the period ends, then Stripe fires
+   * `customer.subscription.deleted` and the webhook destroys the machine.
+   */
+  async cancelAtPeriodEnd(subscriptionId: string): Promise<Stripe.Subscription> {
+    const subscription = await stripe.subscriptions.update(subscriptionId, {
+      cancel_at_period_end: true,
+    });
+    console.log(`[STRIPE] Subscription ${subscriptionId} scheduled for cancellation at period end`);
+    return subscription;
+  },
+
+  /**
+   * Reverse a scheduled cancellation — subscription continues as normal.
+   */
+  async reactivateSubscription(subscriptionId: string): Promise<Stripe.Subscription> {
+    const subscription = await stripe.subscriptions.update(subscriptionId, {
+      cancel_at_period_end: false,
+    });
+    console.log(`[STRIPE] Subscription ${subscriptionId} reactivated (cancellation reversed)`);
+    return subscription;
+  },
+
+  /**
    * Update a subscription price (on machine resize).
    */
   async updateMachineSubscription(
