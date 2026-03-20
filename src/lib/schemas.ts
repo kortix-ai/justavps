@@ -281,6 +281,7 @@ export const AccountLimitsResponseSchema = z.object({
 export const HeartbeatSchema = z.object({
   slug: z.string(),
   machine_token: z.string(),
+  daemon_version: z.string().optional(),
   uptime: z.number(),
   services: z.record(z.string(), z.boolean()),
   load: z.object({

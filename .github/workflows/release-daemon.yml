@@ -3,7 +3,9 @@ name: Release Daemon
 # Builds and uploads the daemon binary to R2 whenever daemon/ code changes.
 # - production branch → daemon/latest/ (production download path)
 # - main branch       → daemon/dev/latest/ (dev download path)
-# Vercel auto-deploys the Next.js app on push — this handles the Go binary side.
+#
+# After upload, writes a version.txt so the platform knows the latest version
+# and can trigger fleet-wide self-updates via heartbeat responses.
 
 on:
   push:
@@ -59,21 +61,28 @@ jobs:
         run: |
           SHA="${GITHUB_SHA::7}"
 
-          # Upload as latest
+          # Upload binary as latest
           curl -sf -X PUT \
             "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/r2/buckets/justavps-releases/objects/${PREFIX}/latest/justavps-daemon-linux-amd64" \
             -H "X-Auth-Email: ${CF_EMAIL}" \
             -H "X-Auth-Key: ${CF_API_KEY}" \
             --data-binary @daemon/bin/justavps-daemon-linux-amd64
 
-          # Also upload versioned copy for rollbacks
+          # Upload versioned copy for rollbacks
           curl -sf -X PUT \
             "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/r2/buckets/justavps-releases/objects/${PREFIX}/${SHA}/justavps-daemon-linux-amd64" \
             -H "X-Auth-Email: ${CF_EMAIL}" \
             -H "X-Auth-Key: ${CF_API_KEY}" \
             --data-binary @daemon/bin/justavps-daemon-linux-amd64
 
-          echo "✅ Uploaded daemon ${SHA} to R2 at ${PREFIX}/ (latest + versioned)"
+          # Write version.txt — platform reads this to know the latest version
+          echo -n "${SHA}" | curl -sf -X PUT \
+            "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/r2/buckets/justavps-releases/objects/${PREFIX}/latest/version.txt" \
+            -H "X-Auth-Email: ${CF_EMAIL}" \
+            -H "X-Auth-Key: ${CF_API_KEY}" \
+            --data-binary @-
+
+          echo "✅ Uploaded daemon ${SHA} to R2 at ${PREFIX}/ (latest + versioned + version.txt)"
 
       - name: Verify download
         env:
@@ -83,3 +92,10 @@ jobs:
             "https://pub-caf7762051b942d5a801397d750a0dc3.r2.dev/${PREFIX}/latest/justavps-daemon-linux-amd64"
           echo ""
           chmod +x /tmp/verify && /tmp/verify --version
+
+          # Verify version.txt
+          REMOTE_VERSION=$(curl -sf "https://pub-caf7762051b942d5a801397d750a0dc3.r2.dev/${PREFIX}/latest/version.txt")
+          echo "version.txt = ${REMOTE_VERSION}"
+          echo "### Daemon Released" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** ${REMOTE_VERSION}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Channel:** ${PREFIX}" >> $GITHUB_STEP_SUMMARY

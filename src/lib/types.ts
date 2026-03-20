@@ -26,6 +26,7 @@ export interface Machine {
   backups_enabled: boolean;
   created_at: string;
   ready_at: string | null;
+  daemon_version: string | null;
   urls: { proxy: string; terminal: string; port_template: string } | null;
   ssh: string | null;
   ssh_key: {

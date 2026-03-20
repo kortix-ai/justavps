@@ -98,6 +98,7 @@ function serializeMachine(m: typeof machines.$inferSelect) {
     },
     source: m.source || 'user',
     kortix_sandbox_id: m.kortixSandboxId ?? null,
+    daemon_version: m.daemonVersion ?? null,
     health: m.lastHeartbeat ? {
       ...m.lastHeartbeat,
       last_heartbeat_at: m.lastHeartbeatAt?.toISOString() ?? null,

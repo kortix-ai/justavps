@@ -100,6 +100,9 @@ export const machines = pgTable('machines', {
   provisioningStage: text('provisioning_stage'), // server_creating | server_created | cloud_init_running | cloud_init_done | docker_pulling | docker_running | services_starting | services_ready
   provisioningStageUpdatedAt: timestamp('provisioning_stage_updated_at'),
 
+  // Daemon
+  daemonVersion: text('daemon_version'),
+
   // Health
   lastHeartbeatAt: timestamp('last_heartbeat_at'),
   lastHeartbeat: jsonb('last_heartbeat').$type<{

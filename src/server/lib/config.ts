@@ -37,6 +37,10 @@ export const config = {
   API_URL: (process.env.NEXT_PUBLIC_API_URL || 'https://justavps.com/api').trim(),
   // Daemon release channel: "dev" downloads from daemon/dev/latest/, "latest" (default) from daemon/latest/
   DAEMON_CHANNEL: (process.env.DAEMON_CHANNEL || 'latest').trim() as 'dev' | 'latest',
+  // Daemon auto-update: set to a version string (e.g. "a1b2c3d") to trigger fleet-wide update.
+  // Machines with a different daemon_version will be told to update on their next heartbeat.
+  DAEMON_DESIRED_VERSION: (process.env.DAEMON_DESIRED_VERSION || '').trim(),
+  DAEMON_DOWNLOAD_URL: (process.env.DAEMON_DOWNLOAD_URL || '').trim(),
 
   // Pricing
   COMPUTE_MARKUP: parseFloat(process.env.COMPUTE_MARKUP || '2.5'),

@@ -59,7 +59,8 @@ func main() {
 	log.Printf("Machine %s starting (daemon %s)", cfg.Slug, version)
 
 	health := NewHealthChecker()
-	heartbeat := NewHeartbeater(cfg, health)
+	updater := NewUpdater()
+	heartbeat := NewHeartbeater(cfg, health, updater)
 
 	// ── Public server :80 — the single front door ────────────────────────
 	proxy := NewProxyRouter()

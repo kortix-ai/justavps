@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"time"
@@ -14,17 +15,19 @@ const heartbeatInterval = 30 * time.Second
 
 // Heartbeater sends periodic health reports to the JustAVPS platform.
 type Heartbeater struct {
-	cfg    *Config
-	health *HealthChecker
-	client *http.Client
+	cfg     *Config
+	health  *HealthChecker
+	updater *Updater
+	client  *http.Client
 }
 
 type heartbeatPayload struct {
-	Slug         string          `json:"slug"`
-	MachineToken string          `json:"machine_token"`
-	Uptime       int64           `json:"uptime"`
-	Services     map[string]bool `json:"services"`
-	Load         loadPayload     `json:"load"`
+	Slug          string          `json:"slug"`
+	MachineToken  string          `json:"machine_token"`
+	DaemonVersion string          `json:"daemon_version"`
+	Uptime        int64           `json:"uptime"`
+	Services      map[string]bool `json:"services"`
+	Load          loadPayload     `json:"load"`
 }
 
 type loadPayload struct {
@@ -33,11 +36,18 @@ type loadPayload struct {
 	Disk   float64 `json:"disk"`
 }
 
-func NewHeartbeater(cfg *Config, health *HealthChecker) *Heartbeater {
+// heartbeatResponse is the platform's response to a heartbeat.
+type heartbeatResponse struct {
+	Ack    bool               `json:"ack"`
+	Update *UpdateInstruction `json:"update,omitempty"`
+}
+
+func NewHeartbeater(cfg *Config, health *HealthChecker, updater *Updater) *Heartbeater {
 	return &Heartbeater{
-		cfg:    cfg,
-		health: health,
-		client: &http.Client{Timeout: 10 * time.Second},
+		cfg:     cfg,
+		health:  health,
+		updater: updater,
+		client:  &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -63,10 +73,11 @@ func (h *Heartbeater) send() {
 	snap := h.health.Collect()
 
 	payload := heartbeatPayload{
-		Slug:         h.cfg.Slug,
-		MachineToken: h.cfg.MachineToken,
-		Uptime:       snap.Uptime,
-		Services:     snap.Services,
+		Slug:          h.cfg.Slug,
+		MachineToken:  h.cfg.MachineToken,
+		DaemonVersion: version,
+		Uptime:        snap.Uptime,
+		Services:      snap.Services,
 		Load: loadPayload{
 			CPU:    snap.CPU,
 			Memory: snap.Memory,
@@ -97,6 +108,22 @@ func (h *Heartbeater) send() {
 
 	if resp.StatusCode >= 400 {
 		log.Printf("Heartbeat rejected: %d", resp.StatusCode)
+		return
+	}
+
+	// Parse response for update instructions
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
+
+	var hbResp heartbeatResponse
+	if err := json.Unmarshal(respBody, &hbResp); err != nil {
+		return
+	}
+
+	if hbResp.Update != nil {
+		h.updater.MaybeUpdate(*hbResp.Update)
 	}
 }
 

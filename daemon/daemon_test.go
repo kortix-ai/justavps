@@ -159,7 +159,7 @@ func TestHeartbeatPayload(t *testing.T) {
 
 	cfg := &Config{Slug: "hb-test", CallbackURL: mock.URL, MachineToken: "mt_hb"}
 	health := NewHealthChecker()
-	hb := NewHeartbeater(cfg, health)
+	hb := NewHeartbeater(cfg, health, NewUpdater())
 	hb.send()
 
 	p := <-received

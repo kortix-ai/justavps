@@ -12,6 +12,7 @@ import { cloudflareClient } from '../../lib/cloudflare';
 import { config } from '../../lib/config';
 import { errorResponse } from '../../lib/route-helpers';
 import { eventBus } from '../../lib/event-bus';
+import { getLatestDaemonVersion } from '../../lib/daemon-version';
 import {
   HeartbeatSchema,
   StageReportSchema,
@@ -48,7 +49,7 @@ const heartbeatRoute = createRoute({
 });
 
 internalApp.openapi(heartbeatRoute, async (c) => {
-  const { slug, machine_token, uptime, services, load } = c.req.valid('json');
+  const { slug, machine_token, daemon_version, uptime, services, load } = c.req.valid('json');
   try {
     const [machine] = await db.select().from(machines).where(eq(machines.slug, slug));
     if (!machine || machine.machineToken !== machine_token) {
@@ -59,6 +60,7 @@ internalApp.openapi(heartbeatRoute, async (c) => {
     await db.update(machines).set({
       lastHeartbeatAt: new Date(),
       lastHeartbeat: { cpu: load.cpu, memory: load.memory, disk: load.disk, services },
+      ...(daemon_version ? { daemonVersion: daemon_version } : {}),
       ...(wasProvisioning ? { status: 'ready', readyAt: new Date() } : {}),
     }).where(eq(machines.id, machine.id));
 
@@ -69,7 +71,7 @@ internalApp.openapi(heartbeatRoute, async (c) => {
       machineId: machine.id,
       ownerId: machine.ownerId,
       event: 'heartbeat',
-      metadata: { uptime, services, load },
+      metadata: { uptime, services, load, daemon_version },
       timestamp: new Date().toISOString(),
     });
 
@@ -81,6 +83,17 @@ internalApp.openapi(heartbeatRoute, async (c) => {
         status: 'ready',
         server_type: machine.serverType,
       }).catch(() => {});
+    }
+
+    // Check if daemon needs updating
+    if (daemon_version) {
+      const latest = await getLatestDaemonVersion();
+      if (latest && latest.version !== daemon_version) {
+        return c.json({
+          ack: true,
+          update: { version: latest.version, url: latest.url },
+        });
+      }
     }
 
     return c.json({ ack: true });
