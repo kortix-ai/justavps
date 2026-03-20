@@ -143,6 +143,20 @@ export class HetznerProvider implements ComputeProvider {
   readonly name = 'cloud' as const;
   readonly displayName = 'JustAVPS Cloud';
 
+  async validateImage(imageId: string): Promise<boolean> {
+    if (isNaN(Number(imageId))) return true;
+
+    try {
+      await hetznerFetch<{ image: HetznerImage }>(`/images/${imageId}`);
+      return true;
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('404')) {
+        return false;
+      }
+      throw err;
+    }
+  }
+
   async createImage(serverId: number, description: string): Promise<{ imageId: string; diskSize: number; architecture: string }> {
     const resp = await hetznerFetch<{ image: HetznerImage }>(
       `/servers/${serverId}/actions/create_image`,

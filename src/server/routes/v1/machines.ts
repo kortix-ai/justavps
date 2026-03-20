@@ -213,6 +213,18 @@ machinesApp.openapi(createMachineRoute, async (c) => {
     machineImageId = resolved.selection.machineImageId;
   }
 
+  if (resolvedImage !== 'ubuntu-24.04') {
+    const imageExists = await provider.validateImage(resolvedImage);
+    if (!imageExists) {
+      const imageLabel = machineImageId ? 'selected image' : 'default template image';
+      return errorResponse(
+        c,
+        400,
+        `${imageLabel} is no longer available on the provider. Reseed the template snapshots or choose a different image.`,
+      ) as any;
+    }
+  }
+
   const resolvedDockerImage = data.docker_image;
   const resolvedEntrypoint = data.entrypoint;
   const resolvedCommand = data.command;

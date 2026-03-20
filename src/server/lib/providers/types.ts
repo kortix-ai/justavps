@@ -43,6 +43,8 @@ export interface ComputeProvider {
   readonly name: string;
   readonly displayName: string;
 
+  validateImage(imageId: string): Promise<boolean>;
+
   createImage(serverId: number, description: string): Promise<{ imageId: string; diskSize: number; architecture: string }>;
   deleteImage(imageId: string): Promise<void>;
 
