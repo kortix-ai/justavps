@@ -274,10 +274,16 @@ export default function DocsPage() {
         </Step>
 
         <Step n={3} title="Connect">
-          <p>Copy the one-click SSH command from the dashboard and paste it into your terminal. That&apos;s it — you&apos;re in.</p>
-          <CodeBlock title="One-click connect (from dashboard)" lang="bash">{`mkdir -p ~/.ssh && echo '<key>' > ~/.ssh/justavps_mybox && chmod 600 ~/.ssh/justavps_mybox && ssh -i ~/.ssh/justavps_mybox root@95.217.x.x`}</CodeBlock>
-          <p>After the first connect, reconnect anytime:</p>
-          <CodeBlock lang="bash">{`ssh -i ~/.ssh/justavps_mybox root@95.217.x.x`}</CodeBlock>
+          <p>Open the <B>Connect</B> tab on your machine page. It walks you through saving your SSH key, adding the host to your config, and connecting — all with click-to-copy commands.</p>
+          <div className={cn("my-4 overflow-hidden rounded-xl border", "border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950")}>
+            <Image
+              src="/connect-tab-docs-preview.png"
+              alt="JustAVPS Connect tab showing SSH key setup, config snippet, and editor connection instructions"
+              width={1200}
+              height={800}
+              className="h-auto w-full"
+            />
+          </div>
         </Step>
 
         <Hr />
