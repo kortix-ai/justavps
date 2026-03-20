@@ -6,6 +6,8 @@ import { eq } from 'drizzle-orm';
 
 const TEMPLATE_OWNER_EMAIL = 'templates@justavps.internal';
 const TEMPLATE_OWNER_NAME = 'JustAVPS Templates';
+const BASE_TEMPLATE_SNAPSHOT_ID = process.env.HETZNER_BASE_SNAPSHOT_ID || '367950002';
+const KORTIX_TEMPLATE_SNAPSHOT_ID = process.env.HETZNER_KORTIX_TEMPLATE_SNAPSHOT_ID || '368326127';
 
 async function main() {
   let [templateOwner] = await db
@@ -27,8 +29,8 @@ async function main() {
   const ownerId = templateOwner.id;
   const existing = await db.select().from(images);
   const desired = [
-    { name: 'justavps standard', providerImageId: '367950002', description: 'Ubuntu 24.04 with the justavps daemon and core machine tooling preinstalled.' },
-    { name: 'Kortix', providerImageId: '368326127', description: 'Base justavps template with kortix.com self-hosting preinstalled.' },
+    { name: 'justavps standard', providerImageId: BASE_TEMPLATE_SNAPSHOT_ID, description: 'Ubuntu 24.04 with the justavps daemon and core machine tooling preinstalled.' },
+    { name: 'Kortix', providerImageId: KORTIX_TEMPLATE_SNAPSHOT_ID, description: 'Base justavps template with kortix.com self-hosting preinstalled.' },
   ];
 
   for (const template of desired) {
