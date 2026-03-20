@@ -6,10 +6,11 @@ export const sshKeyKeys = {
   all: ["ssh-keys"] as const,
 };
 
-export function useSSHKeys() {
+export function useSSHKeys(enabled = true) {
   return useQuery({
     queryKey: sshKeyKeys.all,
     queryFn: () => api.get<{ ssh_keys: SSHKey[] }>("/ssh-keys").then((d) => d.ssh_keys),
+    enabled,
   });
 }
 

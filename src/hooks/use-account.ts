@@ -30,10 +30,11 @@ export function useBillingPortal() {
   });
 }
 
-export function useAccountLimits() {
+export function useAccountLimits(enabled = true) {
   return useQuery({
     queryKey: accountKeys.limits,
     queryFn: () => api.get<AccountLimits>("/account/limits"),
+    enabled,
   });
 }
 

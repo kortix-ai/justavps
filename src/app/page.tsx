@@ -64,7 +64,7 @@ export default function Home() {
   }, []);
   return (
     <div className="min-h-screen flex flex-col bg-background text-foreground">
-      <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} />
+      {checkoutOpen && <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} />}
       {/* NAV */}
       <nav className="sticky top-0 z-50 w-full border-b border-border/50 bg-background/80 backdrop-blur-xl">
         <div className="relative max-w-5xl mx-auto flex items-center justify-between h-12 px-6">

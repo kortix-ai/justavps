@@ -6,10 +6,11 @@ export const imageKeys = {
   all: ["images"] as const,
 };
 
-export function useImages() {
+export function useImages(enabled = true) {
   return useQuery({
     queryKey: imageKeys.all,
     queryFn: () => api.get<{ images: Image[] }>("/images").then((d) => d.images),
+    enabled,
     refetchInterval: (query) => {
       const hasCreating = query.state.data?.some((s) => s.status === "creating");
       return hasCreating ? 5_000 : false;

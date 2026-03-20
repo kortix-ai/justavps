@@ -99,9 +99,9 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
   const providers = allProviders ?? [];
   const selectedProvider = providers[0]?.name || "";
   const { data: regions } = useRegions(selectedProvider || undefined);
-  const { data: limits } = useAccountLimits();
-  const { data: userSSHKeys } = useSSHKeys();
-  const { data: allImages } = useImages();
+  const { data: limits } = useAccountLimits(isLoggedIn);
+  const { data: userSSHKeys } = useSSHKeys(isLoggedIn);
+  const { data: allImages } = useImages(isLoggedIn);
 
   const [regionOverride, setRegionOverride] = useState("");
   const selectedRegion = regionOverride || pickDefaultRegion(regions) || "";
