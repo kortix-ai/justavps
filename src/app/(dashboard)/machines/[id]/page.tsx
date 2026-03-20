@@ -546,6 +546,8 @@ export default function MachineDetailPage() {
 
   const statusInfo = statusMap[machine.status] || statusMap.stopped;
   const isReady = machine.status === "ready";
+  const isResizing =
+    machine.status === "provisioning" && machine.provisioning_stage === "resizing";
   const uptime = machine.ready_at ? timeAgo(machine.ready_at) : null;
   const sshKeyPath = `~/.ssh/justavps_${machine.slug}`;
 
@@ -622,6 +624,17 @@ export default function MachineDetailPage() {
 
         {/* Right: actions */}
         <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+          {isResizing && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1.5 text-yellow-600 dark:text-yellow-400 border-yellow-500/30 cursor-default"
+              disabled
+            >
+              <Loader2 className="size-3.5 animate-spin" />
+              Scaling…
+            </Button>
+          )}
           {isReady && (
             <>
               <Button

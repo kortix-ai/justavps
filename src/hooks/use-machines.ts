@@ -144,7 +144,26 @@ export function useResizeMachine() {
     mutationFn: ({ id, server_type }: ResizeInput) =>
       api.post<ResizeResponse>(`/machines/${id}/resize`, { server_type }),
     onSuccess: (_data, { id }) => {
-      // Invalidate both detail and list — status goes to "provisioning" during resize
+      // Optimistically mark the machine as provisioning/resizing so the UI
+      // immediately shows the "Scaling in progress" banner without waiting for refetch.
+      qc.setQueryData<Machine>(machineKeys.detail(id), (old) =>
+        old
+          ? {
+              ...old,
+              status: "provisioning",
+              provisioning_stage: "resizing",
+              provisioning_stage_updated_at: new Date().toISOString(),
+            }
+          : old,
+      );
+      qc.setQueryData<Machine[]>(machineKeys.all, (old) =>
+        old?.map((m) =>
+          m.id === id
+            ? { ...m, status: "provisioning", provisioning_stage: "resizing" }
+            : m,
+        ),
+      );
+      // Then invalidate so both caches refresh from the server
       qc.invalidateQueries({ queryKey: machineKeys.detail(id) });
       qc.invalidateQueries({ queryKey: machineKeys.all });
     },
