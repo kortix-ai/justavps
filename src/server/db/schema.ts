@@ -110,6 +110,18 @@ export const machines = pgTable('machines', {
     memory: number;
     disk: number;
     services: Record<string, boolean>;
+    network?: {
+      bytes_in: number;
+      bytes_out: number;
+      rate_in: number;
+      rate_out: number;
+      connections: number;
+    };
+    security?: {
+      ufw_active: boolean;
+      fail2ban_active: boolean;
+      ssh_key_only: boolean;
+    };
   }>(),
 
   // Timestamps

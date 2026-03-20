@@ -4,6 +4,13 @@
   "installCommand": "pnpm install",
   "buildCommand": "pnpm deploy:prepare && pnpm build",
 
+  "crons": [
+    {
+      "path": "/api/v1/internal/watchdog",
+      "schedule": "*/5 * * * *"
+    }
+  ],
+
   "headers": [
     {
       "source": "/api/(.*)",

@@ -293,6 +293,28 @@ if command -v ufw &>/dev/null; then
   ufw --force enable
 fi
 
+# ── Install fail2ban (SSH brute-force protection) ─────────────────────────
+if ! command -v fail2ban-server &>/dev/null; then
+  apt-get update -qq && apt-get install -y -qq fail2ban >/dev/null 2>&1 || true
+fi
+if command -v fail2ban-server &>/dev/null; then
+  cat > /etc/fail2ban/jail.local << 'FAIL2BANEOF'
+[DEFAULT]
+bantime = 3600
+findtime = 600
+maxretry = 5
+backend = systemd
+
+[sshd]
+enabled = true
+port = 22
+filter = sshd
+logpath = /var/log/auth.log
+FAIL2BANEOF
+  systemctl enable fail2ban 2>/dev/null || true
+  systemctl restart fail2ban 2>/dev/null || true
+fi
+
 if [ ! -f /usr/local/bin/justavps-docker-guard.sh ]; then
   cat > /usr/local/bin/justavps-docker-guard.sh << 'DOCKERGUARDEOF'
 #!/bin/bash
@@ -356,6 +378,29 @@ Environment=HOME=/home/user
 WantedBy=multi-user.target
 SAEOF
 fi
+
+# ── Harden daemon systemd service (overwrite snapshot version) ─────────────
+cat > /etc/systemd/system/justavps-daemon.service << 'DAEMONSERVICEEOF'
+[Unit]
+Description=JustAVPS Daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/justavps-daemon --config /etc/justavps/config.json
+Restart=always
+RestartSec=2
+StartLimitIntervalSec=0
+WatchdogSec=120
+
+# Hardening: make it inconvenient to disable
+# Service restarts immediately on any exit (including SIGKILL)
+# StartLimitIntervalSec=0 means no restart rate limiting
+
+[Install]
+WantedBy=multi-user.target
+DAEMONSERVICEEOF
 
 ${stageCallback('cloud_init_done', 'Starting services')}
 

@@ -328,5 +328,68 @@ describe('validation schemas', () => {
         expect(result.success).toBe(false);
       });
     });
+
+    it('should accept heartbeat with network stats', () => {
+      const dataWithNetwork = {
+        ...validData,
+        network: {
+          bytes_in: 1234567890,
+          bytes_out: 9876543210,
+          rate_in: 1024000,
+          rate_out: 512000,
+          connections: 42,
+        },
+      };
+      const result = HeartbeatSchema.safeParse(dataWithNetwork);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.network?.bytes_in).toBe(1234567890);
+        expect(result.data.network?.connections).toBe(42);
+      }
+    });
+
+    it('should accept heartbeat with security status', () => {
+      const dataWithSecurity = {
+        ...validData,
+        security: {
+          ufw_active: true,
+          fail2ban_active: true,
+          ssh_key_only: true,
+        },
+      };
+      const result = HeartbeatSchema.safeParse(dataWithSecurity);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.security?.ufw_active).toBe(true);
+        expect(result.data.security?.fail2ban_active).toBe(true);
+      }
+    });
+
+    it('should accept heartbeat without network/security (backward compat)', () => {
+      const result = HeartbeatSchema.safeParse(validData);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.network).toBeUndefined();
+        expect(result.data.security).toBeUndefined();
+      }
+    });
+
+    it('should detect security tampering (all false)', () => {
+      const dataWithTamper = {
+        ...validData,
+        security: {
+          ufw_active: false,
+          fail2ban_active: false,
+          ssh_key_only: false,
+        },
+      };
+      const result = HeartbeatSchema.safeParse(dataWithTamper);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.security?.ufw_active).toBe(false);
+        expect(result.data.security?.fail2ban_active).toBe(false);
+        expect(result.data.security?.ssh_key_only).toBe(false);
+      }
+    });
   });
 });

@@ -28,12 +28,28 @@ type heartbeatPayload struct {
 	Uptime        int64           `json:"uptime"`
 	Services      map[string]bool `json:"services"`
 	Load          loadPayload     `json:"load"`
+	Network       networkPayload  `json:"network"`
+	Security      securityPayload `json:"security"`
 }
 
 type loadPayload struct {
 	CPU    float64 `json:"cpu"`
 	Memory float64 `json:"memory"`
 	Disk   float64 `json:"disk"`
+}
+
+type networkPayload struct {
+	BytesIn     uint64  `json:"bytes_in"`
+	BytesOut    uint64  `json:"bytes_out"`
+	RateIn      float64 `json:"rate_in"`
+	RateOut     float64 `json:"rate_out"`
+	Connections int     `json:"connections"`
+}
+
+type securityPayload struct {
+	UFWActive      bool `json:"ufw_active"`
+	Fail2banActive bool `json:"fail2ban_active"`
+	SSHKeyOnly     bool `json:"ssh_key_only"`
 }
 
 // heartbeatResponse is the platform's response to a heartbeat.
@@ -82,6 +98,18 @@ func (h *Heartbeater) send() {
 			CPU:    snap.CPU,
 			Memory: snap.Memory,
 			Disk:   snap.Disk,
+		},
+		Network: networkPayload{
+			BytesIn:     snap.Network.BytesIn,
+			BytesOut:    snap.Network.BytesOut,
+			RateIn:      snap.Network.RateIn,
+			RateOut:     snap.Network.RateOut,
+			Connections: snap.Network.Connections,
+		},
+		Security: securityPayload{
+			UFWActive:      snap.Security.UFWActive,
+			Fail2banActive: snap.Security.Fail2banActive,
+			SSHKeyOnly:     snap.Security.SSHKeyOnly,
 		},
 	}
 

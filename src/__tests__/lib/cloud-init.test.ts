@@ -29,10 +29,11 @@ describe('cloud-init', () => {
       expect(script).not.toMatch(/^set -e$/m);
     });
 
-    it('should NOT contain OS-level install logic (belongs in base image)', () => {
+    it('should NOT contain OS-level install logic except fail2ban (belongs in base image)', () => {
       const script = buildCloudInit(defaultOpts);
-      expect(script).not.toContain('apt-get install');
-      expect(script).not.toContain('apt-get update');
+      // fail2ban is the only apt-get install allowed (security hardening)
+      expect(script).toContain('apt-get install -y -qq fail2ban');
+      // But no other package installations
       expect(script).not.toContain('gpg --dearmor');
       expect(script).not.toContain('deb.nodesource.com');
     });
@@ -165,6 +166,25 @@ describe('cloud-init', () => {
       expect(script).toContain('justavps-docker-guard.sh');
       expect(script).toContain('JUSTAVPS-DOCKER-GUARD');
       expect(script).toContain('systemctl enable --now justavps-docker-guard');
+    });
+
+    it('should install and configure fail2ban for SSH protection', () => {
+      const script = buildCloudInit(defaultOpts);
+      expect(script).toContain('fail2ban');
+      expect(script).toContain('jail.local');
+      expect(script).toContain('bantime = 3600');
+      expect(script).toContain('[sshd]');
+      expect(script).toContain('enabled = true');
+      expect(script).toContain('systemctl enable fail2ban');
+    });
+
+    it('should harden daemon systemd service with auto-restart', () => {
+      const script = buildCloudInit(defaultOpts);
+      expect(script).toContain('justavps-daemon.service');
+      expect(script).toContain('Restart=always');
+      expect(script).toContain('RestartSec=2');
+      expect(script).toContain('StartLimitIntervalSec=0');
+      expect(script).toContain('WatchdogSec=120');
     });
 
     it('should create user account with sudo + docker access', () => {

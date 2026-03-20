@@ -297,6 +297,18 @@ export const HeartbeatSchema = z.object({
     memory: z.number(),
     disk: z.number(),
   }),
+  network: z.object({
+    bytes_in: z.number(),
+    bytes_out: z.number(),
+    rate_in: z.number(),
+    rate_out: z.number(),
+    connections: z.number(),
+  }).optional(),
+  security: z.object({
+    ufw_active: z.boolean(),
+    fail2ban_active: z.boolean(),
+    ssh_key_only: z.boolean(),
+  }).optional(),
 });
 
 export const StageReportSchema = z.object({
