@@ -8,6 +8,8 @@
     "dev:all": "docker rm -f justavps-postgres 2>/dev/null; docker compose up -d postgres && pnpm run db:push && bash scripts/dev-with-stripe.sh",
     "stripe:listen": "stripe listen --forward-to http://localhost:4100/api/v1/stripe/webhooks --events checkout.session.completed,invoice.payment_failed,customer.subscription.deleted,customer.subscription.updated",
     "db:push": "drizzle-kit push",
+    "db:seed:templates": "tsx scripts/seed-base-image.ts",
+    "deploy:prepare": "pnpm db:push && pnpm db:seed:templates",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
