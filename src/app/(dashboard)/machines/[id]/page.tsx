@@ -443,6 +443,49 @@ function PortForwardCard({ slug }: { slug: string }) {
   );
 }
 
+/* ─── Provisioning stage progress ────────────────────────────────────── */
+const PROVISIONING_STAGES = [
+  { key: "server_creating", label: "Creating server" },
+  { key: "server_created", label: "Server created" },
+  { key: "cloud_init_running", label: "Configuring machine" },
+  { key: "cloud_init_done", label: "Starting services" },
+  { key: "docker_pulling", label: "Pulling Docker image" },
+  { key: "docker_running", label: "Docker container started" },
+  { key: "services_ready", label: "Services ready" },
+] as const;
+
+function ProvisioningProgress({ stage }: { stage: string }) {
+  const currentIndex = PROVISIONING_STAGES.findIndex((s) => s.key === stage);
+  if (currentIndex === -1) return null;
+
+  return (
+    <div className="mt-2.5 flex items-center gap-1">
+      {PROVISIONING_STAGES.map((s, i) => {
+        const isDone = i < currentIndex;
+        const isCurrent = i === currentIndex;
+        return (
+          <div key={s.key} className="flex items-center gap-1 min-w-0">
+            <div
+              className={cn(
+                "size-1.5 rounded-full shrink-0 transition-colors",
+                isDone
+                  ? "bg-emerald-500"
+                  : isCurrent
+                    ? "bg-yellow-500 animate-pulse"
+                    : "bg-zinc-300 dark:bg-zinc-700",
+              )}
+              title={s.label}
+            />
+          </div>
+        );
+      })}
+      <span className="ml-1.5 text-[11px] text-muted-foreground truncate">
+        {PROVISIONING_STAGES[currentIndex].label}
+      </span>
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════════════════════════════════
    MACHINE DETAIL PAGE
    ═══════════════════════════════════════════════════════════════════════ */
@@ -725,7 +768,7 @@ export default function MachineDetailPage() {
           <div className="rounded-lg bg-yellow-500/10 p-1.5 shrink-0 mt-0.5">
             <Loader2 className="size-4 animate-spin text-yellow-500" />
           </div>
-          <div>
+          <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-yellow-600 dark:text-yellow-400">
               {machine.provisioning_stage === "resizing"
                 ? "Scaling in progress"
@@ -734,7 +777,32 @@ export default function MachineDetailPage() {
             <p className="text-xs text-muted-foreground mt-0.5">
               {machine.provisioning_stage === "resizing"
                 ? "Stops, resizes, and restarts — usually 60–90s. This page updates automatically."
-                : "Usually takes about 60 seconds. This page updates automatically."}
+                : "This usually takes 1–3 minutes. This page updates automatically."}
+            </p>
+            {machine.provisioning_stage && machine.provisioning_stage !== "resizing" && (
+              <ProvisioningProgress stage={machine.provisioning_stage} />
+            )}
+          </div>
+        </div>
+      )}
+
+      {machine.status === "error" && (
+        <div className="flex items-start gap-3 rounded-xl border border-red-500/20 bg-red-500/5 p-4">
+          <div className="rounded-lg bg-red-500/10 p-1.5 shrink-0 mt-0.5">
+            <AlertTriangle className="size-4 text-red-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-red-600 dark:text-red-400">
+              {machine.provisioning_stage === "timeout"
+                ? "Provisioning timed out"
+                : machine.provisioning_stage === "cloud_init_error"
+                  ? "Setup failed"
+                  : "Machine error"}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {machine.provisioning_stage === "timeout"
+                ? "The machine did not report back in time. This can happen if the network or cloud-init script encountered issues. Try deleting and recreating the machine."
+                : "Something went wrong during provisioning. Try deleting and recreating the machine, or contact support if the issue persists."}
             </p>
           </div>
         </div>
@@ -958,6 +1026,12 @@ export default function MachineDetailPage() {
                         <span className="font-mono font-medium">{machine.ip}</span>
                       </div>
                     )}
+                    {machine.daemon_version && (
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2 text-muted-foreground"><Code2 className="size-3.5" /><span>Daemon</span></div>
+                        <span className="font-mono text-xs text-muted-foreground">{machine.daemon_version}</span>
+                      </div>
+                    )}
                   </div>
                 </>
               ) : (
@@ -974,6 +1048,12 @@ export default function MachineDetailPage() {
                     <div className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-2 text-muted-foreground"><Globe className="size-3.5" /><span>IP</span></div>
                       <span className="font-mono font-medium">{machine.ip}</span>
+                    </div>
+                  )}
+                  {machine.daemon_version && (
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2 text-muted-foreground"><Code2 className="size-3.5" /><span>Daemon</span></div>
+                      <span className="font-mono text-xs text-muted-foreground">{machine.daemon_version}</span>
                     </div>
                   )}
                   <div className="flex items-center justify-between text-sm">
