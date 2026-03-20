@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { cn } from "@/lib/utils";
+import { cn, PROXY_DOMAIN } from "@/lib/utils";
 import {
   CreditCard, HardDrive,
   Copy, Check, Shield, Zap, Menu, X, LifeBuoy,
@@ -323,9 +323,9 @@ export default function DocsPage() {
         <H3 id="run-agents">Run AI Agents</H3>
         <P>Your machine comes with <B>OpenCode</B> available out of the box. You can SSH in for CLI tools, and the dashboard shows the machine URL plus SSH commands under <B>Connect</B>.</P>
         <CodeBlock title="OpenCode CLI" lang="bash">{`opencode`}</CodeBlock>
-        <CodeBlock title="Machine URL" lang="bash">{`https://<slug>.kortix.cloud`}</CodeBlock>
+        <CodeBlock title="Machine URL" lang="bash">{`https://<slug>.${PROXY_DOMAIN}`}</CodeBlock>
         <P>If you run your own HTTP service on a custom port, JustAVPS automatically exposes the corresponding proxied port URL and prints it in your SSH session.</P>
-        <Callout type="info">Public forwarded URLs follow <IC>https://&#123;port&#125;--&#123;slug&#125;.kortix.cloud</IC>. This happens automatically for all listening ports, including when you connected with plain <IC>ssh</IC> and never opened an editor.</Callout>
+        <Callout type="info">Public forwarded URLs follow <IC>{`https://{port}--{slug}.${PROXY_DOMAIN}`}</IC>. This happens automatically for all listening ports, including when you connected with plain <IC>ssh</IC> and never opened an editor.</Callout>
 
         <H3 id="mobile-access">Access from Mobile</H3>
         <P>Open the machine URL from the dashboard in any mobile browser, or use the dashboard <B>web terminal</B> for quick shell access.</P>
@@ -465,12 +465,12 @@ for await (const event of client.streamEvents("my-session")) {
         <P>Access is centered around the authenticated proxy plus SSH-key-only login. The dashboard can reuse your session for browser access, and API keys work for programmatic requests.</P>
 
         <H3 id="authenticated-proxy">Authenticated Proxy</H3>
-        <P>HTTP services on your machine are reachable through <IC>&#123;port&#125;--&#123;slug&#125;.kortix.cloud</IC>. For example, if your app runs on port 8000:</P>
-        <CodeBlock lang="bash">{`https://8000--abc123.kortix.cloud`}</CodeBlock>
+        <P>HTTP services on your machine are reachable through <IC>{`{port}--{slug}.${PROXY_DOMAIN}`}</IC>. For example, if your app runs on port 8000:</P>
+        <CodeBlock lang="bash">{`https://8000--abc123.${PROXY_DOMAIN}`}</CodeBlock>
         <P>Two ways to authenticate programmatically:</P>
-        <CodeBlock title="API key — Authorization header" lang="bash">{`curl https://8000--abc123.kortix.cloud \
+        <CodeBlock title="API key — Authorization header" lang="bash">{`curl https://8000--abc123.${PROXY_DOMAIN} \
   -H "Authorization: Bearer sk_live_xxx"`}</CodeBlock>
-        <CodeBlock title="JWT — query param (WebSocket / iframe)" lang="bash">{`https://8000--abc123.kortix.cloud?token=<jwt>`}</CodeBlock>
+        <CodeBlock title="JWT — query param (WebSocket / iframe)" lang="bash">{`https://8000--abc123.${PROXY_DOMAIN}?token=<jwt>`}</CodeBlock>
         <P>Or just log in to the dashboard — the proxy issues a session-scoped cookie for browser access.</P>
 
         <H3 id="auth-model">Authentication</H3>

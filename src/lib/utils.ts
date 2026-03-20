@@ -6,6 +6,14 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Proxy domain — single source of truth for client-side code.
+ * Set via NEXT_PUBLIC_PROXY_DOMAIN in Vercel env per environment:
+ *   Production → kortix.cloud
+ *   Preview    → kortix-dev.cloud
+ */
+export const PROXY_DOMAIN = process.env.NEXT_PUBLIC_PROXY_DOMAIN || 'kortix.cloud';
+
+/**
  * Format a date string as a relative time (e.g. "2 hours ago").
  */
 /**

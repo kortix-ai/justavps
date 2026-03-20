@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn, PROXY_DOMAIN } from "@/lib/utils";
 import { useTheme } from "@/hooks/use-theme";
 import { Logo } from "@/components/logo";
 import { TbApi } from "react-icons/tb";
@@ -239,7 +239,7 @@ export default function Home() {
               <div className="flex-1">
                 <h3 className="text-base font-medium mb-1">Secure by default. Zero config needed.</h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  Browser traffic goes through the authenticated proxy at <span className="text-foreground font-mono text-xs">{`{port}--{slug}.kortix.cloud`}</span>. Log in via the dashboard, SSH in with your key, or authenticate programmatically with your API key.
+                  Browser traffic goes through the authenticated proxy at <span className="text-foreground font-mono text-xs">{`{port}--{slug}.${PROXY_DOMAIN}`}</span>. Log in via the dashboard, SSH in with your key, or authenticate programmatically with your API key.
                 </p>
               </div>
               <div className="shrink-0 hidden sm:flex items-center gap-2">
@@ -250,7 +250,7 @@ export default function Home() {
               </div>
             </div>
             <div className="border-t border-border bg-muted px-6 sm:px-8 py-3 font-mono text-xs text-muted-foreground leading-relaxed">
-              <span className="text-green-600 dark:text-green-400">$</span> curl <span className="text-foreground">https://8000--abc123.kortix.cloud</span> -H <span className="text-amber-600 dark:text-amber-400">&quot;Authorization: Bearer sk_live_...&quot;</span>
+              <span className="text-green-600 dark:text-green-400">$</span> curl <span className="text-foreground">{`https://8000--abc123.${PROXY_DOMAIN}`}</span> -H <span className="text-amber-600 dark:text-amber-400">&quot;Authorization: Bearer sk_live_...&quot;</span>
             </div>
           </div>
         </div>
