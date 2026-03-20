@@ -9,6 +9,9 @@ import {
   validateApiKey,
   generatePassword,
   fingerprintSSHKey,
+  encryptSecret,
+  decryptSecret,
+  isEncrypted,
 } from '@/server/lib/crypto';
 
 describe('crypto utilities', () => {
@@ -161,6 +164,127 @@ describe('crypto utilities', () => {
       const fingerprint = fingerprintSSHKey(publicKey);
       
       expect(fingerprint).toMatch(/^SHA256:[A-Za-z0-9+/]+$/);
+    });
+  });
+
+  // ─── AES-256-GCM Envelope Encryption ────────────────────────────────────
+
+  describe('encryptSecret / decryptSecret', () => {
+    // setup.ts sets DATA_ENCRYPTION_KEY='test-encryption-key-for-vitest-only'
+
+    it('round-trips a simple string', () => {
+      const plaintext = 'hello world';
+      const encrypted = encryptSecret(plaintext);
+
+      expect(encrypted).not.toBe(plaintext);
+      expect(isEncrypted(encrypted)).toBe(true);
+      expect(decryptSecret(encrypted)).toBe(plaintext);
+    });
+
+    it('round-trips an SSH private key', () => {
+      const privateKey = `-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACCqj+0OifJPJPJPJPJPJPJPJPJPJPJPJPJPJPJPJPJPJAAAAJgAAAAtz
+c2gtZWQyNTUxOQAAACCqj+0OifJPJPJPJPJPJPJPJPJPJPJPJPJPJPJPJPJPJAAAAEAi
+-----END OPENSSH PRIVATE KEY-----`;
+
+      const encrypted = encryptSecret(privateKey);
+      expect(isEncrypted(encrypted)).toBe(true);
+      expect(decryptSecret(encrypted)).toBe(privateKey);
+    });
+
+    it('round-trips a machine token', () => {
+      const token = generateMachineToken();
+      const encrypted = encryptSecret(token);
+
+      expect(isEncrypted(encrypted)).toBe(true);
+      expect(encrypted).not.toBe(token);
+      expect(decryptSecret(encrypted)).toBe(token);
+    });
+
+    it('produces different ciphertexts for the same plaintext (unique IV)', () => {
+      const plaintext = 'same-secret';
+      const enc1 = encryptSecret(plaintext);
+      const enc2 = encryptSecret(plaintext);
+
+      expect(enc1).not.toBe(enc2); // different IV each time
+      expect(decryptSecret(enc1)).toBe(plaintext);
+      expect(decryptSecret(enc2)).toBe(plaintext);
+    });
+
+    it('is idempotent — encrypting already-encrypted value returns it unchanged', () => {
+      const plaintext = 'encrypt-me-once';
+      const encrypted = encryptSecret(plaintext);
+      const doubleEncrypted = encryptSecret(encrypted);
+
+      expect(doubleEncrypted).toBe(encrypted); // no double-encryption
+      expect(decryptSecret(doubleEncrypted)).toBe(plaintext);
+    });
+
+    it('decryptSecret passes through plaintext (unencrypted) values', () => {
+      const plaintext = 'mt_abcdef1234567890';
+      expect(decryptSecret(plaintext)).toBe(plaintext);
+    });
+
+    it('isEncrypted detects envelope prefix', () => {
+      expect(isEncrypted('enc:v1:abc:def:012')).toBe(true);
+      expect(isEncrypted('mt_plaintoken')).toBe(false);
+      expect(isEncrypted('')).toBe(false);
+      expect(isEncrypted('enc:v2:wrong-version')).toBe(false);
+    });
+
+    it('handles empty string', () => {
+      const encrypted = encryptSecret('');
+      expect(decryptSecret(encrypted)).toBe('');
+    });
+
+    it('handles unicode / special characters', () => {
+      const special = '🔐 pässwörd with "quotes" & <angle> brackets';
+      const encrypted = encryptSecret(special);
+      expect(decryptSecret(encrypted)).toBe(special);
+    });
+
+    it('throws on tampered ciphertext (GCM auth tag verification)', () => {
+      const encrypted = encryptSecret('sensitive-data');
+      // Tamper with the ciphertext (last hex char)
+      const tampered = encrypted.slice(0, -1) + (encrypted.slice(-1) === '0' ? '1' : '0');
+
+      expect(() => decryptSecret(tampered)).toThrow();
+    });
+
+    it('throws on wrong encryption key', () => {
+      const encrypted = encryptSecret('secret');
+
+      // Temporarily change the key
+      const origKey = process.env.DATA_ENCRYPTION_KEY;
+      process.env.DATA_ENCRYPTION_KEY = 'wrong-key-entirely-different';
+
+      expect(() => decryptSecret(encrypted)).toThrow();
+
+      process.env.DATA_ENCRYPTION_KEY = origKey;
+    });
+
+    it('throws informative error when encrypted data found but no key configured', () => {
+      const encrypted = encryptSecret('secret');
+
+      const origKey = process.env.DATA_ENCRYPTION_KEY;
+      process.env.DATA_ENCRYPTION_KEY = '';
+
+      expect(() => decryptSecret(encrypted)).toThrow(/DATA_ENCRYPTION_KEY is not configured/);
+
+      process.env.DATA_ENCRYPTION_KEY = origKey;
+    });
+
+    it('returns plaintext when no encryption key is configured (no-op mode)', () => {
+      const origKey = process.env.DATA_ENCRYPTION_KEY;
+      process.env.DATA_ENCRYPTION_KEY = '';
+
+      const plaintext = 'no-encryption-configured';
+      const result = encryptSecret(plaintext);
+      expect(result).toBe(plaintext); // stored as plaintext
+      expect(isEncrypted(result)).toBe(false);
+
+      process.env.DATA_ENCRYPTION_KEY = origKey;
     });
   });
 });

@@ -374,6 +374,25 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
     console.log('[E2E] SSH works after Hetzner key deletion — cloud-init key is independent ✓');
   });
 
+  it('2d. API returns decrypted SSH key (encryption at rest is transparent)', async () => {
+    // Verify the API returns a usable SSH private key, not an encrypted blob
+    const { data } = await apiGet(`/v1/machines/${machineId}`);
+    const privateKey = data?.ssh_key?.private_key;
+
+    expect(privateKey).toBeTruthy();
+    // Must be a valid OpenSSH private key, NOT an encrypted envelope
+    expect(privateKey).toContain('-----BEGIN OPENSSH PRIVATE KEY-----');
+    expect(privateKey).toContain('-----END OPENSSH PRIVATE KEY-----');
+    expect(privateKey).not.toContain('enc:v1:'); // must NOT be the encrypted form
+
+    // The setup_command should also contain the decrypted key
+    const setupCommand = data?.ssh_key?.setup_command;
+    expect(setupCommand).toBeTruthy();
+    expect(setupCommand).not.toContain('enc:v1:');
+
+    console.log('[E2E] API returns decrypted SSH key ✓ (encryption at rest is transparent to clients)');
+  });
+
   // ═══════════════════════════════════════════════════════════════════════════
   //  PHASE 2: DNS RECORDS (Cloudflare API verification)
   // ═══════════════════════════════════════════════════════════════════════════

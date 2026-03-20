@@ -2,7 +2,7 @@ import { eq, inArray, and } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db';
 import { machines, users, sshKeys, subscriptions } from '../db/schema';
-import { generateMachineToken, fingerprintSSHKey } from './crypto';
+import { generateMachineToken, fingerprintSSHKey, encryptSecret } from './crypto';
 import { generateSSHKeyPair } from './ssh-keygen';
 import { buildCloudInit } from './cloud-init';
 import { config } from './config';
@@ -248,6 +248,9 @@ interface CreateMachineInput {
 export async function createMachineRecord(input: CreateMachineInput) {
   const [machine] = await db.insert(machines).values({
     ...input,
+    // Encrypt secrets at rest — decrypted on read via decryptSecret()
+    machineToken: encryptSecret(input.machineToken),
+    sshPrivateKey: encryptSecret(input.sshPrivateKey),
     codeServerPassword: '',
   }).returning();
   return machine;

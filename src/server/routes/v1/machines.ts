@@ -33,6 +33,7 @@ import {
   autoGenerateAndSaveSSHKey,
   resolveSSHKeyPublicKeys,
 } from '../../lib/machine-lifecycle';
+import { decryptSecret } from '../../lib/crypto';
 import {
   CreateMachineSchema,
   ResizeMachineSchema,
@@ -67,8 +68,11 @@ function serializeMachine(
   const proxyDomain = config.PROXY_DOMAIN;
   const sshKeyPath = `~/.ssh/justavps_${m.slug}`;
 
-  const setupCommand = m.sshPrivateKey && m.ip
-    ? `mkdir -p ~/.ssh && echo '${m.sshPrivateKey.replace(/'/g, "'\\''")}' > ${sshKeyPath} && chmod 600 ${sshKeyPath} && ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${m.ip}`
+  // Decrypt SSH private key from DB (may be encrypted at rest)
+  const sshPrivateKeyPlain = m.sshPrivateKey ? decryptSecret(m.sshPrivateKey) : null;
+
+  const setupCommand = sshPrivateKeyPlain && m.ip
+    ? `mkdir -p ~/.ssh && echo '${sshPrivateKeyPlain.replace(/'/g, "'\\''")}' > ${sshKeyPath} && chmod 600 ${sshKeyPath} && ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${m.ip}`
     : null;
 
   const sshCommand = m.ip ? `ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no root@${m.ip}` : null;
@@ -95,8 +99,8 @@ function serializeMachine(
       port_template: `https://{port}--${m.slug}.${proxyDomain}`,
     } : null,
     ssh: sshCommand,
-    ssh_key: m.sshPrivateKey ? {
-      private_key: m.sshPrivateKey,
+    ssh_key: sshPrivateKeyPlain ? {
+      private_key: sshPrivateKeyPlain,
       public_key: m.sshPublicKey,
       setup_command: setupCommand,
       key_path: sshKeyPath,

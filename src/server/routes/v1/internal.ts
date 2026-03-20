@@ -7,7 +7,7 @@ import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db';
 import { machines, apiKeys } from '../../db/schema';
-import { validateApiKey } from '../../lib/crypto';
+import { validateApiKey, decryptSecret } from '../../lib/crypto';
 import { cloudflareClient } from '../../lib/cloudflare';
 import { config } from '../../lib/config';
 import { errorResponse } from '../../lib/route-helpers';
@@ -52,7 +52,7 @@ internalApp.openapi(heartbeatRoute, async (c) => {
   const { slug, machine_token, daemon_version, uptime, services, load, network, security } = c.req.valid('json');
   try {
     const [machine] = await db.select().from(machines).where(eq(machines.slug, slug));
-    if (!machine || machine.machineToken !== machine_token) {
+    if (!machine || decryptSecret(machine.machineToken) !== machine_token) {
       return errorResponse(c, 401, 'Unauthorized') as any;
     }
 
@@ -220,7 +220,7 @@ internalApp.openapi(stageRoute, async (c) => {
 
   try {
     const [machine] = await db.select().from(machines).where(eq(machines.slug, slug));
-    if (!machine || machine.machineToken !== machine_token) {
+    if (!machine || decryptSecret(machine.machineToken) !== machine_token) {
       return errorResponse(c, 401, 'Unauthorized') as any;
     }
 

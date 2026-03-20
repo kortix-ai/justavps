@@ -45,6 +45,11 @@ export const config = {
   // Pricing
   COMPUTE_MARKUP: parseFloat(process.env.COMPUTE_MARKUP || '2.5'),
 
+  // Encryption
+  // AES-256-GCM key for encrypting secrets at rest (SSH private keys, machine tokens).
+  // Required in production. Without it, secrets are stored as plaintext (with a warning).
+  DATA_ENCRYPTION_KEY: (process.env.DATA_ENCRYPTION_KEY || '').trim(),
+
   // Auth
   AUTH_SECRET: (process.env.AUTH_SECRET || '').trim(),
   // PROXY_AUTH_SECRET signs JWT tokens for the CF Worker proxy.
