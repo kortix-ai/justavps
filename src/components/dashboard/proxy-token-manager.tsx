@@ -238,9 +238,10 @@ export function ProxyTokenManager({
         <div className="space-y-2">
           {tokens?.map((token) => {
             const firstPort = token.ports?.[0];
-            const proxyUrl = token.proxy_url ?? (firstPort
-              ? `https://${firstPort}--${token.machine_slug}.${PROXY_DOMAIN}?__proxy_token=${token.token ?? token.token_prefix}`
-              : `https://${token.machine_slug}.${PROXY_DOMAIN}?__proxy_token=${token.token ?? token.token_prefix}`);
+            const baseUrl = firstPort
+              ? `https://${firstPort}--${token.machine_slug}.${PROXY_DOMAIN}`
+              : `https://${token.machine_slug}.${PROXY_DOMAIN}`;
+            const shareUrl = token.proxy_url ?? (token.token ? `${baseUrl}?__proxy_token=${token.token}` : null);
             return (
               <div key={token.id} className="group flex items-center justify-between gap-4 p-4 rounded-xl border bg-card transition-colors hover:bg-muted/40">
                 <div className="min-w-0 space-y-1">
@@ -257,15 +258,19 @@ export function ProxyTokenManager({
                   </div>
                   <div className="flex items-center gap-2 min-w-0">
                     <Link2 className="size-3 text-muted-foreground shrink-0" />
-                    <button onClick={() => copyUrl(proxyUrl)} className="text-xs font-mono truncate text-left hover:text-foreground text-muted-foreground transition-colors">{proxyUrl}</button>
+                    {shareUrl ? (
+                      <button onClick={() => copyUrl(shareUrl)} className="text-xs font-mono truncate text-left hover:text-foreground text-muted-foreground transition-colors">{shareUrl}</button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground truncate">Full share URL is only shown once at creation. Create a new token if you lost it.</span>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                  <Button variant="ghost" size="icon-sm" onClick={() => copyUrl(proxyUrl)}>
+                  <Button variant="ghost" size="icon-sm" onClick={() => shareUrl && copyUrl(shareUrl)} disabled={!shareUrl} title={shareUrl ? "Copy share URL" : "Full share URL only available at creation"}>
                     <Copy className="size-3.5" />
                   </Button>
                   <a
-                    href={firstPort ? `https://${firstPort}--${token.machine_slug}.${PROXY_DOMAIN}` : `https://${token.machine_slug}.${PROXY_DOMAIN}`}
+                    href={baseUrl}
                     target="_blank"
                     rel="noreferrer"
                     className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }))}

@@ -78,6 +78,50 @@ Generate API keys in the [dashboard](https://justavps.com/settings).
 https://justavps.com/api/v1
 \`\`\`
 
+## Authenticated Proxy (Cloudflare Edge)
+
+Machine HTTP traffic does not go directly to random VPS ports. It always flows through the authenticated Cloudflare proxy on \`kortix.cloud\` / \`kortix-dev.cloud\`.
+
+Runtime URL patterns:
+
+\`\`\`text
+https://{slug}.kortix.cloud
+https://{port}--{slug}.kortix.cloud
+
+https://{slug}.kortix-dev.cloud
+https://{port}--{slug}.kortix-dev.cloud
+\`\`\`
+
+Examples:
+
+\`\`\`bash
+# Root proxy (default HTTP service)
+curl https://my-machine.kortix.cloud \\
+  -H "Authorization: Bearer sk_live_xxx"
+
+# Specific port through the authenticated proxy
+curl https://3000--my-machine.kortix.cloud/health \\
+  -H "Authorization: Bearer sk_live_xxx"
+
+# Share link using a proxy token
+open "https://3000--my-machine.kortix.cloud?__proxy_token=pt_xxx"
+
+# Programmatic proxy token access
+curl https://3000--my-machine.kortix.cloud \\
+  -H "X-Proxy-Token: pt_xxx"
+\`\`\`
+
+The authenticated proxy accepts:
+- \`Authorization: Bearer sk_live_xxx\` — API key
+- \`X-Proxy-Token: pt_xxx\` — short-lived proxy token
+- \`?__proxy_token=pt_xxx\` — browser-friendly share link
+- dashboard session cookies / proxy JWTs for logged-in users
+
+Notes:
+- API keys must include the \`proxy\` permission (or \`*\`) to access proxied services.
+- Proxy tokens are machine-scoped, optionally port-scoped, and always expire.
+- The proxy handles normal HTTP traffic and WebSocket upgrades on the same authenticated hostname.
+
 ## SDKs
 
 \`\`\`bash
