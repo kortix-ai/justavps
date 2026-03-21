@@ -229,17 +229,6 @@ const stageRoute = createRoute({
   },
 });
 
-const STAGE_ORDER = [
-  'server_creating', 'server_created',
-  'cloud_init_running', 'cloud_init_done',
-  'docker_pulling', 'docker_running',
-  'services_starting', 'services_ready',
-];
-
-function stageIndex(stage: string): number {
-  const idx = STAGE_ORDER.indexOf(stage);
-  return idx === -1 ? -1 : idx;
-}
 
 internalApp.openapi(stageRoute, async (c) => {
   const { slug, machine_token, stage, message, metadata } = c.req.valid('json');
@@ -252,22 +241,16 @@ internalApp.openapi(stageRoute, async (c) => {
       return errorResponse(c, 401, 'Unauthorized') as any;
     }
 
-    const currentIdx = stageIndex(machine.provisioningStage || '');
-    const newIdx = stageIndex(stage);
-    const isForward = newIdx === -1 || newIdx > currentIdx;
-
+    // Always update providerMeta (last_callback_at)
     await db.update(machines).set({
-      ...(isForward ? { provisioningStage: stage, provisioningStageUpdatedAt: new Date() } : {}),
       providerMeta: {
         ...((machine.providerMeta ?? {}) as Record<string, unknown>),
         last_callback_at: new Date().toISOString(),
       },
     }).where(eq(machines.id, machine.id));
 
-    if (isForward) {
-      await eventBus.emitStageChange(machine.id, machine.ownerId, stage, message, metadata);
-      console.log(`[STAGE] ${slug}: ${stage}${message ? ` — ${message}` : ''}`);
-    }
+    // emitStageChange handles forward-only check, DB update, event insert, and webhook delivery
+    await eventBus.emitStageChange(machine.id, machine.ownerId, stage, message, metadata);
     return c.json({ ack: true });
   } catch (err) {
     console.error('[STAGE] error:', err);
