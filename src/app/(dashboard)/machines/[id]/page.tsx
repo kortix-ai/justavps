@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
+import { ProxyTokenManager } from "@/components/dashboard/proxy-token-manager";
 import {
   useMachine,
   useDeleteMachine,
@@ -51,6 +52,7 @@ import {
   Code2,
   Terminal as TerminalIcon,
   Link2,
+  Share2,
   AlertTriangle,
   Camera,
   Monitor,
@@ -1192,6 +1194,17 @@ export default function MachineDetailPage() {
                     </div>
                     {/* Port forward */}
                     <PortForwardCard slug={machine.slug} portTemplate={portTemplate} />
+
+                    {/* Divider */}
+                    <div className="flex items-center gap-3">
+                      <div className="h-px flex-1 bg-border/60" />
+                      <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                        <Share2 className="size-3" /> Share access
+                      </span>
+                      <div className="h-px flex-1 bg-border/60" />
+                    </div>
+
+                    <ProxyTokenManager machineId={machine.id} machineSlug={machine.slug} compact />
                   </div>
                 </div>
               );
@@ -1301,7 +1314,22 @@ export default function MachineDetailPage() {
                   </div>
                   <div>
                     <p className="text-sm font-medium">Generate API Key</p>
-                    <p className="text-xs text-muted-foreground">Create a key to authenticate API requests</p>
+                    <p className="text-xs text-muted-foreground">Create scoped API keys with machine restrictions, permissions, and expiry</p>
+                  </div>
+                </div>
+                <ExternalLink className="size-3.5 text-muted-foreground/50 group-hover:text-muted-foreground transition-colors shrink-0" />
+              </Link>
+              <Link
+                href={`/machines/${machine.id}`}
+                className="flex items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="size-7 rounded-md bg-muted flex items-center justify-center shrink-0">
+                    <Share2 className="size-3.5 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Create Proxy Token</p>
+                    <p className="text-xs text-muted-foreground">Share this machine with a short-lived proxy link in the Proxy tab</p>
                   </div>
                 </div>
                 <ExternalLink className="size-3.5 text-muted-foreground/50 group-hover:text-muted-foreground transition-colors shrink-0" />

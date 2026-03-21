@@ -131,6 +131,7 @@ content = tb.files.download("/root/app.py")
     { name: 'Images', description: 'Point-in-time captures of running machines' },
     { name: 'SSH Keys', description: 'Manage SSH public keys for machine access' },
     { name: 'API Keys', description: 'Create and manage API keys for programmatic access' },
+    { name: 'Proxy Tokens', description: 'Create and manage short-lived share links for machine proxy access' },
     { name: 'Webhooks', description: 'Subscribe to machine lifecycle events via webhooks' },
     { name: 'Server Types', description: 'Discover available providers, regions, and server types' },
     { name: 'Account', description: 'Account info, usage stats, and billing' },

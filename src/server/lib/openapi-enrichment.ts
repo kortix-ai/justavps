@@ -125,15 +125,55 @@ print(image["id"])` },
   ],
 
   'POST /api/v1/api-keys': [
-    { lang: 'JavaScript', label: 'TypeScript SDK', source: `const key = await client.apiKeys.create({ name: "ci-deploy" });
+    { lang: 'JavaScript', label: 'TypeScript SDK', source: `const key = await client.apiKeys.create({
+  name: "ci-deploy",
+  scope: "machine",
+  machine_ids: ["machine-id"],
+  permissions: ["read", "proxy"],
+  expires_in_seconds: 60 * 60 * 24 * 30,
+});
 console.log(key.key); // Only shown once!` },
-    { lang: 'Python', label: 'Python SDK', source: `key = client.api_keys.create("ci-deploy")
+    { lang: 'Python', label: 'Python SDK', source: `key = client.api_keys.create({
+  "name": "ci-deploy",
+  "scope": "machine",
+  "machine_ids": ["machine-id"],
+  "permissions": ["read", "proxy"],
+  "expires_in_seconds": 2592000,
+})
 print(key["key"])  # Only shown once!` },
   ],
 
   'DELETE /api/v1/api-keys/{id}': [
     { lang: 'JavaScript', label: 'TypeScript SDK', source: `await client.apiKeys.delete("key-id");` },
     { lang: 'Python', label: 'Python SDK', source: `client.api_keys.delete("key-id")` },
+  ],
+
+  // ── Proxy Tokens ───────────────────────────────────────────────────
+  'GET /api/v1/proxy-tokens': [
+    { lang: 'JavaScript', label: 'TypeScript SDK', source: `const { proxy_tokens } = await client.proxyTokens.list();` },
+    { lang: 'Python', label: 'Python SDK', source: `tokens = client.proxy_tokens.list()` },
+  ],
+
+  'POST /api/v1/proxy-tokens': [
+    { lang: 'JavaScript', label: 'TypeScript SDK', source: `const token = await client.proxyTokens.create({
+  machine_id: "machine-id",
+  ports: [3000],
+  expires_in_seconds: 3600,
+  label: "design-review",
+});
+console.log(token.proxy_url); // Share this link` },
+    { lang: 'Python', label: 'Python SDK', source: `token = client.proxy_tokens.create({
+  "machine_id": "machine-id",
+  "ports": [3000],
+  "expires_in_seconds": 3600,
+  "label": "design-review",
+})
+print(token["proxy_url"])  # Share this link` },
+  ],
+
+  'DELETE /api/v1/proxy-tokens/{id}': [
+    { lang: 'JavaScript', label: 'TypeScript SDK', source: `await client.proxyTokens.delete("token-id");` },
+    { lang: 'Python', label: 'Python SDK', source: `client.proxy_tokens.delete("token-id")` },
   ],
 
   // ── Webhooks ──────────────────────────────────────────────────────
@@ -375,7 +415,7 @@ export function enrichOpenAPISpec(spec: any): any {
   spec['x-tagGroups'] = [
     { name: 'Machines & Infrastructure', tags: ['Machines', 'Images', 'Server Types'] },
     { name: 'Toolbox', tags: ['Toolbox: Filesystem', 'Toolbox: Process'] },
-    { name: 'Authentication & Access', tags: ['API Keys', 'SSH Keys'] },
+    { name: 'Authentication & Access', tags: ['API Keys', 'Proxy Tokens', 'SSH Keys'] },
     { name: 'Integrations', tags: ['Webhooks'] },
     { name: 'Account', tags: ['Account'] },
     { name: 'Internal', tags: ['Internal'] },
