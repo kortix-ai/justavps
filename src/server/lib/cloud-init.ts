@@ -195,16 +195,6 @@ for i in $(seq 1 120); do
   sleep 2
 done
 
-# Open firewall for Docker container ports
-if [ -f /etc/justavps/docker-host-ports ]; then
-  while IFS= read -r hp; do
-    [ -n "$hp" ] || continue
-    ufw allow "$hp"/tcp >/dev/null 2>&1 || true
-  done < /etc/justavps/docker-host-ports
-  # Re-run docker guard now that ports file exists
-  /usr/local/bin/justavps-docker-guard.sh 2>/dev/null || true
-fi
-
 echo "[justavps] Waiting for services to be ready..."
 for i in $(seq 1 120); do
   while IFS= read -r host_port; do
@@ -325,7 +315,8 @@ FAIL2BANEOF
   systemctl restart fail2ban 2>/dev/null || true
 fi
 
-cat > /usr/local/bin/justavps-docker-guard.sh << 'DOCKERGUARDEOF'
+if [ ! -f /usr/local/bin/justavps-docker-guard.sh ]; then
+  cat > /usr/local/bin/justavps-docker-guard.sh << 'DOCKERGUARDEOF'
 #!/bin/bash
 set -euo pipefail
 
@@ -336,21 +327,13 @@ iptables -F JUSTAVPS-DOCKER-GUARD
 iptables -A JUSTAVPS-DOCKER-GUARD -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
 iptables -A JUSTAVPS-DOCKER-GUARD -i docker0 -j RETURN
 iptables -A JUSTAVPS-DOCKER-GUARD -i br+ -j RETURN
-
-# Allow external traffic to exposed Docker container ports
-if [ -f /etc/justavps/docker-host-ports ]; then
-  while IFS= read -r port; do
-    [ -n "$port" ] || continue
-    iptables -A JUSTAVPS-DOCKER-GUARD -p tcp --dport "$port" -j RETURN
-  done < /etc/justavps/docker-host-ports
-fi
-
 iptables -A JUSTAVPS-DOCKER-GUARD -o docker0 -j DROP
 iptables -A JUSTAVPS-DOCKER-GUARD -o br+ -j DROP
 iptables -A JUSTAVPS-DOCKER-GUARD -j RETURN
 iptables -C DOCKER-USER -j JUSTAVPS-DOCKER-GUARD 2>/dev/null || iptables -I DOCKER-USER 1 -j JUSTAVPS-DOCKER-GUARD
 DOCKERGUARDEOF
-chmod +x /usr/local/bin/justavps-docker-guard.sh
+  chmod +x /usr/local/bin/justavps-docker-guard.sh
+fi
 
 if [ ! -f /etc/systemd/system/justavps-docker-guard.service ]; then
   cat > /etc/systemd/system/justavps-docker-guard.service << 'DOCKERGUARDSERVICEEOF'

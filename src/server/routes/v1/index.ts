@@ -16,9 +16,11 @@ import { webhooksApp } from './webhooks';
 import { stripeWebhooksApp } from './stripe-webhooks';
 import { toolboxApp } from './toolbox';
 import { importKortixApp } from './import-kortix';
+import { proxyApp } from './proxy';
 
 export const v1 = new OpenAPIHono();
 
+v1.route('/machines', proxyApp); // Generic port proxy under /machines/:id/proxy/:port/* (before machinesApp to skip its apiGuard)
 v1.route('/machines', machinesApp);
 v1.route('/images', imagesApp);
 v1.route('/ssh-keys', sshKeysApp);

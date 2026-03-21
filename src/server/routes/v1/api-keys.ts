@@ -45,8 +45,8 @@ const createAPIKeyRoute = createRoute({
 apiKeysApp.openapi(createAPIKeyRoute, async (c) => {
   const { name } = c.req.valid('json');
   const ownerId = c.get('userId');
-  const { key, hash, prefix } = await generateApiKey();
-  const [apiKey] = await db.insert(apiKeys).values({ ownerId, name, keyPrefix: prefix, keyHash: hash }).returning();
+  const { key, hash, sha256, prefix } = await generateApiKey();
+  const [apiKey] = await db.insert(apiKeys).values({ ownerId, name, keyPrefix: prefix, keyHash: hash, keySha256: sha256 }).returning();
 
   await syncApiKeyToKV(key, ownerId, name).catch((err: unknown) => {
     console.warn('[API-KEYS] Failed to sync API key to KV:', err);
