@@ -264,9 +264,10 @@ internalApp.openapi(stageRoute, async (c) => {
       },
     }).where(eq(machines.id, machine.id));
 
-    await eventBus.emitStageChange(machine.id, machine.ownerId, stage, message, metadata);
-
-    console.log(`[STAGE] ${slug}: ${stage}${message ? ` — ${message}` : ''}`);
+    if (isForward) {
+      await eventBus.emitStageChange(machine.id, machine.ownerId, stage, message, metadata);
+      console.log(`[STAGE] ${slug}: ${stage}${message ? ` — ${message}` : ''}`);
+    }
     return c.json({ ack: true });
   } catch (err) {
     console.error('[STAGE] error:', err);
