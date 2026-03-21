@@ -7,6 +7,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { serverTypesApp } from '@/server/routes/v1/server-types';
 import * as providers from '@/server/lib/providers';
 
+type MockedProviders = typeof providers & {
+  getProvider: ReturnType<typeof vi.fn>;
+  isProviderAvailable: ReturnType<typeof vi.fn>;
+};
+
 vi.mock('@/server/lib/providers', () => ({
   getProvider: vi.fn(),
   listProviders: vi.fn(() => [{ name: 'cloud', displayName: 'JustAVPS Cloud' }]),
@@ -19,13 +24,13 @@ const mockListRegions = vi.fn();
 describe('server-types API', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (providers.getProvider as any).mockReturnValue({
+    (providers as MockedProviders).getProvider.mockReturnValue({
       name: 'cloud',
       displayName: 'JustAVPS Cloud',
       listServerTypes: mockListServerTypes,
       listRegions: mockListRegions,
     });
-    (providers.isProviderAvailable as any).mockReturnValue(true);
+    (providers as MockedProviders).isProviderAvailable.mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -43,6 +48,7 @@ describe('server-types API', () => {
       architecture: 'x86' as const,
       providerPriceMonthly: 11.99,
       priceMonthly: 30,
+      backupPriceMonthly: 6,
       region: 'hel1',
     },
     {
@@ -55,6 +61,7 @@ describe('server-types API', () => {
       architecture: 'x86' as const,
       providerPriceMonthly: 23.99,
       priceMonthly: 60,
+      backupPriceMonthly: 12,
       region: 'hel1',
     },
   ];
@@ -81,7 +88,7 @@ describe('server-types API', () => {
       const req = new Request('http://localhost/?region=hel1');
       const res = await serverTypesApp.request(req);
       const data = await res.json();
-      data.server_types.forEach((st: any) => {
+      data.server_types.forEach((st: Record<string, unknown>) => {
         expect(st).toHaveProperty('name');
         expect(st).toHaveProperty('description');
         expect(st).toHaveProperty('vcpu');
@@ -90,6 +97,7 @@ describe('server-types API', () => {
         expect(st).toHaveProperty('cpu_type');
         expect(st).toHaveProperty('architecture');
         expect(st).toHaveProperty('price_monthly');
+        expect(st).toHaveProperty('backup_price_monthly');
         expect(st).toHaveProperty('available');
       });
     });

@@ -331,6 +331,19 @@ iptables -A JUSTAVPS-DOCKER-GUARD -o docker0 -j DROP
 iptables -A JUSTAVPS-DOCKER-GUARD -o br+ -j DROP
 iptables -A JUSTAVPS-DOCKER-GUARD -j RETURN
 iptables -C DOCKER-USER -j JUSTAVPS-DOCKER-GUARD 2>/dev/null || iptables -I DOCKER-USER 1 -j JUSTAVPS-DOCKER-GUARD
+
+# IPv6 equivalent (required for IPv6-only hosts)
+if command -v ip6tables >/dev/null 2>&1; then
+  ip6tables -N JUSTAVPS-DOCKER-GUARD 2>/dev/null || true
+  ip6tables -F JUSTAVPS-DOCKER-GUARD
+  ip6tables -A JUSTAVPS-DOCKER-GUARD -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+  ip6tables -A JUSTAVPS-DOCKER-GUARD -i docker0 -j RETURN
+  ip6tables -A JUSTAVPS-DOCKER-GUARD -i br+ -j RETURN
+  ip6tables -A JUSTAVPS-DOCKER-GUARD -o docker0 -j DROP
+  ip6tables -A JUSTAVPS-DOCKER-GUARD -o br+ -j DROP
+  ip6tables -A JUSTAVPS-DOCKER-GUARD -j RETURN
+  ip6tables -C DOCKER-USER -j JUSTAVPS-DOCKER-GUARD 2>/dev/null || ip6tables -I DOCKER-USER 1 -j JUSTAVPS-DOCKER-GUARD
+fi
 DOCKERGUARDEOF
   chmod +x /usr/local/bin/justavps-docker-guard.sh
 fi

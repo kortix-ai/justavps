@@ -26,6 +26,7 @@ import { useAccountLimits } from "@/hooks/use-account";
 import { useImages, useCreateImage, useDeleteImage } from "@/hooks/use-images";
 import { useMachines } from "@/hooks/use-machines";
 import { useConfirm } from "@/hooks/use-confirm";
+import { formatLimit, isUnlimitedLimit } from "@/lib/account-limits";
 import type { Image } from "@/lib/types";
 import { HardDrive, Trash2, Container, Loader2, Plus, AlertTriangle } from "lucide-react";
 
@@ -49,8 +50,9 @@ export default function ImagesPage() {
   const readyMachines = machines?.filter((m) => m.status === "ready") ?? [];
   const imageUsage = limits?.usage.images ?? 0;
   const imageMax = limits?.limits.max_images;
-  const imageLimitReached = imageMax !== undefined && imageUsage >= imageMax;
-  const imageLimitNear = imageMax !== undefined && imageMax > 0 && imageUsage / imageMax >= 0.8 && !imageLimitReached;
+  const imageUnlimited = isUnlimitedLimit(imageMax);
+  const imageLimitReached = !imageUnlimited && imageMax !== undefined && imageUsage >= imageMax;
+  const imageLimitNear = !imageUnlimited && imageMax !== undefined && imageMax > 0 && imageUsage / imageMax >= 0.8 && !imageLimitReached;
 
   const handleCreate = () => {
     if (!imageName.trim() || !selectedMachineId) return;
@@ -107,7 +109,7 @@ export default function ImagesPage() {
               {imageLimitReached ? "Image limit reached" : "Approaching image limit"}
             </p>
             <p className="text-xs text-muted-foreground">
-              You are using {imageUsage} of {imageMax} images.
+              You are using {imageUsage} of {formatLimit(imageMax)} images.
               {imageLimitReached
                 ? " Delete an image to create another one."
                 : " You can still capture more images, but you are close to your cap."}

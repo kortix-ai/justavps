@@ -22,6 +22,10 @@ export interface Machine {
   server_type: string;
   region: string;
   ip: string | null;
+  provider_progress: number | null;
+  provider_status: string | null;
+  callback_expected: boolean | null;
+  callback_url: string | null;
   price_monthly: number | null;
   backups_enabled: boolean;
   created_at: string;

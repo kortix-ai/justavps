@@ -15,7 +15,6 @@ process.env.CLOUDFLARE_ZONE_ID = 'test-zone-id';
 process.env.CLOUDFLARE_ACCOUNT_ID = 'test-account-id';
 process.env.CF_KV_NAMESPACE_ID = 'test-kv-namespace';
 process.env.PROXY_DOMAIN = 'test.example.com';
-process.env.COMPUTE_MARKUP = '2.5';
 process.env.DATA_ENCRYPTION_KEY = 'test-encryption-key-for-vitest-only';
 
 // Reset all mocks before each test

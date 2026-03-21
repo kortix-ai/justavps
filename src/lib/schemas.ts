@@ -21,6 +21,7 @@ export const CreateMachineSchema = z.object({
   command: z.string().optional().describe('Optional container command/args passed after the image name'),
   ssh_key_ids: z.array(z.string().uuid()).optional().describe('IDs of user SSH keys to add to the machine. Auto-generated key is always included.'),
   billing_interval: z.enum(['monthly', 'yearly', '2year']).optional().default('monthly').describe('Billing interval: monthly, yearly (20% off), or 2year (30% off, billed annually)'),
+  enable_backups: z.boolean().optional().default(true).describe('Enable daily automatic backups (+20% of base price). Defaults to true.'),
 });
 
 export const ResizeMachineSchema = z.object({
@@ -50,6 +51,10 @@ export const MachineResponseSchema = z.object({
   server_type: z.string(),
   region: z.string(),
   ip: z.string().nullable(),
+  provider_progress: z.number().nullable(),
+  provider_status: z.string().nullable(),
+  callback_expected: z.boolean().nullable(),
+  callback_url: z.string().nullable(),
   price_monthly: z.number().nullable(),
   backups_enabled: z.boolean(),
   created_at: z.string(),
@@ -198,9 +203,9 @@ export const ServerTypeResponseSchema = z.object({
   disk_gb: z.number(),
   cpu_type: z.enum(['shared', 'dedicated']),
   architecture: z.enum(['x86', 'arm']),
-  price_monthly: z.number().describe('Our price after markup (includes backups)'),
+  price_monthly: z.number().describe('Base monthly price (without backups)'),
+  backup_price_monthly: z.number().describe('Additional monthly cost for daily backups (+20% of base price)'),
   provider_price_monthly: z.number().describe('Raw provider price'),
-  backup_price_monthly: z.number().describe('Provider backup cost (20% of provider price)'),
   available: z.boolean(),
 });
 

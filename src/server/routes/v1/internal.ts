@@ -59,7 +59,12 @@ internalApp.openapi(heartbeatRoute, async (c) => {
       return errorResponse(c, 401, 'Unauthorized') as any;
     }
 
-    const wasProvisioning = machine.status === 'provisioning';
+    const shouldMarkReady = machine.status === 'provisioning' || machine.status === 'error';
+    const providerMeta = {
+      ...((machine.providerMeta ?? {}) as Record<string, unknown>),
+      last_callback_at: new Date().toISOString(),
+      ...(shouldMarkReady ? { ready_via: 'heartbeat' } : {}),
+    };
     await db.update(machines).set({
       lastHeartbeatAt: new Date(),
       lastHeartbeat: {
@@ -68,11 +73,12 @@ internalApp.openapi(heartbeatRoute, async (c) => {
         ...(security ? { security } : {}),
       },
       ...(daemon_version ? { daemonVersion: daemon_version } : {}),
-      ...(wasProvisioning ? { status: 'ready', readyAt: new Date() } : {}),
+      providerMeta,
+      ...(shouldMarkReady ? { status: 'ready', readyAt: new Date(), provisioningStage: 'services_ready' } : {}),
     }).where(eq(machines.id, machine.id));
 
     // ── Security tamper detection ───────────────────────────────────────
-    if (security && !wasProvisioning) {
+    if (security && !shouldMarkReady) {
       const alerts: string[] = [];
       if (!security.ufw_active) alerts.push('UFW firewall disabled');
       if (!security.fail2ban_active) alerts.push('fail2ban disabled');
@@ -90,7 +96,7 @@ internalApp.openapi(heartbeatRoute, async (c) => {
     }
 
     // ── Network anomaly detection ───────────────────────────────────────
-    if (network && !wasProvisioning) {
+    if (network && !shouldMarkReady) {
       const RATE_THRESHOLD = 100 * 1024 * 1024; // 100 MB/s
       const CONN_THRESHOLD = 10_000;
       const alerts: string[] = [];
@@ -109,7 +115,7 @@ internalApp.openapi(heartbeatRoute, async (c) => {
       }
     }
 
-    if (wasProvisioning) {
+    if (shouldMarkReady) {
       await eventBus.emitStatusChange(machine.id, machine.ownerId, 'ready', 'Machine is ready');
     }
     eventBus.emitTransient({
@@ -120,7 +126,7 @@ internalApp.openapi(heartbeatRoute, async (c) => {
       timestamp: new Date().toISOString(),
     });
 
-    if (wasProvisioning && config.isCloudflareConfigured() && machine.ip) {
+    if (shouldMarkReady && config.isCloudflareConfigured() && machine.ip) {
       cloudflareClient.writeKVMachine(slug, {
         owner_id: machine.ownerId,
         ip: machine.ip,
@@ -228,6 +234,13 @@ internalApp.openapi(stageRoute, async (c) => {
     if (!machine || !tokenMatch) {
       return errorResponse(c, 401, 'Unauthorized') as any;
     }
+
+    await db.update(machines).set({
+      providerMeta: {
+        ...((machine.providerMeta ?? {}) as Record<string, unknown>),
+        last_callback_at: new Date().toISOString(),
+      },
+    }).where(eq(machines.id, machine.id));
 
     await eventBus.emitStageChange(machine.id, machine.ownerId, stage, message, metadata);
 
@@ -343,7 +356,7 @@ internalApp.openapi(validateKeyRoute, async (c) => {
       }
     }
     return c.json({ valid: false }, 401);
-  } catch (err) {
+  } catch {
     return c.json({ valid: false, message: 'DB unavailable' }, 503);
   }
 });

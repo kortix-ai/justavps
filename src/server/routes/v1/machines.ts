@@ -18,13 +18,14 @@ import { stripeClient } from '../../lib/stripe';
 import { requireOwnedResource, requireProvider, errorResponse, handleRouteError } from '../../lib/route-helpers';
 import { checkMachineLimit, checkImageLimit } from '../../lib/account-limits';
 import { HetznerProvider, getPlanTierIndex } from '../../lib/providers/hetzner';
+import { backupSurcharge } from '@/lib/hetzner-pricing';
 import { eventBus } from '../../lib/event-bus';
 import { after } from 'next/server';
 import {
   generateMachineIdentity,
   uploadSSHKeyToProvider,
   buildMachineUserData,
-  resolvePlatformCallbackUrl,
+  resolveMachineCallbackConfig,
   setupProxyDNS,
   lookupPriceAndSpecs,
   createMachineRecord,
@@ -55,10 +56,21 @@ machinesApp.use('*', apiGuard);
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 /** Safely convert a Date to ISO string, returning null for invalid/missing dates */
-function safeISO(d: Date | null | undefined): string | null {
+function safeISO(d?: Date | null) {
   if (!d) return null;
   const iso = d.toISOString?.();
   return iso && !iso.includes('Invalid') ? iso : null;
+}
+
+function readProvisionMeta(meta: Record<string, unknown> | null | undefined) {
+  const value = (meta ?? {}) as Record<string, unknown>;
+  const fallbackCallback = resolveMachineCallbackConfig();
+  return {
+    providerProgress: typeof value.create_progress === 'number' ? value.create_progress : null,
+    providerStatus: typeof value.create_status === 'string' ? value.create_status : null,
+    callbackExpected: typeof value.callback_expected === 'boolean' ? value.callback_expected : fallbackCallback.callbackExpected,
+    callbackUrl: typeof value.callback_url === 'string' ? value.callback_url : fallbackCallback.url,
+  };
 }
 
 function serializeMachine(
@@ -86,6 +98,8 @@ function serializeMachine(
 
   const sshCommand = m.ip ? `ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no root@${m.ip}` : null;
 
+  const provisionMeta = readProvisionMeta(m.providerMeta);
+
   return {
     id: m.id,
     slug: m.slug,
@@ -98,6 +112,10 @@ function serializeMachine(
     server_type: m.serverType,
     region: m.region,
     ip: m.ip,
+    provider_progress: provisionMeta.providerProgress,
+    provider_status: provisionMeta.providerStatus,
+    callback_expected: provisionMeta.callbackExpected,
+    callback_url: provisionMeta.callbackUrl,
     price_monthly: m.priceMonthly || null,
     backups_enabled: m.backupsEnabled,
     created_at: m.createdAt.toISOString(),
@@ -188,7 +206,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
   const isAdmin = c.get('isAdmin');
 
   // 0. Check account machine limit
-  const machineLimit = await checkMachineLimit(ownerId);
+  const machineLimit = await checkMachineLimit(ownerId, isAdmin);
   if (!machineLimit.allowed) {
     return errorResponse(c, 403, `Machine limit reached (${machineLimit.current}/${machineLimit.max}). Delete an existing machine or contact support to increase your limit.`) as any;
   }
@@ -249,12 +267,14 @@ machinesApp.openapi(createMachineRoute, async (c) => {
   const resolvedEntrypoint = data.entrypoint;
   const resolvedCommand = data.command;
 
-  const { priceMonthly, specs } = await lookupPriceAndSpecs(provider, data.region, data.server_type);
+  const { priceMonthly: basePrice, specs } = await lookupPriceAndSpecs(provider, data.region, data.server_type);
+  const wantBackups = data.enable_backups !== false; // default true
+  const priceMonthly = wantBackups ? basePrice + backupSurcharge(basePrice) : basePrice;
 
   let stripeSubId: string | null = null;
   let stripeSubItemId: string | null = null;
 
-  if (stripeClient.isConfigured() && !isAdmin) {
+  if (stripeClient.isConfigured()) {
     const [user] = await db.select().from(users).where(eq(users.id, ownerId));
     if (!user) return errorResponse(c, 404, 'User not found') as any;
 
@@ -264,38 +284,13 @@ machinesApp.openapi(createMachineRoute, async (c) => {
     }
 
     const billingInterval = data.billing_interval ?? 'monthly';
-    const createCheckout = async () => {
-      const { url } = await stripeClient.createCheckoutSession({
-        customerId,
-        userId: ownerId,
-        machineConfig: {
-          provider: data.provider,
-          server_type: data.server_type,
-          region: data.region,
-          name: data.name,
-          image_id: data.image_id ?? machineImageId,
-          docker_image: resolvedDockerImage,
-          entrypoint: resolvedEntrypoint,
-          command: resolvedCommand,
-          env_vars: data.env_vars,
-          ssh_key_ids: data.ssh_key_ids,
-          specs,
-          billing_interval: billingInterval,
-        },
-        priceMonthlyUsd: priceMonthly,
-        billingInterval,
-        successUrl: `${config.APP_URL}/machines`,
-        cancelUrl: `${config.APP_URL}/machines`,
-      });
-      return url;
-    };
 
-    // Fast path: try direct subscription if user has a payment method
-    const hasPM = await stripeClient.hasPaymentMethod(customerId);
-
-    if (hasPM) {
+    if (isAdmin) {
+      // ── Admin path: real subscription at $0 (no coupon) ─────────────────
+      // Keeps the data model identical to paid users — subscription record,
+      // item ID, Stripe product/price all exist. Resize & cancel work normally.
       try {
-        const result = await stripeClient.createMachineSubscription(
+        const result = await stripeClient.createAdminMachineSubscription(
           customerId,
           '',
           `pending-${Date.now()}`,
@@ -306,26 +301,77 @@ machinesApp.openapi(createMachineRoute, async (c) => {
         );
         stripeSubId = result.subscriptionId;
         stripeSubItemId = result.subscriptionItemId;
-        console.log(`[MACHINES] Subscription ${result.subscriptionId} created and charged for user ${ownerId}`);
+        console.log(`[MACHINES] Admin subscription ${result.subscriptionId} created for user ${ownerId} ($0 admin price)`);
       } catch (err) {
-        console.warn(`[MACHINES] Direct subscription failed for user ${ownerId}, falling back to checkout:`, (err as Error).message);
-        // Fall through to checkout below
+        console.error(`[MACHINES] Admin subscription creation failed for user ${ownerId}:`, err);
+        return errorResponse(c, 500, 'Failed to create admin billing record. Please try again.') as any;
       }
-    }
+    } else {
+      // ── Regular user path: charge or redirect to checkout ─────────────
+      const createCheckout = async () => {
+        const { url } = await stripeClient.createCheckoutSession({
+          customerId,
+          userId: ownerId,
+          machineConfig: {
+            provider: data.provider,
+            server_type: data.server_type,
+            region: data.region,
+            name: data.name,
+            image_id: data.image_id ?? machineImageId,
+            docker_image: resolvedDockerImage,
+            entrypoint: resolvedEntrypoint,
+            command: resolvedCommand,
+            env_vars: data.env_vars,
+            ssh_key_ids: data.ssh_key_ids,
+            specs,
+            billing_interval: billingInterval,
+            enable_backups: wantBackups,
+          },
+          priceMonthlyUsd: priceMonthly,
+          billingInterval,
+          successUrl: `${config.APP_URL}/machines`,
+          cancelUrl: `${config.APP_URL}/machines`,
+        });
+        return url;
+      };
 
-    // If direct subscription didn't work (no PM or charge failed), use Checkout
-    if (!stripeSubId) {
-      try {
-        const checkoutUrl = await createCheckout();
-        console.log(`[MACHINES] User ${ownerId} redirected to Stripe Checkout`);
-        return c.json({
-          requires_checkout: true as const,
-          checkout_url: checkoutUrl,
-          message: 'Payment required. Complete checkout to provision your machine.',
-        }, 402);
-      } catch (checkoutErr) {
-        console.error(`[MACHINES] Checkout creation failed for user ${ownerId}:`, checkoutErr);
-        return errorResponse(c, 500, 'Failed to initiate payment. Please try again.') as any;
+      // Fast path: try direct subscription if user has a payment method
+      const hasPM = await stripeClient.hasPaymentMethod(customerId);
+
+      if (hasPM) {
+        try {
+          const result = await stripeClient.createMachineSubscription(
+            customerId,
+            '',
+            `pending-${Date.now()}`,
+            priceMonthly,
+            data.server_type,
+            specs,
+            billingInterval,
+          );
+          stripeSubId = result.subscriptionId;
+          stripeSubItemId = result.subscriptionItemId;
+          console.log(`[MACHINES] Subscription ${result.subscriptionId} created and charged for user ${ownerId}`);
+        } catch (err) {
+          console.warn(`[MACHINES] Direct subscription failed for user ${ownerId}, falling back to checkout:`, (err as Error).message);
+          // Fall through to checkout below
+        }
+      }
+
+      // If direct subscription didn't work (no PM or charge failed), use Checkout
+      if (!stripeSubId) {
+        try {
+          const checkoutUrl = await createCheckout();
+          console.log(`[MACHINES] User ${ownerId} redirected to Stripe Checkout`);
+          return c.json({
+            requires_checkout: true as const,
+            checkout_url: checkoutUrl,
+            message: 'Payment required. Complete checkout to provision your machine.',
+          }, 402);
+        } catch (checkoutErr) {
+          console.error(`[MACHINES] Checkout creation failed for user ${ownerId}:`, checkoutErr);
+          return errorResponse(c, 500, 'Failed to initiate payment. Please try again.') as any;
+        }
       }
     }
   }
@@ -343,7 +389,8 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       : [];
 
     const providerKeyId = await uploadSSHKeyToProvider(provider, slug, autoKey.publicKey);
-    const callbackUrl = resolvePlatformCallbackUrl(c.req.url);
+    const callbackConfig = resolveMachineCallbackConfig(c.req.url);
+    const callbackUrl = callbackConfig.url;
     const userdata = buildMachineUserData(slug, autoKey.publicKey, machineToken, callbackUrl, data.env_vars, resolvedDockerImage, resolvedEntrypoint, resolvedCommand, extraSSHKeys);
 
     const machine = await createMachineRecord({
@@ -363,6 +410,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       dockerImage: resolvedDockerImage || null,
       entrypoint: resolvedEntrypoint || null,
       dockerCommand: resolvedCommand || null,
+      backupsEnabled: wantBackups,
     });
 
     if (stripeSubId) {
@@ -379,18 +427,27 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       });
     }
 
+    await db.update(machines).set({
+      providerMeta: {
+        callback_expected: callbackConfig.callbackExpected,
+        callback_url: callbackConfig.url,
+        create_status: 'running',
+        create_progress: 0,
+      },
+    }).where(eq(machines.id, machine.id));
+
     await eventBus.emitStageChange(machine.id, ownerId, 'server_creating', 'Creating server on provider...');
 
     after(async () => {
       try {
         const server = await provider.createServer({
           name: `justavps-${slug}`,
-          serverType: data.server_type,
           image: resolvedImage,
+          serverType: data.server_type,
           region: data.region,
           userData: userdata,
           sshKeyIds: [providerKeyId],
-          enableBackups: true,
+          enableBackups: wantBackups,
           labels: {
             'justavps': 'true',
             'slug': slug,
@@ -406,16 +463,23 @@ machinesApp.openapi(createMachineRoute, async (c) => {
         });
 
         await db.update(machines).set({
-          ip: server.publicIp,
+          ip: server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp,
           providerServerId: server.serverId,
+          providerMeta: {
+            callback_expected: callbackConfig.callbackExpected,
+            callback_url: callbackConfig.url,
+            create_action_id: server.createActionId ?? null,
+            create_status: 'running',
+            create_progress: 1,
+            public_ipv4: server.publicIpv4 ?? null,
+            public_ipv6: server.publicIpv6 ?? null,
+          },
         }).where(eq(machines.id, machine.id));
 
-        await eventBus.emitStageChange(machine.id, ownerId, 'server_created', `Server created (IP: ${server.publicIp})`, { ip: server.publicIp });
+        await eventBus.emitStageChange(machine.id, ownerId, 'server_created', `Server created (IP: ${server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp})`, { ip: server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp });
 
-        try {
-          await setupProxyDNS(slug, server.publicIp, ownerId, data.server_type);
-        } catch (err) {
-          console.warn(`[MACHINES] KV setup failed for ${slug}:`, err);
+        if (config.isCloudflareConfigured()) {
+          await setupProxyDNS(slug, { ipv4: server.publicIpv4, ipv6: server.publicIpv6 }, ownerId, data.server_type);
         }
 
       } catch (err) {
@@ -888,7 +952,8 @@ machinesApp.openapi(resizeMachineRoute, async (c) => {
     return errorResponse(c, 400, `Server type ${server_type} is not available in region ${machine.region}`) as any;
   }
 
-  const newPrice = newSt.priceMonthly;
+  const newBasePrice = newSt.priceMonthly;
+  const newPrice = machine.backupsEnabled ? newBasePrice + backupSurcharge(newBasePrice) : newBasePrice;
   const newSpecs = { vcpus: newSt.cores, ramGb: newSt.memory, diskGb: newSt.disk, cpuType: newSt.cpuType } as const;
 
   // Look up subscription for billing
@@ -1038,7 +1103,7 @@ machinesApp.openapi(createImageFromMachineRoute, async (c) => {
   if (!machine.providerServerId) return errorResponse(c, 400, 'Machine has no provider server') as any;
 
   // Check account image limit
-  const imageLimit = await checkImageLimit(ownerId);
+  const imageLimit = await checkImageLimit(ownerId, c.get('isAdmin'));
   if (!imageLimit.allowed) {
     return errorResponse(c, 403, `Image limit reached (${imageLimit.current}/${imageLimit.max}). Delete an existing image or contact support to increase your limit.`) as any;
   }
@@ -1211,13 +1276,31 @@ machinesApp.openapi(enableBackupsRoute, async (c) => {
 
   const machine = owned.resource;
   if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
+  if (machine.backupsEnabled) return c.json({ action: 'enable_backups', status: 'already_enabled' }, 200);
 
   const lookup = requireProvider(c, machine.provider);
   if (lookup.response) return lookup.response as any;
 
+  // 1. Enable on provider
   const provider = lookup.provider as HetznerProvider;
-  await provider.enableBackups(machine.providerServerId);
-  await db.update(machines).set({ backupsEnabled: true }).where(eq(machines.id, id));
+  await provider.enableBackups(machine.providerServerId).catch((err) => {
+    console.error('[MACHINES] Provider backup enable failed, continuing with billing state update:', err);
+  });
+
+  // 2. Update billing — add 20% surcharge
+  const { priceMonthly: basePrice, specs } = await lookupPriceAndSpecs(provider, machine.region, machine.serverType);
+  const newPrice = basePrice + backupSurcharge(basePrice);
+
+  if (stripeClient.isConfigured()) {
+    const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.machineId, id));
+    if (sub?.stripeSubscriptionItemId) {
+      await stripeClient.updateMachineSubscription(
+        sub.stripeSubscriptionItemId, newPrice, machine.serverType, machine.id, specs,
+      ).catch(err => console.error('[MACHINES] Stripe backup enable billing update failed:', err));
+    }
+  }
+
+  await db.update(machines).set({ backupsEnabled: true, priceMonthly: newPrice }).where(eq(machines.id, id));
 
   return c.json({ action: 'enable_backups', status: 'completed' }, 200);
 });
@@ -1250,13 +1333,30 @@ machinesApp.openapi(disableBackupsRoute, async (c) => {
 
   const machine = owned.resource;
   if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
+  if (!machine.backupsEnabled) return c.json({ action: 'disable_backups', status: 'already_disabled' }, 200);
 
   const lookup = requireProvider(c, machine.provider);
   if (lookup.response) return lookup.response as any;
 
+  // 1. Disable on provider
   const provider = lookup.provider as HetznerProvider;
-  await provider.disableBackups(machine.providerServerId);
-  await db.update(machines).set({ backupsEnabled: false }).where(eq(machines.id, id));
+  await provider.disableBackups(machine.providerServerId).catch((err) => {
+    console.error('[MACHINES] Provider backup disable failed, continuing with billing state update:', err);
+  });
+
+  // 2. Update billing — remove 20% surcharge (back to base price)
+  const { priceMonthly: basePrice, specs } = await lookupPriceAndSpecs(provider, machine.region, machine.serverType);
+
+  if (stripeClient.isConfigured()) {
+    const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.machineId, id));
+    if (sub?.stripeSubscriptionItemId) {
+      await stripeClient.updateMachineSubscription(
+        sub.stripeSubscriptionItemId, basePrice, machine.serverType, machine.id, specs,
+      ).catch(err => console.error('[MACHINES] Stripe backup disable billing update failed:', err));
+    }
+  }
+
+  await db.update(machines).set({ backupsEnabled: false, priceMonthly: basePrice }).where(eq(machines.id, id));
 
   return c.json({ action: 'disable_backups', status: 'completed' }, 200);
 });

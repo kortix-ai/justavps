@@ -6,6 +6,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { useAccountLimits } from "@/hooks/use-account";
+import { formatLimit, isUnlimitedLimit } from "@/lib/account-limits";
 import { Server, HardDrive, AlertTriangle } from "lucide-react";
 
 function LimitCard({
@@ -19,9 +20,10 @@ function LimitCard({
   current: number;
   max: number;
 }) {
-  const pct = max > 0 ? Math.round((current / max) * 100) : 0;
-  const isAtLimit = current >= max;
-  const isNearLimit = pct >= 80 && !isAtLimit;
+  const unlimited = isUnlimitedLimit(max);
+  const pct = !unlimited && max > 0 ? Math.round((current / max) * 100) : 0;
+  const isAtLimit = !unlimited && current >= max;
+  const isNearLimit = !unlimited && pct >= 80 && !isAtLimit;
 
   return (
     <div className="p-5 rounded-xl border bg-card space-y-3">
@@ -43,14 +45,16 @@ function LimitCard({
           </div>
         )}
       </div>
-      <div className="flex items-baseline gap-1.5">
-        <span className="text-3xl font-semibold tracking-tight">{current}</span>
-        <span className="text-sm text-muted-foreground">/ {max}</span>
-      </div>
-      <Progress
-        value={pct}
-        className={`h-2 ${isAtLimit ? "[&_div[data-slot=progress-indicator]]:bg-destructive" : isNearLimit ? "[&_div[data-slot=progress-indicator]]:bg-amber-500" : ""}`}
-      />
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-3xl font-semibold tracking-tight">{current}</span>
+          <span className="text-sm text-muted-foreground">/ {formatLimit(max)}</span>
+        </div>
+      {!unlimited && (
+        <Progress
+          value={pct}
+          className={`h-2 ${isAtLimit ? "[&_div[data-slot=progress-indicator]]:bg-destructive" : isNearLimit ? "[&_div[data-slot=progress-indicator]]:bg-amber-500" : ""}`}
+        />
+      )}
     </div>
   );
 }
@@ -113,7 +117,7 @@ export default function SettingsPage() {
           </div>
         ) : null}
         <p className="text-xs text-muted-foreground mt-2">
-          Need higher limits? Contact support to request an increase.
+          Need higher limits? Email <a href="mailto:support@justavps.com" className="underline underline-offset-2">support@justavps.com</a> to request an increase.
         </p>
       </div>
     </div>

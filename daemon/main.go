@@ -81,6 +81,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	StartToolBootstrap(ctx)
 	go heartbeat.Run(ctx)
 	go portWatcher.Run(ctx)
 

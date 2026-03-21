@@ -139,7 +139,7 @@ async function verifyInstantChargeAndResize() {
     'instant-charge create',
   );
   assert(readyMachine.server_type === 'cpx32', 'initial machine type mismatch');
-  assert(readyMachine.price_monthly === 15, 'initial monthly price mismatch');
+  assert(readyMachine.price_monthly === 21, 'initial monthly price mismatch');
 
   const [sub] = await db.select().from(subscriptions)
     .where(eq(subscriptions.machineId, machineId));
@@ -158,7 +158,7 @@ async function verifyInstantChargeAndResize() {
     8 * 60 * 1000,
     'resize',
   );
-  assert(resizedMachine.price_monthly === 49, 'resized monthly price mismatch');
+  assert(resizedMachine.price_monthly === 56, 'resized monthly price mismatch');
 
   // Re-fetch subscription after resize to get updated item
   const [subAfterResize] = await db.select().from(subscriptions).where(eq(subscriptions.machineId, machineId));

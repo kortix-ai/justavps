@@ -33,6 +33,7 @@ import {
 import { useMachineSSE } from "@/hooks/use-machine-sse";
 import { useCreateImage } from "@/hooks/use-images";
 import { useConfirm } from "@/hooks/use-confirm";
+import type { Machine } from "@/lib/types";
 import {
   ArrowLeft,
   RotateCw,
@@ -65,6 +66,7 @@ import {
 } from "lucide-react";
 import { RescaleDialog } from "@/components/dashboard/rescale-dialog";
 import Link from "next/link";
+import { BACKUP_SURCHARGE_PERCENT, backupSurcharge } from "@/lib/hetzner-pricing";
 import { timeAgo, cn, regionDisplay, planName, planSpecs, PROXY_DOMAIN } from "@/lib/utils";
 
 const Terminal = dynamic(() => import("@/components/dashboard/terminal"), {
@@ -258,29 +260,33 @@ function HealthRow({
 }
 
 /* ─── Backups Panel ─────────────────────────────────────────────────── */
-function BackupsPanel({ machineId }: { machineId: string }) {
+function BackupsPanel({ machineId, machine }: { machineId: string; machine: { price_monthly: number | null } }) {
   const { data, isLoading } = useBackups(machineId);
   const createBackup = useCreateBackup();
   const toggleBackups = useToggleBackups();
   const backups = data?.backups ?? [];
   const enabled = data?.backups_enabled ?? false;
   const loaded = !isLoading && data !== undefined;
+  const backupUpsell = !enabled && machine.price_monthly ? backupSurcharge(machine.price_monthly) : 0;
 
   return (
     <div className="space-y-3">
-      {/* Free perk banner — only shown when disabled */}
+      {/* Paid upsell banner — only shown when disabled */}
       {!enabled && loaded && (
-        <div className="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
-          <div className="size-7 rounded-md bg-emerald-500/10 flex items-center justify-center shrink-0 mt-0.5">
-            <Shield className="size-3.5 text-emerald-500" />
+        <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+          <div className="size-7 rounded-md bg-amber-500/10 flex items-center justify-center shrink-0 mt-0.5">
+            <Shield className="size-3.5 text-amber-500" />
           </div>
           <div className="min-w-0">
-            <div className="flex items-center gap-2 mb-0.5">
-              <p className="text-sm font-medium">Daily backups included — free</p>
-              <Badge variant="outline" className="text-[10px] h-4 px-1.5 border-emerald-500/30 text-emerald-600 dark:text-emerald-400">Included</Badge>
+            <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+              <p className="text-sm font-medium">Add daily backups</p>
+              <Badge variant="outline" className="text-[10px] h-4 px-1.5 border-amber-500/30 text-amber-700 dark:text-amber-400">
+                +{BACKUP_SURCHARGE_PERCENT}%
+              </Badge>
             </div>
             <p className="text-xs text-muted-foreground">
-              Up to 7 daily snapshots at no extra cost. Enable it once — we handle the rest.
+              Automatic daily snapshots with manual restore and clone support.
+              {backupUpsell > 0 ? ` Enable for +$${backupUpsell.toFixed(2)}/mo on this machine.` : ""}
             </p>
           </div>
         </div>
@@ -300,7 +306,7 @@ function BackupsPanel({ machineId }: { machineId: string }) {
             <div className="min-w-0">
               <p className="text-sm font-medium">Daily backups</p>
               <p className="text-xs text-muted-foreground">
-                {enabled ? "Active — up to 7 daily snapshots kept" : "Free, included in your plan"}
+                {enabled ? "Active — up to 7 daily snapshots kept" : `Enable for +$${backupUpsell.toFixed(2)}/mo`}
               </p>
             </div>
           </div>
@@ -493,6 +499,47 @@ function ProvisioningProgress({ stage }: { stage: string }) {
   );
 }
 
+function provisioningHeadline(machine: Machine) {
+  if (machine.provisioning_stage === "resizing") return "Scaling in progress";
+  return "Boot progress";
+}
+
+function provisioningSubcopy(machine: Machine) {
+  if (machine.provisioning_stage === "resizing") {
+    return "Usually under 90 seconds.";
+  }
+  if (machine.provider_status === "success" && machine.callback_expected === false) {
+    return "Boot finished. Waiting for the control plane to catch up.";
+  }
+  if (machine.provider_status === "success") {
+    return "Boot finished. Final checks are still running.";
+  }
+  return "Usually 1-3 minutes.";
+}
+
+function isIpv6Address(value: string | null | undefined) {
+  return !!value && value.includes(":");
+}
+
+function machineOriginHost(machine: Machine) {
+  return `origin-${machine.slug}.${PROXY_DOMAIN}`;
+}
+
+function machineSshHost(machine: Machine) {
+  return machine.ip ?? machineOriginHost(machine);
+}
+
+function buildSshSetupCommand(machine: Machine, sshKeyPath: string) {
+  if (!machine.ssh_key?.private_key) return null;
+  const target = machineSshHost(machine);
+  return `mkdir -p ~/.ssh && echo '${machine.ssh_key.private_key}' > ${sshKeyPath} && chmod 600 ${sshKeyPath} && ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${target}`;
+}
+
+function buildSshConfig(machine: Machine, sshKeyPath: string) {
+  const target = machineSshHost(machine);
+  return `grep -q "Host ${machine.slug}" ~/.ssh/config 2>/dev/null || cat >> ~/.ssh/config << 'EOF'\n\nHost ${machine.slug}\n  HostName ${target}\n  User root\n  IdentityFile ${sshKeyPath}\n  StrictHostKeyChecking no\nEOF`;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════
    MACHINE DETAIL PAGE
    ═══════════════════════════════════════════════════════════════════════ */
@@ -552,6 +599,13 @@ export default function MachineDetailPage() {
     );
   };
 
+  const sshKeyPath = `~/.ssh/justavps_${machine?.slug}`;
+
+  const sshTarget = machine ? machineOriginHost(machine) : null;
+  const setupCommand = machine ? buildSshSetupCommand(machine, sshKeyPath) : null;
+  const sshConfigCommand = machine ? buildSshConfig(machine, sshKeyPath) : null;
+  const ipv6OnlySsh = !!machine?.ip && isIpv6Address(machine.ip);
+
   /* ── Loading ───────────────────────────────────────────────────────── */
   if (isLoading)
     return (
@@ -592,7 +646,6 @@ export default function MachineDetailPage() {
   const isResizing =
     machine.status === "provisioning" && machine.provisioning_stage === "resizing";
   const uptime = machine.ready_at ? timeAgo(machine.ready_at) : null;
-  const sshKeyPath = `~/.ssh/justavps_${machine.slug}`;
 
 
   /* Health values — daemon sends 0–1 fractions, normalise to 0–100 here */
@@ -890,46 +943,60 @@ export default function MachineDetailPage() {
           PROVISIONING BANNER
           ════════════════════════════════════════════════════════════════ */}
       {machine.status === "provisioning" && (
-        <div className="flex items-start gap-3 rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-4">
-          <div className="rounded-lg bg-yellow-500/10 p-1.5 shrink-0 mt-0.5">
-            <Loader2 className="size-4 animate-spin text-yellow-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-yellow-600 dark:text-yellow-400">
-              {machine.provisioning_stage === "resizing"
-                ? "Scaling in progress"
-                : "Provisioning your machine"}
-            </p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {machine.provisioning_stage === "resizing"
-                ? "Stops, resizes, and restarts — usually 60–90s. This page updates automatically."
-                : "This usually takes 1–3 minutes. This page updates automatically."}
-            </p>
-            {machine.provisioning_stage && machine.provisioning_stage !== "resizing" && (
-              <ProvisioningProgress stage={machine.provisioning_stage} />
-            )}
+        <div className="rounded-xl border bg-card/70 p-4">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-muted p-1.5 shrink-0 mt-0.5">
+              <Loader2 className="size-4 animate-spin text-yellow-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">{provisioningHeadline(machine)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{provisioningSubcopy(machine)}</p>
+                </div>
+                {typeof machine.provider_progress === "number" && machine.provisioning_stage !== "resizing" && (
+                  <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                    {Math.max(0, Math.min(100, machine.provider_progress))}%
+                  </span>
+                )}
+              </div>
+              {typeof machine.provider_progress === "number" && machine.provisioning_stage !== "resizing" && (
+                <Progress value={machine.provider_progress} className="mt-3 h-1.5" />
+              )}
+              {machine.provisioning_stage && machine.provisioning_stage !== "resizing" && (
+                <div className="mt-3">
+                  <ProvisioningProgress stage={machine.provisioning_stage} />
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
 
       {machine.status === "error" && (
-        <div className="flex items-start gap-3 rounded-xl border border-red-500/20 bg-red-500/5 p-4">
-          <div className="rounded-lg bg-red-500/10 p-1.5 shrink-0 mt-0.5">
-            <AlertTriangle className="size-4 text-red-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-red-600 dark:text-red-400">
-              {machine.provisioning_stage === "timeout"
-                ? "Provisioning timed out"
-                : machine.provisioning_stage === "cloud_init_error"
-                  ? "Setup failed"
-                  : "Machine error"}
-            </p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {machine.provisioning_stage === "timeout"
-                ? "The machine did not report back in time. This can happen if the network or cloud-init script encountered issues. Try deleting and recreating the machine."
-                : "Something went wrong during provisioning. Try deleting and recreating the machine, or contact support if the issue persists."}
-            </p>
+        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-red-500/10 p-1.5 shrink-0 mt-0.5">
+              <AlertTriangle className="size-4 text-red-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-red-600 dark:text-red-400">
+                {machine.provisioning_stage === "timeout"
+                  ? machine.callback_expected === false
+                    ? "Boot finished, but sync timed out"
+                    : "Boot timed out"
+                  : machine.provisioning_stage === "cloud_init_error"
+                    ? "Setup failed"
+                    : "Machine error"}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {machine.provisioning_stage === "timeout"
+                  ? machine.callback_expected === false
+                    ? "The server may already be up, but this local environment could not finish syncing state."
+                    : "The machine did not finish booting in time."
+                  : "Something interrupted setup before the machine became ready."}
+              </p>
+            </div>
           </div>
         </div>
       )}
@@ -985,7 +1052,7 @@ export default function MachineDetailPage() {
                   </p>
                 </div>
                 <CopyButton
-                  text={`Set up SSH access to my remote VPS and connect via Remote-SSH.\n\n1. Save the SSH key:\n${machine.ssh_key?.setup_command?.split("&&").slice(0, 2).join("&&").trim() ?? "# run step 1 first"}\n\n2. Add to ~/.ssh/config:\nHost ${machine.slug}\n  HostName ${machine.ip}\n  User root\n  IdentityFile ${sshKeyPath}\n  StrictHostKeyChecking no\n\n3. Connect via Remote-SSH to host "${machine.slug}"`}
+                  text={`Set up SSH access to my remote VPS and connect via Remote-SSH.\n\n1. Save the SSH key:\n${setupCommand ?? "# run step 1 first"}\n\n2. Add to ~/.ssh/config:\nHost ${machine.slug}\n  HostName ${sshTarget}\n  User root\n  IdentityFile ${sshKeyPath}\n  StrictHostKeyChecking no\n\n3. Connect via Remote-SSH to host "${machine.slug}"`}
                   label="AI agent prompt"
                 />
               </div>
@@ -1012,16 +1079,21 @@ export default function MachineDetailPage() {
                 <p className="text-xs text-muted-foreground">
                   Run once in your terminal — saves your key and opens an SSH session immediately.
                 </p>
-                {machine.ssh_key?.setup_command ? (
+                {setupCommand ? (
                   <SecretCodeBlock
-                    text={machine.ssh_key.setup_command}
+                    text={setupCommand}
                     label="Setup command"
                   />
                 ) : (
                   <p className="text-xs text-muted-foreground italic">Not available yet.</p>
                 )}
                 <p className="text-xs text-muted-foreground">Reconnect later:</p>
-                <CodeBlock text={`ssh -i ${sshKeyPath} root@${machine.ip}`} label="SSH command" />
+                <CodeBlock text={`ssh -i ${sshKeyPath} root@${sshTarget}`} label="SSH command" />
+                {ipv6OnlySsh && (
+                  <p className="text-xs text-muted-foreground">
+                    If direct SSH fails with <span className="font-mono">No route to host</span>, your current network likely has no IPv6 path. Use the Terminal tab or switch to a network with IPv6.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -1044,7 +1116,7 @@ export default function MachineDetailPage() {
                   </div>
                   <p className="text-xs text-muted-foreground">Add host to SSH config (run once):</p>
                   <CodeBlock
-                    text={`grep -q "Host ${machine.slug}" ~/.ssh/config 2>/dev/null || cat >> ~/.ssh/config << 'EOF'\n\nHost ${machine.slug}\n  HostName ${machine.ip}\n  User root\n  IdentityFile ${sshKeyPath}\n  StrictHostKeyChecking no\nEOF`}
+                    text={sshConfigCommand ?? "# not available yet"}
                     label="SSH config"
                     variant="green"
                   />
@@ -1063,7 +1135,7 @@ export default function MachineDetailPage() {
                     <span className="text-sm font-medium">Terminal / Plain SSH</span>
                   </div>
                   <CodeBlock
-                    text={`ssh -i ${sshKeyPath} root@${machine.ip}`}
+                    text={`ssh -i ${sshKeyPath} root@${sshTarget}`}
                     label="SSH command"
                   />
                 </div>
@@ -1201,7 +1273,7 @@ export default function MachineDetailPage() {
 
           {/* ── BACKUPS ────────────────────────────────────────────────── */}
           <TabsContent value="backups" className="mt-0">
-            <BackupsPanel machineId={machine.id} />
+            <BackupsPanel machineId={machine.id} machine={machine} />
           </TabsContent>
 
           {/* ── API ────────────────────────────────────────────────────── */}
@@ -1260,9 +1332,13 @@ export default function MachineDetailPage() {
             <div className="rounded-2xl bg-muted p-4 mb-4">
               <Server className="size-8 text-muted-foreground/40" strokeWidth={1.5} />
             </div>
-            <h3 className="text-sm font-medium mb-1">Machine is not ready</h3>
+            <h3 className="text-sm font-medium mb-1">
+              {machine.provider_status === "success" || machine.callback_expected === false ? "Almost there" : "Machine not ready yet"}
+            </h3>
             <p className="text-xs text-muted-foreground max-w-xs">
-              Terminal, SSH, and management tools appear once the machine is running.
+              {machine.provider_status === "success" || machine.callback_expected === false
+                ? "Terminal, SSH, and tools show up as soon as the machine finishes syncing."
+                : "Terminal, SSH, and tools appear once the machine is ready."}
             </p>
           </div>
         </div>

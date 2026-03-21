@@ -46,6 +46,7 @@ interface CreateMachineInput {
   command?: string;
   ssh_key_ids?: string[];
   billing_interval?: "monthly" | "yearly" | "2year";
+  enable_backups?: boolean;
 }
 
 /** Result of createMachine — either a Machine (provisioned) or a checkout redirect (needs payment) */

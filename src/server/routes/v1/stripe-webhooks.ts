@@ -29,7 +29,7 @@ import {
   generateMachineIdentity,
   uploadSSHKeyToProvider,
   buildMachineUserData,
-  resolvePlatformCallbackUrl,
+  resolveMachineCallbackConfig,
   setupProxyDNS,
   createMachineRecord,
   autoGenerateAndSaveSSHKey,
@@ -38,6 +38,8 @@ import {
 } from '../../lib/machine-lifecycle';
 import { checkMachineLimit } from '../../lib/account-limits';
 import { desc } from 'drizzle-orm';
+
+const stripe = new Stripe(config.STRIPE_SECRET_KEY || 'sk_test_placeholder_not_configured');
 import { DEFAULT_TEMPLATE_NAME, resolveRequestedProviderImage } from '../../lib/image-catalog';
 
 export const stripeWebhooksApp = new OpenAPIHono();
@@ -238,8 +240,14 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     });
   }
 
+  const [userRow] = await db
+    .select({ isAdmin: users.isAdmin })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
   // Check account machine limit before provisioning
-  const machineLimit = await checkMachineLimit(userId);
+  const machineLimit = await checkMachineLimit(userId, userRow?.isAdmin ?? false);
   if (!machineLimit.allowed) {
     console.warn(`[STRIPE WEBHOOK] Machine limit reached for user ${userId} (${machineLimit.current}/${machineLimit.max}) — cancelling subscription ${subscriptionId || 'unknown'}`);
     if (subscriptionId) {
@@ -285,11 +293,12 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       : [];
 
     const providerKeyId = await uploadSSHKeyToProvider(provider, slug, autoKey.publicKey);
+    const callbackConfig = resolveMachineCallbackConfig();
     const userdata = buildMachineUserData(
       slug,
       autoKey.publicKey,
       machineToken,
-      resolvePlatformCallbackUrl(),
+      callbackConfig.url,
       machineConfig.env_vars,
       resolvedDockerImage,
       resolvedEntrypoint,
@@ -314,6 +323,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       dockerImage: resolvedDockerImage || null,
       entrypoint: resolvedEntrypoint || null,
       dockerCommand: resolvedCommand || null,
+      backupsEnabled: machineConfig.enable_backups !== false,
     });
 
     if (subscriptionId) {
@@ -333,8 +343,17 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
     await eventBus.emitStageChange(machine.id, userId, 'server_creating', 'Creating server on provider...');
 
+    await db.update(machines).set({
+      providerMeta: {
+        callback_expected: callbackConfig.callbackExpected,
+        callback_url: callbackConfig.url,
+        create_status: 'running',
+        create_progress: 0,
+      },
+    }).where(eq(machines.id, machine.id));
+
     // Provision async — don't block the webhook response
-    provisionMachineAsync(machine, provider, machineConfig, slug, userId, userdata, providerKeyId, priceMonthly, resolvedImage, subscriptionId);
+    provisionMachineAsync(machine, provider, machineConfig, slug, userId, userdata, providerKeyId, priceMonthly, resolvedImage, subscriptionId, callbackConfig);
 
     console.log(`[STRIPE WEBHOOK] Machine ${slug} created and queued for provisioning`);
   } catch (err) {
@@ -355,6 +374,7 @@ function provisionMachineAsync(
   priceMonthly: number,
   resolvedImage: string,
   subscriptionId: string,
+  callbackConfig: { url: string; callbackExpected: boolean },
 ) {
   (async () => {
     try {
@@ -365,7 +385,7 @@ function provisionMachineAsync(
         region: machineConfig.region,
         userData: userdata,
         sshKeyIds: [providerKeyId],
-        enableBackups: true,
+        enableBackups: machineConfig.enable_backups !== false,
         labels: {
           'justavps': 'true',
           'slug': slug,
@@ -380,16 +400,23 @@ function provisionMachineAsync(
       });
 
       await db.update(machines).set({
-        ip: server.publicIp,
+        ip: server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp,
         providerServerId: server.serverId,
+        providerMeta: {
+          callback_expected: callbackConfig.callbackExpected,
+          callback_url: callbackConfig.url,
+          create_action_id: server.createActionId ?? null,
+          create_status: 'running',
+          create_progress: 1,
+          public_ipv4: server.publicIpv4 ?? null,
+          public_ipv6: server.publicIpv6 ?? null,
+        },
       }).where(eq(machines.id, machine.id));
 
-      await eventBus.emitStageChange(machine.id, userId, 'server_created', `Server created (IP: ${server.publicIp})`, { ip: server.publicIp });
+      await eventBus.emitStageChange(machine.id, userId, 'server_created', `Server created (IP: ${server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp})`, { ip: server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp });
 
-      try {
-        await setupProxyDNS(slug, server.publicIp, userId, machineConfig.server_type);
-      } catch (err) {
-        console.warn(`[STRIPE WEBHOOK] KV setup failed for ${slug}:`, err);
+      if (config.isCloudflareConfigured()) {
+        await setupProxyDNS(slug, { ipv4: server.publicIpv4, ipv6: server.publicIpv6 }, userId, machineConfig.server_type);
       }
 
       if (priceMonthly) {
@@ -506,9 +533,23 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
     if (!machine || machine.status === 'deleted') continue;
 
     // Sync price
-    const priceAmount = subscription.items.data[0]?.price?.unit_amount;
-    if (priceAmount != null) {
-      const newPriceMonthly = priceAmount / 100;
+    const stripePrice = subscription.items.data[0]?.price;
+    if (stripePrice) {
+      let newPriceMonthly = (stripePrice.unit_amount || 0) / 100;
+
+      // Admin subscriptions use a $0 Stripe price and store the real audit/billing
+      // amount in product metadata so the app still reflects the machine's real cost.
+      try {
+        const expandedPrice = await stripe.prices.retrieve(stripePrice.id, { expand: ['product'] });
+        const product = expandedPrice.product as Stripe.Product;
+        const realUnitAmount = product.metadata?.real_unit_amount_cents;
+        if (realUnitAmount) {
+          newPriceMonthly = Number(realUnitAmount) / 100;
+        }
+      } catch (err) {
+        console.warn(`[STRIPE WEBHOOK] Failed to expand price ${stripePrice.id} for ${machine.slug}:`, err);
+      }
+
       if (newPriceMonthly !== machine.priceMonthly) {
         await db.update(machines).set({ priceMonthly: newPriceMonthly }).where(eq(machines.id, machine.id));
         console.log(`[STRIPE WEBHOOK] Updated price for machine ${machine.slug}: $${machine.priceMonthly} → $${newPriceMonthly}`);

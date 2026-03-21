@@ -294,10 +294,11 @@ const getAccountLimitsRoute = createRoute({
 // @ts-expect-error — handler returns multiple shapes (error + success); spec types are correctly declared above
 accountApp.openapi(getAccountLimitsRoute, async (c) => {
   const userId = c.get('userId');
+  const isAdmin = c.get('isAdmin');
 
   try {
     const [limits, machineCount, imageCount] = await Promise.all([
-      getAccountLimits(userId),
+      getAccountLimits(userId, isAdmin),
       countActiveMachines(userId),
       countActiveImages(userId),
     ]);

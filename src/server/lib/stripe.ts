@@ -40,6 +40,8 @@ export interface CheckoutMachineConfig {
   specs?: MachineSpecs;
   /** Billing interval — determines Stripe recurring interval + discount */
   billing_interval?: BillingInterval;
+  /** Whether daily backups are enabled (+20% surcharge). Defaults to true. */
+  enable_backups?: boolean;
 }
 
 /**
@@ -314,6 +316,68 @@ export const stripeClient = {
   },
 
   /**
+   * Create a $0 subscription for an admin machine.
+   * Uses a real Stripe subscription with `unit_amount: 0` so the data model
+   * is identical to a paid user (sub ID, item ID, product, price all exist).
+   * Resize, cancel, proration — everything works identically.
+   *
+   * Security: no coupons or promo codes that could be leaked. The price is
+   * simply created at $0. The subscription metadata includes `admin_discount: 'true'`
+   * so `updateMachineSubscription` can detect admin subs and keep the $0 price on resize.
+   */
+  async createAdminMachineSubscription(
+    customerId: string,
+    machineId: string,
+    machineSlug: string,
+    priceMonthlyUsd: number,
+    serverType: string,
+    specs?: MachineSpecs,
+    billingInterval: BillingInterval = 'monthly',
+  ): Promise<{ subscriptionId: string; subscriptionItemId: string }> {
+    const resolved = resolveStripePrice(priceMonthlyUsd, billingInterval);
+
+    // Create an ad-hoc price at $0 — product still shows real specs for tracking
+    const price = await stripe.prices.create({
+      currency: 'usd',
+      unit_amount: 0,
+      recurring: { interval: resolved.interval },
+      product_data: {
+        name: `${formatProductName(specs)} (Admin)`,
+        metadata: {
+          platform: 'justavps',
+          machine_id: machineId,
+          machine_slug: machineSlug,
+          server_type: serverType,
+          admin_discount: 'true',
+          // Store the real price in metadata for auditing
+          real_unit_amount_cents: String(resolved.unitAmountCents),
+        },
+      },
+    });
+
+    const subscription = await stripe.subscriptions.create({
+      customer: customerId,
+      items: [{ price: price.id }],
+      collection_method: 'charge_automatically',
+      metadata: {
+        machine_id: machineId,
+        machine_slug: machineSlug,
+        billing_interval: billingInterval,
+        admin_discount: 'true',
+      },
+    });
+
+    const itemId = subscription.items.data[0]?.id || '';
+
+    console.log(`[STRIPE] Created ADMIN subscription ${subscription.id} for machine ${machineSlug} ($0 — real price would be ${resolved.intervalLabel})`);
+
+    return {
+      subscriptionId: subscription.id,
+      subscriptionItemId: itemId,
+    };
+  },
+
+  /**
    * Cancel a machine's subscription (on machine delete).
    * Prorated credit is applied automatically.
    */
@@ -353,6 +417,7 @@ export const stripeClient = {
 
   /**
    * Update a subscription price (on machine resize).
+   * Detects admin subscriptions via metadata and keeps the price at $0.
    */
   async updateMachineSubscription(
     subscriptionItemId: string,
@@ -366,17 +431,23 @@ export const stripeClient = {
 
     const resolved = resolveStripePrice(newPriceMonthlyUsd, billingInterval);
 
-    // Create new price
+    // Check if this is an admin subscription by reading the parent subscription's metadata
+    const item = await stripe.subscriptionItems.retrieve(subscriptionItemId);
+    const sub = await stripe.subscriptions.retrieve(item.subscription as string);
+    const isAdminSub = sub.metadata?.admin_discount === 'true';
+
+    // Create new price — $0 for admin, real price for regular users
     const newPrice = await stripe.prices.create({
       currency: 'usd',
-      unit_amount: resolved.unitAmountCents,
+      unit_amount: isAdminSub ? 0 : resolved.unitAmountCents,
       recurring: { interval: resolved.interval },
       product_data: {
-        name: formatProductName(specs),
+        name: isAdminSub ? `${formatProductName(specs)} (Admin)` : formatProductName(specs),
         metadata: {
           platform: 'justavps',
           machine_id: machineId,
           server_type: serverType,
+          ...(isAdminSub ? { admin_discount: 'true', real_unit_amount_cents: String(resolved.unitAmountCents) } : {}),
         },
       },
     });
@@ -387,7 +458,7 @@ export const stripeClient = {
       proration_behavior: 'create_prorations',
     });
 
-    console.log(`[STRIPE] Updated subscription item ${subscriptionItemId} to ${resolved.intervalLabel}`);
+    console.log(`[STRIPE] Updated subscription item ${subscriptionItemId} to ${resolved.intervalLabel}${isAdminSub ? ' (admin $0)' : ''}`);
   },
 
   /**
