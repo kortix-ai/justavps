@@ -6,7 +6,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
-import { eq, and, desc, inArray } from 'drizzle-orm';
+import { eq, and, desc, inArray, ne } from 'drizzle-orm';
 import { db } from '../../db';
 import { machines, images, users, subscriptions } from '../../db/schema';
 import { config } from '../../lib/config';
@@ -73,10 +73,18 @@ function readProvisionMeta(meta: Record<string, unknown> | null | undefined) {
   };
 }
 
+function shouldSyncMachineStatusForList(machine: typeof machines.$inferSelect) {
+  if (!machine.providerServerId) return false;
+  if (machine.status === 'provisioning') return true;
+  return machine.status === 'error' && machine.provisioningStage === 'timeout';
+}
+
 function serializeMachine(
   m: typeof machines.$inferSelect,
   sub?: typeof subscriptions.$inferSelect | null,
+  options?: { includeSensitive?: boolean },
 ) {
+  const includeSensitive = options?.includeSensitive ?? true;
   const proxyDomain = config.PROXY_DOMAIN;
   const sshKeyPath = `~/.ssh/justavps_${m.slug}`;
 
@@ -84,7 +92,7 @@ function serializeMachine(
   // If decryption fails (wrong key, corrupted data), degrade gracefully —
   // the machine still shows up in the list, just without SSH key access.
   let sshPrivateKeyPlain: string | null = null;
-  if (m.sshPrivateKey) {
+  if (includeSensitive && m.sshPrivateKey) {
     try {
       sshPrivateKeyPlain = decryptSecret(m.sshPrivateKey);
     } catch (err) {
@@ -533,10 +541,12 @@ const listMachinesRoute = createRoute({
 machinesApp.openapi(listMachinesRoute, async (c) => {
   const ownerId = c.get('userId');
   const result = await db.select().from(machines).where(
-    eq(machines.ownerId, ownerId),
-  ).then(rows => rows.filter(r => r.status !== 'deleted'));
+    and(eq(machines.ownerId, ownerId), ne(machines.status, 'deleted')),
+  );
 
-  const synced = await Promise.all(result.map(syncMachineStatus));
+  const synced = await Promise.all(result.map((machine) => (
+    shouldSyncMachineStatusForList(machine) ? syncMachineStatus(machine) : machine
+  )));
 
   // Batch-fetch subscriptions for all machines
   const machineIds = synced.map(m => m.id);
@@ -545,7 +555,9 @@ machinesApp.openapi(listMachinesRoute, async (c) => {
     : [];
   const subsByMachineId = new Map(subs.map(s => [s.machineId, s]));
 
-  return c.json({ machines: synced.map(m => serializeMachine(m, subsByMachineId.get(m.id) ?? null)) }, 200);
+  return c.json({
+    machines: synced.map((m) => serializeMachine(m, subsByMachineId.get(m.id) ?? null, { includeSensitive: false })),
+  }, 200);
 });
 
 // ─── GET /:id — Get Machine ────────────────────────────────────────────────

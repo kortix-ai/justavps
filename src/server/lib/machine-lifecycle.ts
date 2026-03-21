@@ -419,9 +419,10 @@ const PROVISION_TIMEOUT_DOCKER_MS = 30 * 60 * 1000; // 15 minutes for Docker wor
 
 export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
   const meta = readProviderMeta(machine);
+  const missingPublicNetwork = !machine.ip && !meta.public_ipv4 && !meta.public_ipv6;
   const shouldRefreshCloudNetwork = machine.provider === 'cloud'
     && !!machine.providerServerId
-    && (!meta.public_ipv4 || !meta.public_ipv6 || !!machine.ip?.includes(':'));
+    && missingPublicNetwork;
 
   if (shouldRefreshCloudNetwork) {
     try {
