@@ -108,7 +108,9 @@ export const cloudflareClient = {
       await createRecord(`*.${hostname}`, true);
       console.log(`[CF DNS] Wildcard ${type}: *.${hostname} → ${content}`);
 
-      await createRecord(origin, false);
+      await createRecord(origin, false).catch((err) => {
+        console.error(`[CF DNS] FAILED to create origin ${type} record ${origin} → ${content}:`, err);
+      });
       console.log(`[CF DNS] Origin ${type} (DNS-only): ${origin} → ${content}`);
     };
 
