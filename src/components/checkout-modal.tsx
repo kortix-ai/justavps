@@ -23,6 +23,7 @@ import {
   AlertTriangle,
   KeyRound,
   Star,
+  Shield,
 } from "lucide-react";
 import {
   BillingToggle,
@@ -30,6 +31,7 @@ import {
   totalPrice,
   type BillingInterval,
 } from "@/components/plan-picker";
+import { BACKUP_SURCHARGE_PERCENT, backupSurcharge } from "@/lib/hetzner-pricing";
 import type { Image } from "@/lib/types";
 import { cn, regionDisplay } from "@/lib/utils";
 
@@ -132,6 +134,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
   const [selectedSSHKeyIds, setSelectedSSHKeyIds] = useState<string[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showAllPlans, setShowAllPlans] = useState(false);
+  const [backupsEnabled, setBackupsEnabled] = useState(true);
 
   const [guestCheckoutPending, setGuestCheckoutPending] = useState(false);
   const createMachine = useCreateMachine();
@@ -148,11 +151,14 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
   const selectedImage = otherImages.find((img) => img.id === selectedImageId) ?? null;
 
   const selectedST = serverTypes?.find((s) => s.name === selectedServerType);
+  const basePriceMonthly = selectedST?.price_monthly ?? 0;
+  const backupCost = backupsEnabled ? backupSurcharge(basePriceMonthly) : 0;
+  const priceWithBackups = basePriceMonthly + backupCost;
   const displayMonthly = selectedST
-    ? effectiveMonthlyPrice(selectedST.price_monthly, billingInterval)
+    ? effectiveMonthlyPrice(priceWithBackups, billingInterval)
     : 0;
   const total = selectedST
-    ? totalPrice(selectedST.price_monthly, billingInterval)
+    ? totalPrice(priceWithBackups, billingInterval)
     : 0;
   const isDiscounted = billingInterval !== "monthly";
 
@@ -203,6 +209,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
           region: selectedRegion,
           server_type: selectedServerType,
           billing_interval: billingInterval,
+          enable_backups: backupsEnabled,
         }),
       })
         .then(async (res) => {
@@ -229,6 +236,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
         entrypoint: showDockerConfig ? entrypoint || undefined : undefined,
         command: showDockerConfig ? command || undefined : undefined,
         ssh_key_ids: selectedSSHKeyIds.length > 0 ? selectedSSHKeyIds : undefined,
+        enable_backups: backupsEnabled,
       },
       {
         onSuccess: (result) => {
@@ -267,7 +275,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
             <div>
               <h2 className="text-lg font-semibold tracking-tight">Deploy a machine</h2>
               <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-3">
-                <span>Daily backups</span>
+                <span>Optional backups</span>
                 <span className="text-border">·</span>
                 <span>Ready in minutes</span>
                 <span className="text-border">·</span>
@@ -316,7 +324,9 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
             {recommendedPlan && (() => {
               const meta = PLAN_META[RECOMMENDED_IDX];
               const isActive = selectedServerType === recommendedPlan.name;
-              const heroMonthly = effectiveMonthlyPrice(recommendedPlan.price_monthly, billingInterval);
+              const heroBase = recommendedPlan.price_monthly;
+              const heroWithBackups = heroBase + (backupsEnabled ? backupSurcharge(heroBase) : 0);
+              const heroMonthly = effectiveMonthlyPrice(heroWithBackups, billingInterval);
 
               return (
                 <button
@@ -362,7 +372,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                     <div className="text-right shrink-0 pl-4">
                       <div className="flex items-baseline gap-0.5 justify-end">
                         {isDiscounted && (
-                          <span className="text-[11px] text-muted-foreground/50 line-through mr-1">${recommendedPlan.price_monthly}</span>
+                          <span className="text-[11px] text-muted-foreground/50 line-through mr-1">${heroWithBackups}</span>
                         )}
                         <span className="text-2xl font-bold tabular-nums">${heroMonthly}</span>
                         <span className="text-xs text-muted-foreground">/mo</span>
@@ -402,7 +412,8 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                       {lighterPlans.map((s, idx) => {
                         const meta = PLAN_META[idx];
                         const isActive = selectedServerType === s.name;
-                        const mp = effectiveMonthlyPrice(s.price_monthly, billingInterval);
+                        const monthlyWithBackups = s.price_monthly + (backupsEnabled ? backupSurcharge(s.price_monthly) : 0);
+                        const mp = effectiveMonthlyPrice(monthlyWithBackups, billingInterval);
                         return (
                           <button
                             key={s.name}
@@ -449,7 +460,8 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                         const idx = RECOMMENDED_IDX + 1 + rawIdx;
                         const meta = PLAN_META[idx];
                         const isActive = selectedServerType === s.name;
-                        const mp = effectiveMonthlyPrice(s.price_monthly, billingInterval);
+                        const monthlyWithBackups = s.price_monthly + (backupsEnabled ? backupSurcharge(s.price_monthly) : 0);
+                        const mp = effectiveMonthlyPrice(monthlyWithBackups, billingInterval);
                         return (
                           <button
                             key={s.name}
@@ -513,6 +525,40 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                 </div>
               </div>
             )}
+
+            {/* ─── Daily backups toggle ─── */}
+            <button
+              type="button"
+              onClick={() => setBackupsEnabled((v) => !v)}
+              className={cn(
+                "flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-all text-left",
+                backupsEnabled
+                  ? "border-emerald-500/30 bg-emerald-500/5"
+                  : "border-border hover:border-foreground/20"
+              )}
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className={cn(
+                  "flex size-4 shrink-0 items-center justify-center rounded border-[1.5px] transition-colors",
+                  backupsEnabled ? "border-emerald-500 bg-emerald-500" : "border-muted-foreground/30",
+                )}>
+                  {backupsEnabled && <Check className="size-2.5 text-white" />}
+                </div>
+                <Shield className={cn("size-3.5 shrink-0", backupsEnabled ? "text-emerald-500" : "text-muted-foreground")} />
+                <div className="min-w-0">
+                  <p className="text-xs font-medium">Daily backups</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    Automatic daily snapshots — restore or clone anytime
+                  </p>
+                </div>
+              </div>
+              <span className={cn(
+                "text-xs font-medium shrink-0 tabular-nums",
+                backupsEnabled ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"
+              )}>
+                +{BACKUP_SURCHARGE_PERCENT}%
+              </span>
+            </button>
 
             {/* ─── Config (logged-in) ─── */}
             {isLoggedIn && (
@@ -690,7 +736,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
               <div className="min-w-0">
                 <div className="flex items-baseline gap-1">
                   {isDiscounted && selectedST && (
-                    <span className="text-xs text-muted-foreground/40 line-through">${selectedST.price_monthly}</span>
+                    <span className="text-xs text-muted-foreground/40 line-through">${priceWithBackups}</span>
                   )}
                   <span className="text-xl font-semibold tabular-nums">${displayMonthly}</span>
                   <span className="text-xs text-muted-foreground">/mo</span>
@@ -699,6 +745,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                   {isDiscounted
                     ? `$${total} billed ${billingInterval === "yearly" ? "annually" : "every 2 yrs"}`
                     : "Billed monthly · cancel anytime"}
+                  {backupsEnabled && <span className="text-emerald-600 dark:text-emerald-400"> · incl. backups</span>}
                 </p>
               </div>
 

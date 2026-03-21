@@ -16,7 +16,7 @@ const PLAN_META = [
 
 export const INCLUDED_FEATURES = [
   "SSH access", "Machine URL", "Web terminal", "Auth proxy",
-  "Daily backups", "Docker", "OpenCode", "sandbox-agent SDK",
+  "Optional daily backups", "Docker", "OpenCode", "sandbox-agent SDK",
 ];
 
 export type BillingInterval = "monthly" | "yearly" | "2year";

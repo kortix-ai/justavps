@@ -3,12 +3,14 @@ import { CreateMachineSchema } from '@/lib/schemas';
 import { stripeClient, type BillingInterval } from '@/server/lib/stripe';
 import { getProvider } from '@/server/lib/providers';
 import { config } from '@/server/lib/config';
+import { backupSurcharge } from '@/lib/hetzner-pricing';
 
 const GuestCheckoutSchema = CreateMachineSchema.pick({
   provider: true,
   server_type: true,
   region: true,
   billing_interval: true,
+  enable_backups: true,
 });
 
 export async function POST(req: NextRequest) {
@@ -34,12 +36,16 @@ export async function POST(req: NextRequest) {
     }
 
     const billingInterval = (input.billing_interval ?? 'monthly') as BillingInterval;
+    const wantBackups = input.enable_backups !== false;
+    const basePrice = selected.priceMonthly;
+    const totalMonthly = wantBackups ? basePrice + backupSurcharge(basePrice) : basePrice;
     const { url } = await stripeClient.createCheckoutSession({
       machineConfig: {
         provider: input.provider,
         server_type: input.server_type,
         region: input.region,
         billing_interval: billingInterval,
+        enable_backups: wantBackups,
         specs: {
           vcpus: selected.cores,
           ramGb: selected.memory,
@@ -47,7 +53,7 @@ export async function POST(req: NextRequest) {
           cpuType: selected.cpuType,
         },
       },
-      priceMonthlyUsd: selected.priceMonthly,
+      priceMonthlyUsd: totalMonthly,
       billingInterval,
       successUrl: `${config.APP_URL}/checkout/success`,
       cancelUrl: `${config.APP_URL}?checkout=cancelled`,

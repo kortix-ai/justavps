@@ -22,6 +22,7 @@ import { db } from '@/server/db';
 import { apiKeys, machineEvents, machines, sshKeys, subscriptions, users } from '@/server/db/schema';
 import { eq } from 'drizzle-orm';
 import { generateApiKey, hashPassword } from '@/server/lib/crypto';
+import { backupSurcharge, getPlanBySku } from '@/lib/hetzner-pricing';
 
 const API_BASE = process.env.E2E_BASE_URL || 'http://localhost:4100/api/v1';
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
@@ -38,6 +39,25 @@ let adminMachineId = '';
 
 let regularUserId = '';
 let regularApiKey = '';
+
+const POLL_INTERVAL_MS = 5_000;
+const PROVIDER_TIMEOUT_MS = 3 * 60 * 1000;
+const RESIZE_TIMEOUT_MS = 4 * 60 * 1000;
+
+async function getAdminStripeProductMetadata() {
+  const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.machineId, adminMachineId));
+  const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+  const priceObj = await stripe.prices.retrieve(stripeSub.items.data[0].price.id, {
+    expand: ['product'],
+  });
+  const product = priceObj.product as Stripe.Product;
+  return {
+    sub,
+    stripeSub,
+    priceObj,
+    product,
+  };
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -63,6 +83,35 @@ async function api(path: string, init?: RequestInit, hdrs?: Record<string, strin
       ...(init?.headers || {}),
     },
   });
+}
+
+async function waitForProviderServer(machineId: string) {
+  const start = Date.now();
+
+  while (Date.now() - start < PROVIDER_TIMEOUT_MS) {
+    const [machine] = await db.select().from(machines).where(eq(machines.id, machineId));
+    if (!machine) throw new Error(`machine ${machineId} not found`);
+    if (machine.providerServerId) return machine;
+
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+  }
+
+  throw new Error(`machine ${machineId} did not get a provider server within ${PROVIDER_TIMEOUT_MS}ms`);
+}
+
+async function waitForMachineReady(machineId: string) {
+  const start = Date.now();
+
+  while (Date.now() - start < RESIZE_TIMEOUT_MS) {
+    const [machine] = await db.select().from(machines).where(eq(machines.id, machineId));
+    if (!machine) throw new Error(`machine ${machineId} not found`);
+    if (machine.status === 'ready') return machine;
+    if (machine.status === 'error') throw new Error(`machine ${machineId} entered error state`);
+
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+  }
+
+  throw new Error(`machine ${machineId} did not become ready within ${RESIZE_TIMEOUT_MS}ms`);
 }
 
 // ─── Setup ──────────────────────────────────────────────────────────────────
@@ -113,6 +162,11 @@ beforeAll(async () => {
 // ─── Teardown ───────────────────────────────────────────────────────────────
 
 afterAll(async () => {
+  if (adminMachineId) {
+    await api(`/machines/${adminMachineId}`, { method: 'DELETE' }).catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+
   // Clean up admin resources
   for (const uid of [adminUserId, regularUserId]) {
     if (!uid) continue;
@@ -139,6 +193,7 @@ describe('admin billing: machine create with $0 subscription', () => {
         server_type: 'cpx32',
         region: 'hel1',
         name: 'Admin Billing E2E Machine',
+        enable_backups: false,
       }),
     });
 
@@ -158,6 +213,11 @@ describe('admin billing: machine create with $0 subscription', () => {
     expect(sub.status).toBe('active');
   });
 
+  it('stores backups as disabled initially', async () => {
+    const [machine] = await db.select().from(machines).where(eq(machines.id, adminMachineId));
+    expect(machine.backupsEnabled).toBe(false);
+  });
+
   it('Stripe subscription is active at $0 with admin_discount metadata', async () => {
     const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.machineId, adminMachineId));
     const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId, {
@@ -175,31 +235,69 @@ describe('admin billing: machine create with $0 subscription', () => {
     expect(stripeSub.discounts.length).toBe(0);
   });
 
-  it('Stripe product metadata tracks the real price for auditing', async () => {
-    const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.machineId, adminMachineId));
-    const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
-    const priceObj = await stripe.prices.retrieve(stripeSub.items.data[0].price.id, {
-      expand: ['product'],
-    });
-    const product = priceObj.product as Stripe.Product;
-
+  it('Stripe product metadata tracks the base plan price for auditing', async () => {
+    const { product } = await getAdminStripeProductMetadata();
+    const basePlan = getPlanBySku('cpx32');
+    expect(basePlan).toBeTruthy();
     expect(product.metadata.admin_discount).toBe('true');
     expect(product.metadata.real_unit_amount_cents).toBeTruthy();
-    expect(Number(product.metadata.real_unit_amount_cents)).toBeGreaterThan(0);
+    expect(Number(product.metadata.real_unit_amount_cents)).toBe(basePlan!.priceMonthly * 100);
+  });
+});
+
+describe('backup billing: enable and disable updates price separately', () => {
+  it('waits for the provider server to exist, then marks the machine ready for billing actions', async () => {
+    const machine = await waitForProviderServer(adminMachineId);
+    await db.update(machines)
+      .set({ status: 'ready', provisioningStage: null, provisioningStageUpdatedAt: new Date() })
+      .where(eq(machines.id, adminMachineId));
+    expect(machine.providerServerId).toBeTruthy();
+  });
+
+  it('enables backups and updates billing metadata to base +20%', async () => {
+    const res = await api(`/machines/${adminMachineId}/backups/enable`, {
+      method: 'POST',
+    });
+    expect(res.status).toBe(200);
+
+    const plan = getPlanBySku('cpx32')!;
+    const expected = plan.priceMonthly + backupSurcharge(plan.priceMonthly);
+
+    const [machine] = await db.select().from(machines).where(eq(machines.id, adminMachineId));
+    expect(machine.backupsEnabled).toBe(true);
+
+    const { product } = await getAdminStripeProductMetadata();
+    expect(Number(product.metadata.real_unit_amount_cents)).toBe(expected * 100);
+  });
+
+  it('disables backups and returns billing metadata to base price', async () => {
+    const res = await api(`/machines/${adminMachineId}/backups/disable`, {
+      method: 'POST',
+    });
+    expect(res.status).toBe(200);
+
+    const plan = getPlanBySku('cpx32')!;
+
+    const [machine] = await db.select().from(machines).where(eq(machines.id, adminMachineId));
+    expect(machine.backupsEnabled).toBe(false);
+
+    const { product } = await getAdminStripeProductMetadata();
+    expect(Number(product.metadata.real_unit_amount_cents)).toBe(plan.priceMonthly * 100);
+  });
+
+  it('re-enables backups before resize so surcharge carries forward', async () => {
+    const res = await api(`/machines/${adminMachineId}/backups/enable`, {
+      method: 'POST',
+    });
+    expect(res.status).toBe(200);
   });
 });
 
 describe('admin billing: machine resize updates subscription', () => {
-  it('updates machine to ready status so resize is allowed', async () => {
-    // The machine is in 'provisioning' state — we need to mark it ready for resize
-    // Also need to set providerServerId for the resize endpoint
-    await db.update(machines)
-      .set({
-        status: 'ready',
-        providerServerId: 'test-provider-server-admin-e2e',
-        serverType: 'cpx32',
-      })
-      .where(eq(machines.id, adminMachineId));
+  it('waits for the machine to become ready before resize', async () => {
+    const machine = await waitForMachineReady(adminMachineId);
+    expect(machine.status).toBe('ready');
+    expect(machine.serverType).toBe('cpx32');
   });
 
   it('resize succeeds for admin machine (has subscription)', async () => {
@@ -218,11 +316,12 @@ describe('admin billing: machine resize updates subscription', () => {
   });
 
   it('Stripe subscription item price is updated (still $0 for admin)', async () => {
-    // Wait briefly for the background update
-    await new Promise(r => setTimeout(r, 3000));
+    await waitForMachineReady(adminMachineId);
 
-    const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.machineId, adminMachineId));
-    const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+    const [machine] = await db.select().from(machines).where(eq(machines.id, adminMachineId));
+    expect(machine.backupsEnabled).toBe(true);
+
+    const { stripeSub, product } = await getAdminStripeProductMetadata();
 
     expect(stripeSub.status).toBe('active');
     expect(stripeSub.metadata.admin_discount).toBe('true');
@@ -230,6 +329,7 @@ describe('admin billing: machine resize updates subscription', () => {
     // Price should still be $0 after resize
     const item = stripeSub.items.data[0];
     expect(item.price.unit_amount).toBe(0);
+    expect(Number(product.metadata.real_unit_amount_cents)).toBeGreaterThan(0);
   });
 });
 

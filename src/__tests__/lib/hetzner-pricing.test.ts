@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   applyHetznerMarkup,
+  backupSurcharge,
   getPlanBySku,
   getPlansForRegion,
   HETZNER_PRICE_MULTIPLIER,
@@ -31,5 +32,11 @@ describe('hetzner pricing map', () => {
     expect(getPlanBySku('cpx22')).toMatchObject({ label: 'Starter', vcpu: 2, memory: 4, disk: 80, priceMonthly: 12 });
     expect(getPlanBySku('cpx31')).toMatchObject({ label: 'Pro', vcpu: 4, memory: 8, disk: 160, priceMonthly: 32 });
     expect(getPlanBySku('cpx51')).toMatchObject({ label: 'Ultra', vcpu: 16, memory: 32, disk: 360, priceMonthly: 120 });
+  });
+
+  it('computes backup surcharge as 20% of the customer-facing base price', () => {
+    expect(backupSurcharge(21)).toBe(5);
+    expect(backupSurcharge(39)).toBe(8);
+    expect(backupSurcharge(120)).toBe(24);
   });
 });

@@ -38,6 +38,8 @@ import {
 } from '../../lib/machine-lifecycle';
 import { checkMachineLimit } from '../../lib/account-limits';
 import { desc } from 'drizzle-orm';
+
+const stripe = new Stripe(config.STRIPE_SECRET_KEY || 'sk_test_placeholder_not_configured');
 import { DEFAULT_TEMPLATE_NAME, resolveRequestedProviderImage } from '../../lib/image-catalog';
 
 export const stripeWebhooksApp = new OpenAPIHono();
@@ -525,9 +527,23 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
     if (!machine || machine.status === 'deleted') continue;
 
     // Sync price
-    const priceAmount = subscription.items.data[0]?.price?.unit_amount;
-    if (priceAmount != null) {
-      const newPriceMonthly = priceAmount / 100;
+    const stripePrice = subscription.items.data[0]?.price;
+    if (stripePrice) {
+      let newPriceMonthly = (stripePrice.unit_amount || 0) / 100;
+
+      // Admin subscriptions use a $0 Stripe price and store the real audit/billing
+      // amount in product metadata so the app still reflects the machine's real cost.
+      try {
+        const expandedPrice = await stripe.prices.retrieve(stripePrice.id, { expand: ['product'] });
+        const product = expandedPrice.product as Stripe.Product;
+        const realUnitAmount = product.metadata?.real_unit_amount_cents;
+        if (realUnitAmount) {
+          newPriceMonthly = Number(realUnitAmount) / 100;
+        }
+      } catch (err) {
+        console.warn(`[STRIPE WEBHOOK] Failed to expand price ${stripePrice.id} for ${machine.slug}:`, err);
+      }
+
       if (newPriceMonthly !== machine.priceMonthly) {
         await db.update(machines).set({ priceMonthly: newPriceMonthly }).where(eq(machines.id, machine.id));
         console.log(`[STRIPE WEBHOOK] Updated price for machine ${machine.slug}: $${machine.priceMonthly} → $${newPriceMonthly}`);

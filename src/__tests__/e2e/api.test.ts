@@ -99,7 +99,7 @@ describe('Server Types', () => {
     expect(first.provider_price_monthly).toBeGreaterThan(0);
     expect(first.price_monthly).toBeGreaterThan(first.provider_price_monthly);
     expect(first.price_monthly).toBeCloseTo(first.provider_price_monthly * 2, 2);
-    expect(first.backup_price_monthly).toBeCloseTo(first.provider_price_monthly, 2);
+    expect(first.backup_price_monthly).toBe(Math.ceil(first.price_monthly * 0.2));
   });
 
   it('works for multiple regions', async () => {

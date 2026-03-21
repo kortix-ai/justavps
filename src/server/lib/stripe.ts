@@ -40,6 +40,8 @@ export interface CheckoutMachineConfig {
   specs?: MachineSpecs;
   /** Billing interval — determines Stripe recurring interval + discount */
   billing_interval?: BillingInterval;
+  /** Whether daily backups are enabled (+20% surcharge). Defaults to true. */
+  enable_backups?: boolean;
 }
 
 /**

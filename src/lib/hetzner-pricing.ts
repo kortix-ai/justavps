@@ -1,5 +1,16 @@
 export const HETZNER_PRICE_MULTIPLIER = 2;
 
+/** Hetzner charges 20% of the server price for daily automatic backups */
+export const BACKUP_SURCHARGE_PERCENT = 20;
+
+/**
+ * Compute the backup surcharge for a given monthly price.
+ * Returns the dollar amount to ADD to the base price (not the total).
+ */
+export function backupSurcharge(priceMonthly: number): number {
+  return Math.ceil(priceMonthly * (BACKUP_SURCHARGE_PERCENT / 100));
+}
+
 export type HetznerMarket = 'eu' | 'us';
 
 export interface HetznerPlanMachine {
