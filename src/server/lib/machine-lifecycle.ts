@@ -8,9 +8,20 @@ import { buildCloudInit } from './cloud-init';
 import { config } from './config';
 import { cloudflareClient } from './cloudflare';
 import { stripeClient, type MachineSpecs } from './stripe';
-import type { ComputeProvider } from './providers';
+import { signProxyToken } from './proxy-token';
+import { getProvider, type ComputeProvider } from './providers';
 import { getPlanBySku, STARTING_MONTHLY_PRICE } from '@/lib/hetzner-pricing';
 
+interface ProvisionProviderMeta {
+  create_action_id?: string | null;
+  create_progress?: number | null;
+  create_status?: string | null;
+  callback_expected?: boolean;
+  callback_url?: string | null;
+  last_callback_at?: string | null;
+  last_probe_at?: string | null;
+  ready_via?: 'heartbeat' | 'probe' | null;
+}
 
 export async function generateMachineIdentity() {
   const slug = nanoid(8).toLowerCase().replace(/[^a-z0-9]/g, 'x');
@@ -22,22 +33,78 @@ function isLoopbackHostname(hostname: string): boolean {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
 }
 
-export function resolvePlatformCallbackUrl(requestUrl?: string): string {
-  const configured = config.PLATFORM_URL;
+function isPrivateIpv4(hostname: string): boolean {
+  return /^10\./.test(hostname)
+    || /^192\.168\./.test(hostname)
+    || /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
+}
 
-  if (requestUrl) {
-    try {
-      const requestOrigin = new URL(requestUrl).origin;
-      const requestHostname = new URL(requestOrigin).hostname;
-      if (!isLoopbackHostname(requestHostname)) {
-        return requestOrigin;
+function isPublicCallbackOrigin(origin: string): boolean {
+  try {
+    const { hostname, protocol } = new URL(origin);
+    if (protocol !== 'http:' && protocol !== 'https:') return false;
+    if (isLoopbackHostname(hostname) || isPrivateIpv4(hostname)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function resolveMachineCallbackConfig(requestUrl?: string): { url: string; callbackExpected: boolean } {
+  const candidates = [
+    config.MACHINE_CALLBACK_URL,
+    requestUrl ? (() => {
+      try {
+        return new URL(requestUrl).origin;
+      } catch {
+        return '';
       }
-    } catch {
-      // Ignore malformed request URLs and fall back to configured platform URL.
+    })() : '',
+    config.PLATFORM_URL,
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (isPublicCallbackOrigin(candidate)) {
+      return { url: candidate, callbackExpected: true };
     }
   }
 
-  return configured;
+  return { url: config.PLATFORM_URL, callbackExpected: false };
+}
+
+export function resolvePlatformCallbackUrl(requestUrl?: string): string {
+  return resolveMachineCallbackConfig(requestUrl).url;
+}
+
+function readProviderMeta(machine: typeof machines.$inferSelect): ProvisionProviderMeta {
+  return (machine.providerMeta ?? {}) as ProvisionProviderMeta;
+}
+
+async function updateProviderMeta(machineId: string, patch: Partial<ProvisionProviderMeta>) {
+  const [current] = await db.select({ providerMeta: machines.providerMeta }).from(machines).where(eq(machines.id, machineId));
+  const merged = {
+    ...((current?.providerMeta ?? {}) as ProvisionProviderMeta),
+    ...patch,
+  };
+  await db.update(machines).set({ providerMeta: merged }).where(eq(machines.id, machineId));
+  return merged;
+}
+
+async function probeMachineDaemon(machine: typeof machines.$inferSelect): Promise<boolean> {
+  if (!config.isCloudflareConfigured()) return false;
+  const token = await signProxyToken(machine.ownerId);
+  const url = `https://${machine.slug}.${config.PROXY_DOMAIN}/daemon/health?token=${encodeURIComponent(token)}`;
+  try {
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) return false;
+    const data = await res.json().catch(() => null) as { status?: string } | null;
+    return data?.status === 'ok';
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -252,11 +319,13 @@ interface CreateMachineInput {
   dockerImage?: string | null;
   entrypoint?: string | null;
   dockerCommand?: string | null;
+  backupsEnabled?: boolean;
 }
 
 export async function createMachineRecord(input: CreateMachineInput) {
   const [machine] = await db.insert(machines).values({
     ...input,
+    backupsEnabled: input.backupsEnabled ?? true,
     // Encrypt secrets at rest — decrypted on read via decryptSecret()
     machineToken: encryptSecret(input.machineToken),
     sshPrivateKey: encryptSecret(input.sshPrivateKey),
@@ -351,29 +420,98 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
 
   const elapsed = Date.now() - machine.createdAt.getTime();
   const timeoutMs = machine.dockerImage ? PROVISION_TIMEOUT_DOCKER_MS : PROVISION_TIMEOUT_MS;
+  const meta = readProviderMeta(machine);
+
+  if (machine.provider === 'cloud' && meta.create_action_id) {
+    try {
+      const provider = getProvider(machine.provider);
+      if (provider.getActionProgress) {
+        const action = await provider.getActionProgress(meta.create_action_id);
+        const nextMeta = await updateProviderMeta(machine.id, {
+          create_status: action.status,
+          create_progress: action.progress,
+        });
+        machine = { ...machine, providerMeta: nextMeta };
+      }
+    } catch (err) {
+      console.warn(`[MACHINES] Failed to refresh provider action for ${machine.slug}:`, err);
+    }
+  }
+
+  // Fast path: if we already got a heartbeat but status is still stale, promote now.
+  if (machine.lastHeartbeatAt) {
+    const now = new Date();
+    await db.update(machines).set({
+      status: 'ready',
+      readyAt: now,
+      provisioningStage: machine.provisioningStage ?? 'services_ready',
+    }).where(eq(machines.id, machine.id));
+    return { ...machine, status: 'ready' as const, readyAt: now };
+  }
+
+  const createFinished = meta.create_status === 'success' || meta.create_progress === 100;
+  const shouldProbeDaemon = !!machine.ip && (
+    createFinished
+    || machine.provisioningStage === 'server_created'
+    || elapsed > 30_000
+  );
+
+  if (shouldProbeDaemon) {
+    const daemonReady = await probeMachineDaemon(machine);
+    const probedMeta = await updateProviderMeta(machine.id, {
+      last_probe_at: new Date().toISOString(),
+    });
+    machine = { ...machine, providerMeta: probedMeta };
+
+    if (daemonReady) {
+      const now = new Date();
+      const nextMeta = await updateProviderMeta(machine.id, {
+        ready_via: 'probe',
+      });
+      await db.update(machines).set({
+        status: 'ready',
+        readyAt: now,
+        provisioningStage: 'services_ready',
+        providerMeta: nextMeta,
+      }).where(eq(machines.id, machine.id));
+
+      const { eventBus } = await import('./event-bus');
+      await eventBus.emitStageChange(machine.id, machine.ownerId, 'services_ready', 'Daemon is reachable via proxy health check');
+      await eventBus.emitStatusChange(machine.id, machine.ownerId, 'ready', 'Machine is ready');
+
+      if (config.isCloudflareConfigured() && machine.ip) {
+        cloudflareClient.writeKVMachine(machine.slug, {
+          owner_id: machine.ownerId,
+          ip: machine.ip,
+          origin_hostname: `origin-${machine.slug}.${config.PROXY_DOMAIN}`,
+          status: 'ready',
+          server_type: machine.serverType,
+        }).catch(() => {});
+      }
+
+      return {
+        ...machine,
+        status: 'ready' as const,
+        readyAt: now,
+        provisioningStage: 'services_ready',
+        providerMeta: nextMeta,
+      };
+    }
+  }
 
   // If provisioning has exceeded the timeout and we still haven't received
-  // a heartbeat, mark the machine as error so the user isn't stuck waiting.
-  if (elapsed > timeoutMs && !machine.lastHeartbeatAt) {
-    console.warn(`[MACHINES] Provisioning timeout for ${machine.slug} (${Math.round(elapsed / 1000)}s elapsed, no heartbeat)`);
+  // a heartbeat or a successful active probe, mark it as error.
+  if (elapsed > timeoutMs) {
+    console.warn(`[MACHINES] Provisioning timeout for ${machine.slug} (${Math.round(elapsed / 1000)}s elapsed, no heartbeat or successful probe)`);
     await db.update(machines).set({
       status: 'error',
       provisioningStage: 'timeout',
     }).where(eq(machines.id, machine.id));
 
     const { eventBus } = await import('./event-bus');
-    await eventBus.emitStatusChange(machine.id, machine.ownerId, 'error', 'Provisioning timed out — no heartbeat received');
+    await eventBus.emitStatusChange(machine.id, machine.ownerId, 'error', 'Provisioning timed out — machine never became reachable');
 
     return { ...machine, status: 'error' as const, provisioningStage: 'timeout' };
-  }
-
-  // Fallback: if Hetzner says running AND we have a heartbeat, promote to ready.
-  // This handles the edge case where the heartbeat was received but the status
-  // wasn't updated (shouldn't happen, but defensive).
-  if (machine.lastHeartbeatAt) {
-    const now = new Date();
-    await db.update(machines).set({ status: 'ready', readyAt: now }).where(eq(machines.id, machine.id));
-    return { ...machine, status: 'ready' as const, readyAt: now };
   }
 
   return machine;

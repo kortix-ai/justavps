@@ -1,5 +1,5 @@
 /**
- * Tests for Cloudflare client — DNS A records and KV management.
+ * Tests for Cloudflare client — DNS AAAA records and KV management.
  * Architecture: direct IP proxy (no tunnels).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -22,7 +22,7 @@ describe('cloudflareClient', () => {
   });
 
   describe('addMachineDNS', () => {
-    it('should create proxied A, wildcard A, and DNS-only origin A', async () => {
+    it('should create proxied AAAA, wildcard AAAA, and DNS-only origin AAAA', async () => {
       mockFetch.mockImplementation(async (_url: string, opts?: any) => {
         const method = opts?.method || 'GET';
         if (method === 'GET') return { ok: true, json: async () => ({ result: [] }) };
@@ -31,29 +31,29 @@ describe('cloudflareClient', () => {
         return { ok: true, json: async () => ({}) };
       });
 
-      await cloudflareClient.addMachineDNS('test-slug', '10.0.0.1');
+      await cloudflareClient.addMachineDNS('test-slug', '2a01:4f8:c17:e4c4::');
 
       const postCalls = mockFetch.mock.calls.filter((c: any) => c[1]?.method === 'POST');
       expect(postCalls.length).toBe(3);
 
-      // 1: Proxied A record (triggers Worker route)
+      // 1: Proxied AAAA record (triggers Worker route)
       const body1 = JSON.parse(postCalls[0][1].body);
-      expect(body1.type).toBe('A');
+      expect(body1.type).toBe('AAAA');
       expect(body1.name).toContain('test-slug');
-      expect(body1.content).toBe('10.0.0.1');
+      expect(body1.content).toBe('2a01:4f8:c17:e4c4::');
       expect(body1.proxied).toBe(true);
 
-      // 2: Wildcard A (port subdomains)
+      // 2: Wildcard AAAA (port subdomains)
       const body2 = JSON.parse(postCalls[1][1].body);
-      expect(body2.type).toBe('A');
+      expect(body2.type).toBe('AAAA');
       expect(body2.name).toContain('*.test-slug');
       expect(body2.proxied).toBe(true);
 
-      // 3: Origin A (DNS-only — Worker fetches this to bypass CF proxy)
+      // 3: Origin AAAA (DNS-only — Worker fetches this to bypass CF proxy)
       const body3 = JSON.parse(postCalls[2][1].body);
-      expect(body3.type).toBe('A');
+      expect(body3.type).toBe('AAAA');
       expect(body3.name).toContain('origin-test-slug');
-      expect(body3.content).toBe('10.0.0.1');
+      expect(body3.content).toBe('2a01:4f8:c17:e4c4::');
       expect(body3.proxied).toBe(false);
     });
   });
@@ -79,7 +79,7 @@ describe('cloudflareClient', () => {
     it('should PUT machine data to KV with correct key', async () => {
       await cloudflareClient.writeKVMachine('my-slug', {
         owner_id: 'user-123',
-        ip: '1.2.3.4',
+        ip: '2a01:4f8:c17:e4c4::',
         origin_hostname: 'origin-my-slug.kortix.cloud',
         status: 'ready',
         server_type: 'cx22',

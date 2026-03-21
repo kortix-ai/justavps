@@ -1,5 +1,5 @@
 import { config } from '../config';
-import { getPlanBySku, getPlansForRegion, HETZNER_PLAN_TIERS } from '@/lib/hetzner-pricing';
+import { getPlanBySku, getPlansForRegion, HETZNER_PLAN_TIERS, backupSurcharge } from '@/lib/hetzner-pricing';
 import type {
   ComputeProvider,
   CreateServerOpts,
@@ -7,6 +7,7 @@ import type {
   ServerTypeInfo,
   RegionInfo,
   SSHKeyResult,
+  ProviderActionProgress,
 } from './types';
 
 const HETZNER_API = 'https://api.hetzner.cloud/v1';
@@ -106,6 +107,12 @@ interface HetznerServer {
   };
   server_type: { name: string };
   labels: Record<string, string>;
+}
+
+interface HetznerAction {
+  id: number;
+  status: string;
+  progress: number;
 }
 
 interface HetznerImage {
@@ -239,7 +246,7 @@ export class HetznerProvider implements ComputeProvider {
     if (opts.enableBackups) body.enable_backup = true;
     if (opts.sshKeyIds.length > 0) body.ssh_keys = opts.sshKeyIds.map(Number);
 
-    const result = await hetznerFetch<{ server: HetznerServer }>('/servers', {
+    const result = await hetznerFetch<{ server: HetznerServer; action?: HetznerAction }>('/servers', {
       method: 'POST',
       body,
     });
@@ -257,7 +264,7 @@ export class HetznerProvider implements ComputeProvider {
         const polledIp = extractIPv6(info.server.public_net.ipv6.ip);
         if (polledIp) {
           console.log(`[hetzner] Created server ${opts.name} (ID: ${serverId}, IP: ${polledIp})`);
-          return { serverId: String(serverId), publicIp: polledIp };
+          return { serverId: String(serverId), publicIp: polledIp, createActionId: result.action ? String(result.action.id) : null };
         }
       }
       throw new Error(`[hetzner] Server ${serverId} created but no IP assigned`);
@@ -275,7 +282,15 @@ export class HetznerProvider implements ComputeProvider {
       console.warn(`[hetzner] Failed to enable protection for server ${serverId}:`, err);
     });
 
-    return { serverId: String(serverId), publicIp };
+    return { serverId: String(serverId), publicIp, createActionId: result.action ? String(result.action.id) : null };
+  }
+
+  async getActionProgress(actionId: string): Promise<ProviderActionProgress> {
+    const result = await hetznerFetch<{ action: HetznerAction }>(`/servers/actions/${actionId}`);
+    return {
+      status: result.action.status,
+      progress: typeof result.action.progress === 'number' ? result.action.progress : null,
+    };
   }
 
   async deleteServer(serverId: string): Promise<void> {
@@ -453,7 +468,7 @@ export class HetznerProvider implements ComputeProvider {
       architecture: 'x86' as const,
       providerPriceMonthly: tier.providerPriceMonthly,
       priceMonthly: tier.priceMonthly,
-      backupPriceMonthly: tier.markupMonthly,
+      backupPriceMonthly: backupSurcharge(tier.priceMonthly),
       region: loc,
     }));
   }

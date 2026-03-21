@@ -159,7 +159,7 @@ describe('HetznerProvider SSH key operations', () => {
       // listServers call
       .mockResolvedValueOnce(new Response(JSON.stringify({
         servers: [
-          { id: 100, name: 'justavps-active-slug', status: 'running', public_net: { ipv4: { ip: '1.2.3.4' }, ipv6: { ip: '' } }, server_type: { name: 'cpx32' }, labels: {} },
+          { id: 100, name: 'justavps-active-slug', status: 'running', public_net: { ipv4: { ip: '' }, ipv6: { ip: '2a01:4f8:c17:e4c4::/64' } }, server_type: { name: 'cpx32' }, labels: {} },
         ],
       }), { status: 200 }))
       // deleteSSHKey for id=2

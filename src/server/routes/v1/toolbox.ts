@@ -3,7 +3,7 @@
  *
  * Every route:
  *   1. Validates the user owns the machine
- *   2. Proxies the request to the daemon on the machine's IP
+ *   2. Proxies the request to the daemon via origin DNS hostname
  *   3. Returns the daemon's response with full OpenAPI typing
  *
  * Mounted at /machines/:machineId/toolbox/...
@@ -14,6 +14,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '../../db';
 import { machines } from '../../db/schema';
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
+import { config } from '../../lib/config';
 import { errorResponse, handleRouteError } from '../../lib/route-helpers';
 import {
   // Filesystem
@@ -69,16 +70,20 @@ async function resolveMachine(c: any, machineId: string, ownerId: string) {
 
 /**
  * Proxy a JSON request to the daemon's toolbox endpoint.
+ * Uses the origin DNS hostname (origin-slug.domain) to reach the VPS,
+ * making this IP-version-agnostic (works with both IPv4 and IPv6).
  */
 async function proxyToToolbox(
-  machineIp: string,
+  machineSlug: string,
   method: string,
   daemonPath: string,
   body?: any,
   headers?: Record<string, string>,
 ): Promise<Response> {
   // Toolbox routes are served by ProxyRouter on port 80 (the main daemon port)
-  const url = `http://${machineIp}${daemonPath}`;
+  // Use origin hostname (DNS-only record) to resolve the VPS address directly
+  const originHost = `origin-${machineSlug}.${config.PROXY_DOMAIN}`;
+  const url = `http://${originHost}${daemonPath}`;
   const opts: RequestInit = {
     method,
     headers: { ...headers },
@@ -105,7 +110,7 @@ async function proxyJSON(c: any, machineId: string, ownerId: string, method: str
   if ('error' in result) return result.error;
 
   try {
-    const resp = await proxyToToolbox(result.machine.ip!, method, daemonPath, body);
+    const resp = await proxyToToolbox(result.machine.slug, method, daemonPath, body);
     const data = await resp.json();
     return c.json(data, resp.status as any);
   } catch (err) {
@@ -242,7 +247,7 @@ toolboxApp.openapi(downloadFileRoute, async (c) => {
   if ('error' in result) return result.error as any;
 
   try {
-    const resp = await proxyToToolbox(result.machine.ip!, 'GET', `/toolbox/files/download?path=${encodeURIComponent(path)}`);
+    const resp = await proxyToToolbox(result.machine.slug, 'GET', `/toolbox/files/download?path=${encodeURIComponent(path)}`);
     if (!resp.ok) {
       const data = await resp.json();
       return c.json(data, resp.status as any);
@@ -303,7 +308,7 @@ toolboxApp.openapi(uploadFileRoute, async (c) => {
     const body = await c.req.arrayBuffer();
     const contentType = c.req.header('Content-Type') || 'application/octet-stream';
     const resp = await proxyToToolbox(
-      result.machine.ip!, 'POST',
+      result.machine.slug, 'POST',
       `/toolbox/files/upload?${params}`,
       body,
       { 'Content-Type': contentType },
@@ -529,7 +534,7 @@ toolboxApp.openapi(bulkDownloadRoute, async (c) => {
   if ('error' in result) return result.error as any;
 
   try {
-    const resp = await proxyToToolbox(result.machine.ip!, 'POST', '/toolbox/files/bulk-download', body, { 'Content-Type': 'application/json' });
+    const resp = await proxyToToolbox(result.machine.slug, 'POST', '/toolbox/files/bulk-download', body, { 'Content-Type': 'application/json' });
     const headers = new Headers();
     headers.set('Content-Type', 'application/zip');
     headers.set('Content-Disposition', 'attachment; filename="download.zip"');
@@ -599,7 +604,7 @@ toolboxApp.openapi(executeStreamRoute, async (c) => {
   if ('error' in result) return result.error as any;
 
   try {
-    const resp = await proxyToToolbox(result.machine.ip!, 'POST', '/toolbox/process/execute/stream', body, { 'Content-Type': 'application/json' });
+    const resp = await proxyToToolbox(result.machine.slug, 'POST', '/toolbox/process/execute/stream', body, { 'Content-Type': 'application/json' });
     const headers = new Headers();
     headers.set('Content-Type', 'text/event-stream');
     headers.set('Cache-Control', 'no-cache');

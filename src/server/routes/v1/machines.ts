@@ -18,13 +18,14 @@ import { stripeClient } from '../../lib/stripe';
 import { requireOwnedResource, requireProvider, errorResponse, handleRouteError } from '../../lib/route-helpers';
 import { checkMachineLimit, checkImageLimit } from '../../lib/account-limits';
 import { HetznerProvider, getPlanTierIndex } from '../../lib/providers/hetzner';
+import { backupSurcharge } from '@/lib/hetzner-pricing';
 import { eventBus } from '../../lib/event-bus';
 import { after } from 'next/server';
 import {
   generateMachineIdentity,
   uploadSSHKeyToProvider,
   buildMachineUserData,
-  resolvePlatformCallbackUrl,
+  resolveMachineCallbackConfig,
   setupProxyDNS,
   lookupPriceAndSpecs,
   createMachineRecord,
@@ -55,10 +56,21 @@ machinesApp.use('*', apiGuard);
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 /** Safely convert a Date to ISO string, returning null for invalid/missing dates */
-function safeISO(d: Date | null | undefined): string | null {
+function safeISO(d?: Date | null) {
   if (!d) return null;
   const iso = d.toISOString?.();
   return iso && !iso.includes('Invalid') ? iso : null;
+}
+
+function readProvisionMeta(meta: Record<string, unknown> | null | undefined) {
+  const value = (meta ?? {}) as Record<string, unknown>;
+  const fallbackCallback = resolveMachineCallbackConfig();
+  return {
+    providerProgress: typeof value.create_progress === 'number' ? value.create_progress : null,
+    providerStatus: typeof value.create_status === 'string' ? value.create_status : null,
+    callbackExpected: typeof value.callback_expected === 'boolean' ? value.callback_expected : fallbackCallback.callbackExpected,
+    callbackUrl: typeof value.callback_url === 'string' ? value.callback_url : fallbackCallback.url,
+  };
 }
 
 function serializeMachine(
@@ -86,6 +98,8 @@ function serializeMachine(
 
   const sshCommand = m.ip ? `ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no root@${m.ip}` : null;
 
+  const provisionMeta = readProvisionMeta(m.providerMeta);
+
   return {
     id: m.id,
     slug: m.slug,
@@ -98,6 +112,10 @@ function serializeMachine(
     server_type: m.serverType,
     region: m.region,
     ip: m.ip,
+    provider_progress: provisionMeta.providerProgress,
+    provider_status: provisionMeta.providerStatus,
+    callback_expected: provisionMeta.callbackExpected,
+    callback_url: provisionMeta.callbackUrl,
     price_monthly: m.priceMonthly || null,
     backups_enabled: m.backupsEnabled,
     created_at: m.createdAt.toISOString(),
@@ -249,7 +267,9 @@ machinesApp.openapi(createMachineRoute, async (c) => {
   const resolvedEntrypoint = data.entrypoint;
   const resolvedCommand = data.command;
 
-  const { priceMonthly, specs } = await lookupPriceAndSpecs(provider, data.region, data.server_type);
+  const { priceMonthly: basePrice, specs } = await lookupPriceAndSpecs(provider, data.region, data.server_type);
+  const wantBackups = data.enable_backups !== false; // default true
+  const priceMonthly = wantBackups ? basePrice + backupSurcharge(basePrice) : basePrice;
 
   let stripeSubId: string | null = null;
   let stripeSubItemId: string | null = null;
@@ -266,7 +286,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
     const billingInterval = data.billing_interval ?? 'monthly';
 
     if (isAdmin) {
-      // ── Admin path: real subscription at $0 (100% coupon) ──────────────
+      // ── Admin path: real subscription at $0 (no coupon) ─────────────────
       // Keeps the data model identical to paid users — subscription record,
       // item ID, Stripe product/price all exist. Resize & cancel work normally.
       try {
@@ -281,7 +301,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
         );
         stripeSubId = result.subscriptionId;
         stripeSubItemId = result.subscriptionItemId;
-        console.log(`[MACHINES] Admin subscription ${result.subscriptionId} created for user ${ownerId} (100% off)`);
+        console.log(`[MACHINES] Admin subscription ${result.subscriptionId} created for user ${ownerId} ($0 admin price)`);
       } catch (err) {
         console.error(`[MACHINES] Admin subscription creation failed for user ${ownerId}:`, err);
         return errorResponse(c, 500, 'Failed to create admin billing record. Please try again.') as any;
@@ -305,6 +325,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
             ssh_key_ids: data.ssh_key_ids,
             specs,
             billing_interval: billingInterval,
+            enable_backups: wantBackups,
           },
           priceMonthlyUsd: priceMonthly,
           billingInterval,
@@ -368,7 +389,8 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       : [];
 
     const providerKeyId = await uploadSSHKeyToProvider(provider, slug, autoKey.publicKey);
-    const callbackUrl = resolvePlatformCallbackUrl(c.req.url);
+    const callbackConfig = resolveMachineCallbackConfig(c.req.url);
+    const callbackUrl = callbackConfig.url;
     const userdata = buildMachineUserData(slug, autoKey.publicKey, machineToken, callbackUrl, data.env_vars, resolvedDockerImage, resolvedEntrypoint, resolvedCommand, extraSSHKeys);
 
     const machine = await createMachineRecord({
@@ -388,6 +410,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       dockerImage: resolvedDockerImage || null,
       entrypoint: resolvedEntrypoint || null,
       dockerCommand: resolvedCommand || null,
+      backupsEnabled: wantBackups,
     });
 
     if (stripeSubId) {
@@ -404,6 +427,15 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       });
     }
 
+    await db.update(machines).set({
+      providerMeta: {
+        callback_expected: callbackConfig.callbackExpected,
+        callback_url: callbackConfig.url,
+        create_status: 'running',
+        create_progress: 0,
+      },
+    }).where(eq(machines.id, machine.id));
+
     await eventBus.emitStageChange(machine.id, ownerId, 'server_creating', 'Creating server on provider...');
 
     after(async () => {
@@ -415,7 +447,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
           region: data.region,
           userData: userdata,
           sshKeyIds: [providerKeyId],
-          enableBackups: true,
+          enableBackups: wantBackups,
           labels: {
             'justavps': 'true',
             'slug': slug,
@@ -433,6 +465,13 @@ machinesApp.openapi(createMachineRoute, async (c) => {
         await db.update(machines).set({
           ip: server.publicIp,
           providerServerId: server.serverId,
+          providerMeta: {
+            callback_expected: callbackConfig.callbackExpected,
+            callback_url: callbackConfig.url,
+            create_action_id: server.createActionId ?? null,
+            create_status: 'running',
+            create_progress: 1,
+          },
         }).where(eq(machines.id, machine.id));
 
         await eventBus.emitStageChange(machine.id, ownerId, 'server_created', `Server created (IP: ${server.publicIp})`, { ip: server.publicIp });
@@ -913,7 +952,8 @@ machinesApp.openapi(resizeMachineRoute, async (c) => {
     return errorResponse(c, 400, `Server type ${server_type} is not available in region ${machine.region}`) as any;
   }
 
-  const newPrice = newSt.priceMonthly;
+  const newBasePrice = newSt.priceMonthly;
+  const newPrice = machine.backupsEnabled ? newBasePrice + backupSurcharge(newBasePrice) : newBasePrice;
   const newSpecs = { vcpus: newSt.cores, ramGb: newSt.memory, diskGb: newSt.disk, cpuType: newSt.cpuType } as const;
 
   // Look up subscription for billing
@@ -1236,13 +1276,31 @@ machinesApp.openapi(enableBackupsRoute, async (c) => {
 
   const machine = owned.resource;
   if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
+  if (machine.backupsEnabled) return c.json({ action: 'enable_backups', status: 'already_enabled' }, 200);
 
   const lookup = requireProvider(c, machine.provider);
   if (lookup.response) return lookup.response as any;
 
+  // 1. Enable on provider
   const provider = lookup.provider as HetznerProvider;
-  await provider.enableBackups(machine.providerServerId);
-  await db.update(machines).set({ backupsEnabled: true }).where(eq(machines.id, id));
+  await provider.enableBackups(machine.providerServerId).catch((err) => {
+    console.error('[MACHINES] Provider backup enable failed, continuing with billing state update:', err);
+  });
+
+  // 2. Update billing — add 20% surcharge
+  const { priceMonthly: basePrice, specs } = await lookupPriceAndSpecs(provider, machine.region, machine.serverType);
+  const newPrice = basePrice + backupSurcharge(basePrice);
+
+  if (stripeClient.isConfigured()) {
+    const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.machineId, id));
+    if (sub?.stripeSubscriptionItemId) {
+      await stripeClient.updateMachineSubscription(
+        sub.stripeSubscriptionItemId, newPrice, machine.serverType, machine.id, specs,
+      ).catch(err => console.error('[MACHINES] Stripe backup enable billing update failed:', err));
+    }
+  }
+
+  await db.update(machines).set({ backupsEnabled: true, priceMonthly: newPrice }).where(eq(machines.id, id));
 
   return c.json({ action: 'enable_backups', status: 'completed' }, 200);
 });
@@ -1275,13 +1333,30 @@ machinesApp.openapi(disableBackupsRoute, async (c) => {
 
   const machine = owned.resource;
   if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
+  if (!machine.backupsEnabled) return c.json({ action: 'disable_backups', status: 'already_disabled' }, 200);
 
   const lookup = requireProvider(c, machine.provider);
   if (lookup.response) return lookup.response as any;
 
+  // 1. Disable on provider
   const provider = lookup.provider as HetznerProvider;
-  await provider.disableBackups(machine.providerServerId);
-  await db.update(machines).set({ backupsEnabled: false }).where(eq(machines.id, id));
+  await provider.disableBackups(machine.providerServerId).catch((err) => {
+    console.error('[MACHINES] Provider backup disable failed, continuing with billing state update:', err);
+  });
+
+  // 2. Update billing — remove 20% surcharge (back to base price)
+  const { priceMonthly: basePrice, specs } = await lookupPriceAndSpecs(provider, machine.region, machine.serverType);
+
+  if (stripeClient.isConfigured()) {
+    const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.machineId, id));
+    if (sub?.stripeSubscriptionItemId) {
+      await stripeClient.updateMachineSubscription(
+        sub.stripeSubscriptionItemId, basePrice, machine.serverType, machine.id, specs,
+      ).catch(err => console.error('[MACHINES] Stripe backup disable billing update failed:', err));
+    }
+  }
+
+  await db.update(machines).set({ backupsEnabled: false, priceMonthly: basePrice }).where(eq(machines.id, id));
 
   return c.json({ action: 'disable_backups', status: 'completed' }, 200);
 });

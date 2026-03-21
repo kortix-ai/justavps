@@ -40,6 +40,12 @@ export function useMachineSSE(machineId: string, status: string | undefined) {
             ...(data.status && data.status !== old.status ? { status: data.status } : {}),
             ...(data.provisioning_stage ? { provisioning_stage: data.provisioning_stage } : {}),
             ...(data.ip && !old.ip ? { ip: data.ip } : {}),
+            ...(typeof data.provider_progress === "number" || data.provider_progress === null
+              ? { provider_progress: data.provider_progress }
+              : {}),
+            ...(typeof data.provider_status === "string" || data.provider_status === null
+              ? { provider_status: data.provider_status }
+              : {}),
           };
         });
 

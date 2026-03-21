@@ -17,6 +17,7 @@ import { eq, gt, and } from 'drizzle-orm';
 import { db } from '../../db';
 import { machines, machineEvents } from '../../db/schema';
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
+import { syncMachineStatus } from '../../lib/machine-lifecycle';
 
 export const sseApp = new OpenAPIHono<{ Variables: AuthVariables }>();
 sseApp.use('*', apiGuard);
@@ -47,6 +48,14 @@ sseApp.openapi(streamMachineStatusRoute, async (c) => {
   const id = c.req.valid('param').id;
   const ownerId = c.get('userId');
 
+  const readProvisionMeta = (meta: Record<string, unknown> | null | undefined) => {
+    const value = (meta ?? {}) as Record<string, unknown>;
+    return {
+      provider_progress: typeof value.create_progress === 'number' ? value.create_progress : null,
+      provider_status: typeof value.create_status === 'string' ? value.create_status : null,
+    };
+  };
+
   return streamSSE(c, async (stream) => {
     let machine: typeof machines.$inferSelect | undefined;
     try {
@@ -69,6 +78,7 @@ sseApp.openapi(streamMachineStatusRoute, async (c) => {
         provisioning_stage: machine.provisioningStage,
         ip: machine.ip,
         ready_at: machine.readyAt?.toISOString() ?? null,
+        ...readProvisionMeta(machine.providerMeta),
       }),
       event: 'status',
     });
@@ -80,6 +90,13 @@ sseApp.openapi(streamMachineStatusRoute, async (c) => {
 
     let resolved = false;
     let lastEventTime = new Date();
+    let lastSnapshot = JSON.stringify({
+      status: machine.status,
+      provisioning_stage: machine.provisioningStage,
+      ip: machine.ip,
+      ready_at: machine.readyAt?.toISOString() ?? null,
+      ...readProvisionMeta(machine.providerMeta),
+    });
     const POLL_INTERVAL_MS = 2_000;
     const MAX_DURATION_MS = 10 * 60 * 1000;
     const startTime = Date.now();
@@ -131,15 +148,28 @@ sseApp.openapi(streamMachineStatusRoute, async (c) => {
         }
 
         if (!resolved) {
-          const [current] = await db.select({ status: machines.status, ip: machines.ip })
-            .from(machines)
-            .where(eq(machines.id, id));
-          if (current && (current.status === 'ready' || current.status === 'error' || current.status === 'deleted')) {
-            resolved = true;
-            await stream.writeSSE({ data: JSON.stringify({ done: true, status: current.status }), event: 'done' });
+          const [currentRow] = await db.select().from(machines).where(eq(machines.id, id));
+          if (currentRow) {
+            const current = await syncMachineStatus(currentRow);
+            const snapshot = JSON.stringify({
+              status: current.status,
+              provisioning_stage: current.provisioningStage,
+              ip: current.ip,
+              ready_at: current.readyAt?.toISOString() ?? null,
+              ...readProvisionMeta(current.providerMeta),
+            });
+            if (snapshot !== lastSnapshot) {
+              lastSnapshot = snapshot;
+              await stream.writeSSE({ data: snapshot, event: 'status' });
+            }
+
+            if (current.status === 'ready' || current.status === 'error' || current.status === 'deleted') {
+              resolved = true;
+              await stream.writeSSE({ data: JSON.stringify({ done: true, status: current.status }), event: 'done' });
+            }
           }
         }
-      } catch (err) {
+      } catch {
         await stream.writeSSE({ data: '', event: 'ping' }).catch(() => {
           resolved = true;
         });
@@ -152,5 +182,5 @@ sseApp.openapi(streamMachineStatusRoute, async (c) => {
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
       }
     }
-  }) as any;
+  });
 });

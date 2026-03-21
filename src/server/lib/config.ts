@@ -35,6 +35,9 @@ export const config = {
   PROXY_DOMAIN: (process.env.PROXY_DOMAIN || 'kortix.cloud').trim(),
   APP_URL: (process.env.NEXT_PUBLIC_APP_URL || 'https://justavps.com').trim(),
   API_URL: (process.env.NEXT_PUBLIC_API_URL || 'https://justavps.com/api').trim(),
+  // Public callback URL embedded into new machines for /api/v1/internal/* callbacks.
+  // Must be reachable from the public Internet; localhost will not work for remote VPSes.
+  MACHINE_CALLBACK_URL: (process.env.MACHINE_CALLBACK_URL || '').trim(),
   // Daemon release channel: "dev" downloads from daemon/dev/latest/, "latest" (default) from daemon/latest/
   DAEMON_CHANNEL: (process.env.DAEMON_CHANNEL || 'latest').trim() as 'dev' | 'latest',
   // Daemon auto-update: set to a version string (e.g. "a1b2c3d") to trigger fleet-wide update.

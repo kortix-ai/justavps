@@ -29,7 +29,7 @@ import {
   generateMachineIdentity,
   uploadSSHKeyToProvider,
   buildMachineUserData,
-  resolvePlatformCallbackUrl,
+  resolveMachineCallbackConfig,
   setupProxyDNS,
   createMachineRecord,
   autoGenerateAndSaveSSHKey,
@@ -285,11 +285,12 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       : [];
 
     const providerKeyId = await uploadSSHKeyToProvider(provider, slug, autoKey.publicKey);
+    const callbackConfig = resolveMachineCallbackConfig();
     const userdata = buildMachineUserData(
       slug,
       autoKey.publicKey,
       machineToken,
-      resolvePlatformCallbackUrl(),
+      callbackConfig.url,
       machineConfig.env_vars,
       resolvedDockerImage,
       resolvedEntrypoint,
@@ -314,6 +315,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       dockerImage: resolvedDockerImage || null,
       entrypoint: resolvedEntrypoint || null,
       dockerCommand: resolvedCommand || null,
+      backupsEnabled: machineConfig.enable_backups !== false,
     });
 
     if (subscriptionId) {
@@ -333,8 +335,17 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
     await eventBus.emitStageChange(machine.id, userId, 'server_creating', 'Creating server on provider...');
 
+    await db.update(machines).set({
+      providerMeta: {
+        callback_expected: callbackConfig.callbackExpected,
+        callback_url: callbackConfig.url,
+        create_status: 'running',
+        create_progress: 0,
+      },
+    }).where(eq(machines.id, machine.id));
+
     // Provision async — don't block the webhook response
-    provisionMachineAsync(machine, provider, machineConfig, slug, userId, userdata, providerKeyId, priceMonthly, resolvedImage, subscriptionId);
+    provisionMachineAsync(machine, provider, machineConfig, slug, userId, userdata, providerKeyId, priceMonthly, resolvedImage, subscriptionId, callbackConfig);
 
     console.log(`[STRIPE WEBHOOK] Machine ${slug} created and queued for provisioning`);
   } catch (err) {
@@ -355,6 +366,7 @@ function provisionMachineAsync(
   priceMonthly: number,
   resolvedImage: string,
   subscriptionId: string,
+  callbackConfig: { url: string; callbackExpected: boolean },
 ) {
   (async () => {
     try {
@@ -365,7 +377,7 @@ function provisionMachineAsync(
         region: machineConfig.region,
         userData: userdata,
         sshKeyIds: [providerKeyId],
-        enableBackups: true,
+        enableBackups: machineConfig.enable_backups !== false,
         labels: {
           'justavps': 'true',
           'slug': slug,
@@ -382,6 +394,13 @@ function provisionMachineAsync(
       await db.update(machines).set({
         ip: server.publicIp,
         providerServerId: server.serverId,
+        providerMeta: {
+          callback_expected: callbackConfig.callbackExpected,
+          callback_url: callbackConfig.url,
+          create_action_id: server.createActionId ?? null,
+          create_status: 'running',
+          create_progress: 1,
+        },
       }).where(eq(machines.id, machine.id));
 
       await eventBus.emitStageChange(machine.id, userId, 'server_created', `Server created (IP: ${server.publicIp})`, { ip: server.publicIp });

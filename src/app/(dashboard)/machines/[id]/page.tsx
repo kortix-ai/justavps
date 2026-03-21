@@ -33,6 +33,7 @@ import {
 import { useMachineSSE } from "@/hooks/use-machine-sse";
 import { useCreateImage } from "@/hooks/use-images";
 import { useConfirm } from "@/hooks/use-confirm";
+import type { Machine } from "@/lib/types";
 import {
   ArrowLeft,
   RotateCw,
@@ -65,6 +66,7 @@ import {
 } from "lucide-react";
 import { RescaleDialog } from "@/components/dashboard/rescale-dialog";
 import Link from "next/link";
+import { BACKUP_SURCHARGE_PERCENT, backupSurcharge } from "@/lib/hetzner-pricing";
 import { timeAgo, cn, regionDisplay, planName, planSpecs, PROXY_DOMAIN } from "@/lib/utils";
 
 const Terminal = dynamic(() => import("@/components/dashboard/terminal"), {
@@ -258,29 +260,33 @@ function HealthRow({
 }
 
 /* ─── Backups Panel ─────────────────────────────────────────────────── */
-function BackupsPanel({ machineId }: { machineId: string }) {
+function BackupsPanel({ machineId, machine }: { machineId: string; machine: { price_monthly: number | null } }) {
   const { data, isLoading } = useBackups(machineId);
   const createBackup = useCreateBackup();
   const toggleBackups = useToggleBackups();
   const backups = data?.backups ?? [];
   const enabled = data?.backups_enabled ?? false;
   const loaded = !isLoading && data !== undefined;
+  const backupUpsell = !enabled && machine.price_monthly ? backupSurcharge(machine.price_monthly) : 0;
 
   return (
     <div className="space-y-3">
-      {/* Free perk banner — only shown when disabled */}
+      {/* Paid upsell banner — only shown when disabled */}
       {!enabled && loaded && (
-        <div className="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
-          <div className="size-7 rounded-md bg-emerald-500/10 flex items-center justify-center shrink-0 mt-0.5">
-            <Shield className="size-3.5 text-emerald-500" />
+        <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+          <div className="size-7 rounded-md bg-amber-500/10 flex items-center justify-center shrink-0 mt-0.5">
+            <Shield className="size-3.5 text-amber-500" />
           </div>
           <div className="min-w-0">
-            <div className="flex items-center gap-2 mb-0.5">
-              <p className="text-sm font-medium">Daily backups included — free</p>
-              <Badge variant="outline" className="text-[10px] h-4 px-1.5 border-emerald-500/30 text-emerald-600 dark:text-emerald-400">Included</Badge>
+            <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+              <p className="text-sm font-medium">Add daily backups</p>
+              <Badge variant="outline" className="text-[10px] h-4 px-1.5 border-amber-500/30 text-amber-700 dark:text-amber-400">
+                +{BACKUP_SURCHARGE_PERCENT}%
+              </Badge>
             </div>
             <p className="text-xs text-muted-foreground">
-              Up to 7 daily snapshots at no extra cost. Enable it once — we handle the rest.
+              Automatic daily snapshots with manual restore and clone support.
+              {backupUpsell > 0 ? ` Enable for +$${backupUpsell.toFixed(2)}/mo on this machine.` : ""}
             </p>
           </div>
         </div>
@@ -300,7 +306,7 @@ function BackupsPanel({ machineId }: { machineId: string }) {
             <div className="min-w-0">
               <p className="text-sm font-medium">Daily backups</p>
               <p className="text-xs text-muted-foreground">
-                {enabled ? "Active — up to 7 daily snapshots kept" : "Free, included in your plan"}
+                {enabled ? "Active — up to 7 daily snapshots kept" : `Enable for +$${backupUpsell.toFixed(2)}/mo`}
               </p>
             </div>
           </div>
@@ -491,6 +497,25 @@ function ProvisioningProgress({ stage }: { stage: string }) {
       </span>
     </div>
   );
+}
+
+function provisioningHeadline(machine: Machine) {
+  if (machine.provisioning_stage === "resizing") return "Scaling in progress";
+  if (machine.provider_status === "success" && machine.status === "provisioning") return "Server is running on Hetzner";
+  return "Provisioning your machine";
+}
+
+function provisioningSubcopy(machine: Machine) {
+  if (machine.provisioning_stage === "resizing") {
+    return "Stops, resizes, and restarts — usually 60–90s. This page updates automatically.";
+  }
+  if (machine.provider_status === "success" && machine.callback_expected === false) {
+    return "Hetzner finished booting the VPS. This local environment is not publicly reachable for machine callbacks, so platform setup is being reconciled separately.";
+  }
+  if (machine.provider_status === "success") {
+    return "Hetzner finished booting the VPS. Final platform setup and reachability checks are still running.";
+  }
+  return "This usually takes 1–3 minutes. This page updates automatically.";
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -896,15 +921,20 @@ export default function MachineDetailPage() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-yellow-600 dark:text-yellow-400">
-              {machine.provisioning_stage === "resizing"
-                ? "Scaling in progress"
-                : "Provisioning your machine"}
+              {provisioningHeadline(machine)}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {machine.provisioning_stage === "resizing"
-                ? "Stops, resizes, and restarts — usually 60–90s. This page updates automatically."
-                : "This usually takes 1–3 minutes. This page updates automatically."}
+              {provisioningSubcopy(machine)}
             </p>
+            {typeof machine.provider_progress === "number" && machine.provisioning_stage !== "resizing" && (
+              <div className="mt-3 space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                  <span>Hetzner boot progress</span>
+                  <span className="font-mono tabular-nums">{Math.max(0, Math.min(100, machine.provider_progress))}%</span>
+                </div>
+                <Progress value={machine.provider_progress} className="h-2" />
+              </div>
+            )}
             {machine.provisioning_stage && machine.provisioning_stage !== "resizing" && (
               <ProvisioningProgress stage={machine.provisioning_stage} />
             )}
@@ -920,14 +950,18 @@ export default function MachineDetailPage() {
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-red-600 dark:text-red-400">
               {machine.provisioning_stage === "timeout"
-                ? "Provisioning timed out"
+                ? machine.callback_expected === false
+                  ? "Provisioning checks timed out in local dev"
+                  : "Provisioning timed out"
                 : machine.provisioning_stage === "cloud_init_error"
                   ? "Setup failed"
                   : "Machine error"}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
               {machine.provisioning_stage === "timeout"
-                ? "The machine did not report back in time. This can happen if the network or cloud-init script encountered issues. Try deleting and recreating the machine."
+                ? machine.callback_expected === false
+                  ? "This local environment is not publicly reachable for VPS callbacks, so the platform cannot confirm readiness from localhost alone. The machine may still be healthy remotely; use a public callback URL to test the full provisioning loop."
+                  : "The machine did not report back in time. This can happen if the network or cloud-init script encountered issues. Try deleting and recreating the machine."
                 : "Something went wrong during provisioning. Try deleting and recreating the machine, or contact support if the issue persists."}
             </p>
           </div>
@@ -1201,7 +1235,7 @@ export default function MachineDetailPage() {
 
           {/* ── BACKUPS ────────────────────────────────────────────────── */}
           <TabsContent value="backups" className="mt-0">
-            <BackupsPanel machineId={machine.id} />
+            <BackupsPanel machineId={machine.id} machine={machine} />
           </TabsContent>
 
           {/* ── API ────────────────────────────────────────────────────── */}
@@ -1260,9 +1294,13 @@ export default function MachineDetailPage() {
             <div className="rounded-2xl bg-muted p-4 mb-4">
               <Server className="size-8 text-muted-foreground/40" strokeWidth={1.5} />
             </div>
-            <h3 className="text-sm font-medium mb-1">Machine is not ready</h3>
+            <h3 className="text-sm font-medium mb-1">
+              {machine.provider_status === "success" || machine.callback_expected === false ? "Server is up, platform checks still pending" : "Machine is not ready"}
+            </h3>
             <p className="text-xs text-muted-foreground max-w-xs">
-              Terminal, SSH, and management tools appear once the machine is running.
+              {machine.provider_status === "success" || machine.callback_expected === false
+                ? "Hetzner has finished creating the VPS. Terminal, SSH, and management tools appear as soon as the daemon is reachable and the platform marks the machine ready."
+                : "Terminal, SSH, and management tools appear once the machine is running."}
             </p>
           </div>
         </div>
