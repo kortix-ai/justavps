@@ -1,9 +1,8 @@
 name: Deploy Worker
 
 # Deploys the Cloudflare Worker proxy whenever workers/proxy/ code changes.
-# Single Worker handles both dev.justavps.com and justavps.com traffic
-# via *.kortix.cloud — auth token validation uses shared PROXY_AUTH_SECRET,
-# per-machine platform_url in KV handles login redirects to the correct env.
+# main -> dev worker (*.kortix-dev.cloud)
+# production -> prod worker (*.kortix.cloud)
 
 on:
   push:
@@ -47,6 +46,9 @@ jobs:
     name: Deploy to Cloudflare
     needs: test
     runs-on: ubuntu-latest
+    env:
+      WORKER_CONFIG: ${{ (inputs.ref || github.ref_name) == 'production' && 'wrangler.toml' || 'wrangler.dev.toml' }}
+      WORKER_NAME: ${{ (inputs.ref || github.ref_name) == 'production' && 'kortix-cloud-proxy' || 'kortix-cloud-proxy-dev' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -64,7 +66,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_GLOBAL_API_KEY }}
-        run: npx wrangler deploy
+        run: npx wrangler deploy -c $WORKER_CONFIG
 
       - name: Verify deployment
         working-directory: workers/proxy
@@ -73,9 +75,11 @@ jobs:
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_GLOBAL_API_KEY }}
         run: |
-          VERSION=$(npx wrangler deployments list --name kortix-cloud-proxy 2>&1 | head -10)
+          VERSION=$(npx wrangler deployments list --name "$WORKER_NAME" 2>&1 | head -10)
           echo "$VERSION"
           echo "### Worker Deployed" >> $GITHUB_STEP_SUMMARY
+          echo "Config: $WORKER_CONFIG" >> $GITHUB_STEP_SUMMARY
+          echo "Worker: $WORKER_NAME" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "$VERSION" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
