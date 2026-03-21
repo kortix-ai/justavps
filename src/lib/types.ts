@@ -136,7 +136,32 @@ export interface Webhook {
   url: string;
   events: string[];
   active: boolean;
+  failure_count: number;
+  last_delivered_at: string | null;
+  disabled_at: string | null;
+  disable_reason: string | null;
   created_at: string;
+}
+
+export interface WebhookDelivery {
+  id: string;
+  event_type: string;
+  payload: Record<string, unknown>;
+  status_code: number | null;
+  response_body: string | null;
+  duration_ms: number | null;
+  attempt: number;
+  success: boolean;
+  error: string | null;
+  created_at: string;
+}
+
+export interface WebhookTestResult {
+  success: boolean;
+  status_code: number | null;
+  duration_ms: number;
+  response_body?: string;
+  error?: string;
 }
 
 export interface CreateWebhookInput {

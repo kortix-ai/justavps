@@ -1,13 +1,107 @@
 import { createHmac } from 'crypto';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { db } from '../db';
-import { webhooks } from '../db/schema';
+import { webhooks, webhookDeliveries } from '../db/schema';
 import type { MachineEvent } from './event-bus';
 
 const DELIVERY_TIMEOUT_MS = 10_000;
+const MAX_RETRIES = 3;
+const RETRY_DELAYS_MS = [10_000, 60_000, 300_000];
+const AUTO_DISABLE_THRESHOLD = 10;
 
 function signPayload(payload: string, secret: string): string {
   return createHmac('sha256', secret).update(payload).digest('hex');
+}
+
+async function deliverSingle(
+  hook: { id: string; url: string; secret: string },
+  eventType: string,
+  payloadObj: Record<string, unknown>,
+  attempt: number,
+): Promise<void> {
+  const payload = JSON.stringify(payloadObj);
+  const signature = signPayload(payload, hook.secret);
+  const start = Date.now();
+
+  let statusCode: number | null = null;
+  let responseBody: string | null = null;
+  let success = false;
+  let error: string | null = null;
+
+  try {
+    const res = await fetch(hook.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-JustAVPS-Signature': signature,
+        'X-JustAVPS-Event': eventType,
+      },
+      body: payload,
+      signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
+    });
+
+    statusCode = res.status;
+    responseBody = await res.text().catch(() => null);
+    if (responseBody && responseBody.length > 2000) {
+      responseBody = responseBody.slice(0, 2000) + '...[truncated]';
+    }
+    success = res.ok;
+    if (!res.ok) error = `HTTP ${res.status}`;
+  } catch (err: any) {
+    error = err.message?.slice(0, 500) || 'Unknown error';
+  }
+
+  const durationMs = Date.now() - start;
+
+  try {
+    await db.insert(webhookDeliveries).values({
+      webhookId: hook.id,
+      eventType,
+      payload: payloadObj,
+      statusCode,
+      responseBody,
+      durationMs,
+      attempt,
+      success,
+      error,
+    });
+  } catch (dbErr) {
+    console.error('[WEBHOOKS] Failed to log delivery:', dbErr);
+  }
+
+  if (success) {
+    await db.update(webhooks).set({
+      failureCount: 0,
+      lastDeliveredAt: new Date(),
+    }).where(eq(webhooks.id, hook.id)).catch(() => {});
+    return;
+  }
+
+  try {
+    const [updated] = await db.update(webhooks)
+      .set({ failureCount: sql`${webhooks.failureCount} + 1` })
+      .where(eq(webhooks.id, hook.id))
+      .returning({ failureCount: webhooks.failureCount });
+
+    if (updated && updated.failureCount >= AUTO_DISABLE_THRESHOLD) {
+      await db.update(webhooks).set({
+        active: false,
+        disabledAt: new Date(),
+        disableReason: `Auto-disabled after ${AUTO_DISABLE_THRESHOLD} consecutive failures`,
+      }).where(eq(webhooks.id, hook.id));
+      console.warn(`[WEBHOOKS] Auto-disabled webhook ${hook.id} after ${AUTO_DISABLE_THRESHOLD} failures`);
+      return;
+    }
+  } catch (dbErr) {
+    console.error('[WEBHOOKS] Failed to update failure count:', dbErr);
+  }
+
+  if (attempt < MAX_RETRIES) {
+    const delay = RETRY_DELAYS_MS[attempt - 1] || RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1];
+    setTimeout(() => {
+      deliverSingle(hook, eventType, payloadObj, attempt + 1).catch(() => {});
+    }, delay);
+  }
 }
 
 export async function deliverWebhooks(ownerId: string, event: MachineEvent): Promise<void> {
@@ -26,38 +120,18 @@ export async function deliverWebhooks(ownerId: string, event: MachineEvent): Pro
   if (hooks.length === 0) return;
 
   const eventType = `machine.${event.event}`;
-  const payload = JSON.stringify({
+  const payloadObj: Record<string, unknown> = {
     event: eventType,
     data: event,
     delivered_at: new Date().toISOString(),
-  });
+  };
 
   const deliveries = hooks
     .filter((hook) => {
       const subscribedEvents = hook.events as string[];
       return subscribedEvents.includes('*') || subscribedEvents.includes(eventType);
     })
-    .map(async (hook) => {
-      const signature = signPayload(payload, hook.secret);
-      try {
-        const res = await fetch(hook.url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-JustAVPS-Signature': signature,
-            'X-JustAVPS-Event': eventType,
-          },
-          body: payload,
-          signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
-        });
-
-        if (!res.ok) {
-          console.warn(`[WEBHOOKS] Delivery to ${hook.url} returned ${res.status}`);
-        }
-      } catch (err: any) {
-        console.warn(`[WEBHOOKS] Delivery to ${hook.url} failed: ${err.message?.slice(0, 100)}`);
-      }
-    });
+    .map((hook) => deliverSingle(hook, eventType, payloadObj, 1));
 
   await Promise.allSettled(deliveries);
 }

@@ -184,6 +184,26 @@ export const webhooks = pgTable('webhooks', {
   secret: text('secret').notNull(),
   events: jsonb('events').$type<string[]>().notNull().default(['*']),
   active: boolean('active').notNull().default(true),
+  failureCount: integer('failure_count').notNull().default(0),
+  lastDeliveredAt: timestamp('last_delivered_at'),
+  disabledAt: timestamp('disabled_at'),
+  disableReason: text('disable_reason'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ─── Webhook Deliveries ─────────────────────────────────────────────────────
+
+export const webhookDeliveries = pgTable('webhook_deliveries', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  webhookId: uuid('webhook_id').references(() => webhooks.id, { onDelete: 'cascade' }).notNull(),
+  eventType: text('event_type').notNull(),
+  payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+  statusCode: integer('status_code'),
+  responseBody: text('response_body'),
+  durationMs: integer('duration_ms'),
+  attempt: integer('attempt').notNull().default(1),
+  success: boolean('success').notNull().default(false),
+  error: text('error'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -242,6 +262,7 @@ export type SSHKey = typeof sshKeys.$inferSelect;
 export type ApiKey = typeof apiKeys.$inferSelect;
 export type MachineEventRow = typeof machineEvents.$inferSelect;
 export type WebhookRow = typeof webhooks.$inferSelect;
+export type WebhookDeliveryRow = typeof webhookDeliveries.$inferSelect;
 export type AccountLimitRow = typeof accountLimits.$inferSelect;
 export type NewAccountLimit = typeof accountLimits.$inferInsert;
 export type KortixLink = typeof kortixLinks.$inferSelect;

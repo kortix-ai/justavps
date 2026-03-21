@@ -1,9 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api-client";
-import type { Webhook, CreateWebhookInput, CreateWebhookResponse } from "@/lib/types";
+import type { Webhook, WebhookDelivery, WebhookTestResult, CreateWebhookInput, CreateWebhookResponse } from "@/lib/types";
 
 export const webhookKeys = {
   all: ["webhooks"] as const,
+  deliveries: (webhookId: string) => ["webhooks", webhookId, "deliveries"] as const,
 };
 
 export function useWebhooks() {
@@ -43,6 +44,39 @@ export function useDeleteWebhook() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: webhookKeys.all });
+    },
+  });
+}
+
+export function useUpdateWebhook() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: string; url?: string; events?: string[]; active?: boolean }) =>
+      api.patch<Webhook>(`/webhooks/${id}`, data),
+    onSuccess: (updated) => {
+      qc.setQueryData<Webhook[]>(webhookKeys.all, (old) =>
+        old?.map((w) => (w.id === updated.id ? updated : w)),
+      );
+    },
+  });
+}
+
+export function useWebhookDeliveries(webhookId: string | null) {
+  return useQuery({
+    queryKey: webhookKeys.deliveries(webhookId || ""),
+    queryFn: () =>
+      api.get<{ deliveries: WebhookDelivery[] }>(`/webhooks/${webhookId}/deliveries`).then((d) => d.deliveries),
+    enabled: !!webhookId,
+  });
+}
+
+export function useTestWebhook() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (webhookId: string) =>
+      api.post<WebhookTestResult>(`/webhooks/${webhookId}/test`),
+    onSuccess: (_, webhookId) => {
+      qc.invalidateQueries({ queryKey: webhookKeys.deliveries(webhookId) });
     },
   });
 }
