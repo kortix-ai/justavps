@@ -19,7 +19,7 @@ import {
   DollarSign,
 } from "lucide-react";
 import { planName, cn } from "@/lib/utils";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import Link from "next/link";
 
@@ -55,6 +55,8 @@ export default function BillingPage() {
   const reactivateMachine = useReactivateMachine();
   const searchParams = useSearchParams();
   const [confirmCancel, ConfirmCancelDialog] = useConfirm();
+  const [pendingCancelMachineId, setPendingCancelMachineId] = useState<string | null>(null);
+  const [pendingReactivateMachineId, setPendingReactivateMachineId] = useState<string | null>(null);
 
   const estimatedCost = usage?.current_period?.estimated_cost ?? 0;
   const hasPaymentMethod = billing?.has_payment_method ?? false;
@@ -152,6 +154,9 @@ export default function BillingPage() {
               const isCancelling = m.subscription?.cancel_at_period_end;
               const cancelDate = m.subscription?.cancel_at ?? m.subscription?.current_period_end;
               const status = statusConfig[m.status] ?? statusConfig.stopped;
+              const isCancellingThisMachine = cancelMachine.isPending && pendingCancelMachineId === m.id;
+              const isReactivatingThisMachine = reactivateMachine.isPending && pendingReactivateMachineId === m.id;
+              const hasPendingMutation = cancelMachine.isPending || reactivateMachine.isPending;
 
               return (
                 <div key={m.id} className="px-4 py-3 space-y-2">
@@ -184,19 +189,26 @@ export default function BillingPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="h-7 text-xs gap-1.5 text-emerald-600 hover:text-emerald-600 hover:bg-emerald-500/10 border-emerald-500/30"
-                          onClick={() => {
-                            reactivateMachine.mutate(m.id, {
-                              onSuccess: () => toast.success(`${m.slug} reactivated`),
-                              onError: (err: Error) => toast.error(err.message),
-                            });
-                          }}
-                          disabled={reactivateMachine.isPending}
-                        >
-                          {reactivateMachine.isPending ? (
-                            <Loader2 className="size-3 animate-spin" />
-                          ) : (
-                            <Power className="size-3" />
+                           className="h-7 text-xs gap-1.5 text-emerald-600 hover:text-emerald-600 hover:bg-emerald-500/10 border-emerald-500/30"
+                           onClick={() => {
+                             setPendingReactivateMachineId(m.id);
+                             reactivateMachine.mutate(m.id, {
+                               onSuccess: () => {
+                                 setPendingReactivateMachineId(null);
+                                 toast.success(`${m.slug} reactivated`);
+                               },
+                               onError: (err: Error) => {
+                                 setPendingReactivateMachineId(null);
+                                 toast.error(err.message);
+                               },
+                             });
+                           }}
+                           disabled={hasPendingMutation}
+                         >
+                           {isReactivatingThisMachine ? (
+                             <Loader2 className="size-3 animate-spin" />
+                           ) : (
+                             <Power className="size-3" />
                           )}
                           Reactivate
                         </Button>
@@ -213,19 +225,26 @@ export default function BillingPage() {
                                 : "This machine has no active subscription. To delete it, go to the machine detail page.",
                               confirmLabel: "Cancel Subscription",
                               variant: "destructive",
-                            });
-                            if (!ok) return;
-                            cancelMachine.mutate(m.id, {
-                              onSuccess: () => toast.success(`${m.slug} subscription cancelled`),
-                              onError: (err: Error) => toast.error(err.message),
-                            });
-                          }}
-                          disabled={cancelMachine.isPending}
-                        >
-                          {cancelMachine.isPending ? (
-                            <Loader2 className="size-3 animate-spin" />
-                          ) : (
-                            <CalendarX2 className="size-3" />
+                             });
+                             if (!ok) return;
+                             setPendingCancelMachineId(m.id);
+                             cancelMachine.mutate(m.id, {
+                               onSuccess: () => {
+                                 setPendingCancelMachineId(null);
+                                 toast.success(`${m.slug} subscription cancelled`);
+                               },
+                               onError: (err: Error) => {
+                                 setPendingCancelMachineId(null);
+                                 toast.error(err.message);
+                               },
+                             });
+                           }}
+                           disabled={hasPendingMutation}
+                         >
+                           {isCancellingThisMachine ? (
+                             <Loader2 className="size-3 animate-spin" />
+                           ) : (
+                             <CalendarX2 className="size-3" />
                           )}
                           Cancel
                         </Button>
