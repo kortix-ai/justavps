@@ -61,14 +61,15 @@ class MachineEventBus {
       const newIdx = STAGE_ORDER.indexOf(stage);
       const isForward = newIdx === -1 || newIdx > currentIdx;
 
-      if (isForward) {
-        await db.update(machines).set({
-          provisioningStage: stage,
-          provisioningStageUpdatedAt: now,
-        }).where(eq(machines.id, machineId));
-      }
+      if (!isForward) return; // Stale/duplicate stage — skip entirely
+
+      await db.update(machines).set({
+        provisioningStage: stage,
+        provisioningStageUpdatedAt: now,
+      }).where(eq(machines.id, machineId));
     } catch (err) {
       console.error(`[EVENT-BUS] Failed to update machine stage:`, err);
+      return;
     }
 
     try {
