@@ -174,12 +174,16 @@ async function waitForImageReady(imageId: number, timeoutMs = PROVISION_TIMEOUT_
 
 /**
  * Extract a usable IPv6 address from Hetzner's response.
- * Hetzner returns a /64 network like "2a01:4f8:c17:e4c4::/64".
- * We strip the CIDR suffix to get a bare address: "2a01:4f8:c17:e4c4::".
- * Also handles bare addresses (no suffix) gracefully.
+ * Hetzner returns a /64 subnet like "2a01:4f8:c17:e4c4::/64".
+ * The server itself uses the first host in that subnet, i.e. "::1".
+ * Also handles already-normalized bare addresses gracefully.
  */
 function extractIPv6(raw: string): string {
-  return raw.replace(/\/\d+$/, '');
+  const stripped = raw.replace(/\/\d+$/, '');
+  if (raw.includes('/') && stripped.endsWith('::')) {
+    return `${stripped}1`;
+  }
+  return stripped;
 }
 
 export class HetznerProvider implements ComputeProvider {

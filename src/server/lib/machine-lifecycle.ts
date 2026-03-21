@@ -80,6 +80,12 @@ function readProviderMeta(machine: typeof machines.$inferSelect): ProvisionProvi
   return (machine.providerMeta ?? {}) as ProvisionProviderMeta;
 }
 
+function normalizeProvisionedMachineIp(machine: typeof machines.$inferSelect): string | null {
+  if (machine.provider !== 'cloud' || !machine.ip) return null;
+  if (machine.ip.endsWith('::')) return `${machine.ip}1`;
+  return null;
+}
+
 async function updateProviderMeta(machineId: string, patch: Partial<ProvisionProviderMeta>) {
   const [current] = await db.select({ providerMeta: machines.providerMeta }).from(machines).where(eq(machines.id, machineId));
   const merged = {
@@ -416,7 +422,29 @@ const PROVISION_TIMEOUT_MS = 20 * 60 * 1000; // 10 minutes
 const PROVISION_TIMEOUT_DOCKER_MS = 30 * 60 * 1000; // 15 minutes for Docker workloads
 
 export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
-  if (machine.status !== 'provisioning' || !machine.providerServerId) return machine;
+  const canRecoverTimeout = machine.status === 'error' && machine.provisioningStage === 'timeout';
+  if ((machine.status !== 'provisioning' && !canRecoverTimeout) || !machine.providerServerId) return machine;
+
+  const healedIp = normalizeProvisionedMachineIp(machine);
+  if (healedIp) {
+    await db.update(machines).set({ ip: healedIp }).where(eq(machines.id, machine.id));
+    machine = { ...machine, ip: healedIp };
+
+    if (config.isCloudflareConfigured()) {
+      await cloudflareClient.addMachineDNS(machine.slug, healedIp).catch((err) => {
+        console.warn(`[MACHINES] Failed to heal DNS for ${machine.slug}:`, err);
+      });
+      await cloudflareClient.writeKVMachine(machine.slug, {
+        owner_id: machine.ownerId,
+        ip: healedIp,
+        origin_hostname: `origin-${machine.slug}.${config.PROXY_DOMAIN}`,
+        status: machine.status,
+        server_type: machine.serverType,
+      }).catch((err) => {
+        console.warn(`[MACHINES] Failed to heal KV for ${machine.slug}:`, err);
+      });
+    }
+  }
 
   const elapsed = Date.now() - machine.createdAt.getTime();
   const timeoutMs = machine.dockerImage ? PROVISION_TIMEOUT_DOCKER_MS : PROVISION_TIMEOUT_MS;

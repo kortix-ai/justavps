@@ -501,21 +501,20 @@ function ProvisioningProgress({ stage }: { stage: string }) {
 
 function provisioningHeadline(machine: Machine) {
   if (machine.provisioning_stage === "resizing") return "Scaling in progress";
-  if (machine.provider_status === "success" && machine.status === "provisioning") return "Server is running on Hetzner";
-  return "Provisioning your machine";
+  return "Boot progress";
 }
 
 function provisioningSubcopy(machine: Machine) {
   if (machine.provisioning_stage === "resizing") {
-    return "Stops, resizes, and restarts — usually 60–90s. This page updates automatically.";
+    return "Usually under 90 seconds.";
   }
   if (machine.provider_status === "success" && machine.callback_expected === false) {
-    return "Hetzner finished booting the VPS. This local environment is not publicly reachable for machine callbacks, so platform setup is being reconciled separately.";
+    return "Boot finished. Waiting for the control plane to catch up.";
   }
   if (machine.provider_status === "success") {
-    return "Hetzner finished booting the VPS. Final platform setup and reachability checks are still running.";
+    return "Boot finished. Final checks are still running.";
   }
-  return "This usually takes 1–3 minutes. This page updates automatically.";
+  return "Usually 1-3 minutes.";
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -915,55 +914,60 @@ export default function MachineDetailPage() {
           PROVISIONING BANNER
           ════════════════════════════════════════════════════════════════ */}
       {machine.status === "provisioning" && (
-        <div className="flex items-start gap-3 rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-4">
-          <div className="rounded-lg bg-yellow-500/10 p-1.5 shrink-0 mt-0.5">
-            <Loader2 className="size-4 animate-spin text-yellow-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-yellow-600 dark:text-yellow-400">
-              {provisioningHeadline(machine)}
-            </p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {provisioningSubcopy(machine)}
-            </p>
-            {typeof machine.provider_progress === "number" && machine.provisioning_stage !== "resizing" && (
-              <div className="mt-3 space-y-1.5">
-                <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                  <span>Hetzner boot progress</span>
-                  <span className="font-mono tabular-nums">{Math.max(0, Math.min(100, machine.provider_progress))}%</span>
+        <div className="rounded-xl border bg-card/70 p-4">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-muted p-1.5 shrink-0 mt-0.5">
+              <Loader2 className="size-4 animate-spin text-yellow-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">{provisioningHeadline(machine)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{provisioningSubcopy(machine)}</p>
                 </div>
-                <Progress value={machine.provider_progress} className="h-2" />
+                {typeof machine.provider_progress === "number" && machine.provisioning_stage !== "resizing" && (
+                  <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                    {Math.max(0, Math.min(100, machine.provider_progress))}%
+                  </span>
+                )}
               </div>
-            )}
-            {machine.provisioning_stage && machine.provisioning_stage !== "resizing" && (
-              <ProvisioningProgress stage={machine.provisioning_stage} />
-            )}
+              {typeof machine.provider_progress === "number" && machine.provisioning_stage !== "resizing" && (
+                <Progress value={machine.provider_progress} className="mt-3 h-1.5" />
+              )}
+              {machine.provisioning_stage && machine.provisioning_stage !== "resizing" && (
+                <div className="mt-3">
+                  <ProvisioningProgress stage={machine.provisioning_stage} />
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
 
       {machine.status === "error" && (
-        <div className="flex items-start gap-3 rounded-xl border border-red-500/20 bg-red-500/5 p-4">
-          <div className="rounded-lg bg-red-500/10 p-1.5 shrink-0 mt-0.5">
-            <AlertTriangle className="size-4 text-red-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-red-600 dark:text-red-400">
-              {machine.provisioning_stage === "timeout"
-                ? machine.callback_expected === false
-                  ? "Provisioning checks timed out in local dev"
-                  : "Provisioning timed out"
-                : machine.provisioning_stage === "cloud_init_error"
-                  ? "Setup failed"
-                  : "Machine error"}
-            </p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {machine.provisioning_stage === "timeout"
-                ? machine.callback_expected === false
-                  ? "This local environment is not publicly reachable for VPS callbacks, so the platform cannot confirm readiness from localhost alone. The machine may still be healthy remotely; use a public callback URL to test the full provisioning loop."
-                  : "The machine did not report back in time. This can happen if the network or cloud-init script encountered issues. Try deleting and recreating the machine."
-                : "Something went wrong during provisioning. Try deleting and recreating the machine, or contact support if the issue persists."}
-            </p>
+        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-red-500/10 p-1.5 shrink-0 mt-0.5">
+              <AlertTriangle className="size-4 text-red-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-red-600 dark:text-red-400">
+                {machine.provisioning_stage === "timeout"
+                  ? machine.callback_expected === false
+                    ? "Boot finished, but sync timed out"
+                    : "Boot timed out"
+                  : machine.provisioning_stage === "cloud_init_error"
+                    ? "Setup failed"
+                    : "Machine error"}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {machine.provisioning_stage === "timeout"
+                  ? machine.callback_expected === false
+                    ? "The server may already be up, but this local environment could not finish syncing state."
+                    : "The machine did not finish booting in time."
+                  : "Something interrupted setup before the machine became ready."}
+              </p>
+            </div>
           </div>
         </div>
       )}
@@ -1295,12 +1299,12 @@ export default function MachineDetailPage() {
               <Server className="size-8 text-muted-foreground/40" strokeWidth={1.5} />
             </div>
             <h3 className="text-sm font-medium mb-1">
-              {machine.provider_status === "success" || machine.callback_expected === false ? "Server is up, platform checks still pending" : "Machine is not ready"}
+              {machine.provider_status === "success" || machine.callback_expected === false ? "Almost there" : "Machine not ready yet"}
             </h3>
             <p className="text-xs text-muted-foreground max-w-xs">
               {machine.provider_status === "success" || machine.callback_expected === false
-                ? "Hetzner has finished creating the VPS. Terminal, SSH, and management tools appear as soon as the daemon is reachable and the platform marks the machine ready."
-                : "Terminal, SSH, and management tools appear once the machine is running."}
+                ? "Terminal, SSH, and tools show up as soon as the machine finishes syncing."
+                : "Terminal, SSH, and tools appear once the machine is ready."}
             </p>
           </div>
         </div>
