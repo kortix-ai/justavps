@@ -23,6 +23,7 @@ interface ProvisionProviderMeta {
   last_callback_at?: string | null;
   last_probe_at?: string | null;
   ready_via?: 'heartbeat' | 'probe' | null;
+  daemon_reachable_at?: string | null;
 }
 
 export async function generateMachineIdentity() {
@@ -511,6 +512,12 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
     machine = { ...machine, providerMeta: probedMeta };
 
     if (daemonReady) {
+      if (machine.dockerImage) {
+        const nextMeta = await updateProviderMeta(machine.id, {
+          daemon_reachable_at: new Date().toISOString(),
+        });
+        machine = { ...machine, providerMeta: nextMeta };
+      } else {
       const now = new Date();
       const nextMeta = await updateProviderMeta(machine.id, {
         ready_via: 'probe',
@@ -543,11 +550,10 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
         provisioningStage: 'services_ready',
         providerMeta: nextMeta,
       };
+      }
     }
   }
 
-  // If provisioning has exceeded the timeout and we still haven't received
-  // a heartbeat or a successful active probe, mark it as error.
   if (Date.now() - machine.createdAt.getTime() > (machine.dockerImage ? PROVISION_TIMEOUT_DOCKER_MS : PROVISION_TIMEOUT_MS)) {
     console.warn(`[MACHINES] Provisioning timeout for ${machine.slug} (${Math.round((Date.now() - machine.createdAt.getTime()) / 1000)}s elapsed, no heartbeat or successful probe)`);
     await db.update(machines).set({
