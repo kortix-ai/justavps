@@ -1,10 +1,16 @@
 import { createMiddleware } from 'hono/factory';
+import { createHash } from 'crypto';
 import { db } from '../db';
 import { apiKeys, users } from '../db/schema';
 import { validateApiKey } from './crypto';
 import { eq } from 'drizzle-orm';
 import { decode } from 'next-auth/jwt';
 import { ensureAutoAdminUser } from './auto-admin';
+
+function sha256(input: string): string {
+  return createHash('sha256').update(input).digest('hex');
+}
+
 
 export type AuthVariables = {
   userId: string;
@@ -36,13 +42,38 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(
     if (authHeader?.startsWith('Bearer sk_live_')) {
       const key = authHeader.slice(7);
       try {
+        const hash = sha256(key);
+
+        // Fast path: O(1) DB lookup by SHA-256 hash
+        const [match] = await db.select().from(apiKeys).where(eq(apiKeys.keySha256, hash)).limit(1);
+        if (match) {
+          db.update(apiKeys)
+            .set({ lastUsed: new Date() })
+            .where(eq(apiKeys.id, match.id))
+            .catch(() => {});
+
+          const [user] = await db
+            .select({ id: users.id, email: users.email, isAdmin: users.isAdmin })
+            .from(users)
+            .where(eq(users.id, match.ownerId));
+
+          const resolvedUser = user ? await ensureAutoAdminUser(user) : null;
+          const ownerId = resolvedUser?.id ?? match.ownerId;
+          const isAdmin = resolvedUser?.isAdmin ?? false;
+
+          c.set('userId', ownerId);
+          c.set('isAdmin', isAdmin);
+          return next();
+        }
+
+        // Slow fallback: bcrypt scan for old keys without keySha256, then backfill
         const allKeys = await db.select().from(apiKeys);
         for (const k of allKeys) {
           if (await validateApiKey(key, k.keyHash)) {
             db.update(apiKeys)
-              .set({ lastUsed: new Date() })
+              .set({ keySha256: hash, lastUsed: new Date() })
               .where(eq(apiKeys.id, k.id))
-              .catch((err) => console.error('[API_GUARD] Failed to update lastUsed:', err));
+              .catch(() => {});
 
             const [user] = await db
               .select({ id: users.id, email: users.email, isAdmin: users.isAdmin })
@@ -50,9 +81,10 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(
               .where(eq(users.id, k.ownerId));
 
             const resolvedUser = user ? await ensureAutoAdminUser(user) : null;
-
-            c.set('userId', resolvedUser?.id ?? k.ownerId);
-            c.set('isAdmin', resolvedUser?.isAdmin ?? false);
+            const ownerId = resolvedUser?.id ?? k.ownerId;
+            const isAdmin = resolvedUser?.isAdmin ?? false;
+            c.set('userId', ownerId);
+            c.set('isAdmin', isAdmin);
             return next();
           }
         }

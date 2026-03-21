@@ -17,12 +17,13 @@ export function generateMachineToken(): string {
  * Generate an API key (sk_live_xxx format).
  * Returns both the plain key and the bcrypt hash.
  */
-export async function generateApiKey(): Promise<{ key: string; hash: string; prefix: string }> {
+export async function generateApiKey(): Promise<{ key: string; hash: string; sha256: string; prefix: string }> {
   const rawKey = randomBytes(32).toString('hex');
   const key = `sk_live_${rawKey}`;
   const hash = await bcryptjs.hash(key, 10);
+  const sha256 = createHash('sha256').update(key).digest('hex');
   const prefix = key.slice(0, 16) + '...';
-  return { key, hash, prefix };
+  return { key, hash, sha256, prefix };
 }
 
 /**

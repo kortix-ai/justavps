@@ -4,6 +4,7 @@
  */
 
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
+import { createHash } from 'crypto';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db';
 import { machines, apiKeys } from '../../db/schema';
@@ -325,11 +326,26 @@ internalApp.openapi(validateKeyRoute, async (c) => {
   const { key: keyValue, machine_slug: machineSlug } = c.req.valid('query');
 
   try {
+    const hash = createHash('sha256').update(keyValue).digest('hex');
+
+    // Fast path: SHA-256 lookup
+    const [match] = await db.select().from(apiKeys).where(eq(apiKeys.keySha256, hash)).limit(1);
+    if (match) {
+      db.update(apiKeys).set({ lastUsed: new Date() }).where(eq(apiKeys.id, match.id)).catch(() => {});
+      if (machineSlug) {
+        const [machine] = await db.select().from(machines).where(eq(machines.slug, machineSlug));
+        if (!machine || machine.ownerId !== match.ownerId) {
+          return c.json({ valid: false, message: 'Key does not own this machine' }, 403);
+        }
+      }
+      return c.json({ valid: true, owner_id: match.ownerId });
+    }
+
+    // Slow fallback: bcrypt scan for old keys, backfill SHA-256
     const keys = await db.select().from(apiKeys);
     for (const key of keys) {
       if (await validateApiKey(keyValue, key.keyHash)) {
-        await db.update(apiKeys).set({ lastUsed: new Date() }).where(eq(apiKeys.id, key.id)).catch(() => {});
-
+        db.update(apiKeys).set({ keySha256: hash, lastUsed: new Date() }).where(eq(apiKeys.id, key.id)).catch(() => {});
         if (machineSlug) {
           const [machine] = await db.select().from(machines).where(eq(machines.slug, machineSlug));
           if (!machine || machine.ownerId !== key.ownerId) {
