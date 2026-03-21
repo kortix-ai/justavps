@@ -206,7 +206,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
   const isAdmin = c.get('isAdmin');
 
   // 0. Check account machine limit
-  const machineLimit = await checkMachineLimit(ownerId);
+  const machineLimit = await checkMachineLimit(ownerId, isAdmin);
   if (!machineLimit.allowed) {
     return errorResponse(c, 403, `Machine limit reached (${machineLimit.current}/${machineLimit.max}). Delete an existing machine or contact support to increase your limit.`) as any;
   }
@@ -1103,7 +1103,7 @@ machinesApp.openapi(createImageFromMachineRoute, async (c) => {
   if (!machine.providerServerId) return errorResponse(c, 400, 'Machine has no provider server') as any;
 
   // Check account image limit
-  const imageLimit = await checkImageLimit(ownerId);
+  const imageLimit = await checkImageLimit(ownerId, c.get('isAdmin'));
   if (!imageLimit.allowed) {
     return errorResponse(c, 403, `Image limit reached (${imageLimit.current}/${imageLimit.max}). Delete an existing image or contact support to increase your limit.`) as any;
   }

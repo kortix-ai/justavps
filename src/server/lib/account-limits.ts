@@ -13,10 +13,19 @@ export const DEFAULT_LIMITS = {
   maxImages: 10,
 } as const;
 
+export const ADMIN_UNLIMITED_LIMIT = Number.MAX_SAFE_INTEGER;
+
 /**
  * Get the resource limits for a user. Returns defaults if no row exists.
  */
-export async function getAccountLimits(userId: string) {
+export async function getAccountLimits(userId: string, isAdmin = false) {
+  if (isAdmin) {
+    return {
+      maxMachines: ADMIN_UNLIMITED_LIMIT,
+      maxImages: ADMIN_UNLIMITED_LIMIT,
+    };
+  }
+
   const [row] = await db.select().from(accountLimits).where(eq(accountLimits.userId, userId));
   return {
     maxMachines: row?.maxMachines ?? DEFAULT_LIMITS.maxMachines,
@@ -51,9 +60,9 @@ export async function countActiveImages(userId: string): Promise<number> {
 /**
  * Check if the user can create another machine. Returns { allowed, current, max }.
  */
-export async function checkMachineLimit(userId: string) {
+export async function checkMachineLimit(userId: string, isAdmin = false) {
   const [limits, current] = await Promise.all([
-    getAccountLimits(userId),
+    getAccountLimits(userId, isAdmin),
     countActiveMachines(userId),
   ]);
   return {
@@ -66,9 +75,9 @@ export async function checkMachineLimit(userId: string) {
 /**
  * Check if the user can create another image. Returns { allowed, current, max }.
  */
-export async function checkImageLimit(userId: string) {
+export async function checkImageLimit(userId: string, isAdmin = false) {
   const [limits, current] = await Promise.all([
-    getAccountLimits(userId),
+    getAccountLimits(userId, isAdmin),
     countActiveImages(userId),
   ]);
   return {

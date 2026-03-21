@@ -240,8 +240,14 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     });
   }
 
+  const [userRow] = await db
+    .select({ isAdmin: users.isAdmin })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
   // Check account machine limit before provisioning
-  const machineLimit = await checkMachineLimit(userId);
+  const machineLimit = await checkMachineLimit(userId, userRow?.isAdmin ?? false);
   if (!machineLimit.allowed) {
     console.warn(`[STRIPE WEBHOOK] Machine limit reached for user ${userId} (${machineLimit.current}/${machineLimit.max}) — cancelling subscription ${subscriptionId || 'unknown'}`);
     if (subscriptionId) {

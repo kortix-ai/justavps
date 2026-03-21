@@ -10,6 +10,7 @@ import { useCreateMachine } from "@/hooks/use-machines";
 import { useAccountLimits } from "@/hooks/use-account";
 import { useSSHKeys } from "@/hooks/use-ssh-keys";
 import { useImages } from "@/hooks/use-images";
+import { isUnlimitedLimit } from "@/lib/account-limits";
 import { toast } from "sonner";
 import {
   X,
@@ -164,8 +165,9 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
 
   const machineUsage = limits?.usage.machines ?? 0;
   const machineMax = limits?.limits.max_machines;
+  const machineUnlimited = isUnlimitedLimit(machineMax);
   const machineLimitReached =
-    machineMax !== undefined && machineUsage >= machineMax;
+    !machineUnlimited && machineMax !== undefined && machineUsage >= machineMax;
   const hasExistingKeys = Boolean(userSSHKeys && userSSHKeys.length > 0);
 
   const selectionReady = !showDockerConfig || Boolean(dockerImage.trim());

@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { formatLimit, isUnlimitedLimit } from "@/lib/account-limits";
 import { MachineCard } from "@/components/dashboard/machine-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAccountLimits } from "@/hooks/use-account";
@@ -65,8 +66,10 @@ export default function MachinesPage() {
 
   const machineUsage = limits?.usage.machines ?? 0;
   const machineMax = limits?.limits.max_machines;
-  const machineLimitReached = machineMax !== undefined && machineUsage >= machineMax;
+  const machineUnlimited = isUnlimitedLimit(machineMax);
+  const machineLimitReached = !machineUnlimited && machineMax !== undefined && machineUsage >= machineMax;
   const machineLimitNear =
+    !machineUnlimited &&
     machineMax !== undefined &&
     machineMax > 0 &&
     machineUsage / machineMax >= 0.8 &&
@@ -98,7 +101,7 @@ export default function MachinesPage() {
             <p className="text-sm text-muted-foreground mt-0.5">
               {runningMachines} running
               {provisioningMachines > 0 && ` · ${provisioningMachines} provisioning`}
-              {machineMax !== undefined && ` · ${machineUsage}/${machineMax} used`}
+              {machineMax !== undefined && ` · ${machineUsage}/${formatLimit(machineMax)} used`}
             </p>
           )}
         </div>
@@ -138,7 +141,7 @@ export default function MachinesPage() {
               {machineLimitReached ? "Machine limit reached" : "Approaching machine limit"}
             </p>
             <p className="text-xs text-muted-foreground">
-              You are using {machineUsage} of {machineMax} machines.
+              You are using {machineUsage} of {formatLimit(machineMax)} machines.
               {machineLimitReached
                 ? " Delete one to deploy another."
                 : " You can still deploy, but you are close to your cap."}
