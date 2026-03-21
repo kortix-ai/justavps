@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     }
 
     const billingInterval = (input.billing_interval ?? 'monthly') as BillingInterval;
-    const wantBackups = input.enable_backups !== false;
+    const wantBackups = input.enable_backups === true;
     const basePrice = selected.priceMonthly;
     const totalMonthly = wantBackups ? basePrice + backupSurcharge(basePrice) : basePrice;
     const { url } = await stripeClient.createCheckoutSession({

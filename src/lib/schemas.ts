@@ -21,7 +21,7 @@ export const CreateMachineSchema = z.object({
   command: z.string().optional().describe('Optional container command/args passed after the image name'),
   ssh_key_ids: z.array(z.string().uuid()).optional().describe('IDs of user SSH keys to add to the machine. Auto-generated key is always included.'),
   billing_interval: z.enum(['monthly', 'yearly', '2year']).optional().default('monthly').describe('Billing interval: monthly, yearly (20% off), or 2year (30% off, billed annually)'),
-  enable_backups: z.boolean().optional().default(true).describe('Enable daily automatic backups (+20% of base price). Defaults to true.'),
+  enable_backups: z.boolean().optional().default(false).describe('Enable daily automatic backups (+20% of base price). Defaults to false.'),
 });
 
 export const ResizeMachineSchema = z.object({

@@ -98,19 +98,22 @@ export function applyHetznerMarkup(providerPriceMonthly: number): number {
 }
 
 export function getPlansForMarket(market: HetznerMarket) {
-  return HETZNER_PLAN_TIERS.map((tier) => {
-    const machine = tier.regions[market];
-    const priceMonthly = applyHetznerMarkup(machine.providerPriceMonthly);
+  return HETZNER_PLAN_TIERS
+    .map((tier) => {
+      const machine = tier.regions[market];
+      const priceMonthly = applyHetznerMarkup(machine.providerPriceMonthly);
 
-    return {
-      key: tier.key,
+      return {
+        key: tier.key,
       label: tier.label,
       tagline: tier.tagline,
       ...machine,
-      priceMonthly,
-      markupMonthly: roundMoney(priceMonthly - machine.providerPriceMonthly),
-    };
-  });
+        priceMonthly,
+        markupMonthly: roundMoney(priceMonthly - machine.providerPriceMonthly),
+      };
+    })
+    // Temporary: hide the smallest US machine until the base snapshot fits on it again.
+    .filter((plan) => !(market === 'us' && plan.sku === 'cpx11'));
 }
 
 export function getPlansForRegion(region: string) {

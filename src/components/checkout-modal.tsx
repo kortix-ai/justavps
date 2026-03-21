@@ -135,7 +135,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
   const [selectedSSHKeyIds, setSelectedSSHKeyIds] = useState<string[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showAllPlans, setShowAllPlans] = useState(false);
-  const [backupsEnabled, setBackupsEnabled] = useState(true);
+  const [backupsEnabled, setBackupsEnabled] = useState(false);
 
   const [guestCheckoutPending, setGuestCheckoutPending] = useState(false);
   const createMachine = useCreateMachine();
@@ -277,7 +277,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
             <div>
               <h2 className="text-lg font-semibold tracking-tight">Deploy a machine</h2>
               <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-3">
-                <span>Optional backups</span>
+                <span>Backups optional</span>
                 <span className="text-border">·</span>
                 <span>Ready in minutes</span>
                 <span className="text-border">·</span>
@@ -533,7 +533,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
               type="button"
               onClick={() => setBackupsEnabled((v) => !v)}
               className={cn(
-                "flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-all text-left",
+                "flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2.5 transition-all text-left",
                 backupsEnabled
                   ? "border-emerald-500/30 bg-emerald-500/5"
                   : "border-border hover:border-foreground/20"
@@ -549,16 +549,14 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                 <Shield className={cn("size-3.5 shrink-0", backupsEnabled ? "text-emerald-500" : "text-muted-foreground")} />
                 <div className="min-w-0">
                   <p className="text-xs font-medium">Daily backups</p>
-                  <p className="text-[10px] text-muted-foreground">
-                    Automatic daily snapshots — restore or clone anytime
-                  </p>
+                  <p className="text-[10px] text-muted-foreground">Optional, +20%</p>
                 </div>
               </div>
               <span className={cn(
                 "text-xs font-medium shrink-0 tabular-nums",
                 backupsEnabled ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"
               )}>
-                +{BACKUP_SURCHARGE_PERCENT}%
+                {backupsEnabled ? `+${BACKUP_SURCHARGE_PERCENT}%` : 'Off'}
               </span>
             </button>
 

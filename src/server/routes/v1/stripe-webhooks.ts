@@ -323,7 +323,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       dockerImage: resolvedDockerImage || null,
       entrypoint: resolvedEntrypoint || null,
       dockerCommand: resolvedCommand || null,
-      backupsEnabled: machineConfig.enable_backups !== false,
+      backupsEnabled: machineConfig.enable_backups === true,
     });
 
     if (subscriptionId) {
@@ -385,7 +385,7 @@ function provisionMachineAsync(
         region: machineConfig.region,
         userData: userdata,
         sshKeyIds: [providerKeyId],
-        enableBackups: machineConfig.enable_backups !== false,
+        enableBackups: machineConfig.enable_backups === true,
         labels: {
           'justavps': 'true',
           'slug': slug,

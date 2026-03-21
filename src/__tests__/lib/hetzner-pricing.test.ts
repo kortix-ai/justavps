@@ -19,12 +19,12 @@ describe('hetzner pricing map', () => {
     expect(applyHetznerMarkup(27.99)).toBe(56);
   });
 
-  it('returns all five mapped tiers for EU and US regions', () => {
+  it('returns all five mapped tiers for EU and hides the smallest US tier', () => {
     const eu = getPlansForRegion('hel1');
     const us = getPlansForRegion('hil');
 
     expect(eu.map((plan) => plan.sku)).toEqual(['cpx22', 'cpx32', 'cpx42', 'cpx52', 'cpx62']);
-    expect(us.map((plan) => plan.sku)).toEqual(['cpx11', 'cpx21', 'cpx31', 'cpx41', 'cpx51']);
+    expect(us.map((plan) => plan.sku)).toEqual(['cpx21', 'cpx31', 'cpx41', 'cpx51']);
     expect(STARTING_MONTHLY_PRICE).toBe(9);
   });
 

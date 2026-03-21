@@ -276,7 +276,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
   const resolvedCommand = data.command;
 
   const { priceMonthly: basePrice, specs } = await lookupPriceAndSpecs(provider, data.region, data.server_type);
-  const wantBackups = data.enable_backups !== false; // default true
+  const wantBackups = data.enable_backups === true;
   const priceMonthly = wantBackups ? basePrice + backupSurcharge(basePrice) : basePrice;
 
   let stripeSubId: string | null = null;
