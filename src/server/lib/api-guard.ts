@@ -83,7 +83,6 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(
             const resolvedUser = user ? await ensureAutoAdminUser(user) : null;
             const ownerId = resolvedUser?.id ?? k.ownerId;
             const isAdmin = resolvedUser?.isAdmin ?? false;
-            authCache.set(hash, { ownerId, keyId: k.id, isAdmin, expiresAt: Date.now() + AUTH_CACHE_TTL_MS });
             c.set('userId', ownerId);
             c.set('isAdmin', isAdmin);
             return next();
