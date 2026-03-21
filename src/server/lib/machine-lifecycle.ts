@@ -263,6 +263,7 @@ export async function createStripeSubscription(
   priceMonthly: number,
   serverType: string,
   specs?: MachineSpecs,
+  isAdmin = false,
 ) {
   if (!stripeClient.isConfigured()) return;
   try {
@@ -274,8 +275,12 @@ export async function createStripeSubscription(
       await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, ownerId));
     }
 
-    const { subscriptionId, subscriptionItemId } = await stripeClient.createMachineSubscription(
-      customerId, machineId, slug, priceMonthly, serverType, specs,
+    const createSub = isAdmin
+      ? stripeClient.createAdminMachineSubscription
+      : stripeClient.createMachineSubscription;
+
+    const { subscriptionId, subscriptionItemId } = await createSub.call(
+      stripeClient, customerId, machineId, slug, priceMonthly, serverType, specs,
     );
     await db.insert(subscriptions).values({
       machineId,

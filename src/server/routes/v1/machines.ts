@@ -254,7 +254,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
   let stripeSubId: string | null = null;
   let stripeSubItemId: string | null = null;
 
-  if (stripeClient.isConfigured() && !isAdmin) {
+  if (stripeClient.isConfigured()) {
     const [user] = await db.select().from(users).where(eq(users.id, ownerId));
     if (!user) return errorResponse(c, 404, 'User not found') as any;
 
@@ -264,38 +264,13 @@ machinesApp.openapi(createMachineRoute, async (c) => {
     }
 
     const billingInterval = data.billing_interval ?? 'monthly';
-    const createCheckout = async () => {
-      const { url } = await stripeClient.createCheckoutSession({
-        customerId,
-        userId: ownerId,
-        machineConfig: {
-          provider: data.provider,
-          server_type: data.server_type,
-          region: data.region,
-          name: data.name,
-          image_id: data.image_id ?? machineImageId,
-          docker_image: resolvedDockerImage,
-          entrypoint: resolvedEntrypoint,
-          command: resolvedCommand,
-          env_vars: data.env_vars,
-          ssh_key_ids: data.ssh_key_ids,
-          specs,
-          billing_interval: billingInterval,
-        },
-        priceMonthlyUsd: priceMonthly,
-        billingInterval,
-        successUrl: `${config.APP_URL}/machines`,
-        cancelUrl: `${config.APP_URL}/machines`,
-      });
-      return url;
-    };
 
-    // Fast path: try direct subscription if user has a payment method
-    const hasPM = await stripeClient.hasPaymentMethod(customerId);
-
-    if (hasPM) {
+    if (isAdmin) {
+      // ── Admin path: real subscription at $0 (100% coupon) ──────────────
+      // Keeps the data model identical to paid users — subscription record,
+      // item ID, Stripe product/price all exist. Resize & cancel work normally.
       try {
-        const result = await stripeClient.createMachineSubscription(
+        const result = await stripeClient.createAdminMachineSubscription(
           customerId,
           '',
           `pending-${Date.now()}`,
@@ -306,26 +281,76 @@ machinesApp.openapi(createMachineRoute, async (c) => {
         );
         stripeSubId = result.subscriptionId;
         stripeSubItemId = result.subscriptionItemId;
-        console.log(`[MACHINES] Subscription ${result.subscriptionId} created and charged for user ${ownerId}`);
+        console.log(`[MACHINES] Admin subscription ${result.subscriptionId} created for user ${ownerId} (100% off)`);
       } catch (err) {
-        console.warn(`[MACHINES] Direct subscription failed for user ${ownerId}, falling back to checkout:`, (err as Error).message);
-        // Fall through to checkout below
+        console.error(`[MACHINES] Admin subscription creation failed for user ${ownerId}:`, err);
+        return errorResponse(c, 500, 'Failed to create admin billing record. Please try again.') as any;
       }
-    }
+    } else {
+      // ── Regular user path: charge or redirect to checkout ─────────────
+      const createCheckout = async () => {
+        const { url } = await stripeClient.createCheckoutSession({
+          customerId,
+          userId: ownerId,
+          machineConfig: {
+            provider: data.provider,
+            server_type: data.server_type,
+            region: data.region,
+            name: data.name,
+            image_id: data.image_id ?? machineImageId,
+            docker_image: resolvedDockerImage,
+            entrypoint: resolvedEntrypoint,
+            command: resolvedCommand,
+            env_vars: data.env_vars,
+            ssh_key_ids: data.ssh_key_ids,
+            specs,
+            billing_interval: billingInterval,
+          },
+          priceMonthlyUsd: priceMonthly,
+          billingInterval,
+          successUrl: `${config.APP_URL}/machines`,
+          cancelUrl: `${config.APP_URL}/machines`,
+        });
+        return url;
+      };
 
-    // If direct subscription didn't work (no PM or charge failed), use Checkout
-    if (!stripeSubId) {
-      try {
-        const checkoutUrl = await createCheckout();
-        console.log(`[MACHINES] User ${ownerId} redirected to Stripe Checkout`);
-        return c.json({
-          requires_checkout: true as const,
-          checkout_url: checkoutUrl,
-          message: 'Payment required. Complete checkout to provision your machine.',
-        }, 402);
-      } catch (checkoutErr) {
-        console.error(`[MACHINES] Checkout creation failed for user ${ownerId}:`, checkoutErr);
-        return errorResponse(c, 500, 'Failed to initiate payment. Please try again.') as any;
+      // Fast path: try direct subscription if user has a payment method
+      const hasPM = await stripeClient.hasPaymentMethod(customerId);
+
+      if (hasPM) {
+        try {
+          const result = await stripeClient.createMachineSubscription(
+            customerId,
+            '',
+            `pending-${Date.now()}`,
+            priceMonthly,
+            data.server_type,
+            specs,
+            billingInterval,
+          );
+          stripeSubId = result.subscriptionId;
+          stripeSubItemId = result.subscriptionItemId;
+          console.log(`[MACHINES] Subscription ${result.subscriptionId} created and charged for user ${ownerId}`);
+        } catch (err) {
+          console.warn(`[MACHINES] Direct subscription failed for user ${ownerId}, falling back to checkout:`, (err as Error).message);
+          // Fall through to checkout below
+        }
+      }
+
+      // If direct subscription didn't work (no PM or charge failed), use Checkout
+      if (!stripeSubId) {
+        try {
+          const checkoutUrl = await createCheckout();
+          console.log(`[MACHINES] User ${ownerId} redirected to Stripe Checkout`);
+          return c.json({
+            requires_checkout: true as const,
+            checkout_url: checkoutUrl,
+            message: 'Payment required. Complete checkout to provision your machine.',
+          }, 402);
+        } catch (checkoutErr) {
+          console.error(`[MACHINES] Checkout creation failed for user ${ownerId}:`, checkoutErr);
+          return errorResponse(c, 500, 'Failed to initiate payment. Please try again.') as any;
+        }
       }
     }
   }
