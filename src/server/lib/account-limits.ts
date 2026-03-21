@@ -5,7 +5,8 @@
 
 import { eq, and, ne } from 'drizzle-orm';
 import { db } from '../db';
-import { accountLimits, machines, images } from '../db/schema';
+import { accountLimits, machines, images, users } from '../db/schema';
+import { ensureAutoAdminUser } from './auto-admin';
 
 /** Default limits applied when no row exists for a user */
 export const DEFAULT_LIMITS = {
@@ -15,11 +16,25 @@ export const DEFAULT_LIMITS = {
 
 export const ADMIN_UNLIMITED_LIMIT = Number.MAX_SAFE_INTEGER;
 
+async function hasUnlimitedAccountLimits(userId: string, isAdmin = false): Promise<boolean> {
+  if (isAdmin) return true;
+
+  const [user] = await db
+    .select({ id: users.id, email: users.email, isAdmin: users.isAdmin })
+    .from(users)
+    .where(eq(users.id, userId));
+
+  if (!user) return false;
+
+  const resolvedUser = await ensureAutoAdminUser(user);
+  return resolvedUser.isAdmin;
+}
+
 /**
  * Get the resource limits for a user. Returns defaults if no row exists.
  */
 export async function getAccountLimits(userId: string, isAdmin = false) {
-  if (isAdmin) {
+  if (await hasUnlimitedAccountLimits(userId, isAdmin)) {
     return {
       maxMachines: ADMIN_UNLIMITED_LIMIT,
       maxImages: ADMIN_UNLIMITED_LIMIT,
