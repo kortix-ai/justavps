@@ -12,7 +12,6 @@ import { describe, it, expect, beforeAll } from 'vitest';
 
 const BASE_URL = 'http://localhost:4100/api';
 let API_KEY = '';
-let serverAvailable = false;
 
 // Resolve API key from DB before tests
 beforeAll(async () => {
@@ -22,7 +21,6 @@ beforeAll(async () => {
       console.warn('Dev server not running on port 4100 — skipping E2E API tests');
       return;
     }
-    serverAvailable = true;
   } catch {
     console.warn('Dev server not reachable — skipping E2E API tests');
     return;
@@ -67,7 +65,7 @@ describe('Health', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SERVER TYPES (CCX dedicated only)
+// SERVER TYPES
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('Server Types', () => {
@@ -93,14 +91,15 @@ describe('Server Types', () => {
     expect(first.backup_price_monthly).toBeGreaterThan(0);
   });
 
-  it('pricing includes provider backup pricing metadata', async () => {
+  it('pricing uses the fixed 2x markup metadata', async () => {
     const res = await fetch(`${BASE_URL}/v1/server-types?region=hel1`);
     const data = await res.json();
     if (data.server_types.length === 0) return;
     const first = data.server_types[0];
     expect(first.provider_price_monthly).toBeGreaterThan(0);
     expect(first.price_monthly).toBeGreaterThan(first.provider_price_monthly);
-    expect(first.backup_price_monthly).toBeCloseTo(first.provider_price_monthly * 0.2, 1);
+    expect(first.price_monthly).toBeCloseTo(first.provider_price_monthly * 2, 2);
+    expect(first.backup_price_monthly).toBeCloseTo(first.provider_price_monthly, 2);
   });
 
   it('works for multiple regions', async () => {
@@ -150,7 +149,7 @@ describe('SSH Keys', () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.ssh_keys.length).toBeGreaterThan(0);
-    const found = data.ssh_keys.find((k: any) => k.id === createdKeyId);
+    const found = data.ssh_keys.find((k: { id: string }) => k.id === createdKeyId);
     expect(found).toBeTruthy();
   });
 

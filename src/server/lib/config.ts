@@ -42,9 +42,6 @@ export const config = {
   DAEMON_DESIRED_VERSION: (process.env.DAEMON_DESIRED_VERSION || '').trim(),
   DAEMON_DOWNLOAD_URL: (process.env.DAEMON_DOWNLOAD_URL || '').trim(),
 
-  // Pricing
-  COMPUTE_MARKUP: parseFloat(process.env.COMPUTE_MARKUP || '2.5'),
-
   // Encryption
   // AES-256-GCM key for encrypting secrets at rest (SSH private keys, machine tokens).
   // Required in production. Without it, secrets are stored as plaintext (with a warning).

@@ -9,6 +9,7 @@ import { config } from './config';
 import { cloudflareClient } from './cloudflare';
 import { stripeClient, type MachineSpecs } from './stripe';
 import type { ComputeProvider } from './providers';
+import { getPlanBySku, STARTING_MONTHLY_PRICE } from '@/lib/hetzner-pricing';
 
 
 export async function generateMachineIdentity() {
@@ -136,9 +137,9 @@ export function buildMachineUserData(
 }
 
 /**
- * Register machine in Cloudflare: DNS A records + KV.
- * - Creates A record slug.kortix.cloud → VPS_IP (proxied)
- * - Creates wildcard A *.slug.kortix.cloud → VPS_IP (for port subdomains)
+ * Register machine in Cloudflare: DNS AAAA records + KV.
+ * - Creates AAAA record slug.kortix.cloud → VPS_IPv6 (proxied)
+ * - Creates wildcard AAAA *.slug.kortix.cloud → VPS_IPv6 (for port subdomains)
  * - Writes machine:{slug} to KV for Worker auth
  */
 export async function setupProxyDNS(
@@ -149,7 +150,7 @@ export async function setupProxyDNS(
 ) {
   if (!config.isCloudflareConfigured()) return;
   
-  // DNS A records (slug + wildcard for port subdomains)
+  // DNS AAAA records (slug + wildcard for port subdomains)
   await cloudflareClient.addMachineDNS(slug, ip).catch((err: unknown) => {
     console.warn(`[CF] Failed to add DNS for ${slug}:`, err);
   });
@@ -171,16 +172,24 @@ export async function lookupPriceAndSpecs(
   region: string,
   serverType: string,
 ): Promise<{ priceMonthly: number; specs?: MachineSpecs }> {
+  const mapped = getPlanBySku(serverType);
+  if (mapped) {
+    return {
+      priceMonthly: mapped.priceMonthly,
+      specs: { vcpus: mapped.vcpu, ramGb: mapped.memory, diskGb: mapped.disk, cpuType: 'shared' },
+    };
+  }
+
   try {
     const serverTypes = await provider.listServerTypes(region);
     const st = serverTypes.find(t => t.name === serverType);
-    if (!st) return { priceMonthly: 30 };
+    if (!st) return { priceMonthly: STARTING_MONTHLY_PRICE };
     return {
       priceMonthly: st.priceMonthly,
       specs: { vcpus: st.cores, ramGb: st.memory, diskGb: st.disk, cpuType: st.cpuType },
     };
   } catch {
-    return { priceMonthly: 30 };
+    return { priceMonthly: STARTING_MONTHLY_PRICE };
   }
 }
 

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { PLAN_PRICE_SNAPSHOT } from "@/lib/hetzner-pricing";
 import { cn, PROXY_DOMAIN } from "@/lib/utils";
 import {
   CreditCard, HardDrive,
@@ -559,13 +560,14 @@ for await (const event of client.streamEvents("my-session")) {
         {/*  BILLING                                                    */}
         {/* ──────────────────────────────────────────────────────────── */}
         <H2 id="billing">Billing</H2>
-        <P>Fixed monthly pricing per machine. No per-second billing, no usage surprises.</P>
+        <P>Fixed monthly pricing per machine, with region-specific exact prices derived from the matching Hetzner machine and a fixed 2x markup.</P>
 
-        <Table headers={["Plan", "Specs", "Price"]} rows={[
-          ["Starter", "2 vCPU / 4 GB / 80 GB SSD", "$20/mo"],
-          ["Pro", "4 vCPU / 8 GB / 160 GB SSD", "$29/mo"],
-          ["Power", "8 vCPU / 16 GB / 320 GB SSD", "$49/mo"],
-          ["Ultra", "16 vCPU / 32 GB / 640 GB SSD", "$97/mo"],
+        <Table headers={["Plan", "EU", "US"]} rows={[
+          ...PLAN_PRICE_SNAPSHOT.map((plan) => [
+            plan.label,
+            `${plan.eu.sku} · ${plan.eu.vcpu} vCPU / ${plan.eu.memory} GB / ${plan.eu.disk} GB · $${plan.euPublicPrice.toFixed(2)}/mo`,
+            `${plan.us.sku} · ${plan.us.vcpu} vCPU / ${plan.us.memory} GB / ${plan.us.disk} GB · $${plan.usPublicPrice.toFixed(2)}/mo`,
+          ]),
         ]} />
 
         <Ul>

@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { buttonVariants } from "@/components/ui/button";
+import { PLAN_PRICE_SNAPSHOT, STARTING_MONTHLY_PRICE } from "@/lib/hetzner-pricing";
 import { cn, PROXY_DOMAIN } from "@/lib/utils";
 import { useTheme } from "@/hooks/use-theme";
 import { Logo } from "@/components/logo";
@@ -41,6 +42,8 @@ export default function Home() {
   const [activeSection, setActiveSection] = useState("");
   const { data: session } = useSession();
   const isLoggedIn = !!session?.user;
+  const starterPlan = PLAN_PRICE_SNAPSHOT[0];
+  const formatPrice = (value: number) => value.toFixed(2);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -124,12 +127,11 @@ export default function Home() {
           </p>
           <div className="mt-7 flex items-center justify-center gap-3">
             <button onClick={() => setCheckoutOpen(true)} className={cn(buttonVariants({ size: "lg" }), "text-sm px-7 h-12 font-medium rounded-xl")}>
-              Get a machine — from $20/mo <svg className="ml-2 size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+              Get a machine - from {'$'}{formatPrice(STARTING_MONTHLY_PRICE)}/mo <svg className="ml-2 size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
             </button>
             <Link href="/docs" className={cn(buttonVariants({ variant: "outline", size: "lg" }), "text-sm px-7 h-12 font-medium rounded-xl")}>Docs</Link>
           </div>
           <p className="mt-3 text-xs text-muted-foreground">Running in minutes. Cancel anytime. No credit card lock-in.</p>
-          <p className="mt-6 text-xs text-muted-foreground uppercase tracking-widest font-medium">Works with any AI coding agent</p>
           <div className="mt-3 flex items-center justify-center gap-1.5 flex-wrap">
             <LogoPill icon={<LogoClaudeCode />} label="Claude Code" />
             <LogoPill icon={<LogoCodex />} label="Codex" />
@@ -292,16 +294,23 @@ export default function Home() {
                 </tr>
               </thead>
               <tbody>
-                <CmpRow spec="2 vCPU / 4 GB" them="$121/mo" us="$20/mo" save="6x" />
-                <CmpRow spec="4 vCPU / 8 GB" them="$242/mo" us="$29/mo" save="8x" highlight />
-                <CmpRow spec="8 vCPU / 16 GB" them="$483/mo" us="$49/mo" save="10x" />
-                <CmpRow spec="16 vCPU / 32 GB" them="$966/mo" us="$97/mo" save="10x" />
+                {PLAN_PRICE_SNAPSHOT.map((plan, index) => (
+                  <CmpRow
+                    key={plan.key}
+                    label={plan.label}
+                    details={`${plan.eu.vcpu} vCPU / ${plan.eu.memory} GB / ${plan.eu.disk} GB`}
+                    them={`$${plan.competitorMonthly}/mo`}
+                    us={`from $${Math.min(plan.euPublicPrice, plan.usPublicPrice)}/mo`}
+                    save={plan.savingsLabel}
+                    highlight={index === 1}
+                  />
+                ))}
               </tbody>
             </table>
           </div>
 
           <p className="text-xs text-muted-foreground mb-10">
-            * Daytona rates (cheapest): vCPU $0.0504/h + RAM $0.0162/h/GiB × 730h continuous usage.
+            {`* Based on Daytona's published per-second CPU + RAM rates across 730 h/mo continuous usage. EU specs shown — US specs vary slightly. Prices start from $${Math.min(starterPlan.euPublicPrice, starterPlan.usPublicPrice)}/mo.`}
           </p>
 
           <div className="grid sm:grid-cols-2 gap-4">
@@ -333,7 +342,7 @@ export default function Home() {
           {/* Post-pricing CTA */}
           <div className="mt-10 text-center">
             <button onClick={() => setCheckoutOpen(true)} className={cn(buttonVariants({ size: "lg" }), "text-sm px-7 h-12 font-medium rounded-xl")}>
-              Get a machine — from $20/mo <svg className="ml-2 size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+              Get a machine - from {'$'}{formatPrice(STARTING_MONTHLY_PRICE)}/mo <svg className="ml-2 size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
             </button>
           </div>
         </div>
@@ -387,7 +396,7 @@ export default function Home() {
       {/* FINAL CTA */}
       <section className="px-6 py-20 sm:py-28 border-t border-border text-center">
         <h2 className="text-3xl sm:text-4xl font-medium tracking-tighter mb-3">Get a machine.</h2>
-          <p className="text-sm text-muted-foreground mb-6">From $20/mo. Running in minutes. Cancel anytime.</p>
+          <p className="text-sm text-muted-foreground mb-6">{`From $${formatPrice(starterPlan.usPublicPrice)}/mo in the US and $${formatPrice(starterPlan.euPublicPrice)}/mo in the EU. Running in minutes. Cancel anytime.`}</p>
         <button onClick={() => setCheckoutOpen(true)} className={cn(buttonVariants({ size: "lg" }), "text-sm px-8 h-12 font-medium rounded-xl")}>
           Deploy now <svg className="ml-2 size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
         </button>
@@ -414,7 +423,7 @@ export default function Home() {
           showFloatingCta ? "translate-y-0 opacity-100" : "translate-y-20 opacity-0 pointer-events-none"
         )}
       >
-        <span className="text-xs text-muted-foreground hidden sm:inline">From <strong className="text-foreground">$20/mo</strong></span>
+        <span className="text-xs text-muted-foreground hidden sm:inline">From <strong className="text-foreground">{`$${formatPrice(STARTING_MONTHLY_PRICE)}/mo`}</strong></span>
         <button
           onClick={() => setCheckoutOpen(true)}
           className={cn(buttonVariants({ size: "sm" }), "rounded-full h-9 px-5 text-sm font-medium")}
@@ -466,26 +475,20 @@ function GitHubStars() {
   return <span>{stars ?? "19k"}+ stars</span>;
 }
 
-function ProofStat({ value, label }: { value: string; label: string }) {
-  return (
-    <div className="flex flex-col items-center gap-0.5">
-      <span className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground">{value}</span>
-      <span className="text-[11px] text-muted-foreground">{label}</span>
-    </div>
-  );
-}
-
-function CmpRow({ spec, them, us, save, highlight }: { spec: string; them: string; us: string; save: string; highlight?: boolean }) {
+function CmpRow({ label, details, them, us, save, highlight }: { label: string; details: string; them: string; us: string; save: string; highlight?: boolean }) {
   return (
     <tr className={cn("border-b border-border last:border-0 transition-colors", highlight ? "bg-primary/5" : "hover:bg-muted/50")}>
-      <td className="px-5 py-3.5 text-sm font-mono text-foreground">
-        {spec}
-        {highlight && <span className="ml-2 text-[10px] font-sans font-medium text-primary">POPULAR</span>}
+      <td className="px-5 py-3.5">
+        <div className="flex items-center gap-2 text-sm font-mono text-foreground">
+          <span>{label}</span>
+          {highlight && <span className="text-[10px] font-sans font-medium text-primary">POPULAR</span>}
+        </div>
+        <div className="mt-0.5 text-[11px] text-muted-foreground">{details}</div>
       </td>
       <td className="px-5 py-3.5 text-sm text-right text-muted-foreground line-through decoration-muted-foreground/40">{them}</td>
       <td className="px-5 py-3.5 text-sm text-right font-medium text-foreground">{us}</td>
       <td className="px-5 py-3.5 text-right">
-        <span className="inline-flex px-2 py-0.5 rounded-full bg-green-500/20 text-xs font-medium text-green-600 dark:text-green-400">{save} cheaper</span>
+        <span className="inline-flex px-2 py-0.5 rounded-full bg-green-500/20 text-xs font-medium text-green-600 dark:text-green-400">{save}</span>
       </td>
     </tr>
   );

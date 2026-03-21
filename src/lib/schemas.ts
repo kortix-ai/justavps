@@ -198,9 +198,9 @@ export const ServerTypeResponseSchema = z.object({
   disk_gb: z.number(),
   cpu_type: z.enum(['shared', 'dedicated']),
   architecture: z.enum(['x86', 'arm']),
-  price_monthly: z.number().describe('Our price after markup (includes backups)'),
+  price_monthly: z.number().describe('JustAVPS monthly price using the fixed 2x markup over Hetzner base price'),
   provider_price_monthly: z.number().describe('Raw provider price'),
-  backup_price_monthly: z.number().describe('Provider backup cost (20% of provider price)'),
+  backup_price_monthly: z.number().describe('Legacy compatibility field; currently the markup uplift above the provider base price'),
   available: z.boolean(),
 });
 

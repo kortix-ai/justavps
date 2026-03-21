@@ -55,7 +55,7 @@ async function main() {
     '--override',
     'checkout_session:metadata.justavps_action=create_machine',
     '--override',
-    'checkout_session:metadata.price_monthly=27',
+    'checkout_session:metadata.price_monthly=39',
     '--override',
     `checkout_session:metadata.machine_config=${machineConfig}`,
   ], { stdio: 'pipe' });

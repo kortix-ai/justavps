@@ -930,9 +930,9 @@ All with the same 2.5x markup formula. User picks any, we provision it.
 User picks region at machine creation. Available regions (Hetzner):
 - `nbg1` — Nuremberg, Germany
 - `fsn1` — Falkenstein, Germany
-- `hel1` — Helsinki, Finland
+- `hel1` — EU
 - `ash` — Ashburn, USA (East)
-- `hil` — Hillsboro, USA (West)
+- `hil` — US
 
 Pricing varies by region. The dashboard shows prices for the selected region.
 

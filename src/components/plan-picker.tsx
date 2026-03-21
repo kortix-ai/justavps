@@ -1,16 +1,17 @@
 "use client";
 
 import { cn, regionDisplay } from "@/lib/utils";
-import { Check, Zap, Star, Rocket, Crown } from "lucide-react";
+import { Check, Zap, Gauge, Star, Rocket, Crown } from "lucide-react";
 import type { Region, ServerType } from "@/lib/types";
 
 /* ═══ Shared plan constants — single source of truth ═══ */
 
 const PLAN_META = [
-  { label: "Starter",  Icon: Zap,    tagline: "Side projects & light agents",         anchor: 121 },
-  { label: "Pro",      Icon: Star,   tagline: "Most popular — fits 90% of workloads", anchor: 242 },
-  { label: "Power",    Icon: Rocket, tagline: "Heavy agents & parallel tasks",         anchor: 483 },
-  { label: "Ultra",    Icon: Crown,  tagline: "Maximum performance, zero bottlenecks", anchor: 966 },
+  { label: "Starter", Icon: Zap, tagline: "Small agents and utility boxes", anchor: 97 },
+  { label: "Basic", Icon: Gauge, tagline: "A little more headroom for daily work", anchor: 145 },
+  { label: "Pro", Icon: Star, tagline: "The default for most always-on workloads", anchor: 242 },
+  { label: "Power", Icon: Rocket, tagline: "Heavy parallel agents and bigger services", anchor: 483 },
+  { label: "Ultra", Icon: Crown, tagline: "Largest shared tier in each market", anchor: 966 },
 ] as const;
 
 export const INCLUDED_FEATURES = [
@@ -22,8 +23,8 @@ export type BillingInterval = "monthly" | "yearly" | "2year";
 
 const INTERVAL_DISCOUNT: Record<BillingInterval, number> = {
   monthly: 0,
-  yearly: 0.20,   // 20% off
-  "2year": 0.30,  // 30% off — best deal
+  yearly: 0.15,   // 15% off
+  "2year": 0.20,  // 20% off — best deal
 };
 
 const INTERVAL_MONTHS: Record<BillingInterval, number> = {
@@ -168,7 +169,7 @@ export function PlanPicker({
           {(serverTypes ?? []).map((s, idx) => {
             const meta = PLAN_META[idx] ?? { label: s.name, Icon: Zap, tagline: "", anchor: 0 };
             const { label, Icon, tagline, anchor } = meta;
-            const isPopular = idx === 1;
+            const isPopular = idx === 2;
             const active = selectedServerType === s.name;
             const displayMonthly = effectiveMonthlyPrice(s.price_monthly, billingInterval);
             const total = totalPrice(s.price_monthly, billingInterval);

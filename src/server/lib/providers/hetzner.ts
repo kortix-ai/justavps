@@ -1,4 +1,5 @@
 import { config } from '../config';
+import { getPlanBySku, getPlansForRegion, HETZNER_PLAN_TIERS } from '@/lib/hetzner-pricing';
 import type {
   ComputeProvider,
   CreateServerOpts,
@@ -81,60 +82,18 @@ async function getOrCreateManagedFirewall(): Promise<number> {
 }
 
 /**
- * ═══ PLAN TIERS — single source of truth ═══
- *
- * Canonical customer-facing specs & pricing.  Both EU and US show
- * identical plans; the underlying Hetzner SKU differs per region.
- *
- * EU uses one-tier-up CPX so customers always get ≥ advertised specs
- * (e.g. EU cpx32 = 3 vCPU / 4 GB — we advertise 2 vCPU / 4 GB, they
- * get *more* CPU than promised).
- *
- *   Plan       vCPU   RAM    SSD     Price    EU SKU    US SKU
- *   ────────   ────   ────   ─────   ──────   ───────   ──────
- *   Starter      2    4 GB    80 GB   $20/mo   cpx32    cpx11
- *   Pro          4    8 GB   160 GB   $29/mo   cpx42    cpx21
- *   Power        8   16 GB   320 GB   $49/mo   cpx52    cpx31
- *   Ultra       16   32 GB   640 GB   $97/mo   cpx62    cpx41
- */
-export const PLAN_TIERS = [
-  { vcpu: 2,  memory: 4,  disk: 80,  price: 20, sku: { hel1: 'cpx32', nbg1: 'cpx32', hil: 'cpx11' } as Record<string, string> },
-  { vcpu: 4,  memory: 8,  disk: 160, price: 29, sku: { hel1: 'cpx42', nbg1: 'cpx42', hil: 'cpx21' } as Record<string, string> },
-  { vcpu: 8,  memory: 16, disk: 320, price: 49, sku: { hel1: 'cpx52', nbg1: 'cpx52', hil: 'cpx31' } as Record<string, string> },
-  { vcpu: 16, memory: 32, disk: 640, price: 97, sku: { hel1: 'cpx62', nbg1: 'cpx62', hil: 'cpx41' } as Record<string, string> },
-];
-
-/**
  * Get the plan tier index for a given SKU across any region.
  * Returns -1 if not found.
  */
 export function getPlanTierIndex(sku: string): number {
-  return PLAN_TIERS.findIndex((tier) =>
-    Object.values(tier.sku).includes(sku),
-  );
+  return HETZNER_PLAN_TIERS.findIndex((tier) => tier.regions.eu.sku === sku || tier.regions.us.sku === sku);
 }
 
 /**
  * Get the plan tier for a given SKU.
  */
 export function getPlanTier(sku: string) {
-  return PLAN_TIERS[getPlanTierIndex(sku)] ?? null;
-}
-
-interface HetznerServerType {
-  id: number;
-  name: string;
-  description: string;
-  cores: number;
-  memory: number;
-  disk: number;
-  prices: Array<{
-    location: string;
-    price_hourly: { net: string; gross: string };
-    price_monthly: { net: string; gross: string };
-  }>;
-  cpu_type: 'shared' | 'dedicated';
-  architecture: 'x86' | 'arm';
+  return getPlanBySku(sku);
 }
 
 interface HetznerServer {
@@ -159,8 +118,8 @@ interface HetznerImage {
 }
 
 const HETZNER_REGIONS: RegionInfo[] = [
-  { id: 'hel1', name: 'EU-Central', country: 'EU', city: 'Europe' },
-  { id: 'hil', name: 'US-West', country: 'US', city: 'United States' },
+  { id: 'hel1', name: 'EU', country: 'EU', city: 'EU' },
+  { id: 'hil', name: 'US', country: 'US', city: 'US' },
 ];
 
 async function hetznerFetch<T = unknown>(
@@ -204,6 +163,16 @@ async function waitForImageReady(imageId: number, timeoutMs = PROVISION_TIMEOUT_
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
   throw new Error(`[hetzner] Image ${imageId} did not become available within ${timeoutMs / 1000}s`);
+}
+
+/**
+ * Extract a usable IPv6 address from Hetzner's response.
+ * Hetzner returns a /64 network like "2a01:4f8:c17:e4c4::/64".
+ * We strip the CIDR suffix to get a bare address: "2a01:4f8:c17:e4c4::".
+ * Also handles bare addresses (no suffix) gracefully.
+ */
+function extractIPv6(raw: string): string {
+  return raw.replace(/\/\d+$/, '');
 }
 
 export class HetznerProvider implements ComputeProvider {
@@ -263,7 +232,7 @@ export class HetznerProvider implements ComputeProvider {
       user_data: opts.userData,
       labels: opts.labels,
       automount: false,
-      public_net: { enable_ipv4: true, enable_ipv6: false },
+      public_net: { enable_ipv4: false, enable_ipv6: true },
       firewalls: [{ firewall: firewallId }],
     };
 
@@ -278,26 +247,48 @@ export class HetznerProvider implements ComputeProvider {
     const serverId = result.server.id;
     // IP is assigned immediately at creation — don't wait for "running" status
     // (waiting takes 60-90s on snapshot boot, which exceeds Vercel's serverless timeout)
-    const publicIp = result.server.public_net.ipv4.ip;
+    const publicIp = extractIPv6(result.server.public_net.ipv6.ip);
 
     if (!publicIp) {
       // Fallback: poll briefly for IP assignment (shouldn't be needed)
       for (let i = 0; i < 5; i++) {
         await new Promise(r => setTimeout(r, 3000));
         const info = await hetznerFetch<{ server: HetznerServer }>(`/servers/${serverId}`);
-        if (info.server.public_net.ipv4.ip) {
-          console.log(`[hetzner] Created server ${opts.name} (ID: ${serverId}, IP: ${info.server.public_net.ipv4.ip})`);
-          return { serverId: String(serverId), publicIp: info.server.public_net.ipv4.ip };
+        const polledIp = extractIPv6(info.server.public_net.ipv6.ip);
+        if (polledIp) {
+          console.log(`[hetzner] Created server ${opts.name} (ID: ${serverId}, IP: ${polledIp})`);
+          return { serverId: String(serverId), publicIp: polledIp };
         }
       }
       throw new Error(`[hetzner] Server ${serverId} created but no IP assigned`);
     }
 
     console.log(`[hetzner] Created server ${opts.name} (ID: ${serverId}, IP: ${publicIp})`);
+
+    // Enable delete + rebuild protection (fire-and-forget — don't block provisioning)
+    hetznerFetch(`/servers/${serverId}/actions/change_protection`, {
+      method: 'POST',
+      body: { delete: true, rebuild: true },
+    }).then(() => {
+      console.log(`[hetzner] Enabled delete/rebuild protection for server ${serverId}`);
+    }).catch((err) => {
+      console.warn(`[hetzner] Failed to enable protection for server ${serverId}:`, err);
+    });
+
     return { serverId: String(serverId), publicIp };
   }
 
   async deleteServer(serverId: string): Promise<void> {
+    // Disable protection before deletion (protection was enabled at creation)
+    try {
+      await hetznerFetch(`/servers/${serverId}/actions/change_protection`, {
+        method: 'POST',
+        body: { delete: false, rebuild: false },
+      });
+    } catch {
+      // Protection may not be enabled or server may already be gone — continue
+    }
+
     try {
       await hetznerFetch(`/servers/${serverId}`, { method: 'DELETE' });
     } catch (err) {
@@ -452,39 +443,19 @@ export class HetznerProvider implements ComputeProvider {
   async listServerTypes(region: string): Promise<ServerTypeInfo[]> {
     const loc = region || config.HETZNER_DEFAULT_LOCATION;
 
-    // Collect the Hetzner SKU names we need for this region
-    const skuNames = PLAN_TIERS.map((t) => t.sku[loc]).filter(Boolean);
-
-    // Fetch Hetzner server types for provider-cost tracking only
-    const data = await hetznerFetch<{ server_types: HetznerServerType[] }>('/server_types?per_page=50');
-    const providerCosts: Record<string, number> = {};
-    for (const st of data.server_types) {
-      if (!skuNames.includes(st.name)) continue;
-      const locPrice = st.prices.find((p) => p.location === loc);
-      if (locPrice) providerCosts[st.name] = parseFloat(locPrice.price_monthly.gross);
-    }
-
-    // Return canonical plan definitions — specs & prices are region-independent
-    // Hetzner charges 20% of the server price for backups
-    return PLAN_TIERS
-      .filter((tier) => tier.sku[loc])
-      .map((tier) => {
-        const skuName = tier.sku[loc];
-        const providerPrice = providerCosts[skuName] ?? 0;
-        return {
-          name: skuName,
-          description: `${tier.vcpu} vCPU / ${tier.memory} GB RAM / ${tier.disk} GB SSD`,
-          cores: tier.vcpu,
-          memory: tier.memory,
-          disk: tier.disk,
-          cpuType: 'shared' as const,
-          architecture: 'x86' as const,
-          providerPriceMonthly: providerPrice,
-          priceMonthly: tier.price,
-          backupPriceMonthly: Math.round(providerPrice * 0.2 * 100) / 100,
-          region: loc,
-        };
-      });
+    return getPlansForRegion(loc).map((tier) => ({
+      name: tier.sku,
+      description: `${tier.vcpu} vCPU / ${tier.memory} GB RAM / ${tier.disk} GB SSD / ${tier.traffic}`,
+      cores: tier.vcpu,
+      memory: tier.memory,
+      disk: tier.disk,
+      cpuType: 'shared' as const,
+      architecture: 'x86' as const,
+      providerPriceMonthly: tier.providerPriceMonthly,
+      priceMonthly: tier.priceMonthly,
+      backupPriceMonthly: tier.markupMonthly,
+      region: loc,
+    }));
   }
 
   async listRegions(): Promise<RegionInfo[]> {
