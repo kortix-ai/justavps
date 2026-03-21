@@ -76,9 +76,12 @@ export async function proxyHTTPRequest(
   try {
     const url = new URL(request.url);
 
-    // Use origin hostname (DNS-only, grey-cloud) to bypass CF proxy.
-    // All traffic goes to port 80. Non-default ports are routed via daemon's port proxy.
-    const originHost = machineInfo.origin_hostname || machineInfo.ip;
+    // Use raw IP from KV to connect to origin. The origin DNS record (origin-slug.domain)
+    // is unreliable — zone-level wildcards can shadow it, returning CF proxy IPs and
+    // causing a fetch loop → 522. Raw IP bypasses DNS entirely.
+    const originHost = machineInfo.ip?.includes(':')
+      ? `[${machineInfo.ip}]`
+      : machineInfo.ip;
     let targetPath: string;
     if (port === 80) {
       // Default port — direct path through daemon's router
@@ -155,7 +158,9 @@ export async function proxyWebSocket(
 ): Promise<Response> {
   try {
     const url = new URL(request.url);
-    const originHost = machineInfo.origin_hostname || machineInfo.ip;
+    const originHost = machineInfo.ip?.includes(':')
+      ? `[${machineInfo.ip}]`
+      : machineInfo.ip;
     // Route all WS through port 80 (daemon's ProxyRouter), using /_port for non-default ports
     const wsPath = port === 80
       ? `${url.pathname}${url.search}`
