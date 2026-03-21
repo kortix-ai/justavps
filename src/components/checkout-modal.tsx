@@ -252,11 +252,9 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
             <div>
               <h2 className="text-lg font-semibold tracking-tight">Deploy a machine</h2>
               <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-3">
-                <span>Dedicated VPS</span>
-                <span className="text-border">·</span>
                 <span>Daily backups</span>
                 <span className="text-border">·</span>
-                <span>60s deploy</span>
+                <span>Ready in minutes</span>
                 <span className="text-border">·</span>
                 <span>Cancel anytime</span>
               </p>

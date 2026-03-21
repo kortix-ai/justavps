@@ -327,7 +327,20 @@ export default function DocsPage() {
         </Ul>
 
         <H3 id="run-agents">Run AI Agents</H3>
-        <P>Your machine comes with <B>OpenCode</B> available out of the box. You can SSH in for CLI tools, and the dashboard shows the machine URL plus SSH commands under <B>Connect</B>.</P>
+        <P>Your machine comes pre-installed with popular AI coding agents. SSH in and run any of them directly from the CLI.</P>
+        <div className="my-4 flex items-center gap-3 flex-wrap">
+          {[
+            { src: "/logos/ai-coding-agent-logos/claude-code-icon.png", alt: "Claude Code", label: "Claude Code", cls: "rounded-sm" },
+            { src: "/logos/ai-coding-agent-logos/codex-openai-icon.png", alt: "Codex", label: "Codex", cls: "" },
+            { src: "/logos/ai-coding-agent-logos/opencode-logo-dark.png", alt: "OpenCode", label: "OpenCode", cls: "dark:invert-0 invert" },
+            { src: "/logos/ai-coding-agent-logos/pi-coding-agent-icon-dark.png", alt: "PI Coding", label: "PI Coding", cls: "dark:invert-0 invert" },
+          ].map(({ src, alt, label, cls }) => (
+            <div key={alt} className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium text-muted-foreground", "border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/40")}>
+              <Image src={src} alt={alt} width={16} height={16} className={cn("size-4 object-contain", cls)} />
+              {label}
+            </div>
+          ))}
+        </div>
         <CodeBlock title="OpenCode CLI" lang="bash">{`opencode`}</CodeBlock>
         <CodeBlock title="Machine URL" lang="bash">{`https://<slug>.${PROXY_DOMAIN}`}</CodeBlock>
         <P>If you run your own HTTP service on a custom port, JustAVPS automatically exposes the corresponding proxied port URL and prints it in your SSH session.</P>
@@ -402,7 +415,21 @@ export default function DocsPage() {
         <P>Storage is persistent across reboots, and automatic backups are enabled by default on new machines.</P>
 
         <H3 id="coding-agents-api">Coding Agents API</H3>
-        <P>Every machine ships with <a href="https://sandboxagent.dev" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2">sandbox-agent</a> pre-installed — a unified API for running Claude Code, Codex, OpenCode, Amp, and other coding agents over one consistent interface.</P>
+        <div className="my-3 flex items-center gap-2.5 flex-wrap">
+          {[
+            { src: "/logos/ai-coding-agent-logos/claude-code-icon.png", alt: "Claude Code", label: "Claude Code", cls: "rounded-sm" },
+            { src: "/logos/ai-coding-agent-logos/codex-openai-icon.png", alt: "Codex", label: "Codex", cls: "" },
+            { src: "/logos/ai-coding-agent-logos/opencode-logo-dark.png", alt: "OpenCode", label: "OpenCode", cls: "dark:invert-0 invert" },
+            { src: "/logos/ai-coding-agent-logos/pi-coding-agent-icon-dark.png", alt: "PI Coding", label: "PI Coding", cls: "dark:invert-0 invert" },
+          ].map(({ src, alt, label, cls }) => (
+            <div key={alt} className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium text-muted-foreground", "border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/40")}>
+              <Image src={src} alt={alt} width={16} height={16} className={cn("size-4 object-contain", cls)} />
+              {label}
+            </div>
+          ))}
+          <span className="text-xs text-muted-foreground">+ more via sandbox-agent</span>
+        </div>
+        <P>Every machine ships with <a href="https://sandboxagent.dev" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2">sandbox-agent</a> pre-installed — a unified API for running Claude Code, Codex, OpenCode, PI Coding, and other coding agents over one consistent interface.</P>
         <Ul>
           <Li><B>Universal Agent API</B> — one interface to run any supported coding agent</Li>
           <Li><B>Session management</B> — create, resume, and manage agent sessions</Li>

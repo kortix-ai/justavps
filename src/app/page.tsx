@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { buttonVariants } from "@/components/ui/button";
@@ -12,10 +13,13 @@ import { SiPython, SiTypescript } from "react-icons/si";
 import { CheckoutModal } from "@/components/checkout-modal";
 
 /* ═══ LOGOS ═══ */
-const LogoOpenCode = () => <svg viewBox="0 0 24 24" className="size-5" fill="currentColor"><path opacity="0.3" d="M19.2 17.4H8.4V13.8H15.6V10.2H19.2V17.4ZM8.4 13.8H4.8V10.2H8.4V13.8Z" /><path d="M8.4 17.4H19.2V21H4.8V13.8H8.4V17.4ZM15.6 10.2V13.8H8.4V10.2H15.6ZM19.2 10.2H15.6V6.6H4.8V3H19.2V10.2Z" /></svg>;
-const LogoCursor = () => <svg viewBox="0 0 500 545" className="size-5" fill="currentColor"><path d="m466.383 137.073-206.469-119.203c-6.63-3.829-14.811-3.829-21.441 0L31.914 137.073c-5.573 3.218-9.014 9.169-9.014 15.615v240.375c0 6.436 3.441 12.397 9.014 15.615l206.469 119.203c6.63 3.829 14.811 3.829 21.441 0l206.468-119.203c5.574-3.218 9.015-9.17 9.015-15.615v-240.375c0-6.436-3.441-12.397-9.015-15.615zm-12.969 25.25-199.316 345.223c-1.347 2.326-4.904 1.376-4.904-1.319V280.179c0-4.517-2.414-8.695-6.33-10.963L47.107 156.197c-2.326-1.347-1.376-4.905 1.318-4.905h398.631c5.661 0 9.199 6.136 6.368 11.041h-.01z" /></svg>;
-const LogoVSCode = () => <svg viewBox="0 0 24 24" className="size-5" fill="currentColor"><path d="M17.583 2.27l-7.154 6.52L5.51 4.835 3 5.98v12.04l2.51 1.145 4.919-3.955 7.154 6.52L21 20.27V3.73l-3.417-1.46zM5 15.15V8.85l3.25 3.15L5 15.15zm12.583 2.57l-5.25-4.72 5.25-4.72v9.44z" /></svg>;
-const LogoDocker = () => <svg viewBox="0 0 24 24" className="size-5" fill="currentColor"><path d="M13.983 11.078h2.119a.186.186 0 00.186-.186V9.006a.186.186 0 00-.186-.186h-2.118a.186.186 0 00-.187.186v1.886c0 .103.084.186.187.186zm-2.954-5.43h2.118a.186.186 0 00.187-.185V3.577a.186.186 0 00-.187-.186h-2.118a.186.186 0 00-.187.186v1.886c0 .102.084.186.185.186zm0 2.716h2.118a.187.187 0 00.187-.186V6.292a.187.187 0 00-.187-.186h-2.118a.187.187 0 00-.187.186v1.886c0 .103.083.186.186.186zm-2.93 0h2.12a.186.186 0 00.186-.186V6.292a.186.186 0 00-.186-.186h-2.12a.186.186 0 00-.185.186v1.886c0 .103.084.186.185.186zm-2.964 0h2.119a.186.186 0 00.185-.186V6.292a.186.186 0 00-.185-.186H5.136a.186.186 0 00-.186.186v1.886c0 .103.084.186.186.186zm-2.928 0h2.119a.186.186 0 00.186-.186V6.292a.186.186 0 00-.186-.186H2.208a.186.186 0 00-.186.186v1.886c0 .103.083.186.186.186zM23.763 11.36c-.006-.004-.54-.39-1.583-.39-.265 0-.53.024-.79.07-.28-1.805-1.885-2.686-1.95-2.72l-.392-.218-.234.38c-.297.486-.503 1.036-.605 1.606-.22.976-.082 1.892.389 2.676-.578.338-1.52.42-1.71.426H.828a.83.83 0 00-.83.828c-.025 1.597.218 3.19.727 4.697.577 1.614 1.44 2.803 2.564 3.533 1.264.82 3.324 1.288 5.622 1.288.966 0 1.945-.087 2.907-.27a12.258 12.258 0 003.525-1.245 9.741 9.741 0 002.552-2.07c1.227-1.395 1.96-2.955 2.505-4.33h.218c1.35 0 2.182-.542 2.64-1 .3-.3.528-.654.67-1.046l.094-.296-.366-.214z" /></svg>;
+const LogoOpenCode = () => <Image src="/logos/ai-coding-agent-logos/opencode-logo-dark.png" alt="OpenCode" width={20} height={20} className="size-5 object-contain dark:invert-0 invert" />;
+const LogoClaudeCode = () => <Image src="/logos/ai-coding-agent-logos/claude-code-icon.png" alt="Claude Code" width={20} height={20} className="size-5 object-contain rounded-sm" />;
+const LogoCodex = () => <Image src="/logos/ai-coding-agent-logos/codex-openai-icon.png" alt="Codex" width={20} height={20} className="size-5 object-contain" />;
+const LogoPiCoding = () => <Image src="/logos/ai-coding-agent-logos/pi-coding-agent-icon-dark.png" alt="PI Coding" width={20} height={20} className="size-5 object-contain dark:invert-0 invert" />;
+const LogoCursor = () => <Image src="/logos/ai-coding-agent-logos/cursor-icon.png" alt="Cursor" width={20} height={20} className="size-5 object-contain" />;
+const LogoVSCode = () => <Image src="/logos/ai-coding-agent-logos/vscode-icon.png" alt="VS Code" width={20} height={20} className="size-5 object-contain" />;
+const LogoDocker = () => <Image src="/logos/ai-coding-agent-logos/docker-icon.png" alt="Docker" width={20} height={20} className="size-5 object-contain" />;
 
 function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
@@ -125,8 +129,12 @@ export default function Home() {
             <Link href="/docs" className={cn(buttonVariants({ variant: "outline", size: "lg" }), "text-sm px-7 h-12 font-medium rounded-xl")}>Docs</Link>
           </div>
           <p className="mt-3 text-xs text-muted-foreground">Running in minutes. Cancel anytime. No credit card lock-in.</p>
-          <div className="mt-8 flex items-center justify-center gap-1.5 flex-wrap">
+          <p className="mt-6 text-xs text-muted-foreground uppercase tracking-widest font-medium">Works with any AI coding agent</p>
+          <div className="mt-3 flex items-center justify-center gap-1.5 flex-wrap">
+            <LogoPill icon={<LogoClaudeCode />} label="Claude Code" />
+            <LogoPill icon={<LogoCodex />} label="Codex" />
             <LogoPill icon={<LogoOpenCode />} label="OpenCode" />
+            <LogoPill icon={<LogoPiCoding />} label="PI Coding" />
             <LogoPill icon={<LogoCursor />} label="Cursor" />
             <LogoPill icon={<LogoVSCode />} label="VS Code" />
             <LogoPill icon={<LogoDocker />} label="Docker" />
@@ -166,8 +174,13 @@ export default function Home() {
                 <p className="text-sm text-muted-foreground leading-relaxed">
                   SSH in or connect your IDE — it&apos;s just a Linux box. Close your laptop, your agents keep going. Come back tomorrow, everything&apos;s still there.
                 </p>
-                <div className="mt-4 flex items-center gap-1.5">
-                  <Chip><LogoCursor /></Chip><Chip><LogoVSCode /></Chip><Chip><LogoOpenCode /></Chip>
+                <div className="mt-4 flex items-center gap-1.5 flex-wrap">
+                  <Chip><LogoClaudeCode /></Chip>
+                  <Chip><LogoCodex /></Chip>
+                  <Chip><LogoOpenCode /></Chip>
+                  <Chip><LogoPiCoding /></Chip>
+                  <Chip><LogoCursor /></Chip>
+                  <Chip><LogoVSCode /></Chip>
                   <span className="text-xs text-muted-foreground ml-1.5">+ any SSH client</span>
                 </div>
               </div>
@@ -212,11 +225,7 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="mt-5 flex flex-wrap items-center gap-1.5 justify-center">
-            {["SSH","Web Terminal","Daily Backups","API Key Auth","FS API","Bash API","OpenCode","Codex","sandbox-agent","24/7 State"].map(f => (
-              <span key={f} className="px-2.5 py-1 rounded-full border border-border bg-card text-xs text-muted-foreground font-medium">{f}</span>
-            ))}
-          </div>
+
 
           {/* Mid-page CTA — catch momentum */}
           <div className="mt-10 text-center">
@@ -370,7 +379,7 @@ export default function Home() {
             <Objection q="Is it really cheaper?" a="Do the math yourself. Daytona, E2B, Modal and others charge per-second — $0.05+/h per vCPU, $0.016+/h per GiB RAM. Run that 24/7 for a month and compare. We're 8–10x cheaper, every time." />
             <Objection q="How fast can I get started?" a="A couple of minutes. Pick a plan, we provision your machine, you SSH in. That's it." />
             <Objection q="What about security?" a="Browser access is gated by the authenticated proxy, and SSH uses keys instead of passwords. API keys and session-based access are both supported." />
-            <Objection q="Which agents can I run?" a="OpenCode, Codex, Cursor workflows, and other Linux-based agent setups. It is a persistent Linux machine with the platform tooling already wired in." />
+            <Objection q="Which agents can I run?" a="Claude Code, Codex, OpenCode, PI Coding agents, Cursor workflows, and any other Linux-based agent. It's a persistent Linux machine — install what you want, run it 24/7." />
           </div>
         </div>
       </section>
@@ -586,8 +595,22 @@ function ApiOverview() {
             {"external" in group ? (
               <div className="p-4 flex-1 flex flex-col justify-between">
                 <div>
+                  {/* Agent logos */}
+                  <div className="flex items-center gap-2 mb-3">
+                    {[
+                      { src: "/logos/ai-coding-agent-logos/claude-code-icon.png", alt: "Claude Code", cls: "rounded-sm" },
+                      { src: "/logos/ai-coding-agent-logos/codex-openai-icon.png", alt: "Codex", cls: "" },
+                      { src: "/logos/ai-coding-agent-logos/opencode-logo-dark.png", alt: "OpenCode", cls: "dark:invert-0 invert" },
+                      { src: "/logos/ai-coding-agent-logos/pi-coding-agent-icon-dark.png", alt: "PI Coding", cls: "dark:invert-0 invert" },
+                    ].map(({ src, alt, cls }) => (
+                      <div key={alt} className="size-6 rounded-md border border-border bg-muted flex items-center justify-center overflow-hidden shrink-0" title={alt}>
+                        <Image src={src} alt={alt} width={18} height={18} className={cn("size-[18px] object-contain", cls)} />
+                      </div>
+                    ))}
+                    <span className="text-[10px] text-muted-foreground ml-0.5">+ more</span>
+                  </div>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Control OpenCode, Codex, and other sandbox-agent-compatible workflows with one unified API. Ships on every sandbox with session lifecycle management and a standard event schema.
+                    Claude Code, Codex, OpenCode, PI Coding — one unified API. Ships on every sandbox with session lifecycle management and a standard event schema.
                   </p>
                   {"agentFeatures" in group && group.agentFeatures && (
                     <div className="mt-3 space-y-1">
