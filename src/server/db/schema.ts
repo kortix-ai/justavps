@@ -4,6 +4,7 @@
  */
 
 import { pgTable, uuid, text, timestamp, integer, jsonb, boolean } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 // ─── Users ──────────────────────────────────────────────────────────────────
 
@@ -139,7 +140,28 @@ export const apiKeys = pgTable('api_keys', {
   keyPrefix: text('key_prefix').notNull(),
   keyHash: text('key_hash').notNull(),
   keySha256: text('key_sha256'),
+  // Scoping & permissions
+  scope: text('scope').notNull().default('account'), // 'account' | 'machine'
+  machineIds: text('machine_ids').array(), // UUIDs of machines (scope=machine)
+  permissions: text('permissions').array().notNull().default(sql`ARRAY['*']::text[]`), // '*' | 'read' | 'write' | 'delete' | 'exec' | 'proxy'
+  expiresAt: timestamp('expires_at'), // null = never expires
   lastUsed: timestamp('last_used'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ─── Proxy Tokens (shareable machine access) ────────────────────────────────
+
+export const proxyTokens = pgTable('proxy_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ownerId: uuid('owner_id').references(() => users.id).notNull(),
+  machineId: uuid('machine_id').references(() => machines.id, { onDelete: 'cascade' }).notNull(),
+  tokenHash: text('token_hash').notNull(), // bcrypt hash
+  tokenSha256: text('token_sha256').notNull(), // SHA-256 for O(1) lookup
+  tokenPrefix: text('token_prefix').notNull(), // 'pt_abc1...'
+  label: text('label'),
+  ports: integer('ports').array(), // null = all ports
+  expiresAt: timestamp('expires_at').notNull(),
+  revokedAt: timestamp('revoked_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -240,6 +262,8 @@ export type Machine = typeof machines.$inferSelect;
 export type NewMachine = typeof machines.$inferInsert;
 export type SSHKey = typeof sshKeys.$inferSelect;
 export type ApiKey = typeof apiKeys.$inferSelect;
+export type ProxyTokenRow = typeof proxyTokens.$inferSelect;
+export type NewProxyToken = typeof proxyTokens.$inferInsert;
 export type MachineEventRow = typeof machineEvents.$inferSelect;
 export type WebhookRow = typeof webhooks.$inferSelect;
 export type AccountLimitRow = typeof accountLimits.$inferSelect;

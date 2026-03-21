@@ -43,12 +43,41 @@ const createAPIKeyRoute = createRoute({
 });
 
 apiKeysApp.openapi(createAPIKeyRoute, async (c) => {
-  const { name } = c.req.valid('json');
+  const body = c.req.valid('json');
   const ownerId = c.get('userId');
-  const { key, hash, sha256, prefix } = await generateApiKey();
-  const [apiKey] = await db.insert(apiKeys).values({ ownerId, name, keyPrefix: prefix, keyHash: hash, keySha256: sha256 }).returning();
 
-  await syncApiKeyToKV(key, ownerId, name).catch((err: unknown) => {
+  // Validate scope + machine_ids consistency
+  const scope = body.scope ?? 'account';
+  const machineIds = body.machine_ids ?? null;
+  const permissions = body.permissions ?? ['*'];
+  if (scope === 'machine' && (!machineIds || machineIds.length === 0)) {
+    return c.json({ error: true, message: 'machine_ids is required when scope is "machine"', status: 400 }, 400);
+  }
+
+  // Compute expiration
+  const expiresAt = body.expires_in_seconds
+    ? new Date(Date.now() + body.expires_in_seconds * 1000)
+    : null;
+
+  const { key, hash, sha256, prefix } = await generateApiKey();
+  const [apiKey] = await db.insert(apiKeys).values({
+    ownerId,
+    name: body.name,
+    keyPrefix: prefix,
+    keyHash: hash,
+    keySha256: sha256,
+    scope,
+    machineIds: machineIds,
+    permissions,
+    expiresAt,
+  }).returning();
+
+  await syncApiKeyToKV(key, ownerId, body.name, {
+    scope,
+    machineIds,
+    permissions,
+    expiresAt: expiresAt?.toISOString() ?? null,
+  }).catch((err: unknown) => {
     console.warn('[API-KEYS] Failed to sync API key to KV:', err);
   });
 
@@ -57,8 +86,12 @@ apiKeysApp.openapi(createAPIKeyRoute, async (c) => {
     name: apiKey.name,
     key,  // Only shown ONCE
     key_prefix: apiKey.keyPrefix,
+    scope: apiKey.scope as 'account' | 'machine',
+    machine_ids: apiKey.machineIds ?? null,
+    permissions: apiKey.permissions,
+    expires_at: apiKey.expiresAt?.toISOString() ?? null,
     created_at: apiKey.createdAt.toISOString(),
-    last_used: null,
+    last_used: null as string | null,
   }, 201);
 });
 
@@ -88,6 +121,10 @@ apiKeysApp.openapi(listAPIKeysRoute, async (c) => {
       id: k.id,
       name: k.name,
       key_prefix: k.keyPrefix,
+      scope: k.scope as 'account' | 'machine',
+      machine_ids: k.machineIds ?? null,
+      permissions: k.permissions,
+      expires_at: k.expiresAt?.toISOString() ?? null,
       created_at: k.createdAt.toISOString(),
       last_used: k.lastUsed?.toISOString() ?? null,
     })),

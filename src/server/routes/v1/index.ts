@@ -16,15 +16,17 @@ import { webhooksApp } from './webhooks';
 import { stripeWebhooksApp } from './stripe-webhooks';
 import { toolboxApp } from './toolbox';
 import { importKortixApp } from './import-kortix';
-import { proxyApp } from './proxy';
+import { proxyTokensApp } from './proxy-tokens';
+import { proxyApp } from './proxy'; // ⚠️ DEPRECATED — see proxy.ts header comment
 
 export const v1 = new OpenAPIHono();
 
-v1.route('/machines', proxyApp); // Generic port proxy under /machines/:id/proxy/:port/* (before machinesApp to skip its apiGuard)
+v1.route('/machines', proxyApp); // ⚠️ DEPRECATED — direct platform proxy, scheduled for deletion. Use CF Worker instead.
 v1.route('/machines', machinesApp);
 v1.route('/images', imagesApp);
 v1.route('/ssh-keys', sshKeysApp);
 v1.route('/api-keys', apiKeysApp);
+v1.route('/proxy-tokens', proxyTokensApp);
 v1.route('/server-types', serverTypesApp);
 v1.route('/account', accountApp);
 v1.route('/internal', internalApp);

@@ -7,14 +7,60 @@ import { eq } from 'drizzle-orm';
 import { decode } from 'next-auth/jwt';
 import { ensureAutoAdminUser } from './auto-admin';
 
+export type Permission = 'read' | 'write' | 'delete' | 'exec' | 'proxy' | '*';
+
 function sha256(input: string): string {
   return createHash('sha256').update(input).digest('hex');
 }
 
+/**
+ * Middleware that checks whether the current API key has a required permission.
+ * Session-based auth (cookie) always passes (full access).
+ * API keys with `['*']` always pass.
+ */
+export function requirePermission(...required: Permission[]) {
+  return createMiddleware<{ Variables: AuthVariables }>(async (c, next) => {
+    const perms = c.get('apiKeyPermissions');
+    // Session auth or no permissions set = full access
+    if (!perms) return next();
+    // Wildcard = full access
+    if (perms.includes('*')) return next();
+    // Check all required permissions
+    for (const p of required) {
+      if (!perms.includes(p)) {
+        return c.json({ error: true, message: `Insufficient permissions: requires '${p}'`, status: 403 }, 403);
+      }
+    }
+    return next();
+  });
+}
+
+/**
+ * Middleware that checks machine-scoped API keys.
+ * Expects `machineId` or `id` param in the route.
+ * Session-based auth and account-scoped keys always pass.
+ */
+export function requireMachineAccess() {
+  return createMiddleware<{ Variables: AuthVariables }>(async (c, next) => {
+    const scope = c.get('apiKeyScope');
+    if (!scope || scope === 'account') return next();
+    const machineIds = c.get('apiKeyMachineIds');
+    if (!machineIds) return next();
+    const targetMachineId = c.req.param('machineId') || c.req.param('id');
+    if (!targetMachineId) return next();
+    if (!machineIds.includes(targetMachineId)) {
+      return c.json({ error: true, message: 'API key does not have access to this machine', status: 403 }, 403);
+    }
+    return next();
+  });
+}
 
 export type AuthVariables = {
   userId: string;
   isAdmin: boolean;
+  apiKeyScope?: string; // 'account' | 'machine'
+  apiKeyMachineIds?: string[] | null;
+  apiKeyPermissions?: string[]; // ['*'] | ['read', 'write', ...]
 };
 
 function extractSessionCookie(cookieHeader: string): { value: string; salt: string } | null {
@@ -47,6 +93,11 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(
         // Fast path: O(1) DB lookup by SHA-256 hash
         const [match] = await db.select().from(apiKeys).where(eq(apiKeys.keySha256, hash)).limit(1);
         if (match) {
+          // Check expiration
+          if (match.expiresAt && match.expiresAt < new Date()) {
+            return c.json({ error: true, message: 'API key has expired', status: 401 }, 401);
+          }
+
           db.update(apiKeys)
             .set({ lastUsed: new Date() })
             .where(eq(apiKeys.id, match.id))
@@ -63,6 +114,9 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(
 
           c.set('userId', ownerId);
           c.set('isAdmin', isAdmin);
+          c.set('apiKeyScope', match.scope);
+          c.set('apiKeyMachineIds', match.machineIds);
+          c.set('apiKeyPermissions', match.permissions);
           return next();
         }
 
@@ -70,6 +124,11 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(
         const allKeys = await db.select().from(apiKeys);
         for (const k of allKeys) {
           if (await validateApiKey(key, k.keyHash)) {
+            // Check expiration
+            if (k.expiresAt && k.expiresAt < new Date()) {
+              return c.json({ error: true, message: 'API key has expired', status: 401 }, 401);
+            }
+
             db.update(apiKeys)
               .set({ keySha256: hash, lastUsed: new Date() })
               .where(eq(apiKeys.id, k.id))
@@ -85,6 +144,9 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(
             const isAdmin = resolvedUser?.isAdmin ?? false;
             c.set('userId', ownerId);
             c.set('isAdmin', isAdmin);
+            c.set('apiKeyScope', k.scope);
+            c.set('apiKeyMachineIds', k.machineIds);
+            c.set('apiKeyPermissions', k.permissions);
             return next();
           }
         }

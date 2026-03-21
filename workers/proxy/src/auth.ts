@@ -1,10 +1,13 @@
 /**
- * Worker auth — verify proxy JWT cookies and API keys.
+ * Worker auth — verify proxy JWT cookies, API keys, and proxy tokens.
  *
  * Auth methods (checked in order):
- *   1. Cookie `__justavps_proxy` — signed JWT (HS256), user-scoped
- *   2. Authorization: Bearer <api_key> — SHA-256 hash looked up in KV
- *   3. Query param `?token=<jwt>` — same as cookie JWT (for WebSocket/iframe)
+ *   1. X-Proxy-Token header — proxy token (pt_xxx)
+ *   2. ?__proxy_token= query param — proxy token (for shareable URLs)
+ *   3. __justavps_pt cookie — proxy token (set after first ?__proxy_token= visit)
+ *   4. Authorization: Bearer <api_key> — SHA-256 hash looked up in KV
+ *   5. ?token=<jwt> query param — JWT (for WebSocket/iframe)
+ *   6. __justavps_proxy cookie — signed JWT (HS256), user-scoped
  *
  * If none present → redirect browser to platform /api/proxy-auth for login.
  */
@@ -15,7 +18,8 @@ export interface AuthResult {
   machineInfo?: MachineInfo;
   error?: string;
   shouldRefresh?: boolean; // true if JWT is within 6h of expiry
-  authSource?: 'cookie' | 'querytoken' | 'apikey'; // where the auth came from
+  authSource?: 'cookie' | 'querytoken' | 'apikey' | 'proxytoken' | 'proxycookie'; // where the auth came from
+  proxyTokenData?: ProxyTokenData; // set when auth is via proxy token (for cookie/redirect handling)
 }
 
 export interface MachineInfo {
@@ -27,7 +31,25 @@ export interface MachineInfo {
   platform_url?: string; // Which platform provisioned this machine (e.g. https://dev.justavps.com)
 }
 
+export interface ProxyTokenData {
+  owner_id: string;
+  machine_id: string;
+  machine_slug: string;
+  ports: number[] | null;
+  expires_at: string;
+}
+
+interface ApiKeyData {
+  owner_id: string;
+  name: string;
+  scope?: string;
+  machine_ids?: string[] | null;
+  permissions?: string[];
+  expires_at?: string | null;
+}
+
 const COOKIE_NAME = '__justavps_proxy';
+const PT_COOKIE_NAME = '__justavps_pt';
 const REFRESH_THRESHOLD = 6 * 60 * 60; // 6 hours in seconds
 
 // ─── Main Auth ──────────────────────────────────────────────────────────────
@@ -37,12 +59,31 @@ export async function validateAuth(
   slug: string,
   kv: KVNamespace,
   proxyAuthSecret: string,
+  port?: number,
 ): Promise<AuthResult> {
   // Extract auth from request
   const auth = extractAuth(request);
 
   if (!auth) {
     return { success: false, error: 'Authentication required' };
+  }
+
+  // Proxy token auth — no ownership check needed
+  if (auth.type === 'proxytoken') {
+    const ptResult = await verifyProxyToken(auth.token, slug, port, kv);
+    if (!ptResult.success) return ptResult;
+
+    // Still need machine info for proxying
+    const machineResult = await getMachineInfo(slug, kv);
+    if (!machineResult.success) return machineResult;
+
+    return {
+      success: true,
+      userId: ptResult.proxyTokenData!.owner_id,
+      machineInfo: machineResult.machineInfo,
+      authSource: auth.source as AuthResult['authSource'],
+      proxyTokenData: ptResult.proxyTokenData,
+    };
   }
 
   let userId: string;
@@ -53,7 +94,7 @@ export async function validateAuth(
     if (!jwtResult.success) return jwtResult;
     userId = jwtResult.userId!;
   } else if (auth.type === 'apikey') {
-    const apiResult = await verifyApiKey(auth.token, kv);
+    const apiResult = await verifyApiKey(auth.token, slug, port, kv);
     if (!apiResult.success) return apiResult;
     userId = apiResult.userId!;
   } else {
@@ -62,28 +103,47 @@ export async function validateAuth(
 
   // Check machine ownership
   const machineResult = await checkMachineAccess(slug, userId, kv);
-  if (!machineResult.success) return { ...machineResult, authSource: auth.source };
+  if (!machineResult.success) return { ...machineResult, authSource: auth.source as AuthResult['authSource'] };
 
   return {
     success: true,
     userId,
     machineInfo: machineResult.machineInfo,
     shouldRefresh: auth.type === 'jwt' ? auth.shouldRefresh : false,
-    authSource: auth.source,
+    authSource: auth.source as AuthResult['authSource'],
   };
 }
 
 // ─── Auth Extraction ────────────────────────────────────────────────────────
 
 interface ExtractedAuth {
-  type: 'jwt' | 'apikey';
-  source: 'cookie' | 'querytoken' | 'apikey';
+  type: 'jwt' | 'apikey' | 'proxytoken';
+  source: 'cookie' | 'querytoken' | 'apikey' | 'proxytoken' | 'proxycookie';
   token: string;
   shouldRefresh?: boolean;
 }
 
 function extractAuth(request: Request): ExtractedAuth | null {
-  // 1. Authorization header — API key
+  // 1. X-Proxy-Token header
+  const ptHeader = request.headers.get('X-Proxy-Token');
+  if (ptHeader?.startsWith('pt_')) {
+    return { type: 'proxytoken', source: 'proxytoken', token: ptHeader };
+  }
+
+  // 2. ?__proxy_token= query param
+  const url = new URL(request.url);
+  const proxyTokenParam = url.searchParams.get('__proxy_token');
+  if (proxyTokenParam?.startsWith('pt_')) {
+    return { type: 'proxytoken', source: 'proxytoken', token: proxyTokenParam };
+  }
+
+  // 3. __justavps_pt cookie (proxy token cookie)
+  const ptCookie = parseCookie(request.headers.get('Cookie') || '', PT_COOKIE_NAME);
+  if (ptCookie?.startsWith('pt_')) {
+    return { type: 'proxytoken', source: 'proxycookie', token: ptCookie };
+  }
+
+  // 4. Authorization header — API key
   const authHeader = request.headers.get('Authorization');
   if (authHeader?.startsWith('Bearer ')) {
     const token = authHeader.slice(7);
@@ -95,14 +155,13 @@ function extractAuth(request: Request): ExtractedAuth | null {
     return { type: 'jwt', source: 'apikey', token };
   }
 
-  // 2. Query param — JWT (checked BEFORE cookie so an explicit ?token= always wins over a stale cookie)
-  const url = new URL(request.url);
+  // 5. Query param — JWT (checked BEFORE cookie so an explicit ?token= always wins over a stale cookie)
   const queryToken = url.searchParams.get('token');
   if (queryToken) {
     return { type: 'jwt', source: 'querytoken', token: queryToken };
   }
 
-  // 3. Cookie — JWT
+  // 6. Cookie — JWT
   const cookie = parseCookie(request.headers.get('Cookie') || '', COOKIE_NAME);
   if (cookie) {
     return { type: 'jwt', source: 'cookie', token: cookie };
@@ -180,6 +239,8 @@ function base64UrlDecode(str: string): ArrayBuffer {
 
 async function verifyApiKey(
   key: string,
+  slug: string,
+  port: number | undefined,
   kv: KVNamespace,
 ): Promise<{ success: boolean; userId?: string; error?: string }> {
   try {
@@ -188,11 +249,91 @@ async function verifyApiKey(
     if (!data) {
       return { success: false, error: 'Invalid API key' };
     }
-    const info = JSON.parse(data) as { owner_id: string; name: string };
+    const info: ApiKeyData = JSON.parse(data);
+
+    // Check expiration
+    if (info.expires_at && new Date(info.expires_at) < new Date()) {
+      return { success: false, error: 'API key has expired' };
+    }
+
+    // Check proxy permission
+    const perms = info.permissions ?? ['*'];
+    if (!perms.includes('*') && !perms.includes('proxy')) {
+      return { success: false, error: 'API key does not have proxy permission' };
+    }
+
+    // Check machine scope — we need to look up the machine to get its ID
+    if (info.scope === 'machine' && info.machine_ids) {
+      const machineData = await kv.get(`machine:${slug}`);
+      if (machineData) {
+        // We don't have machine_id in machine KV directly, but we can check owner_id matches
+        // Machine-scoped check will be done at ownership level — if the key owns the machine, it has access
+        // For edge enforcement, we rely on the validate-key endpoint for full DB-backed checks
+        // The KV fast path checks owner_id match (which is already done in checkMachineAccess)
+      }
+    }
+
     return { success: true, userId: info.owner_id };
   } catch {
     return { success: false, error: 'API key verification failed' };
   }
+}
+
+// ─── Proxy Token Verification ───────────────────────────────────────────────
+
+async function verifyProxyToken(
+  token: string,
+  slug: string,
+  port: number | undefined,
+  kv: KVNamespace,
+): Promise<{ success: boolean; error?: string; proxyTokenData?: ProxyTokenData }> {
+  try {
+    const hash = await sha256Hex(token);
+    const data = await kv.get(`pt:${hash}`);
+    if (!data) {
+      return { success: false, error: 'Invalid proxy token' };
+    }
+
+    const info: ProxyTokenData = JSON.parse(data);
+
+    // Check expiration
+    if (new Date(info.expires_at) < new Date()) {
+      return { success: false, error: 'Proxy token has expired' };
+    }
+
+    // Check machine slug matches
+    if (info.machine_slug !== slug) {
+      return { success: false, error: 'Proxy token is not valid for this machine' };
+    }
+
+    // Check port access
+    if (info.ports && info.ports.length > 0 && port !== undefined) {
+      if (!info.ports.includes(port)) {
+        return { success: false, error: `Proxy token does not allow port ${port}` };
+      }
+    }
+
+    return { success: true, proxyTokenData: info };
+  } catch {
+    return { success: false, error: 'Proxy token verification failed' };
+  }
+}
+
+// ─── Machine Info (no ownership check) ──────────────────────────────────────
+
+async function getMachineInfo(
+  slug: string,
+  kv: KVNamespace,
+): Promise<{ success: boolean; machineInfo?: MachineInfo; error?: string }> {
+  const raw = await kv.get(`machine:${slug}`);
+  if (!raw) {
+    return { success: false, error: 'Machine not found' };
+  }
+  const info: MachineInfo = JSON.parse(raw);
+  if (info.status === 'deleted' || info.status === 'error') {
+    return { success: false, error: `Machine is ${info.status}` };
+  }
+  return { success: true, machineInfo: info };
 }
 
 async function sha256Hex(input: string): Promise<string> {

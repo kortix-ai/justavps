@@ -21,7 +21,7 @@ import { toast } from "sonner";
 import { useSSHKeys, useCreateSSHKey, useDeleteSSHKey } from "@/hooks/use-ssh-keys";
 import { useAPIKeys, useCreateAPIKey, useDeleteAPIKey } from "@/hooks/use-api-keys";
 import { useConfirm } from "@/hooks/use-confirm";
-import { Plus, Trash2, Copy, Check, Key, KeyRound, Loader2, Clock, ShieldCheck } from "lucide-react";
+import { Plus, Trash2, Copy, Check, Key, KeyRound, Loader2, Clock, ShieldCheck, Globe, Server, AlertTriangle } from "lucide-react";
 
 export default function KeysPage() {
   return (
@@ -190,7 +190,7 @@ function APIKeysSection() {
 
   const handleCreate = () => {
     if (!apiKeyName) { toast.error("Provide a name"); return; }
-    createAPIKey.mutate(apiKeyName, {
+    createAPIKey.mutate({ name: apiKeyName }, {
       onSuccess: (key) => { setNewAPIKey(key.key ?? null); setAPIKeyName(""); setDialogOpen(false); toast.success("API key created"); },
       onError: (err) => toast.error(err.message),
     });
@@ -302,6 +302,43 @@ function APIKeysSection() {
                     <span className="font-mono">{key.key_prefix}...</span>
                     <span>&middot;</span>
                     <span>{timeAgo(key.created_at)}</span>
+                    {key.scope === "machine" && (
+                      <>
+                        <span>&middot;</span>
+                        <span className="flex items-center gap-1 text-blue-500 dark:text-blue-400">
+                          <Server className="size-3" />
+                          {key.machine_ids?.length ?? 0} machine{(key.machine_ids?.length ?? 0) !== 1 ? "s" : ""}
+                        </span>
+                      </>
+                    )}
+                    {key.scope === "account" && (
+                      <>
+                        <span>&middot;</span>
+                        <span className="flex items-center gap-1">
+                          <Globe className="size-3" />Account
+                        </span>
+                      </>
+                    )}
+                    {key.permissions && !key.permissions.includes("*") && (
+                      <>
+                        <span>&middot;</span>
+                        <span>{key.permissions.join(", ")}</span>
+                      </>
+                    )}
+                    {key.expires_at && (
+                      <>
+                        <span>&middot;</span>
+                        {new Date(key.expires_at) < new Date() ? (
+                          <span className="flex items-center gap-1 text-destructive">
+                            <AlertTriangle className="size-3" />Expired
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1">
+                            <Clock className="size-3" />Expires {timeAgo(key.expires_at)}
+                          </span>
+                        )}
+                      </>
+                    )}
                     {key.last_used && (
                       <>
                         <span>&middot;</span>

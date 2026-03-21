@@ -120,13 +120,35 @@ export interface SSHKey {
 
 // ─── API Keys ────────────────────────────────────────────────────────────────
 
+export type ApiKeyScope = 'account' | 'machine';
+export type ApiKeyPermission = '*' | 'read' | 'write' | 'delete' | 'exec' | 'proxy';
+
 export interface APIKey {
   id: string;
   name: string;
   key?: string;
   key_prefix: string;
+  scope: ApiKeyScope;
+  machine_ids: string[] | null;
+  permissions: ApiKeyPermission[];
+  expires_at: string | null;
   created_at: string;
   last_used: string | null;
+}
+
+// ─── Proxy Tokens ────────────────────────────────────────────────────────────
+
+export interface ProxyToken {
+  id: string;
+  token?: string;
+  token_prefix: string;
+  label: string | null;
+  machine_id: string;
+  machine_slug: string;
+  ports: number[] | null;
+  expires_at: string;
+  proxy_url?: string;
+  created_at: string;
 }
 
 // ─── Webhooks ────────────────────────────────────────────────────────────────

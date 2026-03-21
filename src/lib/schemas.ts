@@ -152,8 +152,14 @@ export const SSHKeyListResponseSchema = z.object({
 
 // ─── API Key Schemas ────────────────────────────────────────────────────────
 
+export const PermissionEnum = z.enum(['*', 'read', 'write', 'delete', 'exec', 'proxy']);
+
 export const CreateAPIKeySchema = z.object({
   name: z.string().min(1).max(128),
+  scope: z.enum(['account', 'machine']).optional().default('account').describe('Key scope: account (full) or machine (restricted)'),
+  machine_ids: z.array(z.string().uuid()).optional().nullable().describe('Machine UUIDs this key can access (required if scope=machine)'),
+  permissions: z.array(PermissionEnum).optional().default(['*']).describe('Permissions: * (all), read, write, delete, exec, proxy'),
+  expires_in_seconds: z.number().int().min(60).max(31536000).optional().nullable().describe('Expiration in seconds from now (null = never)'),
 });
 
 export const APIKeyResponseSchema = z.object({
@@ -161,12 +167,42 @@ export const APIKeyResponseSchema = z.object({
   name: z.string(),
   key: z.string().optional().describe('Only returned on creation'),
   key_prefix: z.string(),
+  scope: z.enum(['account', 'machine']),
+  machine_ids: z.array(z.string()).nullable(),
+  permissions: z.array(z.string()),
+  expires_at: z.string().nullable(),
   created_at: z.string(),
   last_used: z.string().nullable(),
 });
 
 export const APIKeyListResponseSchema = z.object({
   api_keys: z.array(APIKeyResponseSchema),
+});
+
+// ─── Proxy Token Schemas ────────────────────────────────────────────────────
+
+export const CreateProxyTokenSchema = z.object({
+  machine_id: z.string().uuid().describe('Machine UUID to grant access to'),
+  label: z.string().max(128).optional().nullable().describe('Human-readable label'),
+  ports: z.array(z.number().int().min(1).max(65535)).optional().nullable().describe('Specific ports to allow (null = all)'),
+  expires_in_seconds: z.number().int().min(60).max(604800).optional().default(3600).describe('Expiration in seconds (default 1h, max 7 days)'),
+});
+
+export const ProxyTokenResponseSchema = z.object({
+  id: z.string().uuid(),
+  token: z.string().optional().describe('Only returned on creation'),
+  token_prefix: z.string(),
+  label: z.string().nullable(),
+  machine_id: z.string().uuid(),
+  machine_slug: z.string(),
+  ports: z.array(z.number()).nullable(),
+  expires_at: z.string(),
+  proxy_url: z.string().optional().describe('Pre-built shareable URL (only on creation)'),
+  created_at: z.string(),
+});
+
+export const ProxyTokenListResponseSchema = z.object({
+  proxy_tokens: z.array(ProxyTokenResponseSchema),
 });
 
 // ─── Webhook Schemas ────────────────────────────────────────────────────────
@@ -331,6 +367,10 @@ export const AckResponseSchema = z.object({
 export const ValidateKeyResponseSchema = z.object({
   valid: z.boolean(),
   owner_id: z.string().uuid().optional(),
+  scope: z.enum(['account', 'machine']).optional(),
+  machine_ids: z.array(z.string()).nullable().optional(),
+  permissions: z.array(z.string()).optional(),
+  expires_at: z.string().nullable().optional(),
   message: z.string().optional(),
 });
 

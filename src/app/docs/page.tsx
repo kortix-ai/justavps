@@ -8,7 +8,7 @@ import { cn, PROXY_DOMAIN } from "@/lib/utils";
 import {
   CreditCard, HardDrive,
   Copy, Check, Shield, Zap, Menu, X, LifeBuoy,
-  Monitor, Wrench,
+  Monitor, Wrench, Share2,
   Server, Image as ImageIcon, Cpu, FolderOpen, Terminal,
   Key, KeyRound, Webhook, User,
 } from "lucide-react";
@@ -44,6 +44,7 @@ const NAV = [
   { id: "infrastructure",  title: "Infrastructure Use", icon: Wrench },
   { id: "images",          title: "Images",          icon: HardDrive },
   { id: "security",        title: "Security",        icon: Shield },
+  { id: "access-control",  title: "Access Control",  icon: Share2 },
   { id: "billing",         title: "Billing",         icon: CreditCard },
   { id: "support",         title: "Support",         icon: LifeBuoy },
 ];
@@ -552,6 +553,176 @@ for await (const event of client.streamEvents("my-session")) {
           <Li><B>Static IP</B> — dedicated public IPv4 per machine</Li>
           <Li><B>Automatic backups</B> — enabled by default on new machines</Li>
           <Li><B>No exposed databases</B> — internal services (Postgres, Redis, etc.) are loopback-only</Li>
+        </Ul>
+
+        <Hr />
+
+        {/* ──────────────────────────────────────────────────────────── */}
+        {/*  ACCESS CONTROL                                              */}
+        {/* ──────────────────────────────────────────────────────────── */}
+        <H2 id="access-control">Access Control & Sharing</H2>
+        <P>Control who can access your machines and how. API keys with scoping and permissions for infrastructure, proxy tokens for sharing with anyone.</P>
+
+        <H3 id="scoped-api-keys">Scoped API Keys</H3>
+        <P>API keys can be scoped to specific machines and restricted to specific permissions. This lets you give a CI system or integration only the access it needs.</P>
+
+        <Table headers={["Field", "Description", "Default"]} rows={[
+          ["scope", "\"account\" (full access) or \"machine\" (restricted to specific machines)", "account"],
+          ["machine_ids", "UUIDs of machines this key can access (required when scope=machine)", "null (all)"],
+          ["permissions", "Array: *, read, write, delete, exec, proxy", "[\"*\"]"],
+          ["expires_in_seconds", "Auto-expiration in seconds from creation (null = never)", "null"],
+        ]} />
+
+        <CodeBlock title="Create a machine-scoped API key" lang="bash">{`curl -X POST https://justavps.com/api/v1/api-keys \\
+  -H "Authorization: Bearer sk_live_xxx" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "name": "ci-readonly",
+    "scope": "machine",
+    "machine_ids": ["<machine-uuid>"],
+    "permissions": ["read", "proxy"],
+    "expires_in_seconds": 2592000
+  }'`}</CodeBlock>
+
+        <Table headers={["Permission", "Allows"]} rows={[
+          ["*", "Everything (default, backwards-compatible)"],
+          ["read", "GET endpoints: list/get machines, images, server types, keys"],
+          ["write", "POST/PUT/PATCH: create/update machines, images, filesystem writes"],
+          ["delete", "DELETE: machines, images, keys"],
+          ["exec", "Process execution: exec, code-run, coding agents"],
+          ["proxy", "Access machine services through the CF Worker proxy"],
+        ]} />
+        <Callout type="info">Existing API keys continue to work unchanged — they get <IC>scope=account</IC> and <IC>permissions=[&quot;*&quot;]</IC> by default.</Callout>
+
+        <H3 id="proxy-tokens">Proxy Tokens</H3>
+        <P>Proxy tokens let you share temporary access to a specific machine with anyone — no JustAVPS account required. Think &quot;share a preview link.&quot;</P>
+
+        <Table headers={["", "API Key (sk_live_xxx)", "Proxy Token (pt_xxx)"]} rows={[
+          ["Who uses it", "JustAVPS user (you, CI, integrations)", "Anyone you share the link with"],
+          ["What it does", "Full API access (scoped by permissions)", "Proxy access only"],
+          ["Lifetime", "Long-lived or custom expiry", "Always expires (default 1h, max 7 days)"],
+          ["Scope", "Account-wide or machine-scoped", "Always single-machine, optionally port-scoped"],
+        ]} />
+
+        <CodeBlock title="Create a 1-hour proxy token" lang="bash">{`curl -X POST https://justavps.com/api/v1/proxy-tokens \\
+  -H "Authorization: Bearer sk_live_xxx" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "machine_id": "<machine-uuid>",
+    "ports": [3000],
+    "expires_in_seconds": 3600,
+    "label": "design-review"
+  }'`}</CodeBlock>
+        <P>The response includes a <IC>proxy_url</IC> — share it directly. The recipient opens it in a browser, no login needed.</P>
+
+        <P>Two ways to use a proxy token:</P>
+        <Ul>
+          <Li><B>URL mode</B> (shareable link) — <IC>{`https://3000--slug.${PROXY_DOMAIN}?__proxy_token=pt_xxx`}</IC></Li>
+          <Li><B>Header mode</B> (programmatic) — <IC>X-Proxy-Token: pt_xxx</IC></Li>
+        </Ul>
+        <Callout type="tip">When a proxy token is used via URL, a short-lived cookie is set so subsequent page navigations work without the query param.</Callout>
+
+        <CodeBlock title="Revoke a proxy token" lang="bash">{`curl -X DELETE https://justavps.com/api/v1/proxy-tokens/<token-id> \\
+  -H "Authorization: Bearer sk_live_xxx"`}</CodeBlock>
+
+        <H3 id="custom-proxy">Custom Proxy</H3>
+        <P>You can run your own proxy server in front of JustAVPS to add custom authentication, branding, error handling, or domain routing. Your proxy acts as an intermediary between your users and the JustAVPS authenticated proxy.</P>
+
+        <P>The flow works like this:</P>
+        <Ul>
+          <Li>Your proxy receives a request from a user (e.g. <IC>preview.yourcompany.com</IC>)</Li>
+          <Li>It determines which JustAVPS machine and port to target</Li>
+          <Li>It creates a proxy token via the API (or reuses a cached one)</Li>
+          <Li>It forwards the request to the JustAVPS proxy URL with the token in the <IC>X-Proxy-Token</IC> header</Li>
+          <Li>The response flows back through your proxy to the user</Li>
+        </Ul>
+
+        <CodeBlock title="Custom proxy flow (Node.js / Express)" lang="typescript">{`import express from "express";
+import { createProxyMiddleware } from "http-proxy-middleware";
+
+const JUSTAVPS_API_KEY = process.env.JUSTAVPS_API_KEY;
+const JUSTAVPS_API_URL = "https://justavps.com/api/v1";
+const PROXY_DOMAIN = "${PROXY_DOMAIN}";
+
+// Cache proxy tokens per machine+port (reuse until near expiry)
+const tokenCache = new Map<string, { token: string; expiresAt: number }>();
+
+async function getProxyToken(machineId: string, port: number): Promise<string> {
+  const cacheKey = \`\${machineId}:\${port}\`;
+  const cached = tokenCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
+
+  const res = await fetch(\`\${JUSTAVPS_API_URL}/proxy-tokens\`, {
+    method: "POST",
+    headers: {
+      Authorization: \`Bearer \${JUSTAVPS_API_KEY}\`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      machine_id: machineId,
+      ports: [port],
+      expires_in_seconds: 3600,
+    }),
+  });
+  const data = await res.json();
+  tokenCache.set(cacheKey, {
+    token: data.token,
+    expiresAt: new Date(data.expires_at).getTime(),
+  });
+  return data.token;
+}
+
+// Extract machine slug + port from incoming hostname
+// e.g. "3000-my-machine.preview.yourcompany.com" → { slug: "my-machine", port: 3000 }
+function parseHost(host: string) {
+  const subdomain = host.split(".")[0];
+  const [portStr, ...slugParts] = subdomain.split("-");
+  return { slug: slugParts.join("-"), port: parseInt(portStr, 10) };
+}
+
+const proxy = createProxyMiddleware({
+  router: async (req) => {
+    const { slug, port } = parseHost(req.headers.host!);
+    // Look up machine ID from slug (you'd cache this in production)
+    const machineRes = await fetch(\`\${JUSTAVPS_API_URL}/machines\`, {
+      headers: { Authorization: \`Bearer \${JUSTAVPS_API_KEY}\` },
+    });
+    const { machines } = await machineRes.json();
+    const machine = machines.find((m: any) => m.slug === slug);
+    if (!machine) throw new Error("Machine not found");
+
+    const token = await getProxyToken(machine.id, port);
+    // Store token on request for the proxyReq handler
+    (req as any)._proxyToken = token;
+
+    return \`https://\${port}--\${slug}.\${PROXY_DOMAIN}\`;
+  },
+  changeOrigin: true,
+  ws: true,
+  on: {
+    proxyReq: (proxyReq, req) => {
+      const token = (req as any)._proxyToken;
+      if (token) proxyReq.setHeader("X-Proxy-Token", token);
+      // Remove the platform API key — don't leak it to the machine
+      proxyReq.removeHeader("Authorization");
+    },
+  },
+});
+
+const app = express();
+app.use(proxy);
+app.listen(3000, () => console.log("Custom proxy on :3000"));`}</CodeBlock>
+
+        <Callout type="warning">Cache proxy tokens aggressively. Creating a token on every request adds latency and creates unnecessary DB writes. Cache by machine+port, reuse until 60s before expiry.</Callout>
+
+        <P>Key points for your custom proxy:</P>
+        <Ul>
+          <Li><B>Token caching</B> — create a proxy token once and reuse it until near expiry. Don&apos;t create one per request.</Li>
+          <Li><B>WebSocket support</B> — proxy tokens work for WebSocket connections too. Pass the token via <IC>X-Proxy-Token</IC> header during the upgrade.</Li>
+          <Li><B>Port scoping</B> — create tokens scoped to specific ports if your proxy only needs to forward certain services.</Li>
+          <Li><B>Custom domains</B> — point your DNS to your proxy server. Your proxy translates the custom domain to the correct JustAVPS machine URL.</Li>
+          <Li><B>Error handling</B> — handle 502/503 responses from JustAVPS with custom error pages (machine starting, port not listening).</Li>
+          <Li><B>No leaked credentials</B> — your API key stays in your proxy. Proxy tokens are short-lived and machine-scoped.</Li>
         </Ul>
 
         <Hr />

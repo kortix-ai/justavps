@@ -246,6 +246,361 @@ describe('validateAuth', () => {
       expect(result.error).toBe('Machine is deleted');
     });
   });
+
+  describe('Proxy token authentication (pt_xxx)', () => {
+    it('should validate proxy token via X-Proxy-Token header', async () => {
+      const ownerId = 'user_123';
+      const ptToken = 'pt_test123456789abcdef';
+      const ptHash = await sha256Hex(ptToken);
+
+      mockKV.set(`pt:${ptHash}`, JSON.stringify({
+        owner_id: ownerId,
+        machine_id: 'machine-uuid-1',
+        machine_slug: 'abc123',
+        ports: null,
+        expires_at: new Date(Date.now() + 3600_000).toISOString(),
+      }));
+      mockKV.set('machine:abc123', JSON.stringify({
+        owner_id: ownerId,
+        ip: '1.2.3.4',
+        status: 'ready',
+        server_type: 'cx22',
+      }));
+
+      const request = new Request('https://abc123.kortix.cloud', {
+        headers: { 'X-Proxy-Token': ptToken },
+      });
+
+      const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET);
+
+      expect(result.success).toBe(true);
+      expect(result.authSource).toBe('proxytoken');
+      expect(result.proxyTokenData).toBeTruthy();
+      expect(result.proxyTokenData!.machine_slug).toBe('abc123');
+    });
+
+    it('should validate proxy token via ?__proxy_token= query param', async () => {
+      const ownerId = 'user_123';
+      const ptToken = 'pt_querytoken123';
+      const ptHash = await sha256Hex(ptToken);
+
+      mockKV.set(`pt:${ptHash}`, JSON.stringify({
+        owner_id: ownerId,
+        machine_id: 'machine-uuid-1',
+        machine_slug: 'abc123',
+        ports: null,
+        expires_at: new Date(Date.now() + 3600_000).toISOString(),
+      }));
+      mockKV.set('machine:abc123', JSON.stringify({
+        owner_id: ownerId,
+        ip: '1.2.3.4',
+        status: 'ready',
+        server_type: 'cx22',
+      }));
+
+      const request = new Request(`https://abc123.kortix.cloud?__proxy_token=${ptToken}`);
+
+      const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET);
+
+      expect(result.success).toBe(true);
+      expect(result.proxyTokenData).toBeTruthy();
+    });
+
+    it('should validate proxy token via __justavps_pt cookie', async () => {
+      const ownerId = 'user_123';
+      const ptToken = 'pt_cookietoken123';
+      const ptHash = await sha256Hex(ptToken);
+
+      mockKV.set(`pt:${ptHash}`, JSON.stringify({
+        owner_id: ownerId,
+        machine_id: 'machine-uuid-1',
+        machine_slug: 'abc123',
+        ports: null,
+        expires_at: new Date(Date.now() + 3600_000).toISOString(),
+      }));
+      mockKV.set('machine:abc123', JSON.stringify({
+        owner_id: ownerId,
+        ip: '1.2.3.4',
+        status: 'ready',
+        server_type: 'cx22',
+      }));
+
+      const request = new Request('https://abc123.kortix.cloud', {
+        headers: { 'Cookie': `__justavps_pt=${ptToken}` },
+      });
+
+      const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET);
+
+      expect(result.success).toBe(true);
+      expect(result.authSource).toBe('proxycookie');
+    });
+
+    it('should reject expired proxy token', async () => {
+      const ptToken = 'pt_expired123';
+      const ptHash = await sha256Hex(ptToken);
+
+      mockKV.set(`pt:${ptHash}`, JSON.stringify({
+        owner_id: 'user_123',
+        machine_id: 'machine-uuid-1',
+        machine_slug: 'abc123',
+        ports: null,
+        expires_at: new Date(Date.now() - 3600_000).toISOString(), // expired 1h ago
+      }));
+      mockKV.set('machine:abc123', JSON.stringify({
+        owner_id: 'user_123',
+        ip: '1.2.3.4',
+        status: 'ready',
+        server_type: 'cx22',
+      }));
+
+      const request = new Request('https://abc123.kortix.cloud', {
+        headers: { 'X-Proxy-Token': ptToken },
+      });
+
+      const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Proxy token has expired');
+    });
+
+    it('should reject proxy token for wrong machine', async () => {
+      const ptToken = 'pt_wrongmachine123';
+      const ptHash = await sha256Hex(ptToken);
+
+      mockKV.set(`pt:${ptHash}`, JSON.stringify({
+        owner_id: 'user_123',
+        machine_id: 'machine-uuid-1',
+        machine_slug: 'other-machine', // different slug
+        ports: null,
+        expires_at: new Date(Date.now() + 3600_000).toISOString(),
+      }));
+      mockKV.set('machine:abc123', JSON.stringify({
+        owner_id: 'user_123',
+        ip: '1.2.3.4',
+        status: 'ready',
+        server_type: 'cx22',
+      }));
+
+      const request = new Request('https://abc123.kortix.cloud', {
+        headers: { 'X-Proxy-Token': ptToken },
+      });
+
+      const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Proxy token is not valid for this machine');
+    });
+
+    it('should reject proxy token when port is restricted and not allowed', async () => {
+      const ptToken = 'pt_portrestricted123';
+      const ptHash = await sha256Hex(ptToken);
+
+      mockKV.set(`pt:${ptHash}`, JSON.stringify({
+        owner_id: 'user_123',
+        machine_id: 'machine-uuid-1',
+        machine_slug: 'abc123',
+        ports: [3000, 8080], // only these ports allowed
+        expires_at: new Date(Date.now() + 3600_000).toISOString(),
+      }));
+      mockKV.set('machine:abc123', JSON.stringify({
+        owner_id: 'user_123',
+        ip: '1.2.3.4',
+        status: 'ready',
+        server_type: 'cx22',
+      }));
+
+      const request = new Request('https://abc123.kortix.cloud', {
+        headers: { 'X-Proxy-Token': ptToken },
+      });
+
+      // Port 5000 is NOT in the allowed list
+      const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET, 5000);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Proxy token does not allow port 5000');
+    });
+
+    it('should allow proxy token when port is in allowed list', async () => {
+      const ptToken = 'pt_portallowed123';
+      const ptHash = await sha256Hex(ptToken);
+
+      mockKV.set(`pt:${ptHash}`, JSON.stringify({
+        owner_id: 'user_123',
+        machine_id: 'machine-uuid-1',
+        machine_slug: 'abc123',
+        ports: [3000, 8080],
+        expires_at: new Date(Date.now() + 3600_000).toISOString(),
+      }));
+      mockKV.set('machine:abc123', JSON.stringify({
+        owner_id: 'user_123',
+        ip: '1.2.3.4',
+        status: 'ready',
+        server_type: 'cx22',
+      }));
+
+      const request = new Request('https://abc123.kortix.cloud', {
+        headers: { 'X-Proxy-Token': ptToken },
+      });
+
+      // Port 3000 IS in the allowed list
+      const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET, 3000);
+
+      expect(result.success).toBe(true);
+    });
+
+    it('should not require machine ownership for proxy token auth', async () => {
+      const ptToken = 'pt_noownership123';
+      const ptHash = await sha256Hex(ptToken);
+
+      // Proxy token owner is user_123, but machine owner is user_456
+      // This should STILL work — proxy tokens bypass ownership checks
+      mockKV.set(`pt:${ptHash}`, JSON.stringify({
+        owner_id: 'user_123',
+        machine_id: 'machine-uuid-1',
+        machine_slug: 'abc123',
+        ports: null,
+        expires_at: new Date(Date.now() + 3600_000).toISOString(),
+      }));
+      mockKV.set('machine:abc123', JSON.stringify({
+        owner_id: 'user_456', // different owner — doesn't matter for proxy tokens
+        ip: '1.2.3.4',
+        status: 'ready',
+        server_type: 'cx22',
+      }));
+
+      const request = new Request('https://abc123.kortix.cloud', {
+        headers: { 'X-Proxy-Token': ptToken },
+      });
+
+      const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET);
+
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('API key expiration', () => {
+    it('should reject expired API key', async () => {
+      const apiKeyHash = await sha256Hex('sk_live_expired123');
+      mockKV.set(`apikey:${apiKeyHash}`, JSON.stringify({
+        owner_id: 'user_123',
+        name: 'Expired Key',
+        expires_at: new Date(Date.now() - 3600_000).toISOString(), // expired 1h ago
+      }));
+      mockKV.set('machine:abc123', JSON.stringify({
+        owner_id: 'user_123',
+        ip: '1.2.3.4',
+        status: 'ready',
+        server_type: 'cx22',
+      }));
+
+      const request = new Request('https://abc123.kortix.cloud', {
+        headers: { 'Authorization': 'Bearer sk_live_expired123' },
+      });
+
+      const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('API key has expired');
+    });
+
+    it('should accept non-expired API key with expires_at', async () => {
+      const ownerId = 'user_123';
+      const apiKeyHash = await sha256Hex('sk_live_valid_expiry123');
+      mockKV.set(`apikey:${apiKeyHash}`, JSON.stringify({
+        owner_id: ownerId,
+        name: 'Valid Key',
+        expires_at: new Date(Date.now() + 86400_000).toISOString(), // expires in 24h
+      }));
+      mockKV.set('machine:abc123', JSON.stringify({
+        owner_id: ownerId,
+        ip: '1.2.3.4',
+        status: 'ready',
+        server_type: 'cx22',
+      }));
+
+      const request = new Request('https://abc123.kortix.cloud', {
+        headers: { 'Authorization': 'Bearer sk_live_valid_expiry123' },
+      });
+
+      const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET);
+
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('API key permissions', () => {
+    it('should reject API key without proxy permission', async () => {
+      const apiKeyHash = await sha256Hex('sk_live_noproxy123');
+      mockKV.set(`apikey:${apiKeyHash}`, JSON.stringify({
+        owner_id: 'user_123',
+        name: 'Read-only Key',
+        permissions: ['read'],  // no 'proxy' permission
+      }));
+      mockKV.set('machine:abc123', JSON.stringify({
+        owner_id: 'user_123',
+        ip: '1.2.3.4',
+        status: 'ready',
+        server_type: 'cx22',
+      }));
+
+      const request = new Request('https://abc123.kortix.cloud', {
+        headers: { 'Authorization': 'Bearer sk_live_noproxy123' },
+      });
+
+      const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('API key does not have proxy permission');
+    });
+
+    it('should accept API key with wildcard permission', async () => {
+      const ownerId = 'user_123';
+      const apiKeyHash = await sha256Hex('sk_live_wildcard123');
+      mockKV.set(`apikey:${apiKeyHash}`, JSON.stringify({
+        owner_id: ownerId,
+        name: 'Wildcard Key',
+        permissions: ['*'],
+      }));
+      mockKV.set('machine:abc123', JSON.stringify({
+        owner_id: ownerId,
+        ip: '1.2.3.4',
+        status: 'ready',
+        server_type: 'cx22',
+      }));
+
+      const request = new Request('https://abc123.kortix.cloud', {
+        headers: { 'Authorization': 'Bearer sk_live_wildcard123' },
+      });
+
+      const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET);
+
+      expect(result.success).toBe(true);
+    });
+
+    it('should accept API key with explicit proxy permission', async () => {
+      const ownerId = 'user_123';
+      const apiKeyHash = await sha256Hex('sk_live_proxy123');
+      mockKV.set(`apikey:${apiKeyHash}`, JSON.stringify({
+        owner_id: ownerId,
+        name: 'Proxy Key',
+        permissions: ['read', 'proxy'],
+      }));
+      mockKV.set('machine:abc123', JSON.stringify({
+        owner_id: ownerId,
+        ip: '1.2.3.4',
+        status: 'ready',
+        server_type: 'cx22',
+      }));
+
+      const request = new Request('https://abc123.kortix.cloud', {
+        headers: { 'Authorization': 'Bearer sk_live_proxy123' },
+      });
+
+      const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET);
+
+      expect(result.success).toBe(true);
+    });
+  });
 });
 
 // ─── Test helpers ──────────────────────────────────────────────────────────

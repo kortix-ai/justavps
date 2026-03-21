@@ -331,28 +331,64 @@ internalApp.openapi(validateKeyRoute, async (c) => {
     // Fast path: SHA-256 lookup
     const [match] = await db.select().from(apiKeys).where(eq(apiKeys.keySha256, hash)).limit(1);
     if (match) {
+      // Check expiration
+      if (match.expiresAt && match.expiresAt < new Date()) {
+        return c.json({ valid: false, message: 'API key has expired' }, 401);
+      }
       db.update(apiKeys).set({ lastUsed: new Date() }).where(eq(apiKeys.id, match.id)).catch(() => {});
       if (machineSlug) {
-        const [machine] = await db.select().from(machines).where(eq(machines.slug, machineSlug));
-        if (!machine || machine.ownerId !== match.ownerId) {
-          return c.json({ valid: false, message: 'Key does not own this machine' }, 403);
+        // For machine-scoped keys, check if this machine is in the allowed list
+        if (match.scope === 'machine' && match.machineIds) {
+          const [machine] = await db.select().from(machines).where(eq(machines.slug, machineSlug));
+          if (!machine || !match.machineIds.includes(machine.id)) {
+            return c.json({ valid: false, message: 'API key does not have access to this machine' }, 403);
+          }
+        } else {
+          const [machine] = await db.select().from(machines).where(eq(machines.slug, machineSlug));
+          if (!machine || machine.ownerId !== match.ownerId) {
+            return c.json({ valid: false, message: 'Key does not own this machine' }, 403);
+          }
         }
       }
-      return c.json({ valid: true, owner_id: match.ownerId });
+      return c.json({
+        valid: true,
+        owner_id: match.ownerId,
+        scope: match.scope,
+        machine_ids: match.machineIds ?? null,
+        permissions: match.permissions,
+        expires_at: match.expiresAt?.toISOString() ?? null,
+      });
     }
 
     // Slow fallback: bcrypt scan for old keys, backfill SHA-256
     const keys = await db.select().from(apiKeys);
     for (const key of keys) {
       if (await validateApiKey(keyValue, key.keyHash)) {
+        if (key.expiresAt && key.expiresAt < new Date()) {
+          return c.json({ valid: false, message: 'API key has expired' }, 401);
+        }
         db.update(apiKeys).set({ keySha256: hash, lastUsed: new Date() }).where(eq(apiKeys.id, key.id)).catch(() => {});
         if (machineSlug) {
-          const [machine] = await db.select().from(machines).where(eq(machines.slug, machineSlug));
-          if (!machine || machine.ownerId !== key.ownerId) {
-            return c.json({ valid: false, message: 'Key does not own this machine' }, 403);
+          if (key.scope === 'machine' && key.machineIds) {
+            const [machine] = await db.select().from(machines).where(eq(machines.slug, machineSlug));
+            if (!machine || !key.machineIds.includes(machine.id)) {
+              return c.json({ valid: false, message: 'API key does not have access to this machine' }, 403);
+            }
+          } else {
+            const [machine] = await db.select().from(machines).where(eq(machines.slug, machineSlug));
+            if (!machine || machine.ownerId !== key.ownerId) {
+              return c.json({ valid: false, message: 'Key does not own this machine' }, 403);
+            }
           }
         }
-        return c.json({ valid: true, owner_id: key.ownerId });
+        return c.json({
+          valid: true,
+          owner_id: key.ownerId,
+          scope: key.scope,
+          machine_ids: key.machineIds ?? null,
+          permissions: key.permissions,
+          expires_at: key.expiresAt?.toISOString() ?? null,
+        });
       }
     }
     return c.json({ valid: false }, 401);

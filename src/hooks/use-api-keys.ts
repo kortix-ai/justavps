@@ -1,10 +1,18 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api-client";
-import type { APIKey } from "@/lib/types";
+import type { APIKey, ApiKeyScope, ApiKeyPermission } from "@/lib/types";
 
 export const apiKeyKeys = {
   all: ["api-keys"] as const,
 };
+
+export interface CreateAPIKeyInput {
+  name: string;
+  scope?: ApiKeyScope;
+  machine_ids?: string[];
+  permissions?: ApiKeyPermission[];
+  expires_in_seconds?: number | null;
+}
 
 export function useAPIKeys() {
   return useQuery({
@@ -16,7 +24,7 @@ export function useAPIKeys() {
 export function useCreateAPIKey() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (name: string) => api.post<APIKey>("/api-keys", { name }),
+    mutationFn: (input: CreateAPIKeyInput) => api.post<APIKey>("/api-keys", input),
     onSuccess: (key) => {
       qc.setQueryData<APIKey[]>(apiKeyKeys.all, (old) => (old ? [...old, key] : [key]));
     },

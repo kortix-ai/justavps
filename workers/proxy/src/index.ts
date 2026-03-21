@@ -41,36 +41,39 @@ export default {
 
       const { slug, port, rewrittenPath } = parsed;
 
-      // Handle proxy token callback: platform redirects here with __proxy_token in query.
+      // Handle platform proxy-auth callback: platform redirects here with __proxy_token JWT in query.
       // The platform already verified the user's session — we just need to verify the JWT
       // signature (not ownership), set cookie on the proxy domain, and redirect to clean URL.
       // Ownership is checked on the NEXT request (after redirect) when the cookie is sent.
-      const proxyToken = url.searchParams.get('__proxy_token');
-      if (proxyToken && request.method === 'GET') {
-        try {
-          // Verify JWT signature only (decode + check expiry)
-          const parts = proxyToken.split('.');
-          if (parts.length === 3) {
-            const payloadB64 = parts[1];
-            const payload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));
-            if (payload.sub && payload.exp && payload.exp > Date.now() / 1000) {
-              // JWT is structurally valid + not expired — set cookie and redirect
-              url.searchParams.delete('__proxy_token');
-              // Derive cookie domain from hostname (e.g. "43179--slug.kortix-dev.cloud" → ".kortix-dev.cloud")
-              const hostParts = url.hostname.split('.');
-              const cookieDomain = '.' + hostParts.slice(-2).join('.');
-              const cookieValue = `__justavps_proxy=${proxyToken}; Domain=${cookieDomain}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400`;
-              return new Response(null, {
-                status: 302,
-                headers: {
-                  'Location': url.toString(),
-                  'Set-Cookie': cookieValue,
-                  'Cache-Control': 'no-store',
-                },
-              });
+      const proxyTokenParam = url.searchParams.get('__proxy_token');
+      if (proxyTokenParam && request.method === 'GET') {
+        // Proxy tokens (pt_xxx) — handled by validateAuth below, not here
+        if (!proxyTokenParam.startsWith('pt_')) {
+          try {
+            // Verify JWT signature only (decode + check expiry)
+            const parts = proxyTokenParam.split('.');
+            if (parts.length === 3) {
+              const payloadB64 = parts[1];
+              const payload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));
+              if (payload.sub && payload.exp && payload.exp > Date.now() / 1000) {
+                // JWT is structurally valid + not expired — set cookie and redirect
+                url.searchParams.delete('__proxy_token');
+                // Derive cookie domain from hostname (e.g. "43179--slug.kortix-dev.cloud" → ".kortix-dev.cloud")
+                const hostParts = url.hostname.split('.');
+                const cookieDomain = '.' + hostParts.slice(-2).join('.');
+                const cookieValue = `__justavps_proxy=${proxyTokenParam}; Domain=${cookieDomain}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400`;
+                return new Response(null, {
+                  status: 302,
+                  headers: {
+                    'Location': url.toString(),
+                    'Set-Cookie': cookieValue,
+                    'Cache-Control': 'no-store',
+                  },
+                });
+              }
             }
-          }
-        } catch { /* invalid token — fall through to normal auth */ }
+          } catch { /* invalid token — fall through to normal auth */ }
+        }
       }
 
       // CORS preflight — let through without auth
@@ -79,8 +82,8 @@ export default {
         if (cors) return cors;
       }
 
-      // Authenticate
-      const authResult = await validateAuth(request, slug, env.KV, env.PROXY_AUTH_SECRET);
+      // Authenticate (pass port for proxy token port-scoping)
+      const authResult = await validateAuth(request, slug, env.KV, env.PROXY_AUTH_SECRET, port);
 
       if (!authResult.success) {
         const error = authResult.error || 'Authentication required';
@@ -115,6 +118,33 @@ export default {
           status: 502,
           headers: { 'Content-Type': 'application/json' },
         });
+      }
+
+      // If auth was via ?__proxy_token=pt_xxx query param, set cookie and redirect to clean URL.
+      // Do this BEFORE proxying so the user gets a clean URL and the cookie handles subsequent requests.
+      if (authResult.proxyTokenData && authResult.authSource === 'proxytoken' && request.method === 'GET') {
+        if (url.searchParams.has('__proxy_token')) {
+          const ptData = authResult.proxyTokenData;
+          const ttlSeconds = Math.min(
+            Math.max(0, Math.floor((new Date(ptData.expires_at).getTime() - Date.now()) / 1000)),
+            14400, // cap at 4h
+          );
+          if (ttlSeconds > 0) {
+            const originalToken = url.searchParams.get('__proxy_token')!;
+            url.searchParams.delete('__proxy_token');
+            const hostParts = url.hostname.split('.');
+            const cookieDomain = '.' + hostParts.slice(-2).join('.');
+            const cookieValue = `__justavps_pt=${originalToken}; Domain=${cookieDomain}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${ttlSeconds}`;
+            return new Response(null, {
+              status: 302,
+              headers: {
+                'Location': url.toString(),
+                'Set-Cookie': cookieValue,
+                'Cache-Control': 'no-store',
+              },
+            });
+          }
+        }
       }
 
       // WebSocket upgrade

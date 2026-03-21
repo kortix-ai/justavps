@@ -27,6 +27,19 @@ export async function generateApiKey(): Promise<{ key: string; hash: string; sha
 }
 
 /**
+ * Generate a proxy token (pt_xxx format) for sharing machine access.
+ * Returns plain token, bcrypt hash, SHA-256 hash, and prefix.
+ */
+export async function generateProxyToken(): Promise<{ token: string; hash: string; sha256: string; prefix: string }> {
+  const rawToken = randomBytes(32).toString('hex');
+  const token = `pt_${rawToken}`;
+  const hash = await bcryptjs.hash(token, 10);
+  const sha256 = createHash('sha256').update(token).digest('hex');
+  const prefix = token.slice(0, 12) + '...';
+  return { token, hash, sha256, prefix };
+}
+
+/**
  * Validate an API key against a bcrypt hash.
  */
 export async function validateApiKey(key: string, hash: string): Promise<boolean> {

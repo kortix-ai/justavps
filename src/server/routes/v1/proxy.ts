@@ -1,14 +1,27 @@
 /**
+ * ⚠️  DEPRECATED — SCHEDULED FOR DELETION
+ *
  * Machine proxy — authenticated passthrough to a machine's Docker container ports.
  *
  * Route: ALL /machines/:machineId/proxy/:port/*
  *
- * Validates ownership, then forwards the request to the machine's daemon
- * on port 80 via /_port/{port}/{path}. The daemon reverse-proxies to
- * localhost:{port} inside the VPS.
+ * This route proxies through the platform (justavps.com) directly to the machine IP,
+ * bypassing the Cloudflare Worker. This is architecturally wrong because:
  *
- * Used by Kortix Computer API to reach sandbox containers without
- * requiring direct IP access (firewalled by Hetzner Cloud Firewall).
+ *   1. Bypasses the CF Worker — skips CORS, WebSocket, error pages, cookie refresh
+ *   2. Routes through platform server — bad for latency/bandwidth vs CF edge
+ *   3. Duplicates auth logic — inline key validation instead of using apiGuard
+ *   4. The CF Worker already supports API keys — no gap to fill
+ *
+ * USE INSTEAD:
+ *   - CF Worker proxy: https://{port}--{slug}.kortix.cloud with Bearer sk_live_xxx header
+ *   - Proxy tokens: https://{port}--{slug}.kortix.cloud?__proxy_token=pt_xxx
+ *   - If you only have machine UUID (not slug): GET /api/v1/machines/:id → use slug from response
+ *
+ * Currently kept because Kortix Computer API (Saumya) has a dependency on it.
+ * Remove once Kortix Computer migrates to the CF Worker proxy path.
+ *
+ * @deprecated Use CF Worker proxy at {port}--{slug}.kortix.cloud instead
  */
 
 import { Hono } from 'hono';
