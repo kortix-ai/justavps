@@ -47,11 +47,26 @@ class MachineEventBus {
       timestamp: now.toISOString(),
     };
 
+    const STAGE_ORDER = [
+      'server_creating', 'server_created',
+      'cloud_init_running', 'cloud_init_done',
+      'docker_pulling', 'docker_running',
+      'services_starting', 'services_ready',
+    ];
+
     try {
-      await db.update(machines).set({
-        provisioningStage: stage,
-        provisioningStageUpdatedAt: now,
-      }).where(eq(machines.id, machineId));
+      const [current] = await db.select({ provisioningStage: machines.provisioningStage })
+        .from(machines).where(eq(machines.id, machineId)).limit(1);
+      const currentIdx = STAGE_ORDER.indexOf(current?.provisioningStage || '');
+      const newIdx = STAGE_ORDER.indexOf(stage);
+      const isForward = newIdx === -1 || newIdx > currentIdx;
+
+      if (isForward) {
+        await db.update(machines).set({
+          provisioningStage: stage,
+          provisioningStageUpdatedAt: now,
+        }).where(eq(machines.id, machineId));
+      }
     } catch (err) {
       console.error(`[EVENT-BUS] Failed to update machine stage:`, err);
     }
