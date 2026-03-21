@@ -195,12 +195,6 @@ for i in $(seq 1 120); do
   sleep 2
 done
 
-# Restart daemon now that config is final and container is running.
-# Must happen before services_ready so the daemon is up when the frontend connects.
-systemctl enable justavps-daemon 2>/dev/null || true
-systemctl restart justavps-daemon 2>/dev/null || true
-sleep 2
-
 ${stageCallback('services_starting', 'Services booting...')}
 echo "[justavps] Waiting for services to be ready..."
 for i in $(seq 1 120); do
@@ -497,20 +491,17 @@ AccuracySec=30
 WantedBy=timers.target
 WDTIMEREOF
 
-# ── Start services (daemon last — after docker workload is up) ────────────
+# ── Start services ────────────────────────────────────────────────────────
 systemctl daemon-reload
 systemctl enable --now justavps-docker-guard 2>/dev/null || true
+systemctl enable justavps-daemon 2>/dev/null || true
+systemctl restart justavps-daemon 2>/dev/null || true
 systemctl enable --now sandbox-agent 2>/dev/null || true
 systemctl enable --now opencode-web 2>/dev/null || true
 systemctl enable --now justavps-watchdog.timer 2>/dev/null || true
 
 ${stageCallback('cloud_init_done', 'Configuration complete')}
 ${dockerBlock}
-
-${opts.dockerImage ? '' : `# Non-docker machine: start daemon now (docker machines start it inside the docker block)
-systemctl enable justavps-daemon 2>/dev/null || true
-systemctl restart justavps-daemon 2>/dev/null || true
-`}
 echo "[justavps] Machine ${opts.slug} ready!"
 `;
 }
