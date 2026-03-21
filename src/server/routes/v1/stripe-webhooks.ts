@@ -400,7 +400,7 @@ function provisionMachineAsync(
       });
 
       await db.update(machines).set({
-        ip: server.publicIp,
+        ip: server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp,
         providerServerId: server.serverId,
         providerMeta: {
           callback_expected: callbackConfig.callbackExpected,
@@ -408,15 +408,15 @@ function provisionMachineAsync(
           create_action_id: server.createActionId ?? null,
           create_status: 'running',
           create_progress: 1,
+          public_ipv4: server.publicIpv4 ?? null,
+          public_ipv6: server.publicIpv6 ?? null,
         },
       }).where(eq(machines.id, machine.id));
 
-      await eventBus.emitStageChange(machine.id, userId, 'server_created', `Server created (IP: ${server.publicIp})`, { ip: server.publicIp });
+      await eventBus.emitStageChange(machine.id, userId, 'server_created', `Server created (IP: ${server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp})`, { ip: server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp });
 
-      try {
-        await setupProxyDNS(slug, server.publicIp, userId, machineConfig.server_type);
-      } catch (err) {
-        console.warn(`[STRIPE WEBHOOK] KV setup failed for ${slug}:`, err);
+      if (config.isCloudflareConfigured()) {
+        await setupProxyDNS(slug, { ipv4: server.publicIpv4, ipv6: server.publicIpv6 }, userId, machineConfig.server_type);
       }
 
       if (priceMonthly) {

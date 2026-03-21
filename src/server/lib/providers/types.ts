@@ -33,12 +33,19 @@ export interface CreateServerOpts {
 export interface ServerResult {
   serverId: string;
   publicIp: string;
+  publicIpv4?: string | null;
+  publicIpv6?: string | null;
   createActionId?: string | null;
 }
 
 export interface ProviderActionProgress {
   status: string;
   progress: number | null;
+}
+
+export interface ProviderServerNetwork {
+  publicIpv4: string | null;
+  publicIpv6: string | null;
 }
 
 export interface SSHKeyResult {
@@ -62,6 +69,7 @@ export interface ComputeProvider {
   resizeServer(serverId: string, serverType: string): Promise<void>;
   getServerStatus(serverId: string): Promise<string>;
   getActionProgress?(actionId: string): Promise<ProviderActionProgress>;
+  getServerNetwork?(serverId: string): Promise<ProviderServerNetwork>;
 
   uploadSSHKey(name: string, publicKey: string): Promise<SSHKeyResult>;
   deleteSSHKey(keyId: string): Promise<void>;

@@ -1,9 +1,9 @@
 /**
- * Cloudflare client — DNS AAAA records and KV management.
+ * Cloudflare client — dual-stack DNS and KV management.
  *
  * Architecture (direct IP proxy — no tunnels):
- *   - Per-machine AAAA records: slug.kortix.cloud → VPS_IPv6 (proxied, orange-cloud)
- *   - Per-machine wildcard AAAA: *.slug.kortix.cloud → VPS_IPv6 (proxied, for port subdomains)
+ *   - Per-machine A/AAAA records: slug.kortix.cloud → VPS public IPs (proxied, orange-cloud)
+ *   - Per-machine wildcard A/AAAA: *.slug.kortix.cloud → VPS public IPs (proxied, for port subdomains)
  *   - CF Worker route intercepts all requests, authenticates, proxies to VPS IP
  *   - KV stores machine info for Worker auth lookups
  */
@@ -55,23 +55,27 @@ async function deleteAllDNSRecords(zid: string, hostname: string): Promise<void>
 
 export const cloudflareClient = {
   /**
-   * Add DNS records for a machine: AAAA record + wildcard AAAA for port subdomains.
+   * Add DNS records for a machine.
    *
    * Creates:
-   *   slug.kortix.cloud         → AAAA → VPS_IPv6 (proxied) — triggers Worker route
-   *   origin-slug.kortix.cloud  → AAAA → VPS_IPv6 (DNS-only) — Worker fetches this
+   *   slug.kortix.cloud         → A/AAAA → VPS public IPs (proxied) — triggers Worker route
+   *   origin-slug.kortix.cloud  → A/AAAA → VPS public IPs (DNS-only) — Worker fetches this
    *
-   * No wildcard AAAA record needed — the Worker route *.kortix.cloud/* handles
-   * port subdomains (3000.slug.kortix.cloud). A wildcard AAAA would conflict with
+   * No wildcard-only special case — the Worker route *.kortix.cloud/* handles
+   * port subdomains (3000.slug.kortix.cloud). A wildcard origin record would conflict with
    * the DNS-only origin record.
    *
    * The origin record uses "origin-slug" (single level) not "origin.slug" (two levels)
    * to avoid wildcard DNS precedence conflicts.
    */
-  async addMachineDNS(slug: string, ip: string): Promise<void> {
+  async addMachineDNS(slug: string, addresses: { ipv4?: string | null; ipv6?: string | null }): Promise<void> {
     const { CLOUDFLARE_ZONE_ID: zid, PROXY_DOMAIN: domain } = config;
     if (!zid) {
       console.warn(`[CF] Zone not configured — skipping DNS for ${slug}`);
+      return;
+    }
+    if (!addresses.ipv4 && !addresses.ipv6) {
+      console.warn(`[CF] No public IPs available — skipping DNS for ${slug}`);
       return;
     }
 
@@ -85,30 +89,31 @@ export const cloudflareClient = {
     // Also clean old architecture artifacts
     await deleteAllDNSRecords(zid, `origin.${hostname}`);
 
-    // Create AAAA record: slug.kortix.cloud → VPS_IPv6 (proxied — triggers Worker route)
-    await cfFetch(`/zones/${zid}/dns_records`, {
-      method: 'POST',
-      body: { type: 'AAAA', name: hostname, content: ip, proxied: true, ttl: 1 },
-    });
-    console.log(`[CF DNS] AAAA record: ${hostname} → ${ip}`);
+    const publish = async (type: 'A' | 'AAAA', content: string) => {
+      const createRecord = async (name: string, proxied: boolean) => {
+        try {
+          await cfFetch(`/zones/${zid}/dns_records`, {
+            method: 'POST',
+            body: { type, name, content, proxied, ttl: 1 },
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (!message.includes('81058')) throw err;
+        }
+      };
 
-    // Create wildcard AAAA: *.slug.kortix.cloud → VPS_IPv6 (proxied)
-    // Enables port-based subdomains: 3000.slug.kortix.cloud
-    // (requires CF Worker route *.kortix.cloud/* to match — single-level wildcard)
-    await cfFetch(`/zones/${zid}/dns_records`, {
-      method: 'POST',
-      body: { type: 'AAAA', name: `*.${hostname}`, content: ip, proxied: true, ttl: 1 },
-    });
-    console.log(`[CF DNS] Wildcard AAAA: *.${hostname} → ${ip}`);
+      await createRecord(hostname, true);
+      console.log(`[CF DNS] ${type} record: ${hostname} → ${content}`);
 
-    // Create origin AAAA: origin-slug.kortix.cloud → VPS_IPv6 (DNS-only, NOT proxied)
-    // The CF Worker fetches this hostname to reach the VPS — bypasses CF proxy layer.
-    // Workers cannot fetch raw IPs that are on CF's network (error 1003).
-    await cfFetch(`/zones/${zid}/dns_records`, {
-      method: 'POST',
-      body: { type: 'AAAA', name: origin, content: ip, proxied: false, ttl: 1 },
-    });
-    console.log(`[CF DNS] Origin AAAA (DNS-only): ${origin} → ${ip}`);
+      await createRecord(`*.${hostname}`, true);
+      console.log(`[CF DNS] Wildcard ${type}: *.${hostname} → ${content}`);
+
+      await createRecord(origin, false);
+      console.log(`[CF DNS] Origin ${type} (DNS-only): ${origin} → ${content}`);
+    };
+
+    if (addresses.ipv4) await publish('A', addresses.ipv4);
+    if (addresses.ipv6) await publish('AAAA', addresses.ipv6);
   },
 
   /**

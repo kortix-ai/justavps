@@ -517,6 +517,29 @@ function provisioningSubcopy(machine: Machine) {
   return "Usually 1-3 minutes.";
 }
 
+function isIpv6Address(value: string | null | undefined) {
+  return !!value && value.includes(":");
+}
+
+function machineOriginHost(machine: Machine) {
+  return `origin-${machine.slug}.${PROXY_DOMAIN}`;
+}
+
+function machineSshHost(machine: Machine) {
+  return machine.ip ?? machineOriginHost(machine);
+}
+
+function buildSshSetupCommand(machine: Machine, sshKeyPath: string) {
+  if (!machine.ssh_key?.private_key) return null;
+  const target = machineSshHost(machine);
+  return `mkdir -p ~/.ssh && echo '${machine.ssh_key.private_key}' > ${sshKeyPath} && chmod 600 ${sshKeyPath} && ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${target}`;
+}
+
+function buildSshConfig(machine: Machine, sshKeyPath: string) {
+  const target = machineSshHost(machine);
+  return `grep -q "Host ${machine.slug}" ~/.ssh/config 2>/dev/null || cat >> ~/.ssh/config << 'EOF'\n\nHost ${machine.slug}\n  HostName ${target}\n  User root\n  IdentityFile ${sshKeyPath}\n  StrictHostKeyChecking no\nEOF`;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════
    MACHINE DETAIL PAGE
    ═══════════════════════════════════════════════════════════════════════ */
@@ -576,6 +599,13 @@ export default function MachineDetailPage() {
     );
   };
 
+  const sshKeyPath = `~/.ssh/justavps_${machine?.slug}`;
+
+  const sshTarget = machine ? machineOriginHost(machine) : null;
+  const setupCommand = machine ? buildSshSetupCommand(machine, sshKeyPath) : null;
+  const sshConfigCommand = machine ? buildSshConfig(machine, sshKeyPath) : null;
+  const ipv6OnlySsh = !!machine?.ip && isIpv6Address(machine.ip);
+
   /* ── Loading ───────────────────────────────────────────────────────── */
   if (isLoading)
     return (
@@ -616,7 +646,6 @@ export default function MachineDetailPage() {
   const isResizing =
     machine.status === "provisioning" && machine.provisioning_stage === "resizing";
   const uptime = machine.ready_at ? timeAgo(machine.ready_at) : null;
-  const sshKeyPath = `~/.ssh/justavps_${machine.slug}`;
 
 
   /* Health values — daemon sends 0–1 fractions, normalise to 0–100 here */
@@ -1023,7 +1052,7 @@ export default function MachineDetailPage() {
                   </p>
                 </div>
                 <CopyButton
-                  text={`Set up SSH access to my remote VPS and connect via Remote-SSH.\n\n1. Save the SSH key:\n${machine.ssh_key?.setup_command?.split("&&").slice(0, 2).join("&&").trim() ?? "# run step 1 first"}\n\n2. Add to ~/.ssh/config:\nHost ${machine.slug}\n  HostName ${machine.ip}\n  User root\n  IdentityFile ${sshKeyPath}\n  StrictHostKeyChecking no\n\n3. Connect via Remote-SSH to host "${machine.slug}"`}
+                  text={`Set up SSH access to my remote VPS and connect via Remote-SSH.\n\n1. Save the SSH key:\n${setupCommand ?? "# run step 1 first"}\n\n2. Add to ~/.ssh/config:\nHost ${machine.slug}\n  HostName ${sshTarget}\n  User root\n  IdentityFile ${sshKeyPath}\n  StrictHostKeyChecking no\n\n3. Connect via Remote-SSH to host "${machine.slug}"`}
                   label="AI agent prompt"
                 />
               </div>
@@ -1050,16 +1079,21 @@ export default function MachineDetailPage() {
                 <p className="text-xs text-muted-foreground">
                   Run once in your terminal — saves your key and opens an SSH session immediately.
                 </p>
-                {machine.ssh_key?.setup_command ? (
+                {setupCommand ? (
                   <SecretCodeBlock
-                    text={machine.ssh_key.setup_command}
+                    text={setupCommand}
                     label="Setup command"
                   />
                 ) : (
                   <p className="text-xs text-muted-foreground italic">Not available yet.</p>
                 )}
                 <p className="text-xs text-muted-foreground">Reconnect later:</p>
-                <CodeBlock text={`ssh -i ${sshKeyPath} root@${machine.ip}`} label="SSH command" />
+                <CodeBlock text={`ssh -i ${sshKeyPath} root@${sshTarget}`} label="SSH command" />
+                {ipv6OnlySsh && (
+                  <p className="text-xs text-muted-foreground">
+                    If direct SSH fails with <span className="font-mono">No route to host</span>, your current network likely has no IPv6 path. Use the Terminal tab or switch to a network with IPv6.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -1082,7 +1116,7 @@ export default function MachineDetailPage() {
                   </div>
                   <p className="text-xs text-muted-foreground">Add host to SSH config (run once):</p>
                   <CodeBlock
-                    text={`grep -q "Host ${machine.slug}" ~/.ssh/config 2>/dev/null || cat >> ~/.ssh/config << 'EOF'\n\nHost ${machine.slug}\n  HostName ${machine.ip}\n  User root\n  IdentityFile ${sshKeyPath}\n  StrictHostKeyChecking no\nEOF`}
+                    text={sshConfigCommand ?? "# not available yet"}
                     label="SSH config"
                     variant="green"
                   />
@@ -1101,7 +1135,7 @@ export default function MachineDetailPage() {
                     <span className="text-sm font-medium">Terminal / Plain SSH</span>
                   </div>
                   <CodeBlock
-                    text={`ssh -i ${sshKeyPath} root@${machine.ip}`}
+                    text={`ssh -i ${sshKeyPath} root@${sshTarget}`}
                     label="SSH command"
                   />
                 </div>

@@ -173,10 +173,8 @@ async function waitForImageReady(imageId: number, timeoutMs = PROVISION_TIMEOUT_
 }
 
 /**
- * Extract a usable IPv6 address from Hetzner's response.
  * Hetzner returns a /64 subnet like "2a01:4f8:c17:e4c4::/64".
  * The server itself uses the first host in that subnet, i.e. "::1".
- * Also handles already-normalized bare addresses gracefully.
  */
 function extractIPv6(raw: string): string {
   const stripped = raw.replace(/\/\d+$/, '');
@@ -184,6 +182,10 @@ function extractIPv6(raw: string): string {
     return `${stripped}1`;
   }
   return stripped;
+}
+
+function extractIpv4(raw?: string | null): string | null {
+  return raw && raw.trim() ? raw : null;
 }
 
 export class HetznerProvider implements ComputeProvider {
@@ -243,7 +245,7 @@ export class HetznerProvider implements ComputeProvider {
       user_data: opts.userData,
       labels: opts.labels,
       automount: false,
-      public_net: { enable_ipv4: false, enable_ipv6: true },
+      public_net: { enable_ipv4: true, enable_ipv6: true },
       firewalls: [{ firewall: firewallId }],
     };
 
@@ -256,25 +258,33 @@ export class HetznerProvider implements ComputeProvider {
     });
 
     const serverId = result.server.id;
-    // IP is assigned immediately at creation — don't wait for "running" status
-    // (waiting takes 60-90s on snapshot boot, which exceeds Vercel's serverless timeout)
-    const publicIp = extractIPv6(result.server.public_net.ipv6.ip);
+    const publicIpv4 = extractIpv4(result.server.public_net.ipv4?.ip);
+    const publicIpv6 = extractIPv6(result.server.public_net.ipv6.ip);
+    const publicIp = publicIpv4 ?? publicIpv6;
 
     if (!publicIp) {
       // Fallback: poll briefly for IP assignment (shouldn't be needed)
       for (let i = 0; i < 5; i++) {
         await new Promise(r => setTimeout(r, 3000));
         const info = await hetznerFetch<{ server: HetznerServer }>(`/servers/${serverId}`);
-        const polledIp = extractIPv6(info.server.public_net.ipv6.ip);
+        const polledIpv4 = extractIpv4(info.server.public_net.ipv4?.ip);
+        const polledIpv6 = extractIPv6(info.server.public_net.ipv6.ip);
+        const polledIp = polledIpv4 ?? polledIpv6;
         if (polledIp) {
-          console.log(`[hetzner] Created server ${opts.name} (ID: ${serverId}, IP: ${polledIp})`);
-          return { serverId: String(serverId), publicIp: polledIp, createActionId: result.action ? String(result.action.id) : null };
+          console.log(`[hetzner] Created server ${opts.name} (ID: ${serverId}, IPv4: ${polledIpv4 ?? '-'}, IPv6: ${polledIpv6 ?? '-'})`);
+          return {
+            serverId: String(serverId),
+            publicIp: polledIp,
+            publicIpv4: polledIpv4,
+            publicIpv6: polledIpv6,
+            createActionId: result.action ? String(result.action.id) : null,
+          };
         }
       }
       throw new Error(`[hetzner] Server ${serverId} created but no IP assigned`);
     }
 
-    console.log(`[hetzner] Created server ${opts.name} (ID: ${serverId}, IP: ${publicIp})`);
+    console.log(`[hetzner] Created server ${opts.name} (ID: ${serverId}, IPv4: ${publicIpv4 ?? '-'}, IPv6: ${publicIpv6 ?? '-'})`);
 
     // Enable delete + rebuild protection (fire-and-forget — don't block provisioning)
     hetznerFetch(`/servers/${serverId}/actions/change_protection`, {
@@ -286,7 +296,13 @@ export class HetznerProvider implements ComputeProvider {
       console.warn(`[hetzner] Failed to enable protection for server ${serverId}:`, err);
     });
 
-    return { serverId: String(serverId), publicIp, createActionId: result.action ? String(result.action.id) : null };
+    return {
+      serverId: String(serverId),
+      publicIp,
+      publicIpv4,
+      publicIpv6,
+      createActionId: result.action ? String(result.action.id) : null,
+    };
   }
 
   async getActionProgress(actionId: string): Promise<ProviderActionProgress> {
@@ -294,6 +310,14 @@ export class HetznerProvider implements ComputeProvider {
     return {
       status: result.action.status,
       progress: typeof result.action.progress === 'number' ? result.action.progress : null,
+    };
+  }
+
+  async getServerNetwork(serverId: string) {
+    const result = await hetznerFetch<{ server: HetznerServer }>(`/servers/${serverId}`);
+    return {
+      publicIpv4: extractIpv4(result.server.public_net.ipv4?.ip),
+      publicIpv6: extractIPv6(result.server.public_net.ipv6.ip),
     };
   }
 

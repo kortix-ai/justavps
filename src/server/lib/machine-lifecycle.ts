@@ -16,6 +16,8 @@ interface ProvisionProviderMeta {
   create_action_id?: string | null;
   create_progress?: number | null;
   create_status?: string | null;
+  public_ipv4?: string | null;
+  public_ipv6?: string | null;
   callback_expected?: boolean;
   callback_url?: string | null;
   last_callback_at?: string | null;
@@ -78,12 +80,6 @@ export function resolvePlatformCallbackUrl(requestUrl?: string): string {
 
 function readProviderMeta(machine: typeof machines.$inferSelect): ProvisionProviderMeta {
   return (machine.providerMeta ?? {}) as ProvisionProviderMeta;
-}
-
-function normalizeProvisionedMachineIp(machine: typeof machines.$inferSelect): string | null {
-  if (machine.provider !== 'cloud' || !machine.ip) return null;
-  if (machine.ip.endsWith('::')) return `${machine.ip}1`;
-  return null;
 }
 
 async function updateProviderMeta(machineId: string, patch: Partial<ProvisionProviderMeta>) {
@@ -210,28 +206,28 @@ export function buildMachineUserData(
 }
 
 /**
- * Register machine in Cloudflare: DNS AAAA records + KV.
- * - Creates AAAA record slug.kortix.cloud → VPS_IPv6 (proxied)
- * - Creates wildcard AAAA *.slug.kortix.cloud → VPS_IPv6 (for port subdomains)
+ * Register machine in Cloudflare: dual-stack DNS + KV.
+ * - Creates A/AAAA records for slug/origin hosts when available
  * - Writes machine:{slug} to KV for Worker auth
  */
 export async function setupProxyDNS(
   slug: string,
-  ip: string,
+  addresses: { ipv4?: string | null; ipv6?: string | null },
   ownerId: string,
   serverType: string,
 ) {
   if (!config.isCloudflareConfigured()) return;
   
-  // DNS AAAA records (slug + wildcard for port subdomains)
-  await cloudflareClient.addMachineDNS(slug, ip).catch((err: unknown) => {
+  await cloudflareClient.addMachineDNS(slug, addresses).catch((err: unknown) => {
     console.warn(`[CF] Failed to add DNS for ${slug}:`, err);
   });
 
-  // KV for Worker auth (includes origin hostname for Worker fetch)
+  const primaryIp = addresses.ipv4 ?? addresses.ipv6;
+  if (!primaryIp) return;
+
   await cloudflareClient.writeKVMachine(slug, {
     owner_id: ownerId,
-    ip,
+    ip: primaryIp,
     origin_hostname: `origin-${slug}.${config.PROXY_DOMAIN}`,
     status: 'provisioning',
     server_type: serverType,
@@ -422,33 +418,55 @@ const PROVISION_TIMEOUT_MS = 20 * 60 * 1000; // 10 minutes
 const PROVISION_TIMEOUT_DOCKER_MS = 30 * 60 * 1000; // 15 minutes for Docker workloads
 
 export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
-  const canRecoverTimeout = machine.status === 'error' && machine.provisioningStage === 'timeout';
-  if ((machine.status !== 'provisioning' && !canRecoverTimeout) || !machine.providerServerId) return machine;
+  const meta = readProviderMeta(machine);
+  const shouldRefreshCloudNetwork = machine.provider === 'cloud'
+    && !!machine.providerServerId
+    && (!meta.public_ipv4 || !meta.public_ipv6 || !!machine.ip?.includes(':'));
 
-  const healedIp = normalizeProvisionedMachineIp(machine);
-  if (healedIp) {
-    await db.update(machines).set({ ip: healedIp }).where(eq(machines.id, machine.id));
-    machine = { ...machine, ip: healedIp };
+  if (shouldRefreshCloudNetwork) {
+    try {
+      const provider = getProvider(machine.provider);
+      if (provider.getServerNetwork) {
+        const network = await provider.getServerNetwork(machine.providerServerId!);
+        const nextIp = network.publicIpv4 ?? network.publicIpv6 ?? machine.ip;
+        const nextMeta = await updateProviderMeta(machine.id, {
+          public_ipv4: network.publicIpv4,
+          public_ipv6: network.publicIpv6,
+        });
 
-    if (config.isCloudflareConfigured()) {
-      await cloudflareClient.addMachineDNS(machine.slug, healedIp).catch((err) => {
-        console.warn(`[MACHINES] Failed to heal DNS for ${machine.slug}:`, err);
-      });
-      await cloudflareClient.writeKVMachine(machine.slug, {
-        owner_id: machine.ownerId,
-        ip: healedIp,
-        origin_hostname: `origin-${machine.slug}.${config.PROXY_DOMAIN}`,
-        status: machine.status,
-        server_type: machine.serverType,
-      }).catch((err) => {
-        console.warn(`[MACHINES] Failed to heal KV for ${machine.slug}:`, err);
-      });
+        if (nextIp !== machine.ip) {
+          await db.update(machines).set({ ip: nextIp }).where(eq(machines.id, machine.id));
+        }
+
+        machine = { ...machine, ip: nextIp, providerMeta: nextMeta };
+
+        if (config.isCloudflareConfigured()) {
+          await cloudflareClient.addMachineDNS(machine.slug, {
+            ipv4: network.publicIpv4,
+            ipv6: network.publicIpv6,
+          }).catch((err) => {
+            console.warn(`[MACHINES] Failed to sync DNS for ${machine.slug}:`, err);
+          });
+          if (nextIp) {
+            await cloudflareClient.writeKVMachine(machine.slug, {
+              owner_id: machine.ownerId,
+              ip: nextIp,
+              origin_hostname: `origin-${machine.slug}.${config.PROXY_DOMAIN}`,
+              status: machine.status,
+              server_type: machine.serverType,
+            }).catch((err) => {
+              console.warn(`[MACHINES] Failed to sync KV for ${machine.slug}:`, err);
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`[MACHINES] Failed to refresh public network for ${machine.slug}:`, err);
     }
   }
 
-  const elapsed = Date.now() - machine.createdAt.getTime();
-  const timeoutMs = machine.dockerImage ? PROVISION_TIMEOUT_DOCKER_MS : PROVISION_TIMEOUT_MS;
-  const meta = readProviderMeta(machine);
+  const canRecoverTimeout = machine.status === 'error' && machine.provisioningStage === 'timeout';
+  if ((machine.status !== 'provisioning' && !canRecoverTimeout) || !machine.providerServerId) return machine;
 
   if (machine.provider === 'cloud' && meta.create_action_id) {
     try {
@@ -466,7 +484,6 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
     }
   }
 
-  // Fast path: if we already got a heartbeat but status is still stale, promote now.
   if (machine.lastHeartbeatAt) {
     const now = new Date();
     await db.update(machines).set({
@@ -477,11 +494,12 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
     return { ...machine, status: 'ready' as const, readyAt: now };
   }
 
-  const createFinished = meta.create_status === 'success' || meta.create_progress === 100;
+  const providerMeta = readProviderMeta(machine);
+  const createFinished = providerMeta.create_status === 'success' || providerMeta.create_progress === 100;
   const shouldProbeDaemon = !!machine.ip && (
     createFinished
     || machine.provisioningStage === 'server_created'
-    || elapsed > 30_000
+    || Date.now() - machine.createdAt.getTime() > 30_000
   );
 
   if (shouldProbeDaemon) {
@@ -529,8 +547,8 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
 
   // If provisioning has exceeded the timeout and we still haven't received
   // a heartbeat or a successful active probe, mark it as error.
-  if (elapsed > timeoutMs) {
-    console.warn(`[MACHINES] Provisioning timeout for ${machine.slug} (${Math.round(elapsed / 1000)}s elapsed, no heartbeat or successful probe)`);
+  if (Date.now() - machine.createdAt.getTime() > (machine.dockerImage ? PROVISION_TIMEOUT_DOCKER_MS : PROVISION_TIMEOUT_MS)) {
+    console.warn(`[MACHINES] Provisioning timeout for ${machine.slug} (${Math.round((Date.now() - machine.createdAt.getTime()) / 1000)}s elapsed, no heartbeat or successful probe)`);
     await db.update(machines).set({
       status: 'error',
       provisioningStage: 'timeout',

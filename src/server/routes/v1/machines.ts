@@ -442,8 +442,8 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       try {
         const server = await provider.createServer({
           name: `justavps-${slug}`,
-          serverType: data.server_type,
           image: resolvedImage,
+          serverType: data.server_type,
           region: data.region,
           userData: userdata,
           sshKeyIds: [providerKeyId],
@@ -463,7 +463,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
         });
 
         await db.update(machines).set({
-          ip: server.publicIp,
+          ip: server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp,
           providerServerId: server.serverId,
           providerMeta: {
             callback_expected: callbackConfig.callbackExpected,
@@ -471,15 +471,15 @@ machinesApp.openapi(createMachineRoute, async (c) => {
             create_action_id: server.createActionId ?? null,
             create_status: 'running',
             create_progress: 1,
+            public_ipv4: server.publicIpv4 ?? null,
+            public_ipv6: server.publicIpv6 ?? null,
           },
         }).where(eq(machines.id, machine.id));
 
-        await eventBus.emitStageChange(machine.id, ownerId, 'server_created', `Server created (IP: ${server.publicIp})`, { ip: server.publicIp });
+        await eventBus.emitStageChange(machine.id, ownerId, 'server_created', `Server created (IP: ${server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp})`, { ip: server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp });
 
-        try {
-          await setupProxyDNS(slug, server.publicIp, ownerId, data.server_type);
-        } catch (err) {
-          console.warn(`[MACHINES] KV setup failed for ${slug}:`, err);
+        if (config.isCloudflareConfigured()) {
+          await setupProxyDNS(slug, { ipv4: server.publicIpv4, ipv6: server.publicIpv6 }, ownerId, data.server_type);
         }
 
       } catch (err) {
