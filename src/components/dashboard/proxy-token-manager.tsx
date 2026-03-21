@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn, timeAgo, PROXY_DOMAIN } from "@/lib/utils";
+import { cn, timeAgo, relativeTime, PROXY_DOMAIN } from "@/lib/utils";
 import { useMachines } from "@/hooks/use-machines";
 import { useConfirm } from "@/hooks/use-confirm";
 import { useCreateProxyToken, useDeleteProxyToken, useProxyTokens } from "@/hooks/use-proxy-tokens";
@@ -131,25 +131,28 @@ export function ProxyTokenManager({
   return (
     <>
       {newProxyUrl && (
-        <div className="mb-4 rounded-xl border border-blue-500/20 bg-blue-500/5 overflow-hidden">
-          <div className="flex items-center gap-2.5 px-4 py-3 border-b border-blue-500/15">
-            <Share2 className="size-4 text-blue-500 shrink-0" />
-            <span className="text-sm font-medium text-blue-700 dark:text-blue-300">Proxy Token Created</span>
-            <span className="ml-auto text-xs text-muted-foreground">Save this link now</span>
-          </div>
-          <div className="p-4 space-y-3">
-            <button
-              onClick={() => copyUrl(newProxyUrl)}
-              className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-lg bg-background/60 border border-border/60 hover:bg-muted/60 hover:border-border transition-all cursor-pointer group"
-            >
-              <span className="font-mono text-sm text-foreground truncate text-left">{newProxyUrl}</span>
-              <span className="shrink-0 flex items-center gap-1.5 text-xs text-muted-foreground group-hover:text-foreground transition-colors">
-                {copied ? <><Check className="size-3.5 text-emerald-500" /><span className="text-emerald-500">Copied</span></> : <><Copy className="size-3.5" />Copy</>}
-              </span>
-            </button>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">Recipients do not need a JustAVPS account.</span>
-              <button className="text-xs text-muted-foreground hover:text-foreground" onClick={() => { setNewProxyUrl(null); setCopied(false); }}>Dismiss</button>
+        <div className="mb-4 rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 rounded-md bg-blue-500/10 p-1.5">
+              <Share2 className="size-3.5 text-blue-500" />
+            </div>
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-blue-700 dark:text-blue-300">Share link ready</p>
+                  <p className="text-xs text-muted-foreground">Shown once. Recipients do not need a JustAVPS account.</p>
+                </div>
+                <button className="text-xs text-muted-foreground hover:text-foreground shrink-0" onClick={() => { setNewProxyUrl(null); setCopied(false); }}>Dismiss</button>
+              </div>
+              <button
+                onClick={() => copyUrl(newProxyUrl)}
+                className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-md bg-background/70 border border-border/60 hover:bg-muted/60 hover:border-border transition-all cursor-pointer group"
+              >
+                <span className="font-mono text-xs text-foreground truncate text-left">{newProxyUrl}</span>
+                <span className="shrink-0 flex items-center gap-1.5 text-[11px] text-muted-foreground group-hover:text-foreground transition-colors">
+                  {copied ? <><Check className="size-3.5 text-emerald-500" /><span className="text-emerald-500">Copied</span></> : <><Copy className="size-3.5" />Copy</>}
+                </span>
+              </button>
             </div>
           </div>
         </div>
@@ -254,7 +257,7 @@ export function ProxyTokenManager({
                   <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
                     <span>Created {timeAgo(token.created_at)}</span>
                     <span>&middot;</span>
-                    <span>Expires {timeAgo(token.expires_at)}</span>
+                    <span>Expires {relativeTime(token.expires_at)}</span>
                   </div>
                   <div className="flex items-center gap-2 min-w-0">
                     <Link2 className="size-3 text-muted-foreground shrink-0" />

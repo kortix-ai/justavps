@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { cn, timeAgo } from "@/lib/utils";
+import { cn, timeAgo, relativeTime } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -480,7 +480,7 @@ function APIKeysSection() {
                           </span>
                         ) : (
                           <span className="flex items-center gap-1">
-                            <Clock className="size-3" />Expires {timeAgo(key.expires_at)}
+                            <Clock className="size-3" />Expires {relativeTime(key.expires_at)}
                           </span>
                         )}
                       </>
