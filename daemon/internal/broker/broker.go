@@ -1,3 +1,4 @@
+// Package broker implements the shared origin broker for proxying requests to machines.
 package broker
 
 import (
