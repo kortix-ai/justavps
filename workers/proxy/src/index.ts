@@ -25,6 +25,24 @@ export interface Env {
   ENVIRONMENT?: string;
 }
 
+/**
+ * Build Set-Cookie headers that clear stale proxy auth cookies.
+ * Clears both __justavps_proxy (JWT) and __justavps_pt (proxy token) cookies.
+ */
+function buildClearCookieHeaders(hostname: string): string[] {
+  const hostParts = hostname.split('.');
+  const cookieDomain = '.' + hostParts.slice(-2).join('.');
+  return [
+    `__justavps_proxy=; Domain=${cookieDomain}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`,
+    `__justavps_pt=; Domain=${cookieDomain}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`,
+  ];
+}
+
+/** Whether the failed auth came from a stored cookie (stale token). */
+function isStaleTokenFailure(authSource?: string): boolean {
+  return authSource === 'cookie' || authSource === 'proxycookie';
+}
+
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     void ctx;
@@ -95,20 +113,39 @@ const worker = {
         // Each Worker (prod/dev) has its own PLATFORM_URL — no per-machine override needed.
         const platformUrl = env.PLATFORM_URL;
 
+        // Determine if auth failed because of a stale cookie — if so, clear it.
+        const shouldClearCookie = isStaleTokenFailure(authResult.authSource);
+        const clearCookieHeaders = shouldClearCookie ? buildClearCookieHeaders(url.hostname) : [];
+
         // If user IS authenticated but doesn't own the machine → show error, don't redirect
         // (redirecting causes infinite loop: login → proxy-auth → JWT → ownership fail → redirect)
         if (isAccessDenied) {
           if (isBrowserRequest(request)) {
-            return new Response(accessDeniedHTML(platformUrl), {
+            // Clear the stale cookie so re-login works — the old JWT keeps getting sent otherwise
+            const headers = new Headers({ 'Content-Type': 'text/html; charset=utf-8' });
+            for (const ch of clearCookieHeaders) headers.append('Set-Cookie', ch);
+            return new Response(accessDeniedHTML(platformUrl, request.url), {
               status: 403,
-              headers: { 'Content-Type': 'text/html; charset=utf-8' },
+              headers,
             });
           }
           return createUnauthorizedResponse(error);
         }
 
-        // Not authenticated at all → redirect to login
+        // Not authenticated at all → redirect to login.
+        // If a stale/expired cookie caused this, clear it before redirecting
+        // so the browser doesn't keep sending it on the return trip.
         if (isBrowserRequest(request) && request.method === 'GET') {
+          if (shouldClearCookie) {
+            const originalUrl = request.url;
+            const authUrl = `${platformUrl}/api/proxy-auth?redirect=${encodeURIComponent(originalUrl)}`;
+            const headers = new Headers({
+              'Location': authUrl,
+              'Cache-Control': 'no-store',
+            });
+            for (const ch of clearCookieHeaders) headers.append('Set-Cookie', ch);
+            return new Response(null, { status: 302, headers });
+          }
           return createLoginRedirect(request, platformUrl);
         }
         return createUnauthorizedResponse(error);
@@ -218,7 +255,13 @@ const worker = {
 
 export default worker;
 
-function accessDeniedHTML(platformUrl: string) {
+function accessDeniedHTML(platformUrl: string, currentUrl?: string) {
+  // Build a re-login link that signs out on the platform, then redirects back through proxy-auth.
+  // The stale cookie is already cleared via Set-Cookie headers on this response,
+  // so a simple page reload after re-login will pick up the fresh token.
+  const retryLink = currentUrl
+    ? `${platformUrl}/api/proxy-auth?redirect=${encodeURIComponent(currentUrl)}`
+    : `${platformUrl}/machines`;
   return `<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -228,16 +271,19 @@ function accessDeniedHTML(platformUrl: string) {
   .card { text-align: center; max-width: 420px; padding: 40px; }
   h1 { font-size: 20px; font-weight: 600; margin: 0 0 8px; }
   p { color: #888; font-size: 14px; margin: 0 0 16px; }
-  .links { display: flex; gap: 16px; justify-content: center; }
+  .links { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
   a { color: #3b82f6; text-decoration: none; }
   a:hover { text-decoration: underline; }
   .logout { color: #ef4444; }
+  .retry { color: #22c55e; }
 </style>
 </head><body>
 <div class="card">
   <h1>Access Denied</h1>
   <p>You don't have permission to access this machine. Make sure you're logged in with the correct account.</p>
+  <p style="color:#666;font-size:12px;">The cached auth token has been cleared. If you just re-logged in, try again.</p>
   <div class="links">
+    <a href="${retryLink}" class="retry">Try again</a>
     <a href="${platformUrl}/machines">← Dashboard</a>
     <a href="${platformUrl}/api/auth/signout" class="logout">Sign out & re-login</a>
   </div>

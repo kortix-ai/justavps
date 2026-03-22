@@ -121,6 +121,7 @@ describe('validateAuth', () => {
       const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET);
 
       expect(result.success).toBe(false);
+      expect(result.authSource).toBe('cookie'); // must propagate source for stale cookie clearing
     });
 
     it('should reject expired JWT', async () => {
@@ -142,6 +143,28 @@ describe('validateAuth', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('JWT expired');
+      expect(result.authSource).toBe('cookie'); // must propagate source for stale cookie clearing
+    });
+
+    it('should propagate authSource=cookie on ownership failure (stale user token)', async () => {
+      const jwt = await createTestJWT('user_old', PROXY_SECRET);
+
+      mockKV.set('machine:abc123', JSON.stringify({
+        owner_id: 'user_new', // machine now belongs to different user
+        ip: '1.2.3.4',
+        status: 'ready',
+        server_type: 'cx22',
+      }));
+
+      const request = new Request('https://abc123.kortix.cloud', {
+        headers: { 'Cookie': `__justavps_proxy=${jwt}` },
+      });
+
+      const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Access denied');
+      expect(result.authSource).toBe('cookie'); // worker uses this to clear the stale cookie
     });
   });
 

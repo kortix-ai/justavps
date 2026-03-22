@@ -243,6 +243,72 @@ describe('Worker integration — broker proxy', () => {
       expect(response.status).toBe(401);
     });
   });
+
+  describe('stale cookie clearing', () => {
+    it('should clear stale cookie when expired JWT cookie causes redirect to login', async () => {
+      await setupTestData();
+
+      const expiredJwt = await createTestJWT('user_123', PROXY_SECRET, -3600); // expired 1h ago
+
+      const request = new Request('https://abc123.kortix.cloud/dashboard', {
+        headers: {
+          'Cookie': `__justavps_proxy=${expiredJwt}`,
+          'Accept': 'text/html',
+          'User-Agent': 'Mozilla/5.0',
+        },
+      });
+
+      const response = await worker.fetch(request, mockEnv, mockCtx);
+
+      expect(response.status).toBe(302);
+      // Should clear the stale cookie
+      const setCookies = response.headers.getSetCookie?.() || [];
+      const clearProxy = setCookies.find(c => c.includes('__justavps_proxy=;'));
+      expect(clearProxy).toBeTruthy();
+      expect(clearProxy).toContain('Max-Age=0');
+    });
+
+    it('should clear stale cookie on Access Denied (wrong user JWT cookie)', async () => {
+      await setupTestData();
+
+      // Create a valid JWT for a different user who doesn't own the machine
+      const wrongUserJwt = await createTestJWT('user_wrong', PROXY_SECRET);
+
+      const request = new Request('https://abc123.kortix.cloud/dashboard', {
+        headers: {
+          'Cookie': `__justavps_proxy=${wrongUserJwt}`,
+          'Accept': 'text/html',
+          'User-Agent': 'Mozilla/5.0',
+        },
+      });
+
+      const response = await worker.fetch(request, mockEnv, mockCtx);
+
+      expect(response.status).toBe(403);
+      // Should clear the stale cookie so re-login works
+      const setCookies = response.headers.getSetCookie?.() || [];
+      const clearProxy = setCookies.find(c => c.includes('__justavps_proxy=;'));
+      expect(clearProxy).toBeTruthy();
+      expect(clearProxy).toContain('Max-Age=0');
+    });
+
+    it('should NOT set clear-cookie headers when no cookie was present', async () => {
+      const request = new Request('https://abc123.kortix.cloud/dashboard', {
+        headers: {
+          'Accept': 'text/html',
+          'User-Agent': 'Mozilla/5.0',
+        },
+      });
+
+      const response = await worker.fetch(request, mockEnv, mockCtx);
+
+      expect(response.status).toBe(302);
+      // Should NOT have Set-Cookie headers — no stale cookie to clear
+      const setCookies = response.headers.getSetCookie?.() || [];
+      const clearProxy = setCookies.find(c => c.includes('__justavps_proxy=;'));
+      expect(clearProxy).toBeUndefined();
+    });
+  });
 });
 
 // ─── Helper ─────────────────────────────────────────────────────────────────
@@ -253,4 +319,33 @@ async function sha256Hex(input: string): Promise<string> {
   return Array.from(new Uint8Array(hash))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
+}
+
+async function createTestJWT(sub: string, secret: string, expiresInSeconds = 86400): Promise<string> {
+  const header = base64UrlEncode(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const now = Math.floor(Date.now() / 1000);
+  const payload = base64UrlEncode(JSON.stringify({
+    sub,
+    iat: now,
+    exp: now + expiresInSeconds,
+  }));
+
+  const sigInput = `${header}.${payload}`;
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(sigInput));
+  const sigB64 = base64UrlEncode(sig);
+
+  return `${sigInput}.${sigB64}`;
+}
+
+function base64UrlEncode(input: string | ArrayBuffer): string {
+  const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : new Uint8Array(input);
+  const binary = String.fromCharCode(...bytes);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }

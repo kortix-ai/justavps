@@ -72,11 +72,11 @@ export async function validateAuth(
   // Proxy token auth — no ownership check needed
   if (auth.type === 'proxytoken') {
     const ptResult = await verifyProxyToken(auth.token, slug, port, kv);
-    if (!ptResult.success) return ptResult;
+    if (!ptResult.success) return { ...ptResult, authSource: auth.source as AuthResult['authSource'] };
 
     // Still need machine info for proxying
     const machineResult = await getMachineInfo(slug, kv);
-    if (!machineResult.success) return machineResult;
+    if (!machineResult.success) return { ...machineResult, authSource: auth.source as AuthResult['authSource'] };
 
     return {
       success: true,
@@ -92,11 +92,11 @@ export async function validateAuth(
   // Validate based on auth method
   if (auth.type === 'jwt') {
     const jwtResult = await verifyJWT(auth.token, proxyAuthSecret);
-    if (!jwtResult.success) return jwtResult;
+    if (!jwtResult.success) return { ...jwtResult, authSource: auth.source as AuthResult['authSource'] };
     userId = jwtResult.userId!;
   } else if (auth.type === 'apikey') {
     const apiResult = await verifyApiKey(auth.token, slug, port, kv);
-    if (!apiResult.success) return apiResult;
+    if (!apiResult.success) return { ...apiResult, authSource: auth.source as AuthResult['authSource'] };
     userId = apiResult.userId!;
   } else {
     return { success: false, error: 'Invalid auth method' };
