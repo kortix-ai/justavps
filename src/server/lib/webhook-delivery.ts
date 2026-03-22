@@ -7,7 +7,8 @@ import type { MachineEvent } from './event-bus';
 const DELIVERY_TIMEOUT_MS = 10_000;
 const MAX_RETRIES = 3;
 const RETRY_DELAYS_MS = [10_000, 60_000, 300_000];
-const AUTO_DISABLE_THRESHOLD = 10;
+// Auto-disable removed — webhooks stay active regardless of failures.
+// Failures are still tracked in failureCount for observability.
 
 function signPayload(payload: string, secret: string): string {
   return createHmac('sha256', secret).update(payload).digest('hex');
@@ -78,20 +79,9 @@ async function deliverSingle(
   }
 
   try {
-    const [updated] = await db.update(webhooks)
+    await db.update(webhooks)
       .set({ failureCount: sql`${webhooks.failureCount} + 1` })
-      .where(eq(webhooks.id, hook.id))
-      .returning({ failureCount: webhooks.failureCount });
-
-    if (updated && updated.failureCount >= AUTO_DISABLE_THRESHOLD) {
-      await db.update(webhooks).set({
-        active: false,
-        disabledAt: new Date(),
-        disableReason: `Auto-disabled after ${AUTO_DISABLE_THRESHOLD} consecutive failures`,
-      }).where(eq(webhooks.id, hook.id));
-      console.warn(`[WEBHOOKS] Auto-disabled webhook ${hook.id} after ${AUTO_DISABLE_THRESHOLD} failures`);
-      return;
-    }
+      .where(eq(webhooks.id, hook.id));
   } catch (dbErr) {
     console.error('[WEBHOOKS] Failed to update failure count:', dbErr);
   }
