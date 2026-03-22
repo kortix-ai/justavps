@@ -35,7 +35,10 @@ const (
 
 type Config struct {
 	ListenAddr        string
+	HTTPSListenAddr   string
 	SharedSecret      string
+	TLSCertPath       string
+	TLSKeyPath        string
 	AllowedClockSkew  time.Duration
 	NonceTTL          time.Duration
 	ProxyDialTimeout  time.Duration
@@ -66,6 +69,9 @@ type Broker struct {
 func New(config Config) *Broker {
 	if config.ListenAddr == "" {
 		config.ListenAddr = ":80"
+	}
+	if config.HTTPSListenAddr == "" {
+		config.HTTPSListenAddr = ":443"
 	}
 	if config.AllowedClockSkew <= 0 {
 		config.AllowedClockSkew = 30 * time.Second
@@ -105,6 +111,7 @@ func New(config Config) *Broker {
 
 func (b *Broker) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/health", b.handleHealthz)
 	mux.HandleFunc("/healthz", b.handleHealthz)
 	mux.HandleFunc("/_broker_proxy", b.handleProxy)
 	return mux
@@ -113,6 +120,18 @@ func (b *Broker) Handler() http.Handler {
 func (b *Broker) Server() *http.Server {
 	return &http.Server{
 		Addr:              b.config.ListenAddr,
+		Handler:           b.Handler(),
+		ReadHeaderTimeout: b.config.ReadHeaderTimeout,
+	}
+}
+
+func (b *Broker) TLSServer() *http.Server {
+	if b.config.TLSCertPath == "" || b.config.TLSKeyPath == "" {
+		return nil
+	}
+
+	return &http.Server{
+		Addr:              b.config.HTTPSListenAddr,
 		Handler:           b.Handler(),
 		ReadHeaderTimeout: b.config.ReadHeaderTimeout,
 	}

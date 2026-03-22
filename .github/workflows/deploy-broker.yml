@@ -101,9 +101,11 @@ jobs:
           BROKER_HOST: ${{ secrets.BROKER_HOST }}
           BROKER_USER: ${{ secrets.BROKER_USER }}
           BROKER_SHARED_SECRET: ${{ secrets.BROKER_SHARED_SECRET }}
+          BROKER_TLS_CERT_B64: ${{ secrets.BROKER_TLS_CERT_B64 }}
+          BROKER_TLS_KEY_B64: ${{ secrets.BROKER_TLS_KEY_B64 }}
         run: |
           ssh "${BROKER_USER}@${BROKER_HOST}" \
-            "chmod +x /tmp/kortix-broker-install.sh && BROKER_SHARED_SECRET='${BROKER_SHARED_SECRET}' /tmp/kortix-broker-install.sh /tmp/kortix-broker /tmp/kortix-broker.service"
+            "chmod +x /tmp/kortix-broker-install.sh && BROKER_SHARED_SECRET='${BROKER_SHARED_SECRET}' BROKER_TLS_CERT_B64='${BROKER_TLS_CERT_B64}' BROKER_TLS_KEY_B64='${BROKER_TLS_KEY_B64}' /tmp/kortix-broker-install.sh /tmp/kortix-broker /tmp/kortix-broker.service"
 
       - name: Verify broker health
         env:

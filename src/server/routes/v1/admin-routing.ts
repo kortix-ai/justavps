@@ -58,7 +58,9 @@ function extractMachineSlug(recordName: string): string | null {
   if (hostname.startsWith('*.')) hostname = hostname.slice(2);
   if (!hostname.endsWith(`.${domain}`)) return null;
   if (config.BROKER_HOST && hostname === config.BROKER_HOST) return null;
+  if (hostname === `broker-origin.${domain}`) return null;
   let slug = hostname.slice(0, -(domain.length + 1));
+  if (slug === 'broker-origin') return null;
   if (slug.startsWith('origin-')) slug = slug.slice('origin-'.length);
   if (slug.startsWith('origin.')) slug = slug.slice('origin.'.length);
   if (!slug || slug === '*' || slug === domain || slug === 'broker') return null;

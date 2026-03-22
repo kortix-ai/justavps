@@ -17,7 +17,7 @@ id = "30b11d4b604e4128b11afabe1692676d"
 [vars]
 ENVIRONMENT = "development"
 PLATFORM_URL = "https://dev.justavps.com"
-BROKER_ORIGIN = "http://broker.kortix-dev.cloud"
+BROKER_ORIGIN = "http://broker-origin.kortix-dev.cloud"
 
 # Secrets (set via `wrangler secret put -c wrangler.dev.toml`):
 #   PROXY_AUTH_SECRET — must match dev.justavps.com's PROXY_AUTH_SECRET.
