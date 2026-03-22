@@ -530,7 +530,7 @@ systemctl enable --now justavps-docker-guard 2>/dev/null || true
 systemctl enable justavps-daemon 2>/dev/null || true
 systemctl restart justavps-daemon 2>/dev/null || true
 systemctl enable --now sandbox-agent 2>/dev/null || true
-systemctl enable --now opencode-web 2>/dev/null || true
+${opts.dockerImage ? `systemctl disable --now opencode-web 2>/dev/null || true` : `systemctl enable --now opencode-web 2>/dev/null || true`}
 systemctl enable --now justavps-watchdog.timer 2>/dev/null || true
 
 ${stageCallback('cloud_init_done', 'Configuration complete')}
