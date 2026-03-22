@@ -12,6 +12,8 @@ on:
     branches: [production, main]
     paths:
       - 'daemon/**'
+      - '!daemon/cmd/broker/**'
+      - '!daemon/internal/broker/**'
   workflow_call:
     inputs:
       ref:
