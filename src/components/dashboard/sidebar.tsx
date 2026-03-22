@@ -48,6 +48,10 @@ const navigation = [
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 
+const adminNavigation = [
+  { name: "Routing", href: "/admin/routing", icon: ShieldCheck },
+];
+
 export function AppSidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
@@ -58,6 +62,7 @@ export function AppSidebar() {
   const name = session?.user?.name || email.split("@")[0];
   const initial = name[0]?.toUpperCase() || "U";
   const isAdmin = account?.is_admin ?? false;
+  const allNavigation = isAdmin ? [...navigation, ...adminNavigation] : navigation;
 
   return (
     <Sidebar variant="inset" collapsible="icon">
@@ -72,7 +77,7 @@ export function AppSidebar() {
       </SidebarHeader>
       <SidebarContent>
         <nav className="space-y-0.5 px-2 pt-2">
-          {navigation.map((item) => {
+          {allNavigation.map((item) => {
             const isActive = pathname.startsWith(item.href);
             return (
               <Link

@@ -18,19 +18,22 @@ function createMockKV() {
 
 const PROXY_SECRET = 'test-proxy-auth-secret-for-jwt-signing';
 const PLATFORM_URL = 'https://justavps.com';
+const BROKER_ORIGIN = 'http://broker.kortix-dev.cloud';
 
 const mockKV = createMockKV();
 const mockEnv: Env = {
   KV: mockKV as any,
   PROXY_AUTH_SECRET: PROXY_SECRET,
   PLATFORM_URL,
+  BROKER_ORIGIN,
+  BROKER_SHARED_SECRET: 'test-broker-secret',
   ENVIRONMENT: 'test',
 };
 const mockCtx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
 let savedFetch: typeof globalThis.fetch;
 
-describe('Worker integration — direct IP proxy', () => {
+describe('Worker integration — broker proxy', () => {
   beforeEach(() => {
     mockKV.clear();
     savedFetch = globalThis.fetch;
@@ -89,12 +92,12 @@ describe('Worker integration — direct IP proxy', () => {
     });
   });
 
-  describe('authentication + direct IP proxy', () => {
-    it('should proxy authenticated request to VPS IP directly', async () => {
+  describe('authentication + broker proxy', () => {
+    it('should proxy authenticated request through the broker', async () => {
       // Wait for async setup
       await setupTestData();
 
-      // Mock the outgoing fetch (Worker → VPS_IP)
+      // Mock the outgoing fetch (Worker -> broker)
       globalThis.fetch = vi.fn().mockResolvedValue(
         new Response('OpenCode response', { status: 200 }),
       );
@@ -106,11 +109,17 @@ describe('Worker integration — direct IP proxy', () => {
       const response = await worker.fetch(request, mockEnv, mockCtx);
 
       expect(response.status).toBe(200);
-      // Verify the Worker fetched the VPS IP directly (no tunnel)
+      // Verify the Worker fetched the shared broker.
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://10.0.0.1:80/api/test',
+        `${BROKER_ORIGIN}/_broker_proxy`,
         expect.objectContaining({ method: 'GET' }),
       );
+
+      const fetchCall = (globalThis.fetch as any).mock.calls[0];
+      const forwardedHeaders = fetchCall[1].headers;
+      expect(forwardedHeaders.get('X-Kortix-Target-IP')).toBe('10.0.0.1');
+      expect(forwardedHeaders.get('X-Kortix-Target-Port')).toBe('80');
+      expect(forwardedHeaders.get('X-Kortix-Target-Path')).toBe('/api/test');
     });
 
     it('should proxy port subdomain through daemon port proxy on port 80', async () => {
@@ -127,11 +136,14 @@ describe('Worker integration — direct IP proxy', () => {
       const response = await worker.fetch(request, mockEnv, mockCtx);
 
       expect(response.status).toBe(200);
-      // Non-default ports route through daemon's /_port proxy on port 80
+      // Non-default ports are encoded into the target path for the broker.
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://10.0.0.1:80/_port/3000/app',
+        `${BROKER_ORIGIN}/_broker_proxy`,
         expect.objectContaining({ method: 'GET' }),
       );
+
+      const fetchCall = (globalThis.fetch as any).mock.calls[0];
+      expect(fetchCall[1].headers.get('X-Kortix-Target-Path')).toBe('/_port/3000/app');
     });
 
     it('should proxy PORT--SLUG format through daemon port proxy', async () => {
@@ -148,14 +160,17 @@ describe('Worker integration — direct IP proxy', () => {
       const response = await worker.fetch(request, mockEnv, mockCtx);
 
       expect(response.status).toBe(200);
-      // Non-default ports route through daemon's /_port proxy on port 80
+      // Non-default ports are encoded into the target path for the broker.
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://10.0.0.1:80/_port/3456',
+        `${BROKER_ORIGIN}/_broker_proxy`,
         expect.objectContaining({ method: 'GET' }),
       );
+
+      const fetchCall = (globalThis.fetch as any).mock.calls[0];
+      expect(fetchCall[1].headers.get('X-Kortix-Target-Path')).toBe('/_port/3456');
     });
 
-    it('should set X-Forwarded-Host and X-Forwarded-Proto headers', async () => {
+    it('should sign broker headers with original host information', async () => {
       await setupTestData();
 
       globalThis.fetch = vi.fn().mockResolvedValue(
@@ -170,8 +185,8 @@ describe('Worker integration — direct IP proxy', () => {
 
       const fetchCall = (globalThis.fetch as any).mock.calls[0];
       const forwardedHeaders = fetchCall[1].headers;
-      expect(forwardedHeaders.get('X-Forwarded-Host')).toBe('abc123.kortix.cloud');
-      expect(forwardedHeaders.get('X-Forwarded-Proto')).toBe('https');
+      expect(forwardedHeaders.get('X-Kortix-Original-Host')).toBe('abc123.kortix.cloud');
+      expect(forwardedHeaders.get('X-Kortix-Signature')).toBeTruthy();
     });
 
     it('should redirect browser requests to login on auth failure', async () => {
@@ -214,6 +229,8 @@ describe('Worker integration — direct IP proxy', () => {
         KV: { get: vi.fn().mockRejectedValue(new Error('KV Error')) } as any,
         PROXY_AUTH_SECRET: PROXY_SECRET,
         PLATFORM_URL,
+        BROKER_ORIGIN,
+        BROKER_SHARED_SECRET: 'test-broker-secret',
         ENVIRONMENT: 'test',
       };
 

@@ -23,6 +23,7 @@ export interface AuthResult {
 }
 
 export interface MachineInfo {
+  machine_id?: string;
   owner_id: string;
   ip: string;
   origin_hostname?: string; // DNS-only hostname: origin.slug.kortix.cloud
@@ -265,11 +266,13 @@ async function verifyApiKey(
     // Check machine scope — we need to look up the machine to get its ID
     if (info.scope === 'machine' && info.machine_ids) {
       const machineData = await kv.get(`machine:${slug}`);
-      if (machineData) {
-        // We don't have machine_id in machine KV directly, but we can check owner_id matches
-        // Machine-scoped check will be done at ownership level — if the key owns the machine, it has access
-        // For edge enforcement, we rely on the validate-key endpoint for full DB-backed checks
-        // The KV fast path checks owner_id match (which is already done in checkMachineAccess)
+      if (!machineData) {
+        return { success: false, error: 'Machine not found' };
+      }
+
+      const machineInfo: MachineInfo = JSON.parse(machineData);
+      if (!machineInfo.machine_id || !info.machine_ids.includes(machineInfo.machine_id)) {
+        return { success: false, error: 'API key does not have access to this machine' };
       }
     }
 

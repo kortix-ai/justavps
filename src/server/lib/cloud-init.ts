@@ -9,6 +9,8 @@
  * No Caddy, no Nginx, no external reverse proxy.
  */
 
+import { config } from './config';
+
 interface CloudInitOpts {
   slug: string;
   sshPublicKey: string;
@@ -24,6 +26,9 @@ interface CloudInitOpts {
 }
 
 export function buildCloudInit(opts: CloudInitOpts): string {
+  const brokerUfwRules = config.brokerSourceIPs()
+    .map((ip) => `  ufw allow from ${ip} to any port 80 proto tcp`)
+    .join('\n');
   const envEntries: Record<string, string> = {
     JUSTAVPS_SLUG: opts.slug,
     JUSTAVPS_MACHINE_TOKEN: opts.machineToken,
@@ -290,7 +295,7 @@ if command -v ufw &>/dev/null; then
   ufw default deny incoming
   ufw default allow outgoing
   ufw allow 22/tcp
-  ufw allow 80/tcp
+${brokerUfwRules || '  ufw allow 80/tcp'}
   ufw --force enable
 fi
 

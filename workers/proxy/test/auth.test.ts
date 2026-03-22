@@ -601,6 +601,62 @@ describe('validateAuth', () => {
       expect(result.success).toBe(true);
     });
   });
+
+  describe('API key machine scope', () => {
+    it('should reject a machine-scoped key for a different machine_id', async () => {
+      const apiKeyHash = await sha256Hex('sk_live_scope_denied123');
+      mockKV.set(`apikey:${apiKeyHash}`, JSON.stringify({
+        owner_id: 'user_123',
+        name: 'Scoped Key',
+        scope: 'machine',
+        machine_ids: ['machine-uuid-allowed'],
+        permissions: ['proxy'],
+      }));
+      mockKV.set('machine:abc123', JSON.stringify({
+        machine_id: 'machine-uuid-other',
+        owner_id: 'user_123',
+        ip: '1.2.3.4',
+        status: 'ready',
+        server_type: 'cx22',
+      }));
+
+      const request = new Request('https://abc123.kortix.cloud', {
+        headers: { 'Authorization': 'Bearer sk_live_scope_denied123' },
+      });
+
+      const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('API key does not have access to this machine');
+    });
+
+    it('should accept a machine-scoped key for the allowed machine_id', async () => {
+      const apiKeyHash = await sha256Hex('sk_live_scope_allowed123');
+      mockKV.set(`apikey:${apiKeyHash}`, JSON.stringify({
+        owner_id: 'user_123',
+        name: 'Scoped Key',
+        scope: 'machine',
+        machine_ids: ['machine-uuid-allowed'],
+        permissions: ['proxy'],
+      }));
+      mockKV.set('machine:abc123', JSON.stringify({
+        machine_id: 'machine-uuid-allowed',
+        owner_id: 'user_123',
+        ip: '1.2.3.4',
+        status: 'ready',
+        server_type: 'cx22',
+      }));
+
+      const request = new Request('https://abc123.kortix.cloud', {
+        headers: { 'Authorization': 'Bearer sk_live_scope_allowed123' },
+      });
+
+      const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET);
+
+      expect(result.success).toBe(true);
+      expect(result.userId).toBe('user_123');
+    });
+  });
 });
 
 // ─── Test helpers ──────────────────────────────────────────────────────────

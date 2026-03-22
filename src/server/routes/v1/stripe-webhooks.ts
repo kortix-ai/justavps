@@ -416,7 +416,7 @@ function provisionMachineAsync(
       await eventBus.emitStageChange(machine.id, userId, 'server_created', `Server created (IP: ${server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp})`, { ip: server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp });
 
       if (config.isCloudflareConfigured()) {
-        await setupProxyDNS(slug, { ipv4: server.publicIpv4, ipv6: server.publicIpv6 }, userId, machineConfig.server_type);
+        await setupProxyDNS(machine.id, slug, { ipv4: server.publicIpv4, ipv6: server.publicIpv6 }, userId, machineConfig.server_type);
       }
 
       if (priceMonthly) {

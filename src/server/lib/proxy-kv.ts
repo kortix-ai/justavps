@@ -14,6 +14,7 @@ import { createHash } from 'crypto';
 import { config } from './config';
 
 const CF_API = 'https://api.cloudflare.com/client/v4';
+const MAX_CF_RETRIES = 5;
 
 function sha256Hex(input: string): string {
   return createHash('sha256').update(input).digest('hex');
@@ -32,19 +33,30 @@ async function writeKV(key: string, value: string, ttlSeconds?: number): Promise
   const url = new URL(`${CF_API}/accounts/${kv.accountId}/storage/kv/namespaces/${kv.kvNamespaceId}/values/${key}`);
   if (ttlSeconds) url.searchParams.set('expiration_ttl', String(ttlSeconds));
 
-  const res = await fetch(url.toString(), {
-    method: 'PUT',
-    headers: {
-      'X-Auth-Key': config.CLOUDFLARE_API_KEY,
-      'X-Auth-Email': config.CLOUDFLARE_EMAIL,
-      'Content-Type': 'text/plain',
-    },
-    body: value,
-  });
+  for (let attempt = 0; attempt < MAX_CF_RETRIES; attempt += 1) {
+    const res = await fetch(url.toString(), {
+      method: 'PUT',
+      headers: {
+        'X-Auth-Key': config.CLOUDFLARE_API_KEY,
+        'X-Auth-Email': config.CLOUDFLARE_EMAIL,
+        'Content-Type': 'text/plain',
+      },
+      body: value,
+    });
 
-  if (!res.ok) {
+    if (res.ok) return;
+
     const text = await res.text().catch(() => '');
-    throw new Error(`KV write failed: ${res.status} ${text.slice(0, 200)}`);
+    const shouldRetry = res.status === 429 || res.status >= 500;
+    if (!shouldRetry || attempt === MAX_CF_RETRIES - 1) {
+      throw new Error(`KV write failed: ${res.status} ${text.slice(0, 200)}`);
+    }
+
+    const retryAfter = Number.parseFloat(res.headers.get('retry-after') || '0');
+    const delay = Number.isFinite(retryAfter) && retryAfter > 0
+      ? retryAfter * 1000
+      : Math.min(15_000, 750 * (2 ** attempt));
+    await new Promise((resolve) => setTimeout(resolve, delay));
   }
 }
 

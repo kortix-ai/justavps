@@ -46,36 +46,73 @@ interface HetznerFirewall {
   name: string;
 }
 
+interface HetznerFirewallRule {
+  direction: 'in' | 'out';
+  protocol: 'tcp' | 'udp' | 'icmp';
+  port?: string;
+  source_ips?: string[];
+  destination_ips?: string[];
+  description?: string;
+}
+
 function firewallNameForDomain(domain: string): string {
   return `justavps-managed-${domain.replace(/[^a-z0-9-]+/gi, '-').toLowerCase()}`;
 }
 
+function managedFirewallRules(): HetznerFirewallRule[] {
+  const brokerSourceIPs = config.brokerSourceIPs();
+  return [
+    {
+      direction: 'in',
+      protocol: 'tcp',
+      port: '22',
+      source_ips: ['0.0.0.0/0', '::/0'],
+      description: 'SSH access',
+    },
+    {
+      direction: 'in',
+      protocol: 'tcp',
+      port: '80',
+      source_ips: [...CLOUDFLARE_IPV4_RANGES, ...CLOUDFLARE_IPV6_RANGES, ...brokerSourceIPs],
+      description: brokerSourceIPs.length > 0 ? 'Cloudflare + broker ingress' : 'Cloudflare proxy ingress',
+    },
+  ];
+}
+
+function normalizeFirewallRules(rules: HetznerFirewallRule[]) {
+  return JSON.stringify(rules.map((rule) => ({
+    direction: rule.direction,
+    protocol: rule.protocol,
+    port: rule.port ?? '',
+    description: rule.description ?? '',
+    source_ips: [...(rule.source_ips ?? [])].sort(),
+    destination_ips: [...(rule.destination_ips ?? [])].sort(),
+  })).sort((a, b) => `${a.direction}:${a.protocol}:${a.port}`.localeCompare(`${b.direction}:${b.protocol}:${b.port}`)));
+}
+
 async function getOrCreateManagedFirewall(): Promise<number> {
   const firewallName = firewallNameForDomain(config.PROXY_DOMAIN);
-  const existing = await hetznerFetch<{ firewalls: HetznerFirewall[] }>('/firewalls?per_page=50');
+  const desiredRules = managedFirewallRules();
+  const existing = await hetznerFetch<{ firewalls: Array<HetznerFirewall & { rules?: HetznerFirewallRule[] }> }>('/firewalls?per_page=50');
   const matched = existing.firewalls.find((firewall) => firewall.name === firewallName);
-  if (matched) return matched.id;
+  if (matched) {
+    if (normalizeFirewallRules(matched.rules ?? []) !== normalizeFirewallRules(desiredRules)) {
+      await hetznerFetch(`/firewalls/${matched.id}`, {
+        method: 'PUT',
+        body: {
+          name: firewallName,
+          rules: desiredRules,
+        },
+      });
+    }
+    return matched.id;
+  }
 
   const created = await hetznerFetch<{ firewall: HetznerFirewall }>('/firewalls', {
     method: 'POST',
     body: {
       name: firewallName,
-      rules: [
-        {
-          direction: 'in',
-          protocol: 'tcp',
-          port: '22',
-          source_ips: ['0.0.0.0/0', '::/0'],
-          description: 'SSH access',
-        },
-        {
-          direction: 'in',
-          protocol: 'tcp',
-          port: '80',
-          source_ips: [...CLOUDFLARE_IPV4_RANGES, ...CLOUDFLARE_IPV6_RANGES],
-          description: 'Cloudflare proxy ingress',
-        },
-      ],
+      rules: desiredRules,
     },
   });
 

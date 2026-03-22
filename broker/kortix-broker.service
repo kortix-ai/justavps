@@ -1,0 +1,15 @@
+[Unit]
+Description=Kortix shared origin broker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/kortix-broker.env
+ExecStart=/usr/local/bin/kortix-broker
+Restart=always
+RestartSec=2
+User=root
+
+[Install]
+WantedBy=multi-user.target

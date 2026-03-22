@@ -1,6 +1,5 @@
 /**
- * Tests for Cloudflare client — dual-stack DNS and KV management.
- * Architecture: direct IP proxy (no tunnels).
+ * Tests for Cloudflare client — broker DNS, route, and KV management.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { cloudflareClient } from '@/server/lib/cloudflare';
@@ -24,11 +23,10 @@ describe('cloudflareClient', () => {
   });
 
   describe('addMachineDNS', () => {
-    it('should create dual-stack root, wildcard, and origin records', async () => {
+    it('should only clean up legacy machine DNS', async () => {
       mockFetch.mockImplementation(async (_url: string, opts?: { method?: string }) => {
         const method = opts?.method || 'GET';
         if (method === 'GET') return { ok: true, json: async () => ({ result: [] }) };
-        if (method === 'POST') return { ok: true, json: async () => ({ result: { id: 'dns-id' } }) };
         if (method === 'DELETE') return { ok: true, json: async () => ({ result: null }) };
         return { ok: true, json: async () => ({}) };
       });
@@ -39,48 +37,12 @@ describe('cloudflareClient', () => {
       });
 
       const postCalls = (mockFetch.mock.calls as MockCall[]).filter((c) => c[1]?.method === 'POST');
-      expect(postCalls.length).toBe(6);
-
-      // 1-3: IPv4 A records
-      const body1 = JSON.parse(postCalls[0]![1]!.body!);
-      expect(body1.type).toBe('A');
-      expect(body1.name).toContain('test-slug');
-      expect(body1.content).toBe('168.119.45.176');
-      expect(body1.proxied).toBe(true);
-
-      const body2 = JSON.parse(postCalls[1]![1]!.body!);
-      expect(body2.type).toBe('A');
-      expect(body2.name).toContain('*.test-slug');
-      expect(body2.proxied).toBe(true);
-
-      const body3 = JSON.parse(postCalls[2]![1]!.body!);
-      expect(body3.type).toBe('A');
-      expect(body3.name).toContain('origin-test-slug');
-      expect(body3.content).toBe('168.119.45.176');
-      expect(body3.proxied).toBe(false);
-
-      // 4-6: IPv6 AAAA records
-      const body4 = JSON.parse(postCalls[3]![1]!.body!);
-      expect(body4.type).toBe('AAAA');
-      expect(body4.name).toContain('test-slug');
-      expect(body4.content).toBe('2a01:4f8:c17:e4c4::1');
-      expect(body4.proxied).toBe(true);
-
-      const body5 = JSON.parse(postCalls[4]![1]!.body!);
-      expect(body5.type).toBe('AAAA');
-      expect(body5.name).toContain('*.test-slug');
-      expect(body5.proxied).toBe(true);
-
-      const body6 = JSON.parse(postCalls[5]![1]!.body!);
-      expect(body6.type).toBe('AAAA');
-      expect(body6.name).toContain('origin-test-slug');
-      expect(body6.content).toBe('2a01:4f8:c17:e4c4::1');
-      expect(body6.proxied).toBe(false);
+      expect(postCalls.length).toBe(0);
     });
   });
 
   describe('removeMachineDNS', () => {
-    it('should delete all DNS records for slug, wildcard, and origin', async () => {
+    it('should delete all DNS records for slug, wildcard, origin, and legacy origin', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         json: async () => ({ result: [] }),
@@ -88,20 +50,19 @@ describe('cloudflareClient', () => {
 
       await cloudflareClient.removeMachineDNS('test-slug');
 
-      // Should query for CNAME, A, AAAA for slug + wildcard + origin.slug
+      // 4 hostnames × 3 types = 12 GET calls
       expect(mockFetch).toHaveBeenCalled();
       const getCalls = (mockFetch.mock.calls as MockCall[]).filter((c) => !c[1]?.method || c[1]?.method === 'GET');
-      // 3 hostnames × 3 types = 9 GET calls
-      expect(getCalls.length).toBeGreaterThanOrEqual(9);
+      expect(getCalls.length).toBeGreaterThanOrEqual(12);
     });
   });
 
   describe('writeKVMachine', () => {
     it('should PUT machine data to KV with correct key', async () => {
       await cloudflareClient.writeKVMachine('my-slug', {
+        machine_id: 'machine-123',
         owner_id: 'user-123',
         ip: '2a01:4f8:c17:e4c4::',
-        origin_hostname: 'origin-my-slug.kortix.cloud',
         status: 'ready',
         server_type: 'cx22',
       });

@@ -20,11 +20,14 @@ export interface Env {
   KV: KVNamespace;
   PROXY_AUTH_SECRET: string;
   PLATFORM_URL: string; // https://justavps.com (prod) or https://dev.justavps.com (dev)
+  BROKER_ORIGIN: string;
+  BROKER_SHARED_SECRET: string;
   ENVIRONMENT?: string;
 }
 
-export default {
+const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    void ctx;
     try {
       const url = new URL(request.url);
       const parsed = parseHostname(url.hostname, url.pathname);
@@ -149,11 +152,11 @@ export default {
 
       // WebSocket upgrade
       if (isWebSocketUpgrade(request)) {
-        return proxyWebSocket(request, machineInfo, port);
+        return proxyWebSocket(request, machineInfo, slug, port, env);
       }
 
       // HTTP proxy (pass rewrittenPath for path-based port routing)
-      const response = await proxyHTTPRequest(request, machineInfo, port, rewrittenPath);
+      const response = await proxyHTTPRequest(request, machineInfo, slug, port, env, rewrittenPath);
 
       // Handle origin errors with friendly pages
       if (response.status === 521 || response.status === 523) {
@@ -212,6 +215,8 @@ export default {
     }
   },
 };
+
+export default worker;
 
 function accessDeniedHTML(platformUrl: string) {
   return `<!DOCTYPE html>

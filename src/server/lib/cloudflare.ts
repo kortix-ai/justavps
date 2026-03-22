@@ -1,53 +1,127 @@
 /**
- * Cloudflare client — dual-stack DNS and KV management.
+ * Cloudflare client — broker DNS, route, and KV management.
  *
- * Architecture (direct IP proxy — no tunnels):
- *   - Per-machine A/AAAA records: slug.kortix.cloud → VPS public IPs (proxied, orange-cloud)
- *   - Per-machine wildcard A/AAAA: *.slug.kortix.cloud → VPS public IPs (proxied, for port subdomains)
- *   - CF Worker route intercepts all requests, authenticates, proxies to VPS IP
- *   - KV stores machine info for Worker auth lookups
+ * Architecture (wildcard Worker ingress + shared broker origin):
+ *   - Public ingress is handled by fixed wildcard DNS + Worker routes
+ *   - Broker traffic uses a fixed hostname that bypasses the Worker route
+ *   - No per-machine DNS records should exist in steady state
+ *   - Worker auth/routing metadata lives in KV under machine:{slug}
  */
 
 import { config } from './config';
 
 const CF_API = 'https://api.cloudflare.com/client/v4';
+const MAX_CF_RETRIES = 5;
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function cfRequest(
+  path: string,
+  options: { method?: string; body?: unknown; contentType?: string } = {},
+): Promise<Response> {
+  let attempt = 0;
+
+  while (true) {
+    const res = await fetch(`${CF_API}${path}`, {
+      method: options.method || 'GET',
+      headers: {
+        'X-Auth-Key': config.CLOUDFLARE_API_KEY,
+        'X-Auth-Email': config.CLOUDFLARE_EMAIL,
+        'Content-Type': options.contentType || 'application/json',
+      },
+      body: options.body
+        ? (options.contentType === 'text/plain' ? String(options.body) : JSON.stringify(options.body))
+        : undefined,
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (res.ok) {
+      return res;
+    }
+
+    const text = await res.text().catch(() => '');
+    const shouldRetry = res.status === 429 || res.status >= 500;
+    if (!shouldRetry || attempt >= MAX_CF_RETRIES - 1) {
+      throw new Error(`Cloudflare API ${options.method || 'GET'} ${path} -> ${res.status}: ${text.slice(0, 300)}`);
+    }
+
+    const retryAfter = Number.parseFloat(res.headers.get('retry-after') || '0');
+    const delay = Number.isFinite(retryAfter) && retryAfter > 0
+      ? retryAfter * 1000
+      : Math.min(15_000, 750 * (2 ** attempt));
+    await sleep(delay);
+    attempt += 1;
+  }
+}
 
 async function cfFetch<T = unknown>(
   path: string,
-  options: { method?: string; body?: unknown } = {},
+  options: { method?: string; body?: unknown; contentType?: string } = {},
 ): Promise<T> {
-  const res = await fetch(`${CF_API}${path}`, {
-    method: options.method || 'GET',
-    headers: {
-      'X-Auth-Key': config.CLOUDFLARE_API_KEY,
-      'X-Auth-Email': config.CLOUDFLARE_EMAIL,
-      'Content-Type': 'application/json',
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-    signal: AbortSignal.timeout(15_000),
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Cloudflare API ${options.method || 'GET'} ${path} → ${res.status}: ${text.slice(0, 300)}`);
-  }
-
+  const res = await cfRequest(path, options);
+  if (res.status === 204) return {} as T;
   return res.json() as Promise<T>;
 }
 
-/**
- * Delete all DNS records for a hostname (any type).
- */
+export interface CloudflareDNSRecord {
+  id: string;
+  type: string;
+  name: string;
+  content: string;
+  proxied?: boolean;
+  ttl?: number;
+}
+
+export interface CloudflareWorkerRoute {
+  id: string;
+  pattern: string;
+  script?: string;
+}
+
+export interface MachineRoutingKVRecord {
+  machine_id: string;
+  owner_id: string;
+  ip: string;
+  origin_hostname?: string;
+  status: string;
+  server_type: string;
+  platform_url?: string;
+  updated_at?: string;
+  routing_version?: number;
+}
+
+function machineHostnames(slug: string, domain: string) {
+  const hostname = `${slug}.${domain}`;
+  return {
+    hostname,
+    wildcardHostname: `*.${hostname}`,
+    originHostname: `origin-${slug}.${domain}`,
+    legacyOriginHostname: `origin.${hostname}`,
+  };
+}
+
+async function listDNSRecordsForHostname(zid: string, hostname: string): Promise<CloudflareDNSRecord[]> {
+  const lists = await Promise.all(
+    ['CNAME', 'A', 'AAAA'].map((type) =>
+      cfFetch<{ result: CloudflareDNSRecord[] }>(
+        `/zones/${zid}/dns_records?name=${encodeURIComponent(hostname)}&type=${type}`,
+      ).catch(() => ({ result: [] })),
+    ),
+  );
+
+  return lists.flatMap((entry) => entry.result ?? []);
+}
+
 async function deleteAllDNSRecords(zid: string, hostname: string): Promise<void> {
-  for (const type of ['CNAME', 'A', 'AAAA']) {
-    try {
-      const existing = await cfFetch<{ result: Array<{ id: string }> }>(
-        `/zones/${zid}/dns_records?name=${hostname}&type=${type}`,
-      );
-      for (const r of existing.result) {
-        await cfFetch(`/zones/${zid}/dns_records/${r.id}`, { method: 'DELETE' });
-      }
-    } catch { /* best-effort cleanup */ }
+  try {
+    const existing = await listDNSRecordsForHostname(zid, hostname);
+    for (const record of existing) {
+      await cfFetch(`/zones/${zid}/dns_records/${record.id}`, { method: 'DELETE' });
+    }
+  } catch {
+    /* best-effort cleanup */
   }
 }
 
@@ -55,63 +129,23 @@ async function deleteAllDNSRecords(zid: string, hostname: string): Promise<void>
 
 export const cloudflareClient = {
   /**
-   * Add DNS records for a machine.
-   *
-   * Creates:
-   *   slug.kortix.cloud         → A/AAAA → VPS public IPs (proxied) — triggers Worker route
-   *   origin-slug.kortix.cloud  → A/AAAA → VPS public IPs (DNS-only) — Worker fetches this
-   *
-   * No wildcard-only special case — the Worker route *.kortix.cloud/* handles
-   * port subdomains (3000.slug.kortix.cloud). A wildcard origin record would conflict with
-   * the DNS-only origin record.
-   *
-   * The origin record uses "origin-slug" (single level) not "origin.slug" (two levels)
-   * to avoid wildcard DNS precedence conflicts.
+   * Ensure a fixed DNS record exists.
    */
-  async addMachineDNS(slug: string, addresses: { ipv4?: string | null; ipv6?: string | null }): Promise<void> {
-    const { CLOUDFLARE_ZONE_ID: zid, PROXY_DOMAIN: domain } = config;
-    if (!zid) {
-      console.warn(`[CF] Zone not configured — skipping DNS for ${slug}`);
-      return;
-    }
-    if (!addresses.ipv4 && !addresses.ipv6) {
-      console.warn(`[CF] No public IPs available — skipping DNS for ${slug}`);
-      return;
-    }
+  async ensureDNSRecord(
+    name: string,
+    addresses: { ipv4?: string | null; ipv6?: string | null },
+    proxied: boolean,
+  ): Promise<void> {
+    const { CLOUDFLARE_ZONE_ID: zid } = config;
+    if (!zid) return;
 
-    const hostname = `${slug}.${domain}`;
-    const origin = `origin-${slug}.${domain}`;
-
-    // Clean up stale records (any type)
-    await deleteAllDNSRecords(zid, hostname);
-    await deleteAllDNSRecords(zid, `*.${hostname}`);
-    await deleteAllDNSRecords(zid, origin);
-    // Also clean old architecture artifacts
-    await deleteAllDNSRecords(zid, `origin.${hostname}`);
+    await deleteAllDNSRecords(zid, name);
 
     const publish = async (type: 'A' | 'AAAA', content: string) => {
-      const createRecord = async (name: string, proxied: boolean) => {
-        try {
-          await cfFetch(`/zones/${zid}/dns_records`, {
-            method: 'POST',
-            body: { type, name, content, proxied, ttl: 1 },
-          });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          if (!message.includes('81058')) throw err;
-        }
-      };
-
-      await createRecord(hostname, true);
-      console.log(`[CF DNS] ${type} record: ${hostname} → ${content}`);
-
-      await createRecord(`*.${hostname}`, true);
-      console.log(`[CF DNS] Wildcard ${type}: *.${hostname} → ${content}`);
-
-      await createRecord(origin, false).catch((err) => {
-        console.error(`[CF DNS] FAILED to create origin ${type} record ${origin} → ${content}:`, err);
+      await cfFetch(`/zones/${zid}/dns_records`, {
+        method: 'POST',
+        body: { type, name, content, proxied, ttl: 1 },
       });
-      console.log(`[CF DNS] Origin ${type} (DNS-only): ${origin} → ${content}`);
     };
 
     if (addresses.ipv4) await publish('A', addresses.ipv4);
@@ -119,48 +153,205 @@ export const cloudflareClient = {
   },
 
   /**
-   * Remove all DNS records for a machine.
+   * Ensure all traffic for broker host bypasses the Worker route.
+   */
+  async ensureWorkerBypassRoute(pattern: string): Promise<void> {
+    const { CLOUDFLARE_ZONE_ID: zid } = config;
+    if (!zid) return;
+
+    const routes = await cfFetch<{ result: CloudflareWorkerRoute[] }>(`/zones/${zid}/workers/routes`);
+    if (routes.result.some((route) => route.pattern === pattern && !route.script)) {
+      return;
+    }
+
+    await cfFetch(`/zones/${zid}/workers/routes`, {
+      method: 'POST',
+      body: { pattern },
+    });
+  },
+
+  /**
+   * List Worker routes in the current zone.
+   */
+  async listWorkerRoutes(): Promise<CloudflareWorkerRoute[]> {
+    const { CLOUDFLARE_ZONE_ID: zid } = config;
+    if (!zid) return [];
+    const routes = await cfFetch<{ result: CloudflareWorkerRoute[] }>(`/zones/${zid}/workers/routes`);
+    return routes.result ?? [];
+  },
+
+  /**
+   * Per-machine DNS should not exist in the broker architecture.
+   * This method now acts as cleanup-only idempotent reconciliation.
+   */
+  async addMachineDNS(slug: string, addresses: { ipv4?: string | null; ipv6?: string | null }): Promise<void> {
+    void addresses;
+    await this.removeMachineDNS(slug);
+  },
+
+  /**
+   * Remove all DNS records for a machine, including legacy public and origin artifacts.
    */
   async removeMachineDNS(slug: string): Promise<void> {
     const { CLOUDFLARE_ZONE_ID: zid, PROXY_DOMAIN: domain } = config;
     if (!zid) return;
 
-    const hostname = `${slug}.${domain}`;
+    const { hostname, wildcardHostname, originHostname, legacyOriginHostname } = machineHostnames(slug, domain);
     await deleteAllDNSRecords(zid, hostname);
-    await deleteAllDNSRecords(zid, `*.${hostname}`);
-    await deleteAllDNSRecords(zid, `origin-${slug}.${domain}`);
-    // Clean old architecture artifacts
-    await deleteAllDNSRecords(zid, `origin.${hostname}`);
+    await deleteAllDNSRecords(zid, wildcardHostname);
+    await deleteAllDNSRecords(zid, originHostname);
+    await deleteAllDNSRecords(zid, legacyOriginHostname);
+  },
+
+  /**
+   * Remove only legacy per-machine public DNS records for a machine.
+   */
+  async removeLegacyMachinePublicDNS(slug: string): Promise<void> {
+    const { CLOUDFLARE_ZONE_ID: zid, PROXY_DOMAIN: domain } = config;
+    if (!zid) return;
+
+    const { hostname, wildcardHostname, legacyOriginHostname, originHostname } = machineHostnames(slug, domain);
+    await deleteAllDNSRecords(zid, hostname);
+    await deleteAllDNSRecords(zid, wildcardHostname);
+    await deleteAllDNSRecords(zid, legacyOriginHostname);
+    await deleteAllDNSRecords(zid, originHostname);
+  },
+
+  /**
+   * Inspect DNS routing artifacts for a machine.
+   */
+  async getMachineDNSState(slug: string): Promise<{
+    hostname: string;
+    wildcardHostname: string;
+    originHostname: string;
+    legacyOriginHostname: string;
+    publicRecords: CloudflareDNSRecord[];
+    wildcardRecords: CloudflareDNSRecord[];
+    originRecords: CloudflareDNSRecord[];
+    legacyOriginRecords: CloudflareDNSRecord[];
+  }> {
+    const { CLOUDFLARE_ZONE_ID: zid, PROXY_DOMAIN: domain } = config;
+    const { hostname, wildcardHostname, originHostname, legacyOriginHostname } = machineHostnames(slug, domain);
+
+    if (!zid) {
+      return {
+        hostname,
+        wildcardHostname,
+        originHostname,
+        legacyOriginHostname,
+        publicRecords: [],
+        wildcardRecords: [],
+        originRecords: [],
+        legacyOriginRecords: [],
+      };
+    }
+
+    const [publicRecords, wildcardRecords, originRecords, legacyOriginRecords] = await Promise.all([
+      listDNSRecordsForHostname(zid, hostname),
+      listDNSRecordsForHostname(zid, wildcardHostname),
+      listDNSRecordsForHostname(zid, originHostname),
+      listDNSRecordsForHostname(zid, legacyOriginHostname),
+    ]);
+
+    return {
+      hostname,
+      wildcardHostname,
+      originHostname,
+      legacyOriginHostname,
+      publicRecords,
+      wildcardRecords,
+      originRecords,
+      legacyOriginRecords,
+    };
+  },
+
+  /**
+   * List all DNS records in the proxy domain.
+   */
+  async listProxyDomainDNSRecords(): Promise<CloudflareDNSRecord[]> {
+    const { CLOUDFLARE_ZONE_ID: zid, PROXY_DOMAIN: domain } = config;
+    if (!zid) return [];
+
+    const records: CloudflareDNSRecord[] = [];
+    let page = 1;
+    let totalPages = 1;
+
+    do {
+      const result = await cfFetch<{
+        result: CloudflareDNSRecord[];
+        result_info?: { total_pages?: number };
+      }>(`/zones/${zid}/dns_records?page=${page}&per_page=1000`);
+      records.push(...(result.result ?? []).filter((record) => record.name.endsWith(domain)));
+      totalPages = result.result_info?.total_pages ?? 1;
+      page += 1;
+    } while (page <= totalPages);
+
+    return records;
   },
 
   /**
    * Write machine info to KV for Worker auth lookups.
    */
-  async writeKVMachine(slug: string, data: {
-    owner_id: string;
-    ip: string;
-    origin_hostname: string;
-    status: string;
-    server_type: string;
-  }): Promise<void> {
+  async writeKVMachine(slug: string, data: MachineRoutingKVRecord): Promise<void> {
     const kvNs = process.env.CF_KV_NAMESPACE_ID;
     if (!config.CLOUDFLARE_ACCOUNT_ID || !kvNs) return;
     await cfFetch(
       `/accounts/${config.CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${kvNs}/values/machine:${slug}`,
-      { method: 'PUT', body: data },
+      {
+        method: 'PUT',
+        contentType: 'application/json',
+        body: {
+          ...data,
+          updated_at: data.updated_at ?? new Date().toISOString(),
+          routing_version: data.routing_version ?? 3,
+        },
+      },
     );
-    console.log(`[CF KV] machine:${slug} → ${data.ip}`);
+    console.log(`[CF KV] machine:${slug} -> ${data.ip}`);
+  },
+
+  /**
+   * List KV keys for machine routing records.
+   */
+  async listKVMachineKeys(): Promise<string[]> {
+    const kvNs = process.env.CF_KV_NAMESPACE_ID;
+    if (!config.CLOUDFLARE_ACCOUNT_ID || !kvNs) return [];
+
+    const keys: string[] = [];
+    let page = 1;
+    let totalPages = 1;
+
+    do {
+      const result = await cfFetch<{
+        result: Array<{ name: string }>;
+        result_info?: { total_pages?: number };
+      }>(
+        `/accounts/${config.CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${kvNs}/keys?prefix=${encodeURIComponent('machine:')}&page=${page}&per_page=1000`,
+      );
+      keys.push(...(result.result ?? []).map((entry) => entry.name));
+      totalPages = result.result_info?.total_pages ?? 1;
+      page += 1;
+    } while (page <= totalPages);
+
+    return keys;
+  },
+
+  /**
+   * Delete an arbitrary KV key.
+   */
+  async deleteKVKey(key: string): Promise<void> {
+    const kvNs = process.env.CF_KV_NAMESPACE_ID;
+    if (!config.CLOUDFLARE_ACCOUNT_ID || !kvNs) return;
+    await cfFetch(
+      `/accounts/${config.CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${kvNs}/values/${key}`,
+      { method: 'DELETE' },
+    ).catch(() => {});
   },
 
   /**
    * Delete machine from KV.
    */
   async deleteKVMachine(slug: string): Promise<void> {
-    const kvNs = process.env.CF_KV_NAMESPACE_ID;
-    if (!config.CLOUDFLARE_ACCOUNT_ID || !kvNs) return;
-    await cfFetch(
-      `/accounts/${config.CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${kvNs}/values/machine:${slug}`,
-      { method: 'DELETE' },
-    ).catch(() => {});
+    await this.deleteKVKey(`machine:${slug}`);
   },
 };

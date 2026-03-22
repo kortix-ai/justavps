@@ -6,7 +6,7 @@ import { generateMachineToken, fingerprintSSHKey, encryptSecret } from './crypto
 import { generateSSHKeyPair } from './ssh-keygen';
 import { buildCloudInit } from './cloud-init';
 import { config } from './config';
-import { cloudflareClient } from './cloudflare';
+import { cloudflareClient, type MachineRoutingKVRecord } from './cloudflare';
 import { stripeClient, type MachineSpecs } from './stripe';
 import { signProxyToken } from './proxy-token';
 import { getProvider, type ComputeProvider } from './providers';
@@ -206,33 +206,47 @@ export function buildMachineUserData(
   });
 }
 
+function buildMachineRoutingKVData(input: {
+  machineId: string;
+  slug: string;
+  ownerId: string;
+  ip: string;
+  status: string;
+  serverType: string;
+}): MachineRoutingKVRecord {
+  return {
+    machine_id: input.machineId,
+    owner_id: input.ownerId,
+    ip: input.ip,
+    status: input.status,
+    server_type: input.serverType,
+  };
+}
+
 /**
- * Register machine in Cloudflare: dual-stack DNS + KV.
- * - Creates A/AAAA records for slug/origin hosts when available
+ * Register machine in Cloudflare KV for Worker auth/routing.
  * - Writes machine:{slug} to KV for Worker auth
  */
 export async function setupProxyDNS(
+  machineId: string,
   slug: string,
   addresses: { ipv4?: string | null; ipv6?: string | null },
   ownerId: string,
   serverType: string,
 ) {
   if (!config.isCloudflareConfigured()) return;
-  
-  await cloudflareClient.addMachineDNS(slug, addresses).catch((err: unknown) => {
-    console.warn(`[CF] Failed to add DNS for ${slug}:`, err);
-  });
 
   const primaryIp = addresses.ipv4 ?? addresses.ipv6;
   if (!primaryIp) return;
 
-  await cloudflareClient.writeKVMachine(slug, {
-    owner_id: ownerId,
+  await cloudflareClient.writeKVMachine(slug, buildMachineRoutingKVData({
+    machineId,
+    slug,
+    ownerId,
     ip: primaryIp,
-    origin_hostname: `origin-${slug}.${config.PROXY_DOMAIN}`,
     status: 'provisioning',
-    server_type: serverType,
-  }).catch((err: unknown) => {
+    serverType,
+  })).catch((err: unknown) => {
     console.warn(`[CF KV] Failed to write machine:${slug}:`, err);
   });
 }
@@ -442,24 +456,17 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
 
         machine = { ...machine, ip: nextIp, providerMeta: nextMeta };
 
-        if (config.isCloudflareConfigured()) {
-          await cloudflareClient.addMachineDNS(machine.slug, {
-            ipv4: network.publicIpv4,
-            ipv6: network.publicIpv6,
-          }).catch((err) => {
-            console.warn(`[MACHINES] Failed to sync DNS for ${machine.slug}:`, err);
+        if (config.isCloudflareConfigured() && nextIp) {
+          await cloudflareClient.writeKVMachine(machine.slug, buildMachineRoutingKVData({
+            machineId: machine.id,
+            slug: machine.slug,
+            ownerId: machine.ownerId,
+            ip: nextIp,
+            status: machine.status,
+            serverType: machine.serverType,
+          })).catch((err) => {
+            console.warn(`[MACHINES] Failed to sync KV for ${machine.slug}:`, err);
           });
-          if (nextIp) {
-            await cloudflareClient.writeKVMachine(machine.slug, {
-              owner_id: machine.ownerId,
-              ip: nextIp,
-              origin_hostname: `origin-${machine.slug}.${config.PROXY_DOMAIN}`,
-              status: machine.status,
-              server_type: machine.serverType,
-            }).catch((err) => {
-              console.warn(`[MACHINES] Failed to sync KV for ${machine.slug}:`, err);
-            });
-          }
         }
       }
     } catch (err) {
@@ -534,13 +541,14 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
       await eventBus.emitStatusChange(machine.id, machine.ownerId, 'ready', 'Machine is ready');
 
       if (config.isCloudflareConfigured() && machine.ip) {
-        cloudflareClient.writeKVMachine(machine.slug, {
-          owner_id: machine.ownerId,
+        cloudflareClient.writeKVMachine(machine.slug, buildMachineRoutingKVData({
+          machineId: machine.id,
+          slug: machine.slug,
+          ownerId: machine.ownerId,
           ip: machine.ip,
-          origin_hostname: `origin-${machine.slug}.${config.PROXY_DOMAIN}`,
           status: 'ready',
-          server_type: machine.serverType,
-        }).catch(() => {});
+          serverType: machine.serverType,
+        })).catch(() => {});
       }
 
       return {

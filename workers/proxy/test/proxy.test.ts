@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stripHopByHopHeaders, handleCORSPreflight, isWebSocketUpgrade } from '../src/proxy';
+import { buildTargetPath, stripHopByHopHeaders, handleCORSPreflight, isWebSocketUpgrade } from '../src/proxy';
 
 describe('proxy module', () => {
   describe('stripHopByHopHeaders', () => {
@@ -38,7 +38,19 @@ describe('proxy module', () => {
       const cleaned = stripHopByHopHeaders(headers);
       expect(cleaned.get('X-Custom')).toBe('value');
       expect(cleaned.get('Accept')).toBe('text/html');
-      expect(cleaned.get('Host')).toBe('example.com');
+      expect(cleaned.has('Host')).toBe(false);
+    });
+  });
+
+  describe('buildTargetPath', () => {
+    it('should keep path and query for port 80', () => {
+      const url = new URL('https://abc123.kortix.cloud/foo/bar?x=1');
+      expect(buildTargetPath(url, 80)).toBe('/foo/bar?x=1');
+    });
+
+    it('should route non-default ports through /_port', () => {
+      const url = new URL('https://3000--abc123.kortix.cloud/foo/bar?x=1');
+      expect(buildTargetPath(url, 3000)).toBe('/_port/3000/foo/bar?x=1');
     });
   });
 

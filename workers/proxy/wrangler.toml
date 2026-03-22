@@ -19,9 +19,11 @@ id = "250d587f8010426a8259d1fab5b2abe4"
 [vars]
 ENVIRONMENT = "production"
 PLATFORM_URL = "https://justavps.com"
+BROKER_ORIGIN = "http://broker.kortix.cloud"
 
 # Secrets (set via `wrangler secret put`):
 #   PROXY_AUTH_SECRET — must match justavps.com (prod) PROXY_AUTH_SECRET.
+#   BROKER_SHARED_SECRET — shared HMAC secret for Worker -> broker requests.
 #   Dev uses a separate Worker (kortix-cloud-proxy-dev) on *.kortix-dev.cloud.
 
 [placement]

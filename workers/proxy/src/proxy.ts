@@ -1,20 +1,19 @@
 /**
- * Direct IP proxy — forwards authenticated requests to VPS_IP:port.
+ * Shared-broker proxy.
  *
- * No Cloudflare Tunnels. No origin.slug DNS trick. The Worker fetches
- * the VPS IP directly: fetch("http://1.2.3.4:80/path").
- *
- * Handles:
- *   - HTTP/HTTPS requests (transparent proxy)
- *   - WebSocket upgrades (OpenCode, PTY)
- *   - SSE streams (no buffering)
- *   - CORS preflight (before auth)
- *   - Hop-by-hop header stripping
+ * The Worker remains the public auth + routing layer, but it no longer fetches
+ * machine IPs directly. Instead it sends a signed internal request to a shared
+ * broker origin, and the broker dials the target machine IP.
  */
 
 import type { MachineInfo } from './auth';
 
-// Hop-by-hop headers that must not be forwarded
+export interface ProxyEnv {
+  BROKER_ORIGIN: string;
+  BROKER_SHARED_SECRET: string;
+}
+
+// Hop-by-hop headers that must not be forwarded.
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
   'keep-alive',
@@ -25,6 +24,7 @@ const HOP_BY_HOP_HEADERS = new Set([
   'trailers',
   'transfer-encoding',
   'upgrade',
+  'host',
 ]);
 
 /**
@@ -59,60 +59,102 @@ export function handleCORSPreflight(request: Request): Response | null {
   return new Response(null, { status: 200, headers: corsHeaders });
 }
 
+export function buildTargetPath(url: URL, port: number, rewrittenPath?: string): string {
+  if (port === 80) {
+    const path = rewrittenPath || url.pathname;
+    const search = rewrittenPath ? '' : url.search;
+    return `${path}${search}`;
+  }
+
+  const path = rewrittenPath || url.pathname;
+  const search = rewrittenPath ? '' : url.search;
+  return `/_port/${port}${path === '/' ? '' : path}${search}`;
+}
+
+async function createBrokerHeaders(
+  request: Request,
+  machineInfo: MachineInfo,
+  slug: string,
+  port: number,
+  targetPath: string,
+  env: ProxyEnv,
+): Promise<Headers> {
+  const url = new URL(request.url);
+  const headers = stripHopByHopHeaders(new Headers(request.headers));
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const nonce = crypto.randomUUID().replaceAll('-', '');
+  const originalHost = url.hostname;
+  const targetIP = machineInfo.ip;
+  const machineId = machineInfo.machine_id || `slug:${slug}`;
+
+  const canonical = [
+    timestamp,
+    nonce,
+    machineId,
+    slug,
+    targetIP,
+    String(port),
+    originalHost,
+    targetPath,
+  ].join('\n');
+  const signature = await signBrokerPayload(env.BROKER_SHARED_SECRET, canonical);
+
+  headers.set('X-Kortix-Target-IP', targetIP);
+  headers.set('X-Kortix-Target-Port', String(port));
+  headers.set('X-Kortix-Target-Path', targetPath);
+  headers.set('X-Kortix-Machine-Id', machineId);
+  headers.set('X-Kortix-Machine-Slug', slug);
+  headers.set('X-Kortix-Original-Host', originalHost);
+  headers.set('X-Kortix-Request-Ts', timestamp);
+  headers.set('X-Kortix-Request-Nonce', nonce);
+  headers.set('X-Kortix-Signature', signature);
+
+  return headers;
+}
+
+async function signBrokerPayload(secret: string, payload: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
+  return Array.from(new Uint8Array(sig)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 /**
- * Proxy an HTTP request to the VPS via the DNS-only origin hostname.
- *
- * All traffic goes through port 80 (the daemon's ProxyRouter).
- * Non-default ports are forwarded via the daemon's /_port/PORT/path handler,
- * which proxies to localhost:PORT on the machine. This way services bound to
- * 127.0.0.1 (like opencode on :4096) are reachable without opening extra ports.
+ * Proxy an HTTP request to the shared broker, which dials the target machine.
  */
 export async function proxyHTTPRequest(
   request: Request,
   machineInfo: MachineInfo,
+  slug: string,
   port: number,
+  env: ProxyEnv,
   rewrittenPath?: string,
 ): Promise<Response> {
   try {
     const url = new URL(request.url);
-
-    const originHost = machineInfo.origin_hostname || machineInfo.ip;
-    let targetPath: string;
-    if (port === 80) {
-      // Default port — direct path through daemon's router
-      const path = rewrittenPath || url.pathname;
-      const search = rewrittenPath ? '' : url.search;
-      targetPath = `${path}${search}`;
-    } else {
-      // Non-default port — route through daemon's /_port proxy (handles localhost-bound services)
-      const path = rewrittenPath || url.pathname;
-      const search = rewrittenPath ? '' : url.search;
-      targetPath = `/_port/${port}${path === '/' ? '' : path}${search}`;
-    }
-    const targetUrl = `http://${originHost}:80${targetPath}`;
-
-    // Build forwarded headers
-    const headers = stripHopByHopHeaders(new Headers(request.headers));
-    headers.set('X-Forwarded-Host', url.hostname);
-    headers.set('X-Forwarded-Proto', 'https');
-    headers.set('X-Real-IP', request.headers.get('CF-Connecting-IP') || '');
+    const targetPath = buildTargetPath(url, port, rewrittenPath);
+    const brokerHeaders = await createBrokerHeaders(request, machineInfo, slug, port, targetPath, env);
+    const brokerURL = `${env.BROKER_ORIGIN.replace(/\/$/, '')}/_broker_proxy`;
 
     const init: RequestInit = {
       method: request.method,
-      headers,
+      headers: brokerHeaders,
       body: request.method !== 'GET' && request.method !== 'HEAD' ? request.body : null,
       redirect: 'manual',
     };
 
-    // Duplex for streaming bodies
     const streamingInit = init as RequestInit & { duplex?: 'half' };
     if (streamingInit.body && typeof streamingInit.duplex === 'undefined') {
       streamingInit.duplex = 'half';
     }
 
-    const response = await fetch(targetUrl, streamingInit);
-
-    // Build response with CORS
+    const response = await fetch(brokerURL, streamingInit);
     const responseHeaders = new Headers(response.headers);
     addCORSHeaders(responseHeaders, request);
 
@@ -122,10 +164,10 @@ export async function proxyHTTPRequest(
       headers: responseHeaders,
     });
   } catch (error) {
-    console.error('Proxy request failed:', error);
+    console.error('Broker proxy request failed:', error);
     return new Response(JSON.stringify({
-      error: 'Proxy request failed',
-      target: `http://${machineInfo.ip}:${port}`,
+      error: 'Broker proxy request failed',
+      target: `${machineInfo.ip}:${port}`,
       details: error instanceof Error ? error.message : 'Unknown error',
     }), {
       status: 502,
@@ -139,47 +181,39 @@ export async function proxyHTTPRequest(
 }
 
 /**
- * Proxy a WebSocket upgrade request to the VPS.
- *
- * CF Workers WebSocket proxy:
- *   1. fetch(origin, { headers: { Upgrade: 'websocket' } }) → gets origin WebSocket
- *   2. Create WebSocketPair for client side
- *   3. Pipe bidirectionally: client ↔ origin
+ * Proxy a WebSocket upgrade request through the shared broker.
  */
 export async function proxyWebSocket(
   request: Request,
   machineInfo: MachineInfo,
+  slug: string,
   port: number,
+  env: ProxyEnv,
 ): Promise<Response> {
   try {
     const url = new URL(request.url);
-    const originHost = machineInfo.origin_hostname || machineInfo.ip;
-    // Route all WS through port 80 (daemon's ProxyRouter), using /_port for non-default ports
-    const wsPath = port === 80
-      ? `${url.pathname}${url.search}`
-      : `/_port/${port}${url.pathname === '/' ? '' : url.pathname}${url.search}`;
-    const targetUrl = `http://${originHost}:80${wsPath}`;
+    const targetPath = buildTargetPath(url, port);
+    const brokerHeaders = await createBrokerHeaders(request, machineInfo, slug, port, targetPath, env);
+    brokerHeaders.set('Connection', 'Upgrade');
+    brokerHeaders.set('Upgrade', 'websocket');
+    const brokerURL = `${env.BROKER_ORIGIN.replace(/\/$/, '')}/_broker_proxy`;
 
-    // Connect to origin WebSocket (CF Workers pattern: fetch with Upgrade header)
-    const originResp = await fetch(targetUrl, {
-      headers: { 'Upgrade': 'websocket' },
+    const originResp = await fetch(brokerURL, {
+      headers: brokerHeaders,
     });
 
     const originWs = originResp.webSocket;
     if (!originWs) {
-      return new Response(`WebSocket upgrade to origin failed (${originResp.status})`, { status: 502 });
+      return new Response(`WebSocket upgrade to broker failed (${originResp.status})`, { status: 502 });
     }
     originWs.accept();
 
-    // Create client-side pair
     const [clientWs, serverWs] = Object.values(new WebSocketPair());
     serverWs.accept();
 
-    // Pipe: client → origin
     serverWs.addEventListener('message', (e) => { try { originWs.send(e.data); } catch {} });
     serverWs.addEventListener('close', (e) => { try { originWs.close(e.code, e.reason); } catch {} });
 
-    // Pipe: origin → client
     originWs.addEventListener('message', (e) => { try { serverWs.send(e.data); } catch {} });
     originWs.addEventListener('close', (e) => { try { serverWs.close(e.code, e.reason); } catch {} });
 

@@ -33,6 +33,10 @@ export const config = {
   // Platform
   PLATFORM_URL: (process.env.PLATFORM_URL || 'https://justavps.com').trim(),
   PROXY_DOMAIN: (process.env.PROXY_DOMAIN || 'kortix.cloud').trim(),
+  BROKER_HOST: (process.env.BROKER_HOST || '').trim(),
+  BROKER_IPV4: (process.env.BROKER_IPV4 || '').trim(),
+  BROKER_IPV6: (process.env.BROKER_IPV6 || '').trim(),
+  BROKER_SHARED_SECRET: (process.env.BROKER_SHARED_SECRET || '').trim(),
   APP_URL: (process.env.NEXT_PUBLIC_APP_URL || 'https://justavps.com').trim(),
   API_URL: (process.env.NEXT_PUBLIC_API_URL || 'https://justavps.com/api').trim(),
   // Public callback URL embedded into new machines for /api/v1/internal/* callbacks.
@@ -72,6 +76,9 @@ export const config = {
   },
   isCloudflareConfigured(): boolean {
     return !!this.CLOUDFLARE_API_KEY && !!this.CLOUDFLARE_ZONE_ID;
+  },
+  brokerSourceIPs(): string[] {
+    return [this.BROKER_IPV4, this.BROKER_IPV6].filter(Boolean);
   },
   isDatabaseConfigured(): boolean {
     return !!this.DATABASE_URL;
