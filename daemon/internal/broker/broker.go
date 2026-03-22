@@ -184,6 +184,7 @@ func (b *Broker) handleHTTPProxy(w http.ResponseWriter, r *http.Request, verifie
 		return
 	}
 	req.Header = headers
+	req.ContentLength = r.ContentLength
 
 	resp, err := b.transport.RoundTrip(req)
 	if err != nil {
