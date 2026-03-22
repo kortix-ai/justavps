@@ -1,0 +1,114 @@
+name: Deploy Broker
+
+# Deploys the shared broker service to the environment-specific standalone host.
+# main -> Preview environment broker (broker.kortix-dev.cloud)
+# production -> Production environment broker (broker.kortix.cloud)
+
+on:
+  push:
+    branches: [main, production]
+    paths:
+      - 'broker/**'
+      - 'daemon/cmd/broker/**'
+      - 'daemon/internal/broker/**'
+      - '.github/workflows/deploy-broker.yml'
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+
+concurrency:
+  group: deploy-broker-${{ inputs.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    name: Test & Build Broker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: daemon/go.sum
+
+      - name: Test
+        working-directory: daemon
+        run: go test ./...
+
+      - name: Build linux/amd64 broker
+        working-directory: daemon
+        env:
+          VERSION: ${{ github.sha }}
+        run: |
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build \
+            -ldflags "-s -w -X main.version=${VERSION::7} -X main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o bin/kortix-broker-linux-amd64 ./cmd/broker
+          ls -lh bin/kortix-broker-linux-amd64
+
+      - name: Upload broker artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: broker-linux-amd64
+          path: |
+            daemon/bin/kortix-broker-linux-amd64
+            broker/kortix-broker.service
+            broker/install.sh
+
+  deploy:
+    name: Deploy Broker Host
+    needs: test-and-build
+    runs-on: ubuntu-latest
+    environment: ${{ (inputs.ref || github.ref_name) == 'production' && 'Production' || 'Preview' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Download broker artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: broker-linux-amd64
+          path: /tmp/broker-artifact
+
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.BROKER_SSH_PRIVATE_KEY }}
+
+      - name: Add broker host to known_hosts
+        env:
+          BROKER_HOST: ${{ secrets.BROKER_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "$BROKER_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload broker files
+        env:
+          BROKER_HOST: ${{ secrets.BROKER_HOST }}
+          BROKER_USER: ${{ secrets.BROKER_USER }}
+        run: |
+          scp /tmp/broker-artifact/daemon/bin/kortix-broker-linux-amd64 "${BROKER_USER}@${BROKER_HOST}:/tmp/kortix-broker"
+          scp /tmp/broker-artifact/broker/kortix-broker.service "${BROKER_USER}@${BROKER_HOST}:/tmp/kortix-broker.service"
+          scp /tmp/broker-artifact/broker/install.sh "${BROKER_USER}@${BROKER_HOST}:/tmp/kortix-broker-install.sh"
+
+      - name: Install and restart broker
+        env:
+          BROKER_HOST: ${{ secrets.BROKER_HOST }}
+          BROKER_USER: ${{ secrets.BROKER_USER }}
+          BROKER_SHARED_SECRET: ${{ secrets.BROKER_SHARED_SECRET }}
+        run: |
+          ssh "${BROKER_USER}@${BROKER_HOST}" \
+            "chmod +x /tmp/kortix-broker-install.sh && BROKER_SHARED_SECRET='${BROKER_SHARED_SECRET}' /tmp/kortix-broker-install.sh /tmp/kortix-broker /tmp/kortix-broker.service"
+
+      - name: Verify broker health
+        env:
+          BROKER_HOST: ${{ secrets.BROKER_HOST }}
+          BROKER_USER: ${{ secrets.BROKER_USER }}
+        run: |
+          ssh "${BROKER_USER}@${BROKER_HOST}" "systemctl status --no-pager kortix-broker | sed -n '1,12p'"
+          ssh "${BROKER_USER}@${BROKER_HOST}" "curl -fsS http://127.0.0.1/healthz"

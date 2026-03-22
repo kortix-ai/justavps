@@ -47,3 +47,11 @@ jobs:
     with:
       ref: production
     secrets: inherit
+
+  deploy-broker:
+    name: Deploy Broker (production)
+    needs: promote
+    uses: ./.github/workflows/deploy-broker.yml
+    with:
+      ref: production
+    secrets: inherit
