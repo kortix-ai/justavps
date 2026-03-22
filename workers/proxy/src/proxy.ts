@@ -142,19 +142,19 @@ export async function proxyHTTPRequest(
     const brokerHeaders = await createBrokerHeaders(request, machineInfo, slug, port, targetPath, env);
     const brokerURL = `${env.BROKER_ORIGIN.replace(/\/$/, '')}/_broker_proxy`;
 
-    const init: RequestInit = {
-      method: request.method,
-      headers: brokerHeaders,
-      body: request.method !== 'GET' && request.method !== 'HEAD' ? request.body : null,
-      redirect: 'manual',
-    };
+    const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
+    const body = hasBody ? await request.arrayBuffer() : null;
 
-    const streamingInit = init as RequestInit & { duplex?: 'half' };
-    if (streamingInit.body && typeof streamingInit.duplex === 'undefined') {
-      streamingInit.duplex = 'half';
+    if (body && body.byteLength > 0) {
+      brokerHeaders.set('Content-Length', String(body.byteLength));
     }
 
-    const response = await fetch(brokerURL, streamingInit);
+    const response = await fetch(brokerURL, {
+      method: request.method,
+      headers: brokerHeaders,
+      body,
+      redirect: 'manual',
+    });
     const responseHeaders = new Headers(response.headers);
     addCORSHeaders(responseHeaders, request);
 
