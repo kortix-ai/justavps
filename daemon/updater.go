@@ -43,9 +43,10 @@ type UpdateInstruction struct {
 
 // Updater handles daemon self-updates.
 type Updater struct {
-	mu          sync.Mutex
-	lastAttempt time.Time
-	updating    bool
+	mu              sync.Mutex
+	lastAttempt     time.Time
+	updating        bool
+	skippedVersion  string
 }
 
 func NewUpdater() *Updater {
@@ -65,6 +66,10 @@ func (u *Updater) MaybeUpdate(instruction UpdateInstruction) {
 	}
 
 	u.mu.Lock()
+	if instruction.Version == u.skippedVersion {
+		u.mu.Unlock()
+		return
+	}
 	if u.updating || time.Since(u.lastAttempt) < updateCooldown {
 		u.mu.Unlock()
 		return
@@ -104,13 +109,22 @@ func (u *Updater) performUpdate(inst UpdateInstruction) error {
 		return fmt.Errorf("chmod: %w", err)
 	}
 
-	// 3. Validate — the new binary should respond to --version
+	// 3. Validate — the new binary should respond to --version AND match expected version
 	out, err := exec.Command(updateTmpPath, "--version").CombinedOutput()
 	if err != nil {
 		os.Remove(updateTmpPath)
 		return fmt.Errorf("validation failed: %w (output: %s)", err, strings.TrimSpace(string(out)))
 	}
-	log.Printf("[UPDATE] Validated new binary: %s", strings.TrimSpace(string(out)))
+	versionOutput := strings.TrimSpace(string(out))
+	log.Printf("[UPDATE] Validated new binary: %s", versionOutput)
+
+	if !strings.Contains(versionOutput, inst.Version) {
+		os.Remove(updateTmpPath)
+		u.mu.Lock()
+		u.skippedVersion = inst.Version
+		u.mu.Unlock()
+		return fmt.Errorf("version mismatch: expected %s, binary reports %s — aborting update (will not retry this version)", inst.Version, versionOutput)
+	}
 
 	// 4. Backup current binary
 	backupPath := daemonBinaryPath + ".bak"
