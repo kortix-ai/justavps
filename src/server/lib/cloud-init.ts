@@ -231,6 +231,8 @@ ${stageCallback('cloud_init_running', 'Cloud-init started')}
 
 # ── User account ──────────────────────────────────────────────────────────
 id -u user &>/dev/null || useradd -m -s /bin/bash -G sudo,docker user
+mkdir -p /home/user
+chown -R user:user /home/user
 echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/user
 
 # ── SSH keys ──────────────────────────────────────────────────────────────
@@ -378,6 +380,12 @@ if ! command -v sandbox-agent &>/dev/null; then
   sandbox-agent install-agent --all 2>/dev/null || true
 fi
 
+# ── Install OpenCode web runtime (default root app on :3456) ───────────────
+if [ ! -x /home/user/.opencode/bin/opencode ]; then
+  echo "[justavps] Installing opencode..."
+  su - user -c 'curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path' || echo "[justavps] WARNING: opencode install failed"
+fi
+
 # ── Systemd service: Sandbox Agent ────────────────────────────────────────
 if [ ! -f /etc/systemd/system/sandbox-agent.service ]; then
   cat > /etc/systemd/system/sandbox-agent.service << 'SAEOF'
@@ -397,6 +405,26 @@ Environment=HOME=/home/user
 WantedBy=multi-user.target
 SAEOF
 fi
+
+# ── Systemd service: OpenCode Web ──────────────────────────────────────────
+cat > /etc/systemd/system/opencode-web.service << 'OPENCODEEOF'
+[Unit]
+Description=OpenCode Web UI
+After=network.target
+
+[Service]
+Type=simple
+User=user
+Environment=HOME=/home/user
+Environment=PATH=/home/user/.opencode/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+WorkingDirectory=/home/user
+ExecStart=/home/user/.opencode/bin/opencode serve --port 3456
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+OPENCODEEOF
 
 # ── Harden daemon systemd service (overwrite snapshot version) ─────────────
 cat > /etc/systemd/system/justavps-daemon.service << 'DAEMONSERVICEEOF'

@@ -153,6 +153,10 @@ describe('cloud-init', () => {
   describe('upstream services', () => {
     it('should start opencode-web and sandbox-agent', () => {
       const script = buildCloudInit(defaultOpts);
+      expect(script).toContain('chown -R user:user /home/user');
+      expect(script).toContain("curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path");
+      expect(script).toContain('cat > /etc/systemd/system/opencode-web.service');
+      expect(script).toContain('ExecStart=/home/user/.opencode/bin/opencode serve --port 3456');
       expect(script).toContain('systemctl enable --now opencode-web');
       expect(script).toContain('systemctl enable --now sandbox-agent');
     });
