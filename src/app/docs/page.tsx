@@ -403,7 +403,6 @@ export default function DocsPage() {
         <P>Built-in templates appear in <B>Images</B> as templates and cannot be deleted from the dashboard.</P>
         <Table headers={["Template", "Description"]} rows={[
           ["justavps standard", "Default base image used for new machines"],
-          ["Kortix", "Starts from the standard base image and applies the Kortix preset workload"],
         ]} />
         <P>The default <IC>justavps standard</IC> template includes the platform services needed to connect and run workloads:</P>
         <Table headers={["Software", "Details"]} rows={[
@@ -469,7 +468,7 @@ for await (const event of client.streamEvents("my-session")) {
 
         <H3 id="docker-workloads">Docker On Boot</H3>
         <P>If you provide a <IC>docker_image</IC> while creating a machine, JustAVPS still boots the underlying base image and then starts your container on top of it. This is separate from templates and separate from your saved images.</P>
-        <CodeBlock title="Create a machine from the Kortix template" lang="bash">{`curl -X POST https://justavps.com/api/v1/machines \
+        <CodeBlock title="Create a machine from a template image" lang="bash">{`curl -X POST https://justavps.com/api/v1/machines \
   -H "Authorization: Bearer sk_live_xxx" \
   -H "Content-Type: application/json" \
   -d '{

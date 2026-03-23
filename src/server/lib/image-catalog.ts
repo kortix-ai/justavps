@@ -5,7 +5,6 @@ export type ImageKind = 'template' | 'snapshot';
 type ImageRow = typeof images.$inferSelect;
 
 export const DEFAULT_TEMPLATE_NAME = 'justavps standard';
-export const KORTIX_TEMPLATE_NAME = 'Kortix';
 
 export interface SerializedImage {
   id: string;
@@ -66,8 +65,6 @@ export function buildVisibleImageCatalog(rows: ImageRow[]): SerializedImage[] {
     .sort((a, b) => {
       if (a.name === DEFAULT_TEMPLATE_NAME) return -1;
       if (b.name === DEFAULT_TEMPLATE_NAME) return 1;
-      if (a.name === KORTIX_TEMPLATE_NAME) return -1;
-      if (b.name === KORTIX_TEMPLATE_NAME) return 1;
       return a.name.localeCompare(b.name);
     })
     .map(serializeImageRow);

@@ -29,8 +29,8 @@ describe('image catalog', () => {
       {
         id: '33333333-3333-3333-3333-333333333333',
         ownerId: '44444444-4444-4444-4444-444444444444',
-        name: 'Kortix',
-        description: 'Base justavps template with kortix preinstalled.',
+        name: 'alpha-template',
+        description: 'Additional public template.',
         status: 'ready',
         isTemplate: true,
         sourceMachineId: null,
@@ -43,7 +43,7 @@ describe('image catalog', () => {
       },
     ]);
 
-    expect(images.map((image) => image.name)).toEqual(['Kortix', 'snapshot-a']);
+    expect(images.map((image) => image.name)).toEqual(['alpha-template', 'snapshot-a']);
   });
 
   it('identifies the default template row by name', () => {
@@ -59,7 +59,7 @@ describe('image catalog', () => {
     const resolved = resolveRequestedProviderImage({
       explicitImage: {
         id: '33333333-3333-3333-3333-333333333333',
-        name: 'Kortix',
+        name: 'alpha-template',
         status: 'ready',
         providerImageId: '368326049',
       },
