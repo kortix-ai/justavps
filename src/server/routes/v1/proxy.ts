@@ -51,22 +51,22 @@ proxyApp.all('/:machineId/proxy/:port/*', async (c) => {
   const hash = createHash('sha256').update(key).digest('hex');
 
   const [apiKey] = await db.select().from(apiKeys).where(eq(apiKeys.keySha256, hash)).limit(1);
-  let ownerId: string | undefined;
+  let accountId: string | undefined;
 
   if (apiKey) {
-    ownerId = apiKey.ownerId;
+    accountId = apiKey.accountId ?? undefined;
   } else {
     const allKeys = await db.select().from(apiKeys);
     for (const k of allKeys) {
       if (await validateApiKey(key, k.keyHash)) {
         db.update(apiKeys).set({ keySha256: hash, lastUsed: new Date() }).where(eq(apiKeys.id, k.id)).catch(() => {});
-        ownerId = k.ownerId;
+        accountId = k.accountId ?? undefined;
         break;
       }
     }
   }
 
-  if (!ownerId) {
+  if (!accountId) {
     return c.json({ error: 'Invalid API key' }, 401);
   }
 
@@ -79,7 +79,7 @@ proxyApp.all('/:machineId/proxy/:port/*', async (c) => {
   }
 
   const [machine] = await db.select().from(machines).where(eq(machines.id, machineId));
-  if (!machine || machine.ownerId !== ownerId) {
+  if (!machine || machine.accountId !== accountId) {
     return c.json({ error: 'Machine not found' }, 404);
   }
   if (!machine.ip) {

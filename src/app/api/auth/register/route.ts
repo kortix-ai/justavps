@@ -8,6 +8,7 @@ import { users } from '@/server/db/schema';
 import { eq } from 'drizzle-orm';
 import { hashPassword } from '@/server/lib/crypto';
 import { isAutoAdminEmail } from '@/server/lib/auto-admin';
+import { ensureUserAccountGraph } from '@/server/lib/accounts';
 import { z } from 'zod';
 
 const RegisterSchema = z.object({
@@ -55,6 +56,8 @@ export async function POST(req: NextRequest) {
         isAdmin,
       })
       .returning();
+
+    await ensureUserAccountGraph(user);
 
     return NextResponse.json(
       {

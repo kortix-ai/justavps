@@ -41,13 +41,18 @@ export type GetApiV1MachinesResponses = {
             server_type: string;
             region: string;
             ip: string | null;
+            provider_progress: number | null;
+            provider_status: string | null;
+            callback_expected: boolean | null;
+            callback_url: string | null;
             price_monthly: number | null;
             backups_enabled: boolean;
             created_at: string;
             ready_at: string | null;
             urls: {
-                vscode: string;
-                pty: string;
+                proxy: string;
+                terminal: string;
+                port_template: string;
             } | null;
             ssh: string | null;
             ssh_key: {
@@ -61,6 +66,13 @@ export type GetApiV1MachinesResponses = {
                 setup_command: string | null;
                 vscode_url: string;
                 cursor_ssh: string | null;
+            } | null;
+            subscription?: {
+                status: string;
+                cancel_at_period_end: boolean;
+                cancel_at: string | null;
+                cancelled_at: string | null;
+                current_period_end: string | null;
             } | null;
             health: {
                 cpu: number;
@@ -125,6 +137,10 @@ export type PostApiV1MachinesData = {
          * Billing interval: monthly, yearly (20% off), or 2year (30% off, billed annually)
          */
         billing_interval?: 'monthly' | 'yearly' | '2year';
+        /**
+         * Enable daily automatic backups (+20% of base price). Defaults to false.
+         */
+        enable_backups?: boolean;
     };
     path?: never;
     query?: never;
@@ -192,13 +208,18 @@ export type PostApiV1MachinesResponses = {
         server_type: string;
         region: string;
         ip: string | null;
+        provider_progress: number | null;
+        provider_status: string | null;
+        callback_expected: boolean | null;
+        callback_url: string | null;
         price_monthly: number | null;
         backups_enabled: boolean;
         created_at: string;
         ready_at: string | null;
         urls: {
-            vscode: string;
-            pty: string;
+            proxy: string;
+            terminal: string;
+            port_template: string;
         } | null;
         ssh: string | null;
         ssh_key: {
@@ -212,6 +233,13 @@ export type PostApiV1MachinesResponses = {
             setup_command: string | null;
             vscode_url: string;
             cursor_ssh: string | null;
+        } | null;
+        subscription?: {
+            status: string;
+            cancel_at_period_end: boolean;
+            cancel_at: string | null;
+            cancelled_at: string | null;
+            current_period_end: string | null;
         } | null;
         health: {
             cpu: number;
@@ -318,13 +346,18 @@ export type GetApiV1MachinesByIdResponses = {
         server_type: string;
         region: string;
         ip: string | null;
+        provider_progress: number | null;
+        provider_status: string | null;
+        callback_expected: boolean | null;
+        callback_url: string | null;
         price_monthly: number | null;
         backups_enabled: boolean;
         created_at: string;
         ready_at: string | null;
         urls: {
-            vscode: string;
-            pty: string;
+            proxy: string;
+            terminal: string;
+            port_template: string;
         } | null;
         ssh: string | null;
         ssh_key: {
@@ -339,6 +372,13 @@ export type GetApiV1MachinesByIdResponses = {
             vscode_url: string;
             cursor_ssh: string | null;
         } | null;
+        subscription?: {
+            status: string;
+            cancel_at_period_end: boolean;
+            cancel_at: string | null;
+            cancelled_at: string | null;
+            current_period_end: string | null;
+        } | null;
         health: {
             cpu: number;
             memory: number;
@@ -352,6 +392,112 @@ export type GetApiV1MachinesByIdResponses = {
 };
 
 export type GetApiV1MachinesByIdResponse = GetApiV1MachinesByIdResponses[keyof GetApiV1MachinesByIdResponses];
+
+export type PostApiV1MachinesByIdCancelData = {
+    body?: never;
+    path: {
+        /**
+         * Machine ID
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/machines/{id}/cancel';
+};
+
+export type PostApiV1MachinesByIdCancelErrors = {
+    /**
+     * Bad Request
+     */
+    400: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+    /**
+     * Unauthorized
+     */
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+    /**
+     * Not Found
+     */
+    404: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+};
+
+export type PostApiV1MachinesByIdCancelError = PostApiV1MachinesByIdCancelErrors[keyof PostApiV1MachinesByIdCancelErrors];
+
+export type PostApiV1MachinesByIdCancelResponses = {
+    /**
+     * Cancellation scheduled
+     */
+    200: {
+        action: string;
+        status: string;
+    };
+};
+
+export type PostApiV1MachinesByIdCancelResponse = PostApiV1MachinesByIdCancelResponses[keyof PostApiV1MachinesByIdCancelResponses];
+
+export type PostApiV1MachinesByIdReactivateData = {
+    body?: never;
+    path: {
+        /**
+         * Machine ID
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/machines/{id}/reactivate';
+};
+
+export type PostApiV1MachinesByIdReactivateErrors = {
+    /**
+     * Bad Request
+     */
+    400: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+    /**
+     * Unauthorized
+     */
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+    /**
+     * Not Found
+     */
+    404: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+};
+
+export type PostApiV1MachinesByIdReactivateError = PostApiV1MachinesByIdReactivateErrors[keyof PostApiV1MachinesByIdReactivateErrors];
+
+export type PostApiV1MachinesByIdReactivateResponses = {
+    /**
+     * Subscription reactivated
+     */
+    200: {
+        action: string;
+        status: string;
+    };
+};
+
+export type PostApiV1MachinesByIdReactivateResponse = PostApiV1MachinesByIdReactivateResponses[keyof PostApiV1MachinesByIdReactivateResponses];
 
 export type PostApiV1MachinesByIdRebootData = {
     body?: never;
@@ -397,6 +543,112 @@ export type PostApiV1MachinesByIdRebootResponses = {
 };
 
 export type PostApiV1MachinesByIdRebootResponse = PostApiV1MachinesByIdRebootResponses[keyof PostApiV1MachinesByIdRebootResponses];
+
+export type PostApiV1MachinesByIdStopData = {
+    body?: never;
+    path: {
+        /**
+         * Machine ID
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/machines/{id}/stop';
+};
+
+export type PostApiV1MachinesByIdStopErrors = {
+    /**
+     * Bad Request
+     */
+    400: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+    /**
+     * Unauthorized
+     */
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+    /**
+     * Not Found
+     */
+    404: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+};
+
+export type PostApiV1MachinesByIdStopError = PostApiV1MachinesByIdStopErrors[keyof PostApiV1MachinesByIdStopErrors];
+
+export type PostApiV1MachinesByIdStopResponses = {
+    /**
+     * Stop initiated
+     */
+    202: {
+        action: string;
+        status: string;
+    };
+};
+
+export type PostApiV1MachinesByIdStopResponse = PostApiV1MachinesByIdStopResponses[keyof PostApiV1MachinesByIdStopResponses];
+
+export type PostApiV1MachinesByIdStartData = {
+    body?: never;
+    path: {
+        /**
+         * Machine ID
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/machines/{id}/start';
+};
+
+export type PostApiV1MachinesByIdStartErrors = {
+    /**
+     * Bad Request
+     */
+    400: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+    /**
+     * Unauthorized
+     */
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+    /**
+     * Not Found
+     */
+    404: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+};
+
+export type PostApiV1MachinesByIdStartError = PostApiV1MachinesByIdStartErrors[keyof PostApiV1MachinesByIdStartErrors];
+
+export type PostApiV1MachinesByIdStartResponses = {
+    /**
+     * Start initiated
+     */
+    202: {
+        action: string;
+        status: string;
+    };
+};
+
+export type PostApiV1MachinesByIdStartResponse = PostApiV1MachinesByIdStartResponses[keyof PostApiV1MachinesByIdStartResponses];
 
 export type PostApiV1MachinesByIdResizeData = {
     body: {
@@ -1013,6 +1265,10 @@ export type GetApiV1ApiKeysResponses = {
              */
             key?: string;
             key_prefix: string;
+            scope: 'account' | 'machine';
+            machine_ids: Array<string> | null;
+            permissions: Array<string>;
+            expires_at: string | null;
             created_at: string;
             last_used: string | null;
         }>;
@@ -1024,6 +1280,22 @@ export type GetApiV1ApiKeysResponse = GetApiV1ApiKeysResponses[keyof GetApiV1Api
 export type PostApiV1ApiKeysData = {
     body: {
         name: string;
+        /**
+         * Key scope: account (full) or machine (restricted)
+         */
+        scope?: 'account' | 'machine';
+        /**
+         * Machine UUIDs this key can access (required if scope=machine)
+         */
+        machine_ids?: Array<string> | null;
+        /**
+         * Permissions: * (all), read, write, delete, exec, proxy
+         */
+        permissions?: Array<'*' | 'read' | 'write' | 'delete' | 'exec' | 'proxy'>;
+        /**
+         * Expiration in seconds from now (null = never)
+         */
+        expires_in_seconds?: number | null;
     };
     path?: never;
     query?: never;
@@ -1063,6 +1335,10 @@ export type PostApiV1ApiKeysResponses = {
          */
         key?: string;
         key_prefix: string;
+        scope: 'account' | 'machine';
+        machine_ids: Array<string> | null;
+        permissions: Array<string>;
+        expires_at: string | null;
         created_at: string;
         last_used: string | null;
     };
@@ -1111,6 +1387,177 @@ export type DeleteApiV1ApiKeysByIdResponses = {
 };
 
 export type DeleteApiV1ApiKeysByIdResponse = DeleteApiV1ApiKeysByIdResponses[keyof DeleteApiV1ApiKeysByIdResponses];
+
+export type GetApiV1ProxyTokensData = {
+    body?: never;
+    path?: never;
+    query?: {
+        machine_id?: string;
+    };
+    url: '/api/v1/proxy-tokens';
+};
+
+export type GetApiV1ProxyTokensErrors = {
+    /**
+     * Unauthorized
+     */
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+};
+
+export type GetApiV1ProxyTokensError = GetApiV1ProxyTokensErrors[keyof GetApiV1ProxyTokensErrors];
+
+export type GetApiV1ProxyTokensResponses = {
+    /**
+     * List of proxy tokens
+     */
+    200: {
+        proxy_tokens: Array<{
+            id: string;
+            /**
+             * Only returned on creation
+             */
+            token?: string;
+            token_prefix: string;
+            label: string | null;
+            machine_id: string;
+            machine_slug: string;
+            ports: Array<number> | null;
+            expires_at: string;
+            /**
+             * Pre-built shareable URL (only on creation)
+             */
+            proxy_url?: string;
+            created_at: string;
+        }>;
+    };
+};
+
+export type GetApiV1ProxyTokensResponse = GetApiV1ProxyTokensResponses[keyof GetApiV1ProxyTokensResponses];
+
+export type PostApiV1ProxyTokensData = {
+    body: {
+        /**
+         * Machine UUID to grant access to
+         */
+        machine_id: string;
+        /**
+         * Human-readable label
+         */
+        label?: string | null;
+        /**
+         * Specific ports to allow (null = all)
+         */
+        ports?: Array<number> | null;
+        /**
+         * Expiration in seconds (default 1h, max 7 days)
+         */
+        expires_in_seconds?: number;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/proxy-tokens';
+};
+
+export type PostApiV1ProxyTokensErrors = {
+    /**
+     * Bad Request
+     */
+    400: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+    /**
+     * Unauthorized
+     */
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+    /**
+     * Machine not found
+     */
+    404: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+};
+
+export type PostApiV1ProxyTokensError = PostApiV1ProxyTokensErrors[keyof PostApiV1ProxyTokensErrors];
+
+export type PostApiV1ProxyTokensResponses = {
+    /**
+     * Proxy token created
+     */
+    201: {
+        id: string;
+        /**
+         * Only returned on creation
+         */
+        token?: string;
+        token_prefix: string;
+        label: string | null;
+        machine_id: string;
+        machine_slug: string;
+        ports: Array<number> | null;
+        expires_at: string;
+        /**
+         * Pre-built shareable URL (only on creation)
+         */
+        proxy_url?: string;
+        created_at: string;
+    };
+};
+
+export type PostApiV1ProxyTokensResponse = PostApiV1ProxyTokensResponses[keyof PostApiV1ProxyTokensResponses];
+
+export type DeleteApiV1ProxyTokensByIdData = {
+    body?: never;
+    path: {
+        /**
+         * Proxy Token ID
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/proxy-tokens/{id}';
+};
+
+export type DeleteApiV1ProxyTokensByIdErrors = {
+    /**
+     * Unauthorized
+     */
+    401: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+    /**
+     * Not Found
+     */
+    404: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+};
+
+export type DeleteApiV1ProxyTokensByIdError = DeleteApiV1ProxyTokensByIdErrors[keyof DeleteApiV1ProxyTokensByIdErrors];
+
+export type DeleteApiV1ProxyTokensByIdResponses = {
+    /**
+     * Proxy token revoked
+     */
+    204: void;
+};
+
+export type DeleteApiV1ProxyTokensByIdResponse = DeleteApiV1ProxyTokensByIdResponses[keyof DeleteApiV1ProxyTokensByIdResponses];
 
 export type GetApiV1ServerTypesProvidersData = {
     body?: never;
@@ -1178,17 +1625,17 @@ export type GetApiV1ServerTypesResponses = {
             cpu_type: 'shared' | 'dedicated';
             architecture: 'x86' | 'arm';
             /**
-             * Our price after markup (includes backups)
+             * Base monthly price (without backups)
              */
             price_monthly: number;
+            /**
+             * Additional monthly cost for daily backups (+20% of base price)
+             */
+            backup_price_monthly: number;
             /**
              * Raw provider price
              */
             provider_price_monthly: number;
-            /**
-             * Provider backup cost (20% of provider price)
-             */
-            backup_price_monthly: number;
             available: boolean;
         }>;
     };
@@ -1268,29 +1715,37 @@ export type GetApiV1AccountError = GetApiV1AccountErrors[keyof GetApiV1AccountEr
 
 export type GetApiV1AccountResponses = {
     /**
-     * Account details
+     * Active account details
      */
     200: {
         id: string;
+        slug: string;
+        type: 'personal' | 'organization';
+        name: string;
+        role: 'owner' | 'admin' | 'member' | null;
         email: string;
-        name: string | null;
+        user_id: string;
+        user_name: string | null;
+        has_password: boolean;
+        is_admin: boolean;
+        can_manage_billing: boolean;
+        can_manage_members: boolean;
         machines_count: number;
         stripe_customer_id: string | null;
-        has_password: boolean;
         created_at: string;
     };
 };
 
 export type GetApiV1AccountResponse = GetApiV1AccountResponses[keyof GetApiV1AccountResponses];
 
-export type GetApiV1AccountUsageData = {
+export type GetApiV1AccountMeData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/api/v1/account/usage';
+    url: '/api/v1/account/me';
 };
 
-export type GetApiV1AccountUsageErrors = {
+export type GetApiV1AccountMeErrors = {
     /**
      * Unauthorized
      */
@@ -1301,7 +1756,134 @@ export type GetApiV1AccountUsageErrors = {
     };
 };
 
-export type GetApiV1AccountUsageError = GetApiV1AccountUsageErrors[keyof GetApiV1AccountUsageErrors];
+export type GetApiV1AccountMeError = GetApiV1AccountMeErrors[keyof GetApiV1AccountMeErrors];
+
+export type GetApiV1AccountMeResponses = {
+    /**
+     * Current user and memberships
+     */
+    200: {
+        user: {
+            id: string;
+            email: string;
+            name: string | null;
+            has_password: boolean;
+            is_admin: boolean;
+            default_account_id: string | null;
+        };
+        active_account: {
+            id: string;
+            name: string;
+            slug: string;
+            type: 'personal' | 'organization';
+            role: 'owner' | 'admin' | 'member' | null;
+        };
+        memberships: Array<{
+            id: string;
+            role: 'owner' | 'admin' | 'member';
+            account: {
+                id: string;
+                name: string;
+                slug: string;
+                type: 'personal' | 'organization';
+                created_at: string;
+            };
+        }>;
+    };
+};
+
+export type GetApiV1AccountMeResponse = GetApiV1AccountMeResponses[keyof GetApiV1AccountMeResponses];
+
+export type GetApiV1AccountMembershipsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/account/memberships';
+};
+
+export type GetApiV1AccountMembershipsResponses = {
+    /**
+     * List memberships
+     */
+    200: {
+        memberships: Array<{
+            id: string;
+            role: 'owner' | 'admin' | 'member';
+            account: {
+                id: string;
+                name: string;
+                slug: string;
+                type: 'personal' | 'organization';
+                created_at: string;
+            };
+        }>;
+    };
+};
+
+export type GetApiV1AccountMembershipsResponse = GetApiV1AccountMembershipsResponses[keyof GetApiV1AccountMembershipsResponses];
+
+export type PostApiV1AccountSwitchData = {
+    body: {
+        account_id: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/account/switch';
+};
+
+export type PostApiV1AccountSwitchErrors = {
+    /**
+     * Forbidden
+     */
+    403: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+};
+
+export type PostApiV1AccountSwitchError = PostApiV1AccountSwitchErrors[keyof PostApiV1AccountSwitchErrors];
+
+export type PostApiV1AccountSwitchResponses = {
+    /**
+     * Account switched
+     */
+    200: {
+        ok: true;
+        account_id: string;
+    };
+};
+
+export type PostApiV1AccountSwitchResponse = PostApiV1AccountSwitchResponses[keyof PostApiV1AccountSwitchResponses];
+
+export type PostApiV1AccountOrganizationsData = {
+    body: {
+        name: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/account/organizations';
+};
+
+export type PostApiV1AccountOrganizationsResponses = {
+    /**
+     * Organization created
+     */
+    201: {
+        id: string;
+        name: string;
+        slug: string;
+    };
+};
+
+export type PostApiV1AccountOrganizationsResponse = PostApiV1AccountOrganizationsResponses[keyof PostApiV1AccountOrganizationsResponses];
+
+export type GetApiV1AccountUsageData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/account/usage';
+};
 
 export type GetApiV1AccountUsageResponses = {
     /**
@@ -1330,19 +1912,6 @@ export type GetApiV1AccountBillingData = {
     url: '/api/v1/account/billing';
 };
 
-export type GetApiV1AccountBillingErrors = {
-    /**
-     * Unauthorized
-     */
-    401: {
-        error?: boolean;
-        message: string;
-        status: number;
-    };
-};
-
-export type GetApiV1AccountBillingError = GetApiV1AccountBillingErrors[keyof GetApiV1AccountBillingErrors];
-
 export type GetApiV1AccountBillingResponses = {
     /**
      * Billing info
@@ -1351,6 +1920,7 @@ export type GetApiV1AccountBillingResponses = {
         portal_url: string | null;
         has_payment_method: boolean;
         message?: string;
+        can_manage_billing: boolean;
     };
 };
 
@@ -1365,25 +1935,9 @@ export type PostApiV1AccountBillingSetupData = {
 
 export type PostApiV1AccountBillingSetupErrors = {
     /**
-     * Unauthorized
+     * Forbidden
      */
-    401: {
-        error?: boolean;
-        message: string;
-        status: number;
-    };
-    /**
-     * Not Found
-     */
-    404: {
-        error?: boolean;
-        message: string;
-        status: number;
-    };
-    /**
-     * Service Unavailable
-     */
-    503: {
+    403: {
         error?: boolean;
         message: string;
         status: number;
@@ -1421,22 +1975,6 @@ export type PostApiV1AccountPasswordErrors = {
         message: string;
         status: number;
     };
-    /**
-     * Unauthorized
-     */
-    401: {
-        error?: boolean;
-        message: string;
-        status: number;
-    };
-    /**
-     * Not Found
-     */
-    404: {
-        error?: boolean;
-        message: string;
-        status: number;
-    };
 };
 
 export type PostApiV1AccountPasswordError = PostApiV1AccountPasswordErrors[keyof PostApiV1AccountPasswordErrors];
@@ -1454,19 +1992,6 @@ export type GetApiV1AccountLimitsData = {
     query?: never;
     url: '/api/v1/account/limits';
 };
-
-export type GetApiV1AccountLimitsErrors = {
-    /**
-     * Unauthorized
-     */
-    401: {
-        error?: boolean;
-        message: string;
-        status: number;
-    };
-};
-
-export type GetApiV1AccountLimitsError = GetApiV1AccountLimitsErrors[keyof GetApiV1AccountLimitsErrors];
 
 export type GetApiV1AccountLimitsResponses = {
     /**
@@ -1486,10 +2011,167 @@ export type GetApiV1AccountLimitsResponses = {
 
 export type GetApiV1AccountLimitsResponse = GetApiV1AccountLimitsResponses[keyof GetApiV1AccountLimitsResponses];
 
+export type GetApiV1AccountMembersData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/account/members';
+};
+
+export type GetApiV1AccountMembersResponses = {
+    /**
+     * Account members
+     */
+    200: {
+        members: Array<{
+            id: string;
+            role: 'owner' | 'admin' | 'member';
+            user: {
+                id: string;
+                email: string;
+                name: string | null;
+                created_at: string;
+            };
+            created_at: string;
+        }>;
+    };
+};
+
+export type GetApiV1AccountMembersResponse = GetApiV1AccountMembersResponses[keyof GetApiV1AccountMembersResponses];
+
+export type DeleteApiV1AccountMembersByMembershipIdData = {
+    body?: never;
+    path: {
+        membershipId: string;
+    };
+    query?: never;
+    url: '/api/v1/account/members/{membershipId}';
+};
+
+export type DeleteApiV1AccountMembersByMembershipIdResponses = {
+    /**
+     * Member removed
+     */
+    204: void;
+};
+
+export type DeleteApiV1AccountMembersByMembershipIdResponse = DeleteApiV1AccountMembersByMembershipIdResponses[keyof DeleteApiV1AccountMembersByMembershipIdResponses];
+
+export type PatchApiV1AccountMembersByMembershipIdData = {
+    body: {
+        role: 'owner' | 'admin' | 'member';
+    };
+    path: {
+        membershipId: string;
+    };
+    query?: never;
+    url: '/api/v1/account/members/{membershipId}';
+};
+
+export type PatchApiV1AccountMembersByMembershipIdResponses = {
+    /**
+     * Member updated
+     */
+    200: {
+        ok: true;
+    };
+};
+
+export type PatchApiV1AccountMembersByMembershipIdResponse = PatchApiV1AccountMembersByMembershipIdResponses[keyof PatchApiV1AccountMembersByMembershipIdResponses];
+
+export type GetApiV1AccountInvitationsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/account/invitations';
+};
+
+export type GetApiV1AccountInvitationsResponses = {
+    /**
+     * Pending invitations
+     */
+    200: {
+        invitations: Array<{
+            id: string;
+            email: string;
+            role: 'owner' | 'admin' | 'member';
+            expires_at: string;
+            created_at: string;
+        }>;
+    };
+};
+
+export type GetApiV1AccountInvitationsResponse = GetApiV1AccountInvitationsResponses[keyof GetApiV1AccountInvitationsResponses];
+
+export type PostApiV1AccountInvitationsData = {
+    body: {
+        email: string;
+        role?: 'owner' | 'admin' | 'member';
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/account/invitations';
+};
+
+export type PostApiV1AccountInvitationsResponses = {
+    /**
+     * Invitation created
+     */
+    201: {
+        id: string;
+        email: string;
+        role: string;
+        expires_at: string;
+    };
+};
+
+export type PostApiV1AccountInvitationsResponse = PostApiV1AccountInvitationsResponses[keyof PostApiV1AccountInvitationsResponses];
+
+export type DeleteApiV1AccountInvitationsByInvitationIdData = {
+    body?: never;
+    path: {
+        invitationId: string;
+    };
+    query?: never;
+    url: '/api/v1/account/invitations/{invitationId}';
+};
+
+export type DeleteApiV1AccountInvitationsByInvitationIdResponses = {
+    /**
+     * Invitation revoked
+     */
+    204: void;
+};
+
+export type DeleteApiV1AccountInvitationsByInvitationIdResponse = DeleteApiV1AccountInvitationsByInvitationIdResponses[keyof DeleteApiV1AccountInvitationsByInvitationIdResponses];
+
+export type PostApiV1AccountInvitationsRedeemData = {
+    body: {
+        token: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/account/invitations/redeem';
+};
+
+export type PostApiV1AccountInvitationsRedeemResponses = {
+    /**
+     * Invitation redeemed
+     */
+    200: {
+        ok: true;
+        account_id: string;
+        redirect_to: string;
+    };
+};
+
+export type PostApiV1AccountInvitationsRedeemResponse = PostApiV1AccountInvitationsRedeemResponses[keyof PostApiV1AccountInvitationsRedeemResponses];
+
 export type PostApiV1InternalHeartbeatData = {
     body: {
         slug: string;
         machine_token: string;
+        daemon_version?: string;
         uptime: number;
         services: {
             [key: string]: boolean;
@@ -1498,6 +2180,18 @@ export type PostApiV1InternalHeartbeatData = {
             cpu: number;
             memory: number;
             disk: number;
+        };
+        network?: {
+            bytes_in: number;
+            bytes_out: number;
+            rate_in: number;
+            rate_out: number;
+            connections: number;
+        };
+        security?: {
+            ufw_active: boolean;
+            fail2ban_active: boolean;
+            ssh_key_only: boolean;
         };
     };
     path?: never;
@@ -1544,6 +2238,43 @@ export type PostApiV1InternalHeartbeatResponses = {
 };
 
 export type PostApiV1InternalHeartbeatResponse = PostApiV1InternalHeartbeatResponses[keyof PostApiV1InternalHeartbeatResponses];
+
+export type GetApiV1InternalWatchdogData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/internal/watchdog';
+};
+
+export type GetApiV1InternalWatchdogErrors = {
+    /**
+     * Internal Server Error
+     */
+    500: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+};
+
+export type GetApiV1InternalWatchdogError = GetApiV1InternalWatchdogErrors[keyof GetApiV1InternalWatchdogErrors];
+
+export type GetApiV1InternalWatchdogResponses = {
+    /**
+     * Watchdog results
+     */
+    200: {
+        checked: number;
+        alerts: number;
+        details: Array<{
+            slug: string;
+            type: string;
+            details: Array<string>;
+        }>;
+    };
+};
+
+export type GetApiV1InternalWatchdogResponse = GetApiV1InternalWatchdogResponses[keyof GetApiV1InternalWatchdogResponses];
 
 export type PostApiV1InternalStageData = {
     body: {
@@ -1600,6 +2331,39 @@ export type PostApiV1InternalStageResponses = {
 
 export type PostApiV1InternalStageResponse = PostApiV1InternalStageResponses[keyof PostApiV1InternalStageResponses];
 
+export type PostApiV1InternalGcSshKeysData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/internal/gc/ssh-keys';
+};
+
+export type PostApiV1InternalGcSshKeysErrors = {
+    /**
+     * Internal Server Error
+     */
+    500: {
+        error?: boolean;
+        message: string;
+        status: number;
+    };
+};
+
+export type PostApiV1InternalGcSshKeysError = PostApiV1InternalGcSshKeysErrors[keyof PostApiV1InternalGcSshKeysErrors];
+
+export type PostApiV1InternalGcSshKeysResponses = {
+    /**
+     * GC results
+     */
+    200: {
+        deleted: number;
+        kept: number;
+        total: number;
+    };
+};
+
+export type PostApiV1InternalGcSshKeysResponse = PostApiV1InternalGcSshKeysResponses[keyof PostApiV1InternalGcSshKeysResponses];
+
 export type GetApiV1InternalValidateKeyData = {
     body?: never;
     path?: never;
@@ -1630,7 +2394,11 @@ export type GetApiV1InternalValidateKeyErrors = {
      */
     401: {
         valid: boolean;
-        owner_id?: string;
+        account_id?: string;
+        scope?: 'account' | 'machine';
+        machine_ids?: Array<string> | null;
+        permissions?: Array<string>;
+        expires_at?: string | null;
         message?: string;
     };
     /**
@@ -1638,7 +2406,11 @@ export type GetApiV1InternalValidateKeyErrors = {
      */
     403: {
         valid: boolean;
-        owner_id?: string;
+        account_id?: string;
+        scope?: 'account' | 'machine';
+        machine_ids?: Array<string> | null;
+        permissions?: Array<string>;
+        expires_at?: string | null;
         message?: string;
     };
     /**
@@ -1659,7 +2431,11 @@ export type GetApiV1InternalValidateKeyResponses = {
      */
     200: {
         valid: boolean;
-        owner_id?: string;
+        account_id?: string;
+        scope?: 'account' | 'machine';
+        machine_ids?: Array<string> | null;
+        permissions?: Array<string>;
+        expires_at?: string | null;
         message?: string;
     };
 };

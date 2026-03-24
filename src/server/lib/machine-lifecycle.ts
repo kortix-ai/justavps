@@ -1,7 +1,7 @@
 import { eq, inArray, and } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db';
-import { machines, users, sshKeys, subscriptions } from '../db/schema';
+import { accounts, machines, users, sshKeys, subscriptions } from '../db/schema';
 import { generateMachineToken, fingerprintSSHKey, encryptSecret } from './crypto';
 import { generateSSHKeyPair } from './ssh-keygen';
 import { buildCloudInit } from './cloud-init';
@@ -95,7 +95,7 @@ async function updateProviderMeta(machineId: string, patch: Partial<ProvisionPro
 
 async function probeMachineDaemon(machine: typeof machines.$inferSelect): Promise<boolean> {
   if (!config.isCloudflareConfigured()) return false;
-  const token = await signProxyToken(machine.ownerId);
+  const token = await signProxyToken(machine.accountId ?? machine.ownerId, machine.ownerId);
   const url = `https://${machine.slug}.${config.PROXY_DOMAIN}/daemon/health?token=${encodeURIComponent(token)}`;
   try {
     const res = await fetch(url, {
@@ -209,14 +209,14 @@ export function buildMachineUserData(
 function buildMachineRoutingKVData(input: {
   machineId: string;
   slug: string;
-  ownerId: string;
+  accountId: string;
   ip: string;
   status: string;
   serverType: string;
 }): MachineRoutingKVRecord {
   return {
     machine_id: input.machineId,
-    owner_id: input.ownerId,
+    account_id: input.accountId,
     ip: input.ip,
     status: input.status,
     server_type: input.serverType,
@@ -231,7 +231,7 @@ export async function setupProxyDNS(
   machineId: string,
   slug: string,
   addresses: { ipv4?: string | null; ipv6?: string | null },
-  ownerId: string,
+  accountId: string,
   serverType: string,
 ) {
   if (!config.isCloudflareConfigured()) return;
@@ -242,7 +242,7 @@ export async function setupProxyDNS(
   await cloudflareClient.writeKVMachine(slug, buildMachineRoutingKVData({
     machineId,
     slug,
-    ownerId,
+    accountId,
     ip: primaryIp,
     status: 'provisioning',
     serverType,
@@ -282,13 +282,13 @@ export async function lookupPriceAndSpecs(
  * Only returns keys belonging to the specified owner.
  */
 export async function resolveSSHKeyPublicKeys(
-  ownerId: string,
+  accountId: string,
   sshKeyIds: string[],
 ): Promise<string[]> {
   if (!sshKeyIds.length) return [];
   const keys = await db.select({ publicKey: sshKeys.publicKey })
     .from(sshKeys)
-    .where(and(eq(sshKeys.ownerId, ownerId), inArray(sshKeys.id, sshKeyIds)));
+    .where(and(eq(sshKeys.accountId, accountId), inArray(sshKeys.id, sshKeyIds)));
   return keys.map(k => k.publicKey);
 }
 
@@ -303,6 +303,7 @@ export async function resolveSSHKeyPublicKeys(
  */
 export async function autoGenerateAndSaveSSHKey(
   ownerId: string,
+  accountId: string,
   slug: string,
 ): Promise<{ publicKey: string; privateKey: string; keyId: string }> {
   const keyPair = generateSSHKeyPair(`${slug}@justavps`);
@@ -310,6 +311,7 @@ export async function autoGenerateAndSaveSSHKey(
 
   const [saved] = await db.insert(sshKeys).values({
     ownerId,
+    accountId,
     name: `auto-${slug}`,
     publicKey: keyPair.publicKey,
     fingerprint,
@@ -321,6 +323,7 @@ export async function autoGenerateAndSaveSSHKey(
 
 interface CreateMachineInput {
   ownerId: string;
+  accountId: string;
   slug: string;
   name: string;
   provider: string;
@@ -353,6 +356,7 @@ export async function createMachineRecord(input: CreateMachineInput) {
 
 export async function createStripeSubscription(
   ownerId: string,
+  accountId: string,
   machineId: string,
   slug: string,
   priceMonthly: number,
@@ -362,12 +366,13 @@ export async function createStripeSubscription(
 ) {
   if (!stripeClient.isConfigured()) return;
   try {
+    const [account] = await db.select().from(accounts).where(eq(accounts.id, accountId));
     const [user] = await db.select().from(users).where(eq(users.id, ownerId));
-    if (!user) return;
+    if (!account || !user) return;
 
-    const customerId = await stripeClient.getOrCreateCustomer(ownerId, user.email, user.stripeCustomerId);
-    if (!user.stripeCustomerId) {
-      await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, ownerId));
+    const customerId = await stripeClient.getOrCreateCustomer(accountId, account.billingEmail || user.email, account.stripeCustomerId);
+    if (!account.stripeCustomerId) {
+      await db.update(accounts).set({ stripeCustomerId: customerId }).where(eq(accounts.id, accountId));
     }
 
     const createSub = isAdmin
@@ -380,6 +385,7 @@ export async function createStripeSubscription(
     await db.insert(subscriptions).values({
       machineId,
       ownerId,
+      accountId,
       stripeSubscriptionId: subscriptionId,
       stripeSubscriptionItemId: subscriptionItemId,
       status: 'active',
@@ -460,7 +466,7 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
           await cloudflareClient.writeKVMachine(machine.slug, buildMachineRoutingKVData({
             machineId: machine.id,
             slug: machine.slug,
-            ownerId: machine.ownerId,
+            accountId: machine.accountId ?? machine.ownerId,
             ip: nextIp,
             status: machine.status,
             serverType: machine.serverType,
@@ -537,14 +543,14 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
       }).where(eq(machines.id, machine.id));
 
       const { eventBus } = await import('./event-bus');
-      await eventBus.emitStageChange(machine.id, machine.ownerId, 'services_ready', 'Daemon is reachable via proxy health check');
-      await eventBus.emitStatusChange(machine.id, machine.ownerId, 'ready', 'Machine is ready');
+      await eventBus.emitStageChange(machine.id, machine.accountId ?? machine.ownerId, 'services_ready', 'Daemon is reachable via proxy health check');
+      await eventBus.emitStatusChange(machine.id, machine.accountId ?? machine.ownerId, 'ready', 'Machine is ready');
 
       if (config.isCloudflareConfigured() && machine.ip) {
         cloudflareClient.writeKVMachine(machine.slug, buildMachineRoutingKVData({
           machineId: machine.id,
           slug: machine.slug,
-          ownerId: machine.ownerId,
+          accountId: machine.accountId ?? machine.ownerId,
           ip: machine.ip,
           status: 'ready',
           serverType: machine.serverType,
@@ -570,7 +576,7 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
     }).where(eq(machines.id, machine.id));
 
     const { eventBus } = await import('./event-bus');
-    await eventBus.emitStatusChange(machine.id, machine.ownerId, 'error', 'Provisioning timed out — machine never became reachable');
+    await eventBus.emitStatusChange(machine.id, machine.accountId ?? machine.ownerId, 'error', 'Provisioning timed out — machine never became reachable');
 
     return { ...machine, status: 'error' as const, provisioningStage: 'timeout' };
   }

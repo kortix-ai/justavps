@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import worker from '../src/index';
 import type { Env } from '../src/index';
@@ -50,11 +51,11 @@ describe('Worker integration — broker proxy', () => {
   async function setupTestData() {
     const hash = await sha256Hex('sk_live_test123');
     mockKV.set(`apikey:${hash}`, JSON.stringify({
-      owner_id: 'user_123',
+      account_id: 'acct_123',
       name: 'Test API Key',
     }));
     mockKV.set('machine:abc123', JSON.stringify({
-      owner_id: 'user_123',
+      account_id: 'acct_123',
       ip: '10.0.0.1',
       status: 'ready',
       server_type: 'cx22',
@@ -248,7 +249,7 @@ describe('Worker integration — broker proxy', () => {
     it('should clear stale cookie when expired JWT cookie causes redirect to login', async () => {
       await setupTestData();
 
-      const expiredJwt = await createTestJWT('user_123', PROXY_SECRET, -3600); // expired 1h ago
+      const expiredJwt = await createTestJWT('user_123', 'acct_123', PROXY_SECRET, -3600); // expired 1h ago
 
       const request = new Request('https://abc123.kortix.cloud/dashboard', {
         headers: {
@@ -272,7 +273,7 @@ describe('Worker integration — broker proxy', () => {
       await setupTestData();
 
       // Create a valid JWT for a different user who doesn't own the machine
-      const wrongUserJwt = await createTestJWT('user_wrong', PROXY_SECRET);
+      const wrongUserJwt = await createTestJWT('user_wrong', 'acct_wrong', PROXY_SECRET);
 
       const request = new Request('https://abc123.kortix.cloud/dashboard', {
         headers: {
@@ -321,11 +322,12 @@ async function sha256Hex(input: string): Promise<string> {
     .join('');
 }
 
-async function createTestJWT(sub: string, secret: string, expiresInSeconds = 86400): Promise<string> {
+async function createTestJWT(sub: string, accountId: string, secret: string, expiresInSeconds = 86400): Promise<string> {
   const header = base64UrlEncode(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const now = Math.floor(Date.now() / 1000);
   const payload = base64UrlEncode(JSON.stringify({
     sub,
+    account_id: accountId,
     iat: now,
     exp: now + expiresInSeconds,
   }));

@@ -201,12 +201,29 @@ async function waitForServerStatus(serverId: number, target: string, timeoutMs =
 
 async function waitForImageReady(imageId: number, timeoutMs = PROVISION_TIMEOUT_MS) {
   const start = Date.now();
+  let consecutiveErrors = 0;
   while (Date.now() - start < timeoutMs) {
-    const data = await hetznerFetch<{ image: HetznerImage }>(`/images/${imageId}`);
-    if (data.image.status === 'available') return;
+    try {
+      const data = await hetznerFetch<{ image: HetznerImage }>(`/images/${imageId}`);
+      consecutiveErrors = 0;
+      if (data.image.status === 'available') return;
+      // Hetzner doesn't have a 'failed' status for snapshots — they stay
+      // 'creating' until done or are silently deleted on failure. If the
+      // image disappears (404), the fetch will throw and we'll retry.
+    } catch (err) {
+      consecutiveErrors++;
+      const msg = err instanceof Error ? err.message : String(err);
+      // A few transient 5xx or network errors are fine during snapshot
+      // creation — Hetzner's API can be flaky. Only give up after 5
+      // consecutive failures (15+ seconds of no successful poll).
+      if (consecutiveErrors >= 5) {
+        throw new Error(`[hetzner] Image ${imageId} poll failed after ${consecutiveErrors} consecutive errors: ${msg}`);
+      }
+      console.warn(`[hetzner] Transient error polling image ${imageId} (attempt ${consecutiveErrors}/5): ${msg}`);
+    }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
-  throw new Error(`[hetzner] Image ${imageId} did not become available within ${timeoutMs / 1000}s`);
+  throw new Error(`[hetzner] Image ${imageId} did not become available within ${Math.floor(timeoutMs / 1000)}s`);
 }
 
 /**
@@ -249,8 +266,15 @@ export class HetznerProvider implements ComputeProvider {
       { method: 'POST', body: { type: 'snapshot', description } },
     );
     const imageId = resp.image.id;
-    await waitForImageReady(imageId);
+    console.log(`[hetzner] Snapshot creation started: imageId=${imageId} serverId=${serverId}`);
+
+    // Snapshots of large disks can take 10-15 min. Use a dedicated timeout
+    // (15 min) instead of the generic PROVISION_TIMEOUT_MS (10 min).
+    const IMAGE_TIMEOUT_MS = 15 * 60 * 1000;
+    await waitForImageReady(imageId, IMAGE_TIMEOUT_MS);
+
     const final = await hetznerFetch<{ image: HetznerImage }>(`/images/${imageId}`);
+    console.log(`[hetzner] Snapshot ready: imageId=${imageId} diskSize=${final.image.disk_size}GB`);
     return {
       imageId: String(imageId),
       diskSize: final.image.disk_size,

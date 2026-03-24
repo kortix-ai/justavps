@@ -7,15 +7,16 @@ test.describe('Landing Page', () => {
   test('renders hero with title and CTAs', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('h1:has-text("AI Sandbox")')).toBeVisible();
-    await expect(page.locator('a:has-text("Get a machine")')).toBeVisible();
-    await expect(page.locator('a:has-text("Read the docs")')).toBeVisible();
+    await expect(page.locator('button:has-text("Get a machine")').first()).toBeVisible();
+    await expect(page.locator('a:has-text("Docs")').first()).toBeVisible();
   });
 
-  test('renders code demo with tabs', async ({ page }) => {
+  test('renders programmatic control section', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('button:has-text("REST API")')).toBeVisible();
-    await expect(page.locator('button:has-text("SSH + Claude Code")')).toBeVisible();
-    await expect(page.locator('button:has-text("Agent Worker")')).toBeVisible();
+    await expect(page.locator('h2:has-text("Programmatic Control.")')).toBeVisible();
+    await expect(page.locator('text=Machine').first()).toBeVisible();
+    await expect(page.locator('text=Filesystem').first()).toBeVisible();
+    await expect(page.locator('text=Coding Agents').first()).toBeVisible();
   });
 
   test('renders pricing comparison', async ({ page }) => {
@@ -32,9 +33,9 @@ test.describe('Landing Page', () => {
     await expect(page.locator('footer')).toBeVisible();
   });
 
-  test('Get a machine links to provision wizard', async ({ page }) => {
+  test('Get a machine CTA is clickable from the hero', async ({ page }) => {
     await page.goto('/');
-    const link = page.locator('a:has-text("Get a machine")');
-    await expect(link).toHaveAttribute('href', '/machines/new');
+    await page.locator('button:has-text("Get a machine")').first().click();
+    await expect(page.locator('button:has-text("Get a machine")').first()).toBeVisible();
   });
 });

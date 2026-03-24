@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Internal routes — called by machines (agents) and Cloudflare Workers.
  * No API key auth — IP-restricted at the Cloudflare/proxy level.
@@ -92,7 +93,7 @@ internalApp.openapi(heartbeatRoute, async (c) => {
         console.warn(`[SECURITY] ${slug}: TAMPER DETECTED — ${alerts.join(', ')}`);
         eventBus.emitTransient({
           machineId: machine.id,
-          ownerId: machine.ownerId,
+          accountId: machine.accountId ?? machine.ownerId,
           event: 'heartbeat',
           metadata: { alert: 'security_tamper', details: alerts, uptime, services, load, network, security, daemon_version },
           timestamp: new Date().toISOString(),
@@ -112,7 +113,7 @@ internalApp.openapi(heartbeatRoute, async (c) => {
         console.warn(`[NETWORK] ${slug}: ANOMALY — ${alerts.join(', ')}`);
         eventBus.emitTransient({
           machineId: machine.id,
-          ownerId: machine.ownerId,
+          accountId: machine.accountId ?? machine.ownerId,
           event: 'heartbeat',
           metadata: { alert: 'network_anomaly', details: alerts, uptime, services, load, network, daemon_version },
           timestamp: new Date().toISOString(),
@@ -121,11 +122,11 @@ internalApp.openapi(heartbeatRoute, async (c) => {
     }
 
     if (shouldMarkReady) {
-      await eventBus.emitStatusChange(machine.id, machine.ownerId, 'ready', 'Machine is ready');
+      await eventBus.emitStatusChange(machine.id, machine.accountId ?? machine.ownerId, 'ready', 'Machine is ready');
     }
     eventBus.emitTransient({
       machineId: machine.id,
-      ownerId: machine.ownerId,
+      accountId: machine.accountId ?? machine.ownerId,
       event: 'heartbeat',
       metadata: { uptime, services, load, network, security, daemon_version },
       timestamp: new Date().toISOString(),
@@ -134,7 +135,7 @@ internalApp.openapi(heartbeatRoute, async (c) => {
     if (shouldMarkReady && config.isCloudflareConfigured() && machine.ip) {
       cloudflareClient.writeKVMachine(slug, {
         machine_id: machine.id,
-        owner_id: machine.ownerId,
+        account_id: machine.accountId ?? machine.ownerId,
         ip: machine.ip,
         status: 'ready',
         server_type: machine.serverType,
@@ -250,7 +251,7 @@ internalApp.openapi(stageRoute, async (c) => {
     }).where(eq(machines.id, machine.id));
 
     // emitStageChange handles forward-only check, DB update, event insert, and webhook delivery
-    await eventBus.emitStageChange(machine.id, machine.ownerId, stage, message, metadata);
+    await eventBus.emitStageChange(machine.id, machine.accountId ?? machine.ownerId, stage, message, metadata);
     return c.json({ ack: true });
   } catch (err) {
     console.error('[STAGE] error:', err);
@@ -351,14 +352,14 @@ internalApp.openapi(validateKeyRoute, async (c) => {
           }
         } else {
           const [machine] = await db.select().from(machines).where(eq(machines.slug, machineSlug));
-          if (!machine || machine.ownerId !== match.ownerId) {
+          if (!machine || machine.accountId !== (match.accountId ?? match.ownerId)) {
             return c.json({ valid: false, message: 'Key does not own this machine' }, 403);
           }
         }
       }
       return c.json({
         valid: true,
-        owner_id: match.ownerId,
+        account_id: match.accountId ?? match.ownerId,
         scope: match.scope,
         machine_ids: match.machineIds ?? null,
         permissions: match.permissions,
@@ -382,14 +383,14 @@ internalApp.openapi(validateKeyRoute, async (c) => {
             }
           } else {
             const [machine] = await db.select().from(machines).where(eq(machines.slug, machineSlug));
-            if (!machine || machine.ownerId !== key.ownerId) {
+            if (!machine || machine.accountId !== (key.accountId ?? key.ownerId)) {
               return c.json({ valid: false, message: 'Key does not own this machine' }, 403);
             }
           }
         }
         return c.json({
           valid: true,
-          owner_id: key.ownerId,
+          account_id: key.accountId ?? key.ownerId,
           scope: key.scope,
           machine_ids: key.machineIds ?? null,
           permissions: key.permissions,

@@ -6,30 +6,27 @@ import { login } from './helpers';
 
 test.describe('Machines Page', () => {
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await login(page, `machines-${Date.now()}@example.com`, 'testpassword123');
   });
 
   test('shows empty state when no machines exist', async ({ page }) => {
     await page.goto('/machines');
     await page.waitForLoadState('networkidle');
     await expect(page.locator('h2:has-text("No machines yet")')).toBeVisible();
-    await expect(page.locator('a:has-text("New Machine")').first()).toBeVisible();
+    await expect(page.locator('button:has-text("New Machine")').first()).toBeVisible();
   });
 
   test('has "New Machine" button in header', async ({ page }) => {
     await page.goto('/machines');
     await page.waitForLoadState('networkidle');
-    const links = page.locator('a[href="/machines/new"]');
-    const count = await links.count();
-    expect(count).toBeGreaterThanOrEqual(1);
+    await expect(page.locator('button:has-text("New Machine")').first()).toBeVisible();
   });
 
-  test('empty state CTA links to provision wizard', async ({ page }) => {
+  test('empty state CTA opens deploy modal', async ({ page }) => {
     await page.goto('/machines');
     await page.waitForLoadState('networkidle');
-    const links = page.locator('a[href="/machines/new"]');
-    const count = await links.count();
-    expect(count).toBeGreaterThanOrEqual(1);
+    await page.locator('button:has-text("New Machine")').first().click();
+    await expect(page.locator('h2:has-text("Deploy a machine")')).toBeVisible();
   });
 
   test('shows page title "Machines"', async ({ page }) => {

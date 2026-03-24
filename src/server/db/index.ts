@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Database connection — supports both local Postgres and Neon serverless.
  * Uses postgres.js for local dev, falls back to Neon for serverless deployment.

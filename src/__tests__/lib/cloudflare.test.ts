@@ -61,7 +61,7 @@ describe('cloudflareClient', () => {
     it('should PUT machine data to KV with correct key', async () => {
       await cloudflareClient.writeKVMachine('my-slug', {
         machine_id: 'machine-123',
-        owner_id: 'user-123',
+        account_id: 'acct-123',
         ip: '2a01:4f8:c17:e4c4::',
         status: 'ready',
         server_type: 'cx22',

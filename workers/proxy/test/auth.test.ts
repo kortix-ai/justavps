@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { validateAuth } from '../src/auth';
 
@@ -24,20 +25,20 @@ describe('validateAuth', () => {
 
   describe('Bearer token (API key) authentication', () => {
     it('should validate valid API key and check machine ownership', async () => {
-      const ownerId = 'user_123';
+      const accountId = 'acct_123';
 
       // API key hash — the Worker computes SHA-256 of the raw key
       // For testing we just use a predictable hash key
-      const apiKeyHash = await sha256Hex('sk_live_test123');
-      mockKV.set(`apikey:${apiKeyHash}`, JSON.stringify({
-        owner_id: ownerId,
-        name: 'Test API Key',
-      }));
-      mockKV.set('machine:abc123', JSON.stringify({
-        owner_id: ownerId,
-        ip: '1.2.3.4',
-        status: 'ready',
-        server_type: 'cx22',
+        const apiKeyHash = await sha256Hex('sk_live_test123');
+        mockKV.set(`apikey:${apiKeyHash}`, JSON.stringify({
+         account_id: accountId,
+         name: 'Test API Key',
+        }));
+        mockKV.set('machine:abc123', JSON.stringify({
+         account_id: accountId,
+         ip: '1.2.3.4',
+         status: 'ready',
+         server_type: 'cx22',
       }));
 
       const request = new Request('https://abc123.kortix.cloud', {
@@ -47,9 +48,9 @@ describe('validateAuth', () => {
       const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET);
 
       expect(result.success).toBe(true);
-      expect(result.userId).toBe(ownerId);
+      expect(result.accountId).toBe(accountId);
       expect(result.machineInfo).toEqual({
-        owner_id: ownerId,
+        account_id: accountId,
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -70,11 +71,11 @@ describe('validateAuth', () => {
     it('should reject when user does not own machine', async () => {
       const apiKeyHash = await sha256Hex('sk_live_test123');
       mockKV.set(`apikey:${apiKeyHash}`, JSON.stringify({
-        owner_id: 'user_123',
+        account_id: 'acct_123',
         name: 'Test API Key',
       }));
       mockKV.set('machine:abc123', JSON.stringify({
-        owner_id: 'user_456', // different owner
+        account_id: 'acct_456', // different account
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -93,11 +94,12 @@ describe('validateAuth', () => {
 
   describe('JWT cookie authentication', () => {
     it('should validate valid JWT cookie', async () => {
-      const ownerId = 'user_123';
-      const jwt = await createTestJWT(ownerId, PROXY_SECRET);
+      const userId = 'user_123';
+      const accountId = 'acct_123';
+      const jwt = await createTestJWT(userId, accountId, PROXY_SECRET);
 
       mockKV.set('machine:abc123', JSON.stringify({
-        owner_id: ownerId,
+        account_id: accountId,
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -110,7 +112,8 @@ describe('validateAuth', () => {
       const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET);
 
       expect(result.success).toBe(true);
-      expect(result.userId).toBe(ownerId);
+      expect(result.userId).toBe(userId);
+      expect(result.accountId).toBe(accountId);
     });
 
     it('should reject invalid JWT', async () => {
@@ -125,11 +128,10 @@ describe('validateAuth', () => {
     });
 
     it('should reject expired JWT', async () => {
-      const ownerId = 'user_123';
-      const jwt = await createTestJWT(ownerId, PROXY_SECRET, -3600); // expired 1h ago
+      const jwt = await createTestJWT('user_123', 'acct_123', PROXY_SECRET, -3600); // expired 1h ago
 
       mockKV.set('machine:abc123', JSON.stringify({
-        owner_id: ownerId,
+        account_id: 'acct_123',
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -147,10 +149,10 @@ describe('validateAuth', () => {
     });
 
     it('should propagate authSource=cookie on ownership failure (stale user token)', async () => {
-      const jwt = await createTestJWT('user_old', PROXY_SECRET);
+      const jwt = await createTestJWT('user_old', 'acct_old', PROXY_SECRET);
 
       mockKV.set('machine:abc123', JSON.stringify({
-        owner_id: 'user_new', // machine now belongs to different user
+        account_id: 'acct_new', // machine now belongs to different account
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -170,11 +172,12 @@ describe('validateAuth', () => {
 
   describe('Query parameter authentication', () => {
     it('should validate token from ?token= query param', async () => {
-      const ownerId = 'user_123';
-      const jwt = await createTestJWT(ownerId, PROXY_SECRET);
+      const userId = 'user_123';
+      const accountId = 'acct_123';
+      const jwt = await createTestJWT(userId, accountId, PROXY_SECRET);
 
       mockKV.set('machine:abc123', JSON.stringify({
-        owner_id: ownerId,
+        account_id: accountId,
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -185,18 +188,19 @@ describe('validateAuth', () => {
       const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET);
 
       expect(result.success).toBe(true);
-      expect(result.userId).toBe(ownerId);
+      expect(result.userId).toBe(userId);
+      expect(result.accountId).toBe(accountId);
     });
   });
 
   describe('Query token priority over stale cookie', () => {
     it('should use ?token= over cookie when both present (fresh token wins over stale cookie)', async () => {
-      const ownerId = 'user_123';
-      const correctJwt = await createTestJWT(ownerId, PROXY_SECRET);
-      const staleJwt = await createTestJWT('user_other', PROXY_SECRET); // cookie has wrong user
+      const userId = 'user_123';
+      const correctJwt = await createTestJWT(userId, 'acct_123', PROXY_SECRET);
+      const staleJwt = await createTestJWT('user_other', 'acct_other', PROXY_SECRET); // cookie has wrong account
 
       mockKV.set('machine:abc123', JSON.stringify({
-        owner_id: ownerId,
+        account_id: 'acct_123',
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -210,7 +214,8 @@ describe('validateAuth', () => {
       const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET);
 
       expect(result.success).toBe(true);
-      expect(result.userId).toBe(ownerId);
+      expect(result.userId).toBe(userId);
+      expect(result.accountId).toBe('acct_123');
       expect(result.authSource).toBe('querytoken');
     });
   });
@@ -230,7 +235,7 @@ describe('validateAuth', () => {
     it('should reject when machine does not exist', async () => {
       const apiKeyHash = await sha256Hex('sk_live_test123');
       mockKV.set(`apikey:${apiKeyHash}`, JSON.stringify({
-        owner_id: 'user_123',
+        account_id: 'acct_123',
         name: 'Test API Key',
       }));
       // No machine:{slug} entry
@@ -246,14 +251,14 @@ describe('validateAuth', () => {
     });
 
     it('should reject deleted machines', async () => {
-      const ownerId = 'user_123';
+      const accountId = 'acct_123';
       const apiKeyHash = await sha256Hex('sk_live_test123');
       mockKV.set(`apikey:${apiKeyHash}`, JSON.stringify({
-        owner_id: ownerId,
+        account_id: accountId,
         name: 'Test API Key',
       }));
       mockKV.set('machine:abc123', JSON.stringify({
-        owner_id: ownerId,
+        account_id: accountId,
         ip: '1.2.3.4',
         status: 'deleted',
         server_type: 'cx22',
@@ -277,14 +282,14 @@ describe('validateAuth', () => {
       const ptHash = await sha256Hex(ptToken);
 
       mockKV.set(`pt:${ptHash}`, JSON.stringify({
-        owner_id: ownerId,
+        account_id: ownerId,
         machine_id: 'machine-uuid-1',
         machine_slug: 'abc123',
         ports: null,
         expires_at: new Date(Date.now() + 3600_000).toISOString(),
       }));
       mockKV.set('machine:abc123', JSON.stringify({
-        owner_id: ownerId,
+        account_id: ownerId,
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -308,14 +313,14 @@ describe('validateAuth', () => {
       const ptHash = await sha256Hex(ptToken);
 
       mockKV.set(`pt:${ptHash}`, JSON.stringify({
-        owner_id: ownerId,
+        account_id: ownerId,
         machine_id: 'machine-uuid-1',
         machine_slug: 'abc123',
         ports: null,
         expires_at: new Date(Date.now() + 3600_000).toISOString(),
       }));
       mockKV.set('machine:abc123', JSON.stringify({
-        owner_id: ownerId,
+        account_id: ownerId,
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -335,14 +340,14 @@ describe('validateAuth', () => {
       const ptHash = await sha256Hex(ptToken);
 
       mockKV.set(`pt:${ptHash}`, JSON.stringify({
-        owner_id: ownerId,
+        account_id: ownerId,
         machine_id: 'machine-uuid-1',
         machine_slug: 'abc123',
         ports: null,
         expires_at: new Date(Date.now() + 3600_000).toISOString(),
       }));
       mockKV.set('machine:abc123', JSON.stringify({
-        owner_id: ownerId,
+        account_id: ownerId,
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -363,14 +368,14 @@ describe('validateAuth', () => {
       const ptHash = await sha256Hex(ptToken);
 
       mockKV.set(`pt:${ptHash}`, JSON.stringify({
-        owner_id: 'user_123',
+        account_id: 'acct_123',
         machine_id: 'machine-uuid-1',
         machine_slug: 'abc123',
         ports: null,
         expires_at: new Date(Date.now() - 3600_000).toISOString(), // expired 1h ago
       }));
       mockKV.set('machine:abc123', JSON.stringify({
-        owner_id: 'user_123',
+        account_id: 'acct_123',
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -391,14 +396,14 @@ describe('validateAuth', () => {
       const ptHash = await sha256Hex(ptToken);
 
       mockKV.set(`pt:${ptHash}`, JSON.stringify({
-        owner_id: 'user_123',
+        account_id: 'acct_123',
         machine_id: 'machine-uuid-1',
         machine_slug: 'other-machine', // different slug
         ports: null,
         expires_at: new Date(Date.now() + 3600_000).toISOString(),
       }));
       mockKV.set('machine:abc123', JSON.stringify({
-        owner_id: 'user_123',
+        account_id: 'acct_123',
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -419,14 +424,14 @@ describe('validateAuth', () => {
       const ptHash = await sha256Hex(ptToken);
 
       mockKV.set(`pt:${ptHash}`, JSON.stringify({
-        owner_id: 'user_123',
+        account_id: 'acct_123',
         machine_id: 'machine-uuid-1',
         machine_slug: 'abc123',
         ports: [3000, 8080], // only these ports allowed
         expires_at: new Date(Date.now() + 3600_000).toISOString(),
       }));
       mockKV.set('machine:abc123', JSON.stringify({
-        owner_id: 'user_123',
+        account_id: 'acct_123',
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -448,14 +453,14 @@ describe('validateAuth', () => {
       const ptHash = await sha256Hex(ptToken);
 
       mockKV.set(`pt:${ptHash}`, JSON.stringify({
-        owner_id: 'user_123',
+        account_id: 'acct_123',
         machine_id: 'machine-uuid-1',
         machine_slug: 'abc123',
         ports: [3000, 8080],
         expires_at: new Date(Date.now() + 3600_000).toISOString(),
       }));
       mockKV.set('machine:abc123', JSON.stringify({
-        owner_id: 'user_123',
+        account_id: 'acct_123',
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -478,14 +483,14 @@ describe('validateAuth', () => {
       // Proxy token owner is user_123, but machine owner is user_456
       // This should STILL work — proxy tokens bypass ownership checks
       mockKV.set(`pt:${ptHash}`, JSON.stringify({
-        owner_id: 'user_123',
+        account_id: 'acct_123',
         machine_id: 'machine-uuid-1',
         machine_slug: 'abc123',
         ports: null,
         expires_at: new Date(Date.now() + 3600_000).toISOString(),
       }));
       mockKV.set('machine:abc123', JSON.stringify({
-        owner_id: 'user_456', // different owner — doesn't matter for proxy tokens
+        account_id: 'acct_456', // different account — doesn't matter for proxy tokens
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -505,12 +510,12 @@ describe('validateAuth', () => {
     it('should reject expired API key', async () => {
       const apiKeyHash = await sha256Hex('sk_live_expired123');
       mockKV.set(`apikey:${apiKeyHash}`, JSON.stringify({
-        owner_id: 'user_123',
+        account_id: 'acct_123',
         name: 'Expired Key',
         expires_at: new Date(Date.now() - 3600_000).toISOString(), // expired 1h ago
       }));
       mockKV.set('machine:abc123', JSON.stringify({
-        owner_id: 'user_123',
+        account_id: 'acct_123',
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -530,12 +535,12 @@ describe('validateAuth', () => {
       const ownerId = 'user_123';
       const apiKeyHash = await sha256Hex('sk_live_valid_expiry123');
       mockKV.set(`apikey:${apiKeyHash}`, JSON.stringify({
-        owner_id: ownerId,
+        account_id: ownerId,
         name: 'Valid Key',
         expires_at: new Date(Date.now() + 86400_000).toISOString(), // expires in 24h
       }));
       mockKV.set('machine:abc123', JSON.stringify({
-        owner_id: ownerId,
+        account_id: ownerId,
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -555,12 +560,12 @@ describe('validateAuth', () => {
     it('should reject API key without proxy permission', async () => {
       const apiKeyHash = await sha256Hex('sk_live_noproxy123');
       mockKV.set(`apikey:${apiKeyHash}`, JSON.stringify({
-        owner_id: 'user_123',
+        account_id: 'acct_123',
         name: 'Read-only Key',
         permissions: ['read'],  // no 'proxy' permission
       }));
       mockKV.set('machine:abc123', JSON.stringify({
-        owner_id: 'user_123',
+        account_id: 'acct_123',
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -580,12 +585,12 @@ describe('validateAuth', () => {
       const ownerId = 'user_123';
       const apiKeyHash = await sha256Hex('sk_live_wildcard123');
       mockKV.set(`apikey:${apiKeyHash}`, JSON.stringify({
-        owner_id: ownerId,
+        account_id: ownerId,
         name: 'Wildcard Key',
         permissions: ['*'],
       }));
       mockKV.set('machine:abc123', JSON.stringify({
-        owner_id: ownerId,
+        account_id: ownerId,
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -604,12 +609,12 @@ describe('validateAuth', () => {
       const ownerId = 'user_123';
       const apiKeyHash = await sha256Hex('sk_live_proxy123');
       mockKV.set(`apikey:${apiKeyHash}`, JSON.stringify({
-        owner_id: ownerId,
+        account_id: ownerId,
         name: 'Proxy Key',
         permissions: ['read', 'proxy'],
       }));
       mockKV.set('machine:abc123', JSON.stringify({
-        owner_id: ownerId,
+        account_id: ownerId,
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -629,7 +634,7 @@ describe('validateAuth', () => {
     it('should reject a machine-scoped key for a different machine_id', async () => {
       const apiKeyHash = await sha256Hex('sk_live_scope_denied123');
       mockKV.set(`apikey:${apiKeyHash}`, JSON.stringify({
-        owner_id: 'user_123',
+        account_id: 'acct_123',
         name: 'Scoped Key',
         scope: 'machine',
         machine_ids: ['machine-uuid-allowed'],
@@ -637,7 +642,7 @@ describe('validateAuth', () => {
       }));
       mockKV.set('machine:abc123', JSON.stringify({
         machine_id: 'machine-uuid-other',
-        owner_id: 'user_123',
+        account_id: 'acct_123',
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -656,7 +661,7 @@ describe('validateAuth', () => {
     it('should accept a machine-scoped key for the allowed machine_id', async () => {
       const apiKeyHash = await sha256Hex('sk_live_scope_allowed123');
       mockKV.set(`apikey:${apiKeyHash}`, JSON.stringify({
-        owner_id: 'user_123',
+        account_id: 'acct_123',
         name: 'Scoped Key',
         scope: 'machine',
         machine_ids: ['machine-uuid-allowed'],
@@ -664,7 +669,7 @@ describe('validateAuth', () => {
       }));
       mockKV.set('machine:abc123', JSON.stringify({
         machine_id: 'machine-uuid-allowed',
-        owner_id: 'user_123',
+        account_id: 'acct_123',
         ip: '1.2.3.4',
         status: 'ready',
         server_type: 'cx22',
@@ -677,7 +682,7 @@ describe('validateAuth', () => {
       const result = await validateAuth(request, 'abc123', mockKV as any, PROXY_SECRET);
 
       expect(result.success).toBe(true);
-      expect(result.userId).toBe('user_123');
+      expect(result.accountId).toBe('acct_123');
     });
   });
 });
@@ -692,11 +697,12 @@ async function sha256Hex(input: string): Promise<string> {
     .join('');
 }
 
-async function createTestJWT(sub: string, secret: string, expiresInSeconds = 86400): Promise<string> {
+async function createTestJWT(sub: string, accountId: string, secret: string, expiresInSeconds = 86400): Promise<string> {
   const header = base64UrlEncode(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const now = Math.floor(Date.now() / 1000);
   const payload = base64UrlEncode(JSON.stringify({
     sub,
+    account_id: accountId,
     iat: now,
     exp: now + expiresInSeconds,
   }));

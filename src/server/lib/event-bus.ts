@@ -15,7 +15,7 @@ export type MachineEventType = 'stage_changed' | 'status_changed' | 'heartbeat';
 
 export interface MachineEvent {
   machineId: string;
-  ownerId: string;
+  accountId: string;
   event: MachineEventType;
   stage?: string;
   status?: string;
@@ -31,7 +31,7 @@ class MachineEventBus {
    */
   async emitStageChange(
     machineId: string,
-    ownerId: string,
+    accountId: string,
     stage: string,
     message?: string,
     metadata?: Record<string, unknown>,
@@ -39,7 +39,7 @@ class MachineEventBus {
     const now = new Date();
     const event: MachineEvent = {
       machineId,
-      ownerId,
+      accountId,
       event: 'stage_changed',
       stage,
       message,
@@ -75,6 +75,7 @@ class MachineEventBus {
     try {
       await db.insert(machineEvents).values({
         machineId,
+        accountId,
         event: 'stage_changed',
         stage,
         message: message ?? null,
@@ -84,7 +85,7 @@ class MachineEventBus {
       console.error(`[EVENT-BUS] Failed to insert event:`, err);
     }
 
-    deliverWebhooks(ownerId, event).catch((err) => {
+    deliverWebhooks(accountId, event).catch((err) => {
       console.error(`[EVENT-BUS] Webhook delivery failed:`, err);
     });
   }
@@ -94,14 +95,14 @@ class MachineEventBus {
    */
   async emitStatusChange(
     machineId: string,
-    ownerId: string,
+    accountId: string,
     status: string,
     message?: string,
   ): Promise<void> {
     const now = new Date();
     const event: MachineEvent = {
       machineId,
-      ownerId,
+      accountId,
       event: 'status_changed',
       status,
       message,
@@ -111,6 +112,7 @@ class MachineEventBus {
     try {
       await db.insert(machineEvents).values({
         machineId,
+        accountId,
         event: 'status_changed',
         stage: status,
         message: message ?? null,
@@ -120,7 +122,7 @@ class MachineEventBus {
       console.error(`[EVENT-BUS] Failed to insert status event:`, err);
     }
 
-    deliverWebhooks(ownerId, event).catch((err) => {
+    deliverWebhooks(accountId, event).catch((err) => {
       console.error(`[EVENT-BUS] Webhook delivery failed:`, err);
     });
   }
@@ -131,7 +133,7 @@ class MachineEventBus {
    * is already stored on the machines row by the caller).
    */
   async emitTransient(event: MachineEvent): Promise<void> {
-    deliverWebhooks(event.ownerId, event).catch((err) => {
+    deliverWebhooks(event.accountId, event).catch((err) => {
       console.error(`[EVENT-BUS] Webhook delivery failed:`, err);
     });
   }

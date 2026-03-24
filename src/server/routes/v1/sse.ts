@@ -46,7 +46,7 @@ const streamMachineStatusRoute = createRoute({
 // Use openapi() for spec registration but return a stream response
 sseApp.openapi(streamMachineStatusRoute, async (c) => {
   const id = c.req.valid('param').id;
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
 
   const readProvisionMeta = (meta: Record<string, unknown> | null | undefined) => {
     const value = (meta ?? {}) as Record<string, unknown>;
@@ -60,7 +60,7 @@ sseApp.openapi(streamMachineStatusRoute, async (c) => {
     let machine: typeof machines.$inferSelect | undefined;
     try {
       const [row] = await db.select().from(machines).where(eq(machines.id, id));
-      if (!row || row.ownerId !== ownerId) {
+      if (!row || row.accountId !== accountId) {
         await stream.writeSSE({ data: JSON.stringify({ error: 'not_found' }), event: 'error' });
         return;
       }

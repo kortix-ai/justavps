@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { DeleteApiV1ApiKeysByIdData, DeleteApiV1ApiKeysByIdErrors, DeleteApiV1ApiKeysByIdResponses, DeleteApiV1ImagesByIdData, DeleteApiV1ImagesByIdErrors, DeleteApiV1ImagesByIdResponses, DeleteApiV1MachinesByIdData, DeleteApiV1MachinesByIdErrors, DeleteApiV1MachinesByIdResponses, DeleteApiV1MachinesByMachineIdToolboxFilesData, DeleteApiV1MachinesByMachineIdToolboxFilesErrors, DeleteApiV1MachinesByMachineIdToolboxFilesResponses, DeleteApiV1SshKeysByIdData, DeleteApiV1SshKeysByIdErrors, DeleteApiV1SshKeysByIdResponses, DeleteApiV1WebhooksByIdData, DeleteApiV1WebhooksByIdErrors, DeleteApiV1WebhooksByIdResponses, GetApiV1AccountBillingData, GetApiV1AccountBillingErrors, GetApiV1AccountBillingResponses, GetApiV1AccountData, GetApiV1AccountErrors, GetApiV1AccountLimitsData, GetApiV1AccountLimitsErrors, GetApiV1AccountLimitsResponses, GetApiV1AccountResponses, GetApiV1AccountUsageData, GetApiV1AccountUsageErrors, GetApiV1AccountUsageResponses, GetApiV1ApiKeysData, GetApiV1ApiKeysErrors, GetApiV1ApiKeysResponses, GetApiV1ImagesByIdData, GetApiV1ImagesByIdErrors, GetApiV1ImagesByIdResponses, GetApiV1ImagesData, GetApiV1ImagesErrors, GetApiV1ImagesResponses, GetApiV1ImportKortixCallbackData, GetApiV1ImportKortixCallbackErrors, GetApiV1ImportKortixMachinesData, GetApiV1ImportKortixMachinesErrors, GetApiV1ImportKortixMachinesResponses, GetApiV1ImportKortixStartData, GetApiV1ImportKortixStartErrors, GetApiV1ImportKortixStartResponses, GetApiV1ImportKortixStatusData, GetApiV1ImportKortixStatusErrors, GetApiV1ImportKortixStatusResponses, GetApiV1InternalValidateKeyData, GetApiV1InternalValidateKeyErrors, GetApiV1InternalValidateKeyResponses, GetApiV1MachinesByIdBackupsData, GetApiV1MachinesByIdBackupsErrors, GetApiV1MachinesByIdBackupsResponses, GetApiV1MachinesByIdData, GetApiV1MachinesByIdErrors, GetApiV1MachinesByIdResponses, GetApiV1MachinesByIdStatusStreamData, GetApiV1MachinesByIdStatusStreamErrors, GetApiV1MachinesByIdStatusStreamResponses, GetApiV1MachinesByMachineIdToolboxFilesData, GetApiV1MachinesByMachineIdToolboxFilesDownloadData, GetApiV1MachinesByMachineIdToolboxFilesDownloadErrors, GetApiV1MachinesByMachineIdToolboxFilesDownloadResponses, GetApiV1MachinesByMachineIdToolboxFilesErrors, GetApiV1MachinesByMachineIdToolboxFilesExistsData, GetApiV1MachinesByMachineIdToolboxFilesExistsErrors, GetApiV1MachinesByMachineIdToolboxFilesExistsResponses, GetApiV1MachinesByMachineIdToolboxFilesFindData, GetApiV1MachinesByMachineIdToolboxFilesFindErrors, GetApiV1MachinesByMachineIdToolboxFilesFindResponses, GetApiV1MachinesByMachineIdToolboxFilesInfoData, GetApiV1MachinesByMachineIdToolboxFilesInfoErrors, GetApiV1MachinesByMachineIdToolboxFilesInfoResponses, GetApiV1MachinesByMachineIdToolboxFilesResponses, GetApiV1MachinesByMachineIdToolboxProcessListData, GetApiV1MachinesByMachineIdToolboxProcessListErrors, GetApiV1MachinesByMachineIdToolboxProcessListResponses, GetApiV1MachinesData, GetApiV1MachinesErrors, GetApiV1MachinesResponses, GetApiV1ServerTypesData, GetApiV1ServerTypesErrors, GetApiV1ServerTypesProvidersData, GetApiV1ServerTypesProvidersResponses, GetApiV1ServerTypesRegionsData, GetApiV1ServerTypesRegionsErrors, GetApiV1ServerTypesRegionsResponses, GetApiV1ServerTypesResponses, GetApiV1SshKeysData, GetApiV1SshKeysErrors, GetApiV1SshKeysResponses, GetApiV1WebhooksData, GetApiV1WebhooksErrors, GetApiV1WebhooksResponses, PostApiV1AccountBillingSetupData, PostApiV1AccountBillingSetupErrors, PostApiV1AccountBillingSetupResponses, PostApiV1AccountPasswordData, PostApiV1AccountPasswordErrors, PostApiV1AccountPasswordResponses, PostApiV1ApiKeysData, PostApiV1ApiKeysErrors, PostApiV1ApiKeysResponses, PostApiV1ImportKortixClaimData, PostApiV1ImportKortixClaimErrors, PostApiV1ImportKortixClaimResponses, PostApiV1InternalHeartbeatData, PostApiV1InternalHeartbeatErrors, PostApiV1InternalHeartbeatResponses, PostApiV1InternalStageData, PostApiV1InternalStageErrors, PostApiV1InternalStageResponses, PostApiV1MachinesByIdBackupsData, PostApiV1MachinesByIdBackupsDisableData, PostApiV1MachinesByIdBackupsDisableErrors, PostApiV1MachinesByIdBackupsDisableResponses, PostApiV1MachinesByIdBackupsEnableData, PostApiV1MachinesByIdBackupsEnableErrors, PostApiV1MachinesByIdBackupsEnableResponses, PostApiV1MachinesByIdBackupsErrors, PostApiV1MachinesByIdBackupsResponses, PostApiV1MachinesByIdImageData, PostApiV1MachinesByIdImageErrors, PostApiV1MachinesByIdImageResponses, PostApiV1MachinesByIdRebootData, PostApiV1MachinesByIdRebootErrors, PostApiV1MachinesByIdRebootResponses, PostApiV1MachinesByIdResizeData, PostApiV1MachinesByIdResizeErrors, PostApiV1MachinesByIdResizeResponses, PostApiV1MachinesByMachineIdToolboxFilesBulkDownloadData, PostApiV1MachinesByMachineIdToolboxFilesBulkDownloadErrors, PostApiV1MachinesByMachineIdToolboxFilesBulkDownloadResponses, PostApiV1MachinesByMachineIdToolboxFilesFolderData, PostApiV1MachinesByMachineIdToolboxFilesFolderErrors, PostApiV1MachinesByMachineIdToolboxFilesFolderResponses, PostApiV1MachinesByMachineIdToolboxFilesMoveData, PostApiV1MachinesByMachineIdToolboxFilesMoveErrors, PostApiV1MachinesByMachineIdToolboxFilesMoveResponses, PostApiV1MachinesByMachineIdToolboxFilesPermissionsData, PostApiV1MachinesByMachineIdToolboxFilesPermissionsErrors, PostApiV1MachinesByMachineIdToolboxFilesPermissionsResponses, PostApiV1MachinesByMachineIdToolboxFilesReplaceData, PostApiV1MachinesByMachineIdToolboxFilesReplaceErrors, PostApiV1MachinesByMachineIdToolboxFilesReplaceResponses, PostApiV1MachinesByMachineIdToolboxFilesUploadData, PostApiV1MachinesByMachineIdToolboxFilesUploadErrors, PostApiV1MachinesByMachineIdToolboxFilesUploadResponses, PostApiV1MachinesByMachineIdToolboxProcessCodeRunData, PostApiV1MachinesByMachineIdToolboxProcessCodeRunErrors, PostApiV1MachinesByMachineIdToolboxProcessCodeRunResponses, PostApiV1MachinesByMachineIdToolboxProcessExecuteData, PostApiV1MachinesByMachineIdToolboxProcessExecuteErrors, PostApiV1MachinesByMachineIdToolboxProcessExecuteResponses, PostApiV1MachinesByMachineIdToolboxProcessExecuteStreamData, PostApiV1MachinesByMachineIdToolboxProcessExecuteStreamErrors, PostApiV1MachinesByMachineIdToolboxProcessExecuteStreamResponses, PostApiV1MachinesByMachineIdToolboxProcessKillData, PostApiV1MachinesByMachineIdToolboxProcessKillErrors, PostApiV1MachinesByMachineIdToolboxProcessKillResponses, PostApiV1MachinesData, PostApiV1MachinesErrors, PostApiV1MachinesResponses, PostApiV1SshKeysData, PostApiV1SshKeysErrors, PostApiV1SshKeysResponses, PostApiV1WebhooksData, PostApiV1WebhooksErrors, PostApiV1WebhooksResponses } from './types.gen';
+import type { DeleteApiV1AccountInvitationsByInvitationIdData, DeleteApiV1AccountInvitationsByInvitationIdResponses, DeleteApiV1AccountMembersByMembershipIdData, DeleteApiV1AccountMembersByMembershipIdResponses, DeleteApiV1ApiKeysByIdData, DeleteApiV1ApiKeysByIdErrors, DeleteApiV1ApiKeysByIdResponses, DeleteApiV1ImagesByIdData, DeleteApiV1ImagesByIdErrors, DeleteApiV1ImagesByIdResponses, DeleteApiV1MachinesByIdData, DeleteApiV1MachinesByIdErrors, DeleteApiV1MachinesByIdResponses, DeleteApiV1MachinesByMachineIdToolboxFilesData, DeleteApiV1MachinesByMachineIdToolboxFilesErrors, DeleteApiV1MachinesByMachineIdToolboxFilesResponses, DeleteApiV1ProxyTokensByIdData, DeleteApiV1ProxyTokensByIdErrors, DeleteApiV1ProxyTokensByIdResponses, DeleteApiV1SshKeysByIdData, DeleteApiV1SshKeysByIdErrors, DeleteApiV1SshKeysByIdResponses, DeleteApiV1WebhooksByIdData, DeleteApiV1WebhooksByIdErrors, DeleteApiV1WebhooksByIdResponses, GetApiV1AccountBillingData, GetApiV1AccountBillingResponses, GetApiV1AccountData, GetApiV1AccountErrors, GetApiV1AccountInvitationsData, GetApiV1AccountInvitationsResponses, GetApiV1AccountLimitsData, GetApiV1AccountLimitsResponses, GetApiV1AccountMeData, GetApiV1AccountMeErrors, GetApiV1AccountMembersData, GetApiV1AccountMembershipsData, GetApiV1AccountMembershipsResponses, GetApiV1AccountMembersResponses, GetApiV1AccountMeResponses, GetApiV1AccountResponses, GetApiV1AccountUsageData, GetApiV1AccountUsageResponses, GetApiV1ApiKeysData, GetApiV1ApiKeysErrors, GetApiV1ApiKeysResponses, GetApiV1ImagesByIdData, GetApiV1ImagesByIdErrors, GetApiV1ImagesByIdResponses, GetApiV1ImagesData, GetApiV1ImagesErrors, GetApiV1ImagesResponses, GetApiV1ImportKortixCallbackData, GetApiV1ImportKortixCallbackErrors, GetApiV1ImportKortixMachinesData, GetApiV1ImportKortixMachinesErrors, GetApiV1ImportKortixMachinesResponses, GetApiV1ImportKortixStartData, GetApiV1ImportKortixStartErrors, GetApiV1ImportKortixStartResponses, GetApiV1ImportKortixStatusData, GetApiV1ImportKortixStatusErrors, GetApiV1ImportKortixStatusResponses, GetApiV1InternalValidateKeyData, GetApiV1InternalValidateKeyErrors, GetApiV1InternalValidateKeyResponses, GetApiV1InternalWatchdogData, GetApiV1InternalWatchdogErrors, GetApiV1InternalWatchdogResponses, GetApiV1MachinesByIdBackupsData, GetApiV1MachinesByIdBackupsErrors, GetApiV1MachinesByIdBackupsResponses, GetApiV1MachinesByIdData, GetApiV1MachinesByIdErrors, GetApiV1MachinesByIdResponses, GetApiV1MachinesByIdStatusStreamData, GetApiV1MachinesByIdStatusStreamErrors, GetApiV1MachinesByIdStatusStreamResponses, GetApiV1MachinesByMachineIdToolboxFilesData, GetApiV1MachinesByMachineIdToolboxFilesDownloadData, GetApiV1MachinesByMachineIdToolboxFilesDownloadErrors, GetApiV1MachinesByMachineIdToolboxFilesDownloadResponses, GetApiV1MachinesByMachineIdToolboxFilesErrors, GetApiV1MachinesByMachineIdToolboxFilesExistsData, GetApiV1MachinesByMachineIdToolboxFilesExistsErrors, GetApiV1MachinesByMachineIdToolboxFilesExistsResponses, GetApiV1MachinesByMachineIdToolboxFilesFindData, GetApiV1MachinesByMachineIdToolboxFilesFindErrors, GetApiV1MachinesByMachineIdToolboxFilesFindResponses, GetApiV1MachinesByMachineIdToolboxFilesInfoData, GetApiV1MachinesByMachineIdToolboxFilesInfoErrors, GetApiV1MachinesByMachineIdToolboxFilesInfoResponses, GetApiV1MachinesByMachineIdToolboxFilesResponses, GetApiV1MachinesByMachineIdToolboxProcessListData, GetApiV1MachinesByMachineIdToolboxProcessListErrors, GetApiV1MachinesByMachineIdToolboxProcessListResponses, GetApiV1MachinesData, GetApiV1MachinesErrors, GetApiV1MachinesResponses, GetApiV1ProxyTokensData, GetApiV1ProxyTokensErrors, GetApiV1ProxyTokensResponses, GetApiV1ServerTypesData, GetApiV1ServerTypesErrors, GetApiV1ServerTypesProvidersData, GetApiV1ServerTypesProvidersResponses, GetApiV1ServerTypesRegionsData, GetApiV1ServerTypesRegionsErrors, GetApiV1ServerTypesRegionsResponses, GetApiV1ServerTypesResponses, GetApiV1SshKeysData, GetApiV1SshKeysErrors, GetApiV1SshKeysResponses, GetApiV1WebhooksData, GetApiV1WebhooksErrors, GetApiV1WebhooksResponses, PatchApiV1AccountMembersByMembershipIdData, PatchApiV1AccountMembersByMembershipIdResponses, PostApiV1AccountBillingSetupData, PostApiV1AccountBillingSetupErrors, PostApiV1AccountBillingSetupResponses, PostApiV1AccountInvitationsData, PostApiV1AccountInvitationsRedeemData, PostApiV1AccountInvitationsRedeemResponses, PostApiV1AccountInvitationsResponses, PostApiV1AccountOrganizationsData, PostApiV1AccountOrganizationsResponses, PostApiV1AccountPasswordData, PostApiV1AccountPasswordErrors, PostApiV1AccountPasswordResponses, PostApiV1AccountSwitchData, PostApiV1AccountSwitchErrors, PostApiV1AccountSwitchResponses, PostApiV1ApiKeysData, PostApiV1ApiKeysErrors, PostApiV1ApiKeysResponses, PostApiV1ImportKortixClaimData, PostApiV1ImportKortixClaimErrors, PostApiV1ImportKortixClaimResponses, PostApiV1InternalGcSshKeysData, PostApiV1InternalGcSshKeysErrors, PostApiV1InternalGcSshKeysResponses, PostApiV1InternalHeartbeatData, PostApiV1InternalHeartbeatErrors, PostApiV1InternalHeartbeatResponses, PostApiV1InternalStageData, PostApiV1InternalStageErrors, PostApiV1InternalStageResponses, PostApiV1MachinesByIdBackupsData, PostApiV1MachinesByIdBackupsDisableData, PostApiV1MachinesByIdBackupsDisableErrors, PostApiV1MachinesByIdBackupsDisableResponses, PostApiV1MachinesByIdBackupsEnableData, PostApiV1MachinesByIdBackupsEnableErrors, PostApiV1MachinesByIdBackupsEnableResponses, PostApiV1MachinesByIdBackupsErrors, PostApiV1MachinesByIdBackupsResponses, PostApiV1MachinesByIdCancelData, PostApiV1MachinesByIdCancelErrors, PostApiV1MachinesByIdCancelResponses, PostApiV1MachinesByIdImageData, PostApiV1MachinesByIdImageErrors, PostApiV1MachinesByIdImageResponses, PostApiV1MachinesByIdReactivateData, PostApiV1MachinesByIdReactivateErrors, PostApiV1MachinesByIdReactivateResponses, PostApiV1MachinesByIdRebootData, PostApiV1MachinesByIdRebootErrors, PostApiV1MachinesByIdRebootResponses, PostApiV1MachinesByIdResizeData, PostApiV1MachinesByIdResizeErrors, PostApiV1MachinesByIdResizeResponses, PostApiV1MachinesByIdStartData, PostApiV1MachinesByIdStartErrors, PostApiV1MachinesByIdStartResponses, PostApiV1MachinesByIdStopData, PostApiV1MachinesByIdStopErrors, PostApiV1MachinesByIdStopResponses, PostApiV1MachinesByMachineIdToolboxFilesBulkDownloadData, PostApiV1MachinesByMachineIdToolboxFilesBulkDownloadErrors, PostApiV1MachinesByMachineIdToolboxFilesBulkDownloadResponses, PostApiV1MachinesByMachineIdToolboxFilesFolderData, PostApiV1MachinesByMachineIdToolboxFilesFolderErrors, PostApiV1MachinesByMachineIdToolboxFilesFolderResponses, PostApiV1MachinesByMachineIdToolboxFilesMoveData, PostApiV1MachinesByMachineIdToolboxFilesMoveErrors, PostApiV1MachinesByMachineIdToolboxFilesMoveResponses, PostApiV1MachinesByMachineIdToolboxFilesPermissionsData, PostApiV1MachinesByMachineIdToolboxFilesPermissionsErrors, PostApiV1MachinesByMachineIdToolboxFilesPermissionsResponses, PostApiV1MachinesByMachineIdToolboxFilesReplaceData, PostApiV1MachinesByMachineIdToolboxFilesReplaceErrors, PostApiV1MachinesByMachineIdToolboxFilesReplaceResponses, PostApiV1MachinesByMachineIdToolboxFilesUploadData, PostApiV1MachinesByMachineIdToolboxFilesUploadErrors, PostApiV1MachinesByMachineIdToolboxFilesUploadResponses, PostApiV1MachinesByMachineIdToolboxProcessCodeRunData, PostApiV1MachinesByMachineIdToolboxProcessCodeRunErrors, PostApiV1MachinesByMachineIdToolboxProcessCodeRunResponses, PostApiV1MachinesByMachineIdToolboxProcessExecuteData, PostApiV1MachinesByMachineIdToolboxProcessExecuteErrors, PostApiV1MachinesByMachineIdToolboxProcessExecuteResponses, PostApiV1MachinesByMachineIdToolboxProcessExecuteStreamData, PostApiV1MachinesByMachineIdToolboxProcessExecuteStreamErrors, PostApiV1MachinesByMachineIdToolboxProcessExecuteStreamResponses, PostApiV1MachinesByMachineIdToolboxProcessKillData, PostApiV1MachinesByMachineIdToolboxProcessKillErrors, PostApiV1MachinesByMachineIdToolboxProcessKillResponses, PostApiV1MachinesData, PostApiV1MachinesErrors, PostApiV1MachinesResponses, PostApiV1ProxyTokensData, PostApiV1ProxyTokensErrors, PostApiV1ProxyTokensResponses, PostApiV1SshKeysData, PostApiV1SshKeysErrors, PostApiV1SshKeysResponses, PostApiV1WebhooksData, PostApiV1WebhooksErrors, PostApiV1WebhooksResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<TData, ThrowOnError> & {
     /**
@@ -85,6 +85,36 @@ export const getApiV1MachinesById = <ThrowOnError extends boolean = false>(optio
 });
 
 /**
+ * Cancel a machine subscription
+ *
+ * Schedules the machine for cancellation at the end of the current billing period. The machine keeps running until then. Use `POST /:id/reactivate` to undo.
+ */
+export const postApiV1MachinesByIdCancel = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByIdCancelData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByIdCancelResponses, PostApiV1MachinesByIdCancelErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{id}/cancel',
+    ...options
+});
+
+/**
+ * Reactivate a cancelled subscription
+ *
+ * Reverses a scheduled cancellation. The subscription continues as normal and the machine will not be deleted.
+ */
+export const postApiV1MachinesByIdReactivate = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByIdReactivateData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByIdReactivateResponses, PostApiV1MachinesByIdReactivateErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{id}/reactivate',
+    ...options
+});
+
+/**
  * Reboot a machine
  *
  * Initiates a hard reboot via the provider API (~30s downtime).
@@ -96,6 +126,36 @@ export const postApiV1MachinesByIdReboot = <ThrowOnError extends boolean = false
             type: 'apiKey'
         }],
     url: '/api/v1/machines/{id}/reboot',
+    ...options
+});
+
+/**
+ * Stop a machine
+ *
+ * Powers off the machine (graceful shutdown). Billing continues while stopped.
+ */
+export const postApiV1MachinesByIdStop = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByIdStopData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByIdStopResponses, PostApiV1MachinesByIdStopErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{id}/stop',
+    ...options
+});
+
+/**
+ * Start a stopped machine
+ *
+ * Powers on a previously stopped machine.
+ */
+export const postApiV1MachinesByIdStart = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByIdStartData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByIdStartResponses, PostApiV1MachinesByIdStartErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/machines/{id}/start',
     ...options
 });
 
@@ -335,6 +395,55 @@ export const deleteApiV1ApiKeysById = <ThrowOnError extends boolean = false>(opt
 });
 
 /**
+ * List proxy tokens
+ *
+ * Returns active (non-revoked, non-expired) proxy tokens. Optionally filter by machine_id.
+ */
+export const getApiV1ProxyTokens = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1ProxyTokensData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1ProxyTokensResponses, GetApiV1ProxyTokensErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/proxy-tokens',
+    ...options
+});
+
+/**
+ * Create a proxy token
+ *
+ * Create a short-lived token for sharing machine access. The full token is only returned once.
+ */
+export const postApiV1ProxyTokens = <ThrowOnError extends boolean = false>(options: Options<PostApiV1ProxyTokensData, ThrowOnError>) => (options.client ?? client).post<PostApiV1ProxyTokensResponses, PostApiV1ProxyTokensErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/proxy-tokens',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Revoke a proxy token
+ *
+ * Revokes a proxy token. Access using it will immediately fail.
+ */
+export const deleteApiV1ProxyTokensById = <ThrowOnError extends boolean = false>(options: Options<DeleteApiV1ProxyTokensByIdData, ThrowOnError>) => (options.client ?? client).delete<DeleteApiV1ProxyTokensByIdResponses, DeleteApiV1ProxyTokensByIdErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/proxy-tokens/{id}',
+    ...options
+});
+
+/**
  * List providers
  */
 export const getApiV1ServerTypesProviders = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1ServerTypesProvidersData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1ServerTypesProvidersResponses, unknown, ThrowOnError>({ url: '/api/v1/server-types/providers', ...options });
@@ -352,7 +461,7 @@ export const getApiV1ServerTypes = <ThrowOnError extends boolean = false>(option
 export const getApiV1ServerTypesRegions = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1ServerTypesRegionsData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1ServerTypesRegionsResponses, GetApiV1ServerTypesRegionsErrors, ThrowOnError>({ url: '/api/v1/server-types/regions', ...options });
 
 /**
- * Get account info
+ * Get active account info
  */
 export const getApiV1Account = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1AccountData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1AccountResponses, GetApiV1AccountErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
@@ -365,11 +474,69 @@ export const getApiV1Account = <ThrowOnError extends boolean = false>(options?: 
 });
 
 /**
- * Get usage stats
- *
- * Returns current billing period usage including active machines and estimated cost.
+ * Get current user + memberships
  */
-export const getApiV1AccountUsage = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1AccountUsageData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1AccountUsageResponses, GetApiV1AccountUsageErrors, ThrowOnError>({
+export const getApiV1AccountMe = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1AccountMeData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1AccountMeResponses, GetApiV1AccountMeErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/account/me',
+    ...options
+});
+
+/**
+ * List accessible accounts
+ */
+export const getApiV1AccountMemberships = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1AccountMembershipsData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1AccountMembershipsResponses, unknown, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/account/memberships',
+    ...options
+});
+
+/**
+ * Switch active account
+ */
+export const postApiV1AccountSwitch = <ThrowOnError extends boolean = false>(options: Options<PostApiV1AccountSwitchData, ThrowOnError>) => (options.client ?? client).post<PostApiV1AccountSwitchResponses, PostApiV1AccountSwitchErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/account/switch',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Create an organization account
+ */
+export const postApiV1AccountOrganizations = <ThrowOnError extends boolean = false>(options: Options<PostApiV1AccountOrganizationsData, ThrowOnError>) => (options.client ?? client).post<PostApiV1AccountOrganizationsResponses, unknown, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/account/organizations',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Get active account usage
+ */
+export const getApiV1AccountUsage = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1AccountUsageData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1AccountUsageResponses, unknown, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
@@ -380,11 +547,9 @@ export const getApiV1AccountUsage = <ThrowOnError extends boolean = false>(optio
 });
 
 /**
- * Get billing info
- *
- * Returns Stripe billing portal URL and payment method status.
+ * Get active account billing info
  */
-export const getApiV1AccountBilling = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1AccountBillingData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1AccountBillingResponses, GetApiV1AccountBillingErrors, ThrowOnError>({
+export const getApiV1AccountBilling = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1AccountBillingData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1AccountBillingResponses, unknown, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
@@ -395,9 +560,7 @@ export const getApiV1AccountBilling = <ThrowOnError extends boolean = false>(opt
 });
 
 /**
- * Create billing setup session
- *
- * Creates a Stripe Checkout Session in setup mode to add a payment method.
+ * Create billing setup session for active account
  */
 export const postApiV1AccountBillingSetup = <ThrowOnError extends boolean = false>(options?: Options<PostApiV1AccountBillingSetupData, ThrowOnError>) => (options?.client ?? client).post<PostApiV1AccountBillingSetupResponses, PostApiV1AccountBillingSetupErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
@@ -411,8 +574,6 @@ export const postApiV1AccountBillingSetup = <ThrowOnError extends boolean = fals
 
 /**
  * Set account password
- *
- * Sets the initial password for passwordless checkout-created accounts.
  */
 export const postApiV1AccountPassword = <ThrowOnError extends boolean = false>(options: Options<PostApiV1AccountPasswordData, ThrowOnError>) => (options.client ?? client).post<PostApiV1AccountPasswordResponses, PostApiV1AccountPasswordErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
@@ -429,11 +590,9 @@ export const postApiV1AccountPassword = <ThrowOnError extends boolean = false>(o
 });
 
 /**
- * Get account limits
- *
- * Returns the resource limits and current usage for the authenticated user.
+ * Get active account limits
  */
-export const getApiV1AccountLimits = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1AccountLimitsData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1AccountLimitsResponses, GetApiV1AccountLimitsErrors, ThrowOnError>({
+export const getApiV1AccountLimits = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1AccountLimitsData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1AccountLimitsResponses, unknown, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
             in: 'cookie',
             name: 'authjs.session-token',
@@ -441,6 +600,109 @@ export const getApiV1AccountLimits = <ThrowOnError extends boolean = false>(opti
         }],
     url: '/api/v1/account/limits',
     ...options
+});
+
+/**
+ * List members of active account
+ */
+export const getApiV1AccountMembers = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1AccountMembersData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1AccountMembersResponses, unknown, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/account/members',
+    ...options
+});
+
+/**
+ * Remove member from active account
+ */
+export const deleteApiV1AccountMembersByMembershipId = <ThrowOnError extends boolean = false>(options: Options<DeleteApiV1AccountMembersByMembershipIdData, ThrowOnError>) => (options.client ?? client).delete<DeleteApiV1AccountMembersByMembershipIdResponses, unknown, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/account/members/{membershipId}',
+    ...options
+});
+
+/**
+ * Update member role
+ */
+export const patchApiV1AccountMembersByMembershipId = <ThrowOnError extends boolean = false>(options: Options<PatchApiV1AccountMembersByMembershipIdData, ThrowOnError>) => (options.client ?? client).patch<PatchApiV1AccountMembersByMembershipIdResponses, unknown, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/account/members/{membershipId}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * List pending invitations for active account
+ */
+export const getApiV1AccountInvitations = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1AccountInvitationsData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1AccountInvitationsResponses, unknown, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/account/invitations',
+    ...options
+});
+
+/**
+ * Invite a user to the active account
+ */
+export const postApiV1AccountInvitations = <ThrowOnError extends boolean = false>(options: Options<PostApiV1AccountInvitationsData, ThrowOnError>) => (options.client ?? client).post<PostApiV1AccountInvitationsResponses, unknown, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/account/invitations',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Revoke an invitation for the active account
+ */
+export const deleteApiV1AccountInvitationsByInvitationId = <ThrowOnError extends boolean = false>(options: Options<DeleteApiV1AccountInvitationsByInvitationIdData, ThrowOnError>) => (options.client ?? client).delete<DeleteApiV1AccountInvitationsByInvitationIdResponses, unknown, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/account/invitations/{invitationId}',
+    ...options
+});
+
+/**
+ * Redeem an account invitation
+ */
+export const postApiV1AccountInvitationsRedeem = <ThrowOnError extends boolean = false>(options: Options<PostApiV1AccountInvitationsRedeemData, ThrowOnError>) => (options.client ?? client).post<PostApiV1AccountInvitationsRedeemResponses, unknown, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }, {
+            in: 'cookie',
+            name: 'authjs.session-token',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/account/invitations/redeem',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
 });
 
 /**
@@ -458,6 +720,13 @@ export const postApiV1InternalHeartbeat = <ThrowOnError extends boolean = false>
 });
 
 /**
+ * Run machine watchdog
+ *
+ * Platform-side monitoring: checks heartbeat staleness, security tampering, and Hetzner network metrics. Called via cron every 5 minutes.
+ */
+export const getApiV1InternalWatchdog = <ThrowOnError extends boolean = false>(options?: Options<GetApiV1InternalWatchdogData, ThrowOnError>) => (options?.client ?? client).get<GetApiV1InternalWatchdogResponses, GetApiV1InternalWatchdogErrors, ThrowOnError>({ url: '/api/v1/internal/watchdog', ...options });
+
+/**
  * Report provisioning stage
  *
  * Called by the machine agent to report provisioning progress.
@@ -470,6 +739,13 @@ export const postApiV1InternalStage = <ThrowOnError extends boolean = false>(opt
         ...options.headers
     }
 });
+
+/**
+ * Garbage-collect orphaned SSH keys
+ *
+ * Deletes SSH keys from Hetzner that belong to deleted/non-existent machines. Run this when hitting the ssh_key_limit.
+ */
+export const postApiV1InternalGcSshKeys = <ThrowOnError extends boolean = false>(options?: Options<PostApiV1InternalGcSshKeysData, ThrowOnError>) => (options?.client ?? client).post<PostApiV1InternalGcSshKeysResponses, PostApiV1InternalGcSshKeysErrors, ThrowOnError>({ url: '/api/v1/internal/gc/ssh-keys', ...options });
 
 /**
  * Validate API key

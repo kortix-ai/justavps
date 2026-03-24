@@ -1,5 +1,5 @@
 /**
- * Account limits — utility functions for checking and retrieving per-user resource limits.
+ * Account limits — utility functions for checking and retrieving per-account resource limits.
  * Used by machine/image creation routes to enforce caps.
  */
 
@@ -16,8 +16,9 @@ export const DEFAULT_LIMITS = {
 
 export const ADMIN_UNLIMITED_LIMIT = Number.MAX_SAFE_INTEGER;
 
-async function hasUnlimitedAccountLimits(userId: string, isAdmin = false): Promise<boolean> {
+async function hasUnlimitedAccountLimits(userId: string | null | undefined, isAdmin = false): Promise<boolean> {
   if (isAdmin) return true;
+  if (!userId) return false;
 
   const [user] = await db
     .select({ id: users.id, email: users.email, isAdmin: users.isAdmin })
@@ -31,9 +32,9 @@ async function hasUnlimitedAccountLimits(userId: string, isAdmin = false): Promi
 }
 
 /**
- * Get the resource limits for a user. Returns defaults if no row exists.
+ * Get the resource limits for an account. Returns defaults if no row exists.
  */
-export async function getAccountLimits(userId: string, isAdmin = false) {
+export async function getAccountLimits(accountId: string, userId?: string | null, isAdmin = false) {
   if (await hasUnlimitedAccountLimits(userId, isAdmin)) {
     return {
       maxMachines: ADMIN_UNLIMITED_LIMIT,
@@ -41,7 +42,7 @@ export async function getAccountLimits(userId: string, isAdmin = false) {
     };
   }
 
-  const [row] = await db.select().from(accountLimits).where(eq(accountLimits.userId, userId));
+  const [row] = await db.select().from(accountLimits).where(eq(accountLimits.accountId, accountId));
   return {
     maxMachines: row?.maxMachines ?? DEFAULT_LIMITS.maxMachines,
     maxImages: row?.maxImages ?? DEFAULT_LIMITS.maxImages,
@@ -49,23 +50,23 @@ export async function getAccountLimits(userId: string, isAdmin = false) {
 }
 
 /**
- * Count active (non-deleted) machines for a user.
+ * Count active (non-deleted) machines for an account.
  */
-export async function countActiveMachines(userId: string): Promise<number> {
+export async function countActiveMachines(accountId: string): Promise<number> {
   const rows = await db.select({ id: machines.id })
     .from(machines)
-    .where(and(eq(machines.ownerId, userId), ne(machines.status, 'deleted')));
+    .where(and(eq(machines.accountId, accountId), ne(machines.status, 'deleted')));
   return rows.length;
 }
 
 /**
- * Count active (non-deleted, non-public) images for a user.
+ * Count active (non-deleted, non-public) images for an account.
  */
-export async function countActiveImages(userId: string): Promise<number> {
+export async function countActiveImages(accountId: string): Promise<number> {
   const rows = await db.select({ id: images.id })
     .from(images)
     .where(and(
-      eq(images.ownerId, userId),
+      eq(images.accountId, accountId),
       ne(images.status, 'deleted'),
       eq(images.isTemplate, false),
     ));
@@ -73,12 +74,12 @@ export async function countActiveImages(userId: string): Promise<number> {
 }
 
 /**
- * Check if the user can create another machine. Returns { allowed, current, max }.
+ * Check if the account can create another machine. Returns { allowed, current, max }.
  */
-export async function checkMachineLimit(userId: string, isAdmin = false) {
+export async function checkMachineLimit(accountId: string, userId?: string | null, isAdmin = false) {
   const [limits, current] = await Promise.all([
-    getAccountLimits(userId, isAdmin),
-    countActiveMachines(userId),
+    getAccountLimits(accountId, userId, isAdmin),
+    countActiveMachines(accountId),
   ]);
   return {
     allowed: current < limits.maxMachines,
@@ -88,12 +89,12 @@ export async function checkMachineLimit(userId: string, isAdmin = false) {
 }
 
 /**
- * Check if the user can create another image. Returns { allowed, current, max }.
+ * Check if the account can create another image. Returns { allowed, current, max }.
  */
-export async function checkImageLimit(userId: string, isAdmin = false) {
+export async function checkImageLimit(accountId: string, userId?: string | null, isAdmin = false) {
   const [limits, current] = await Promise.all([
-    getAccountLimits(userId, isAdmin),
-    countActiveImages(userId),
+    getAccountLimits(accountId, userId, isAdmin),
+    countActiveImages(accountId),
   ]);
   return {
     allowed: current < limits.maxImages,

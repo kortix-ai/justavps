@@ -2,7 +2,7 @@
 
 import { signIn, getProviders } from "next-auth/react";
 import { Suspense, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,7 +30,6 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [githubEnabled, setGithubEnabled] = useState(false);
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   const next = searchParams.get("callbackUrl") || searchParams.get("next") || "/machines";
@@ -54,12 +53,14 @@ function LoginForm() {
         redirect: false,
       });
 
-      setLoading(false);
       if (result?.error) {
+        setLoading(false);
         setError("Invalid email or password.");
       } else if (result?.ok) {
-        router.push(next);
+        // Full page reload to pick up the new session cookie
+        window.location.href = next;
       } else {
+        setLoading(false);
         setError("Invalid email or password.");
       }
     } catch {
@@ -95,13 +96,13 @@ function LoginForm() {
         redirect: false,
       });
 
-      setLoading(false);
       if (signInResult?.ok) {
-        router.push(next);
-      } else {
-        setError("Account created. Please sign in.");
-        setMode("login");
+        window.location.href = next;
+        return;
       }
+      setLoading(false);
+      setError("Account created. Please sign in.");
+      setMode("login");
     } catch {
       setLoading(false);
       setError("Something went wrong. Please try again.");

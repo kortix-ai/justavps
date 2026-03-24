@@ -55,10 +55,11 @@ const createProxyTokenRoute = createRoute({
 proxyTokensApp.openapi(createProxyTokenRoute, async (c) => {
   const body = c.req.valid('json');
   const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
 
   // Verify machine exists and user owns it
   const [machine] = await db.select().from(machines).where(
-    and(eq(machines.id, body.machine_id), eq(machines.ownerId, ownerId)),
+    and(eq(machines.id, body.machine_id), eq(machines.accountId, accountId)),
   );
   if (!machine) {
     return c.json({ error: true, message: 'Machine not found or not owned by you', status: 404 }, 404);
@@ -72,6 +73,7 @@ proxyTokensApp.openapi(createProxyTokenRoute, async (c) => {
 
   const [row] = await db.insert(proxyTokens).values({
     ownerId,
+    accountId,
     machineId: body.machine_id,
     tokenHash: hash,
     tokenSha256: sha256,
@@ -83,7 +85,7 @@ proxyTokensApp.openapi(createProxyTokenRoute, async (c) => {
 
   // Sync to CF KV with TTL
   await syncProxyTokenToKV(token, {
-    owner_id: ownerId,
+    account_id: accountId,
     machine_id: machine.id,
     machine_slug: machine.slug,
     ports,
@@ -137,11 +139,11 @@ const listProxyTokensRoute = createRoute({
 });
 
 proxyTokensApp.openapi(listProxyTokensRoute, async (c) => {
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const machineIdFilter = c.req.query('machine_id');
 
   const conditions = [
-    eq(proxyTokens.ownerId, ownerId),
+    eq(proxyTokens.accountId, accountId),
     isNull(proxyTokens.revokedAt),
   ];
   if (machineIdFilter) {
@@ -195,10 +197,10 @@ const revokeProxyTokenRoute = createRoute({
 
 proxyTokensApp.openapi(revokeProxyTokenRoute, async (c) => {
   const { id } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
 
   const [token] = await db.select().from(proxyTokens).where(
-    and(eq(proxyTokens.id, id), eq(proxyTokens.ownerId, ownerId)),
+    and(eq(proxyTokens.id, id), eq(proxyTokens.accountId, accountId)),
   );
   if (!token) {
     return c.json({ error: true, message: 'Proxy token not found', status: 404 }, 404);

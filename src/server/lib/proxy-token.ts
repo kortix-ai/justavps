@@ -8,9 +8,9 @@
  *   4. Worker: verify JWT → check user owns machine → proxy through
  *
  * Token format (JWT, HS256):
- *   { sub: userId, iat, exp }
- *   User-scoped — one token grants access to all machines the user owns.
- *   Worker checks ownership per-request via KV lookup.
+ *   { sub: userId, account_id, iat, exp }
+ *   Account-scoped — one token grants access to machines in the currently
+ *   selected account. The Worker checks account ownership per-request via KV lookup.
  */
 
 import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
@@ -29,13 +29,14 @@ function getSecret(): Uint8Array {
 
 export interface ProxyTokenPayload extends JWTPayload {
   sub: string; // userId
+  account_id: string;
 }
 
 /**
- * Sign a proxy auth JWT for a user.
+ * Sign a proxy auth JWT for a user + active account.
  */
-export async function signProxyToken(userId: string): Promise<string> {
-  return new SignJWT({ sub: userId })
+export async function signProxyToken(accountId: string, userId = accountId): Promise<string> {
+  return new SignJWT({ sub: userId, account_id: accountId })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime(TOKEN_EXPIRY)
@@ -48,7 +49,7 @@ export async function signProxyToken(userId: string): Promise<string> {
 export async function verifyProxyToken(token: string): Promise<ProxyTokenPayload | null> {
   try {
     const { payload } = await jwtVerify(token, getSecret());
-    if (!payload.sub) return null;
+    if (!payload.sub || !payload.account_id) return null;
     return payload as ProxyTokenPayload;
   } catch {
     return null;

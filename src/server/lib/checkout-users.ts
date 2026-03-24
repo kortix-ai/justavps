@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '../db';
 import { users } from '../db/schema';
 import { isAutoAdminEmail } from './auto-admin';
+import { ensureUserAccountGraph } from './accounts';
 
 type ResolveCheckoutUserParams = {
   email: string;
@@ -27,8 +28,11 @@ export async function resolveCheckoutUser(params: ResolveCheckoutUserParams) {
       isAdmin,
     }).returning();
 
+    const account = await ensureUserAccountGraph(createdUser);
+
     return {
       user: createdUser,
+      accountId: account.id,
       created: true,
       requiresPasswordSetup: true,
     };
@@ -49,8 +53,11 @@ export async function resolveCheckoutUser(params: ResolveCheckoutUserParams) {
     ? (await db.update(users).set(updates).where(eq(users.id, existingUser.id)).returning())[0]
     : existingUser;
 
+  const account = await ensureUserAccountGraph(user);
+
   return {
     user,
+    accountId: account.id,
     created: false,
     requiresPasswordSetup: !user.passwordHash,
   };

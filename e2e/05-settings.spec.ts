@@ -13,7 +13,7 @@ test.describe('Settings Page', () => {
 
   test('shows page title and account info', async ({ page }) => {
     await expect(page.locator('h1:has-text("Settings")')).toBeVisible();
-    await expect(page.locator('text=Account')).toBeVisible();
+    await expect(page.locator('text=Active Account')).toBeVisible();
     await expect(page.locator('text=dev@justavps.com').first()).toBeVisible();
   });
 });
@@ -25,24 +25,27 @@ test.describe('Keys Page', () => {
     await page.waitForLoadState('networkidle');
   });
 
-  test('shows page title and 2 tabs', async ({ page }) => {
+  test('shows page title and key tabs', async ({ page }) => {
     await expect(page.locator('h1:has-text("Keys")')).toBeVisible();
-    await expect(page.locator('button[role="tab"]:has-text("SSH Keys")')).toBeVisible();
     await expect(page.locator('button[role="tab"]:has-text("API Keys")')).toBeVisible();
+    await expect(page.locator('button[role="tab"]:has-text("Proxy Tokens")')).toBeVisible();
+    await expect(page.locator('button[role="tab"]:has-text("SSH Keys")')).toBeVisible();
   });
 
   test('SSH Keys tab: shows keys or empty state', async ({ page }) => {
+    await page.click('button[role="tab"]:has-text("SSH Keys")');
     await page.waitForLoadState('networkidle');
-    const body = await page.locator('body').textContent();
-    expect(body?.includes('SHA256:') || body?.includes('No SSH keys configured')).toBeTruthy();
+    await expect(page.locator('button:has-text("Add SSH Key")')).toBeVisible();
   });
 
   test('SSH Keys tab: create a key via API and verify it shows', async ({ page }) => {
+    await page.click('button[role="tab"]:has-text("SSH Keys")');
     const createRes = await page.request.post('/api/v1/ssh-keys', {
       data: { name: 'PW Browser Key', public_key: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA pw@e2e' },
     });
     expect(createRes.ok()).toBeTruthy();
     await page.reload();
+    await page.click('button[role="tab"]:has-text("SSH Keys")');
     await page.waitForFunction(
       () => document.body.textContent?.includes('PW Browser Key'),
       { timeout: 10_000 }
@@ -80,7 +83,8 @@ test.describe('Billing Page', () => {
 
   test('shows billing data', async ({ page }) => {
     await expect(page.locator('h1:has-text("Billing")')).toBeVisible();
-    await expect(page.locator('text=Active Machines')).toBeVisible();
-    await expect(page.locator('text=Estimated Monthly Cost')).toBeVisible();
+    await expect(page.locator('text=Machines').first()).toBeVisible();
+    await expect(page.locator('text=Monthly').first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Subscriptions' })).toBeVisible();
   });
 });

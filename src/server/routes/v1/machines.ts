@@ -8,14 +8,14 @@
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { eq, and, desc, inArray, ne } from 'drizzle-orm';
 import { db } from '../../db';
-import { machines, images, users, subscriptions } from '../../db/schema';
+import { accounts, machines, images, users, subscriptions } from '../../db/schema';
 import { config } from '../../lib/config';
 import { DEFAULT_TEMPLATE_NAME, resolveRequestedProviderImage } from '../../lib/image-catalog';
 
 type Machine = typeof machines.$inferSelect;
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 import { stripeClient } from '../../lib/stripe';
-import { requireOwnedResource, requireProvider, errorResponse, handleRouteError } from '../../lib/route-helpers';
+import { requireAccountResource, requireProvider, errorResponse, handleRouteError } from '../../lib/route-helpers';
 import { checkMachineLimit, checkImageLimit } from '../../lib/account-limits';
 import { HetznerProvider, getPlanTierIndex } from '../../lib/providers/hetzner';
 import { backupSurcharge } from '@/lib/hetzner-pricing';
@@ -214,11 +214,12 @@ const createMachineRoute = createRoute({
 
 machinesApp.openapi(createMachineRoute, async (c) => {
   const data = c.req.valid('json');
-  const ownerId = c.get('userId');
+  const userId = c.get('userId');
+  const accountId = c.get('accountId');
   const isAdmin = c.get('isAdmin');
 
   // 0. Check account machine limit
-  const machineLimit = await checkMachineLimit(ownerId, isAdmin);
+  const machineLimit = await checkMachineLimit(accountId, userId, isAdmin);
   if (!machineLimit.allowed) {
     return errorResponse(c, 403, `Machine limit reached (${machineLimit.current}/${machineLimit.max}). Delete an existing machine or contact support to increase your limit.`) as any;
   }
@@ -233,7 +234,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
   let machineImageId: string | null = null;
   if (data.image_id) {
     const [img] = await db.select().from(images).where(eq(images.id, data.image_id));
-    if (!img || (img.ownerId !== ownerId && !img.isTemplate)) {
+    if (!img || (img.accountId !== accountId && !img.isTemplate)) {
       return errorResponse(c, 404, 'Image not found') as any;
     }
 
@@ -287,12 +288,15 @@ machinesApp.openapi(createMachineRoute, async (c) => {
   let stripeSubItemId: string | null = null;
 
   if (stripeClient.isConfigured()) {
-    const [user] = await db.select().from(users).where(eq(users.id, ownerId));
-    if (!user) return errorResponse(c, 404, 'User not found') as any;
+    const [[user], [account]] = await Promise.all([
+      db.select().from(users).where(eq(users.id, userId)),
+      db.select().from(accounts).where(eq(accounts.id, accountId)),
+    ]);
+    if (!user || !account) return errorResponse(c, 404, 'Account context not found') as any;
 
-    const customerId = await stripeClient.getOrCreateCustomer(ownerId, user.email, user.stripeCustomerId);
-    if (!user.stripeCustomerId) {
-      await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, ownerId));
+    const customerId = await stripeClient.getOrCreateCustomer(accountId, account.billingEmail || user.email, account.stripeCustomerId);
+    if (!account.stripeCustomerId) {
+      await db.update(accounts).set({ stripeCustomerId: customerId }).where(eq(accounts.id, accountId));
     }
 
     const billingInterval = data.billing_interval ?? 'monthly';
@@ -313,9 +317,9 @@ machinesApp.openapi(createMachineRoute, async (c) => {
         );
         stripeSubId = result.subscriptionId;
         stripeSubItemId = result.subscriptionItemId;
-        console.log(`[MACHINES] Admin subscription ${result.subscriptionId} created for user ${ownerId} ($0 admin price)`);
+        console.log(`[MACHINES] Admin subscription ${result.subscriptionId} created for account ${accountId} ($0 admin price)`);
       } catch (err) {
-        console.error(`[MACHINES] Admin subscription creation failed for user ${ownerId}:`, err);
+        console.error(`[MACHINES] Admin subscription creation failed for account ${accountId}:`, err);
         return errorResponse(c, 500, 'Failed to create admin billing record. Please try again.') as any;
       }
     } else {
@@ -323,7 +327,8 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       const createCheckout = async () => {
         const { url } = await stripeClient.createCheckoutSession({
           customerId,
-          userId: ownerId,
+          userId,
+          accountId,
           machineConfig: {
             provider: data.provider,
             server_type: data.server_type,
@@ -363,9 +368,9 @@ machinesApp.openapi(createMachineRoute, async (c) => {
           );
           stripeSubId = result.subscriptionId;
           stripeSubItemId = result.subscriptionItemId;
-          console.log(`[MACHINES] Subscription ${result.subscriptionId} created and charged for user ${ownerId}`);
+          console.log(`[MACHINES] Subscription ${result.subscriptionId} created and charged for account ${accountId}`);
         } catch (err) {
-          console.warn(`[MACHINES] Direct subscription failed for user ${ownerId}, falling back to checkout:`, (err as Error).message);
+          console.warn(`[MACHINES] Direct subscription failed for account ${accountId}, falling back to checkout:`, (err as Error).message);
           // Fall through to checkout below
         }
       }
@@ -374,14 +379,14 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       if (!stripeSubId) {
         try {
           const checkoutUrl = await createCheckout();
-          console.log(`[MACHINES] User ${ownerId} redirected to Stripe Checkout`);
+          console.log(`[MACHINES] Account ${accountId} redirected to Stripe Checkout`);
           return c.json({
             requires_checkout: true as const,
             checkout_url: checkoutUrl,
             message: 'Payment required. Complete checkout to provision your machine.',
           }, 402);
         } catch (checkoutErr) {
-          console.error(`[MACHINES] Checkout creation failed for user ${ownerId}:`, checkoutErr);
+          console.error(`[MACHINES] Checkout creation failed for account ${accountId}:`, checkoutErr);
           return errorResponse(c, 500, 'Failed to initiate payment. Please try again.') as any;
         }
       }
@@ -393,11 +398,11 @@ machinesApp.openapi(createMachineRoute, async (c) => {
     const { slug, machineToken } = await generateMachineIdentity();
 
     // Auto-generate SSH key and save to user's ssh_keys table
-    const autoKey = await autoGenerateAndSaveSSHKey(ownerId, slug);
+    const autoKey = await autoGenerateAndSaveSSHKey(userId, accountId, slug);
 
     // Resolve any user-selected SSH keys to inject alongside the auto-generated one
     const extraSSHKeys = data.ssh_key_ids?.length
-      ? await resolveSSHKeyPublicKeys(ownerId, data.ssh_key_ids)
+      ? await resolveSSHKeyPublicKeys(accountId, data.ssh_key_ids)
       : [];
 
     const providerKeyId = await uploadSSHKeyToProvider(provider, slug, autoKey.publicKey);
@@ -406,7 +411,8 @@ machinesApp.openapi(createMachineRoute, async (c) => {
     const userdata = buildMachineUserData(slug, autoKey.publicKey, machineToken, callbackUrl, data.env_vars, resolvedDockerImage, resolvedEntrypoint, resolvedCommand, extraSSHKeys);
 
     const machine = await createMachineRecord({
-      ownerId,
+      ownerId: userId,
+      accountId,
       slug,
       name: data.name || `machine-${slug}`,
       provider: data.provider,
@@ -429,11 +435,12 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       await stripeClient.linkSubscriptionToMachine(stripeSubId, machine.id, slug)
         .catch((err: unknown) => console.warn(`[MACHINES] Failed to backfill subscription metadata for ${slug}:`, err));
 
-      // Create subscription record linking machine ↔ Stripe subscription
-      await db.insert(subscriptions).values({
-        machineId: machine.id,
-        ownerId,
-        stripeSubscriptionId: stripeSubId,
+        // Create subscription record linking machine ↔ Stripe subscription
+        await db.insert(subscriptions).values({
+          machineId: machine.id,
+          ownerId: userId,
+          accountId,
+          stripeSubscriptionId: stripeSubId,
         stripeSubscriptionItemId: stripeSubItemId,
         status: 'active',
       });
@@ -448,7 +455,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       },
     }).where(eq(machines.id, machine.id));
 
-    await eventBus.emitStageChange(machine.id, ownerId, 'server_creating', 'Creating server on provider...');
+    await eventBus.emitStageChange(machine.id, accountId, 'server_creating', 'Creating server on provider...');
 
     after(async () => {
       try {
@@ -463,7 +470,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
           labels: {
             'justavps': 'true',
             'slug': slug,
-            'owner': ownerId.slice(0, 63),
+            'owner': userId.slice(0, 63),
           },
         });
 
@@ -488,10 +495,10 @@ machinesApp.openapi(createMachineRoute, async (c) => {
           },
         }).where(eq(machines.id, machine.id));
 
-        await eventBus.emitStageChange(machine.id, ownerId, 'server_created', `Server created (IP: ${server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp})`, { ip: server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp });
+        await eventBus.emitStageChange(machine.id, accountId, `server_created`, `Server created (IP: ${server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp})`, { ip: server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp });
 
         if (config.isCloudflareConfigured()) {
-          await setupProxyDNS(machine.id, slug, { ipv4: server.publicIpv4, ipv6: server.publicIpv6 }, ownerId, data.server_type);
+          await setupProxyDNS(machine.id, slug, { ipv4: server.publicIpv4, ipv6: server.publicIpv6 }, accountId, data.server_type);
         }
 
       } catch (err) {
@@ -506,7 +513,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
           status: 'error',
           providerMeta: { error: err instanceof Error ? err.message : String(err) },
         }).where(eq(machines.id, machine.id));
-        await eventBus.emitStatusChange(machine.id, ownerId, 'error', `Provisioning failed: ${err instanceof Error ? err.message : String(err)}`);
+        await eventBus.emitStatusChange(machine.id, accountId, 'error', `Provisioning failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     });
 
@@ -543,9 +550,9 @@ const listMachinesRoute = createRoute({
 
 // @ts-expect-error — DB returns string status, schema expects enum; runtime values are always valid
 machinesApp.openapi(listMachinesRoute, async (c) => {
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const result = await db.select().from(machines).where(
-    and(eq(machines.ownerId, ownerId), ne(machines.status, 'deleted')),
+    and(eq(machines.accountId, accountId), ne(machines.status, 'deleted')),
   );
 
   const synced = await Promise.all(result.map((machine) => (
@@ -588,9 +595,9 @@ const getMachineRoute = createRoute({
 
 machinesApp.openapi(getMachineRoute, async (c) => {
   const { id } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
 
-  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
   if (owned.response) return owned.response as any;
 
   const machine = await syncMachineStatus(owned.resource);
@@ -620,9 +627,9 @@ const destroyMachineRoute = createRoute({
 
 machinesApp.openapi(destroyMachineRoute, async (c) => {
   const { id } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
 
-  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
   if (owned.response) return owned.response as any;
 
   try {
@@ -661,9 +668,9 @@ const cancelMachineRoute = createRoute({
 
 machinesApp.openapi(cancelMachineRoute, async (c) => {
   const { id } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
 
-  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
   if (owned.response) return owned.response as any;
 
   if (owned.resource.status === 'deleted') {
@@ -725,9 +732,9 @@ const reactivateMachineRoute = createRoute({
 
 machinesApp.openapi(reactivateMachineRoute, async (c) => {
   const { id } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
 
-  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
   if (owned.response) return owned.response as any;
 
   // Find the linked subscription
@@ -780,9 +787,9 @@ const rebootMachineRoute = createRoute({
 
 machinesApp.openapi(rebootMachineRoute, async (c) => {
   const { id } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
 
-  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
   if (owned.response) return owned.response as any;
 
   if (!owned.resource.providerServerId) {
@@ -821,9 +828,9 @@ const stopMachineRoute = createRoute({
 
 machinesApp.openapi(stopMachineRoute, async (c) => {
   const { id } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
 
-  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
   if (owned.response) return owned.response as any;
 
   if (!owned.resource.providerServerId) {
@@ -870,9 +877,9 @@ const startMachineRoute = createRoute({
 
 machinesApp.openapi(startMachineRoute, async (c) => {
   const { id } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
 
-  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
   if (owned.response) return owned.response as any;
 
   if (!owned.resource.providerServerId) {
@@ -926,9 +933,9 @@ const resizeMachineRoute = createRoute({
 machinesApp.openapi(resizeMachineRoute, async (c) => {
   const { id } = c.req.valid('param');
   const { server_type } = c.req.valid('json');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
 
-  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
   if (owned.response) return owned.response as any;
 
   const machine = owned.resource;
@@ -1011,7 +1018,7 @@ machinesApp.openapi(resizeMachineRoute, async (c) => {
 
   await eventBus.emitStageChange(
     machine.id,
-    ownerId,
+    accountId,
     'resizing',
     `Scaling up from ${machine.serverType} to ${server_type}...`,
   );
@@ -1042,7 +1049,7 @@ machinesApp.openapi(resizeMachineRoute, async (c) => {
       // 4. Emit success event
       await eventBus.emitStageChange(
         machine.id,
-        ownerId,
+        accountId,
         'resize_complete',
         `Scaled up to ${server_type} ($${newPrice}/mo)`,
         { old_type: machine.serverType, new_type: server_type, new_price: newPrice },
@@ -1063,7 +1070,7 @@ machinesApp.openapi(resizeMachineRoute, async (c) => {
 
       await eventBus.emitStatusChange(
         machine.id,
-        ownerId,
+        accountId,
         'ready',
         `Resize failed: ${err instanceof Error ? err.message : String(err)}`,
       );
@@ -1109,9 +1116,9 @@ const createImageFromMachineRoute = createRoute({
 machinesApp.openapi(createImageFromMachineRoute, async (c) => {
   const { id } = c.req.valid('param');
   const { name } = c.req.valid('json');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
 
-  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
   if (owned.response) return owned.response as any;
 
   const machine = owned.resource;
@@ -1119,7 +1126,7 @@ machinesApp.openapi(createImageFromMachineRoute, async (c) => {
   if (!machine.providerServerId) return errorResponse(c, 400, 'Machine has no provider server') as any;
 
   // Check account image limit
-  const imageLimit = await checkImageLimit(ownerId, c.get('isAdmin'));
+  const imageLimit = await checkImageLimit(accountId, c.get('userId'), c.get('isAdmin'));
   if (!imageLimit.allowed) {
     return errorResponse(c, 403, `Image limit reached (${imageLimit.current}/${imageLimit.max}). Delete an existing image or contact support to increase your limit.`) as any;
   }
@@ -1128,7 +1135,8 @@ machinesApp.openapi(createImageFromMachineRoute, async (c) => {
   if (lookup.response) return lookup.response as any;
 
   const [image] = await db.insert(images).values({
-    ownerId,
+    ownerId: c.get('userId'),
+    accountId,
     name,
     status: 'creating',
     sourceMachineId: machine.id,
@@ -1148,10 +1156,13 @@ machinesApp.openapi(createImageFromMachineRoute, async (c) => {
         architecture: result.architecture,
         updatedAt: new Date(),
       }).where(eq(images.id, image.id));
+      console.log(`[IMAGES] Image ${image.id} ready (provider=${result.imageId}, disk=${result.diskSize}GB)`);
     } catch (err) {
-      console.error(`[IMAGES] Failed to create image from machine ${machine.slug}:`, err);
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[IMAGES] Failed to create image ${image.id} from machine ${machine.slug}: ${errorMsg}`);
       await db.update(images).set({
         status: 'failed',
+        description: `Creation failed: ${errorMsg.slice(0, 500)}`,
         updatedAt: new Date(),
       }).where(eq(images.id, image.id));
     }
@@ -1202,9 +1213,9 @@ const listBackupsRoute = createRoute({
 
 machinesApp.openapi(listBackupsRoute, async (c) => {
   const { id } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
 
-  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
   if (owned.response) return owned.response as any;
 
   const machine = owned.resource;
@@ -1246,9 +1257,9 @@ const createBackupRoute = createRoute({
 
 machinesApp.openapi(createBackupRoute, async (c) => {
   const { id } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
 
-  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
   if (owned.response) return owned.response as any;
 
   const machine = owned.resource;
@@ -1285,9 +1296,9 @@ const enableBackupsRoute = createRoute({
 
 machinesApp.openapi(enableBackupsRoute, async (c) => {
   const { id } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
 
-  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
   if (owned.response) return owned.response as any;
 
   const machine = owned.resource;
@@ -1342,9 +1353,9 @@ const disableBackupsRoute = createRoute({
 
 machinesApp.openapi(disableBackupsRoute, async (c) => {
   const { id } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
 
-  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
   if (owned.response) return owned.response as any;
 
   const machine = owned.resource;

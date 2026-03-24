@@ -7,6 +7,7 @@ import { eq } from 'drizzle-orm';
 import { verifyPassword } from './crypto';
 import { ensureAutoAdminUser, isAutoAdminEmail } from './auto-admin';
 import { authConfig } from '@/lib/auth-config';
+import { ensureUserAccountGraph } from './accounts';
 
 export { authConfig };
 
@@ -51,6 +52,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
           const resolvedUser = await ensureAutoAdminUser(user);
 
+          // Non-fatal: account graph is also ensured lazily via api-guard on first API call.
+          try {
+            await ensureUserAccountGraph(resolvedUser);
+          } catch (graphErr) {
+            console.warn('[AUTH] ensureUserAccountGraph failed (non-fatal):', graphErr);
+          }
+
           return { id: resolvedUser.id, email: resolvedUser.email, name: resolvedUser.name };
         } catch (err) {
           console.error('[AUTH] authorize error:', err);
@@ -85,6 +93,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           if (Object.keys(updates).length) {
             await db.update(users).set(updates).where(eq(users.id, existingByGithub.id));
           }
+          await ensureUserAccountGraph({
+            id: existingByGithub.id,
+            email: existingByGithub.email,
+            name: name ?? existingByGithub.name,
+            stripeCustomerId: existingByGithub.stripeCustomerId,
+            defaultAccountId: existingByGithub.defaultAccountId,
+          });
           user.id = existingByGithub.id;
           return true;
         }
@@ -97,6 +112,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           if (name && !existingByEmail.name) updates.name = name;
           if (isKortixEmail && !existingByEmail.isAdmin) updates.isAdmin = true;
           await db.update(users).set(updates).where(eq(users.id, existingByEmail.id));
+          await ensureUserAccountGraph({
+            id: existingByEmail.id,
+            email: existingByEmail.email,
+            name: existingByEmail.name ?? name,
+            stripeCustomerId: existingByEmail.stripeCustomerId,
+            defaultAccountId: existingByEmail.defaultAccountId,
+          });
           user.id = existingByEmail.id;
           return true;
         }
@@ -106,7 +128,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           name,
           githubId,
           isAdmin: isKortixEmail,
-        }).returning({ id: users.id });
+        }).returning({
+          id: users.id,
+          email: users.email,
+          name: users.name,
+          stripeCustomerId: users.stripeCustomerId,
+          defaultAccountId: users.defaultAccountId,
+        });
+
+        await ensureUserAccountGraph(newUser);
 
         user.id = newUser.id;
         return true;
