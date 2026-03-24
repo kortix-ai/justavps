@@ -1420,10 +1420,10 @@ machinesApp.use('/:id/exec', requirePermission('exec'), requireMachineAccess());
 
 machinesApp.openapi(execRoute, async (c) => {
   const { id } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const { command, timeout } = c.req.valid('json');
 
-  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
   if (owned.response) return owned.response as any;
 
   const machine = owned.resource;
