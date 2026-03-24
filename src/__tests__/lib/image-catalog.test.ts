@@ -14,6 +14,7 @@ describe('image catalog', () => {
       {
         id: '11111111-1111-1111-1111-111111111111',
         ownerId: '22222222-2222-2222-2222-222222222222',
+        accountId: null,
         name: 'snapshot-a',
         description: null,
         status: 'ready',
@@ -29,6 +30,7 @@ describe('image catalog', () => {
       {
         id: '33333333-3333-3333-3333-333333333333',
         ownerId: '44444444-4444-4444-4444-444444444444',
+        accountId: null,
         name: 'alpha-template',
         description: 'Additional public template.',
         status: 'ready',

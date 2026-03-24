@@ -28,7 +28,7 @@ afterAll(async () => {
   }
 });
 
-describe('account and invitation flows', () => {
+describe.skipIf(!process.env.DATABASE_URL)('account and invitation flows', () => {
   it('creates a personal account automatically and resolves active account context', async () => {
     const email = `account-lib-${Date.now()}@example.com`;
     const [user] = await db.insert(users).values({

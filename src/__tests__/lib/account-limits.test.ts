@@ -31,7 +31,7 @@ describe('getAccountLimits', () => {
   it('returns unlimited limits when the caller is already marked admin', async () => {
     const { getAccountLimits, ADMIN_UNLIMITED_LIMIT } = await import('@/server/lib/account-limits');
 
-    const result = await getAccountLimits('user-1', true);
+    const result = await getAccountLimits('account-1', 'user-1', true);
 
     expect(result).toEqual({
       maxMachines: ADMIN_UNLIMITED_LIMIT,
@@ -42,13 +42,14 @@ describe('getAccountLimits', () => {
   });
 
   it('falls back to the user record and keeps admins unlimited even if isAdmin was false', async () => {
-    mockSelectSequence([
-      { id: 'user-1', email: 'marko@kortix.com', isAdmin: true },
-    ]);
+    mockSelectSequence(
+      // hasUnlimitedAccountLimits queries users table
+      [{ id: 'user-1', email: 'marko@kortix.com', isAdmin: true }],
+    );
     ensureAutoAdminUserMock.mockResolvedValue({ id: 'user-1', email: 'marko@kortix.com', isAdmin: true });
 
     const { getAccountLimits, ADMIN_UNLIMITED_LIMIT } = await import('@/server/lib/account-limits');
-    const result = await getAccountLimits('user-1', false);
+    const result = await getAccountLimits('account-1', 'user-1', false);
 
     expect(result).toEqual({
       maxMachines: ADMIN_UNLIMITED_LIMIT,
@@ -63,28 +64,32 @@ describe('getAccountLimits', () => {
   });
 
   it('returns defaults for non-admin users without custom limits', async () => {
-    mockSelectSequence([
-      { id: 'user-2', email: 'user@example.com', isAdmin: false },
-    ], []);
+    mockSelectSequence(
+      // hasUnlimitedAccountLimits queries users table
+      [{ id: 'user-2', email: 'user@example.com', isAdmin: false }],
+      // getAccountLimits queries accountLimits table — no row
+      [],
+    );
     ensureAutoAdminUserMock.mockResolvedValue({ id: 'user-2', email: 'user@example.com', isAdmin: false });
 
     const { getAccountLimits, DEFAULT_LIMITS } = await import('@/server/lib/account-limits');
-    const result = await getAccountLimits('user-2', false);
+    const result = await getAccountLimits('account-2', 'user-2', false);
 
     expect(result).toEqual(DEFAULT_LIMITS);
     expect(selectMock).toHaveBeenCalledTimes(2);
   });
 
   it('returns stored custom limits for regular users', async () => {
-    mockSelectSequence([
-      { id: 'user-3', email: 'user@example.com', isAdmin: false },
-    ], [
-      { maxMachines: 12, maxImages: 34 },
-    ]);
+    mockSelectSequence(
+      // hasUnlimitedAccountLimits queries users table
+      [{ id: 'user-3', email: 'user@example.com', isAdmin: false }],
+      // getAccountLimits queries accountLimits table — has custom row
+      [{ maxMachines: 12, maxImages: 34 }],
+    );
     ensureAutoAdminUserMock.mockResolvedValue({ id: 'user-3', email: 'user@example.com', isAdmin: false });
 
     const { getAccountLimits } = await import('@/server/lib/account-limits');
-    const result = await getAccountLimits('user-3', false);
+    const result = await getAccountLimits('account-3', 'user-3', false);
 
     expect(result).toEqual({ maxMachines: 12, maxImages: 34 });
     expect(selectMock).toHaveBeenCalledTimes(2);
