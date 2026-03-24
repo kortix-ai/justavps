@@ -5,10 +5,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"os/exec"
@@ -31,8 +37,8 @@ func NewAPIServer(cfg *Config, health *HealthChecker, port int) *APIServer {
 		server: &http.Server{
 			Addr:         fmt.Sprintf("127.0.0.1:%d", port),
 			Handler:      mux,
-			ReadTimeout:  5 * time.Second,
-			WriteTimeout: 10 * time.Second,
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 10 * time.Minute,
 		},
 	}
 
@@ -40,6 +46,7 @@ func NewAPIServer(cfg *Config, health *HealthChecker, port int) *APIServer {
 	mux.HandleFunc("GET /services", s.handleServices)
 	mux.HandleFunc("POST /services/{name}/restart", s.handleServiceRestart)
 	mux.HandleFunc("GET /info", s.handleInfo)
+	mux.HandleFunc("POST /exec", s.handleExec)
 
 	return s
 }
@@ -144,4 +151,100 @@ func getOutboundIP() string {
 	}
 	defer conn.Close()
 	return conn.LocalAddr().(*net.UDPAddr).IP.String()
+}
+
+// POST /exec — run a command on the host machine.
+// Secured by HMAC-SHA256 signature over the request body using the machine token.
+// The JustAVPS platform signs requests before proxying them here.
+func (s *APIServer) handleExec(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 8192))
+	if err != nil {
+		writeJSON(w, 400, map[string]string{"error": "failed to read body"})
+		return
+	}
+
+	signature := r.Header.Get("X-Signature")
+	if signature == "" {
+		writeJSON(w, 401, map[string]string{"error": "missing signature"})
+		return
+	}
+
+	if !verifyHMAC(body, signature, s.cfg.MachineToken) {
+		writeJSON(w, 401, map[string]string{"error": "invalid signature"})
+		return
+	}
+
+	var req struct {
+		Command   string  `json:"command"`
+		Timeout   int     `json:"timeout"`
+		Timestamp float64 `json:"timestamp"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
+		return
+	}
+
+	if req.Command == "" {
+		writeJSON(w, 400, map[string]string{"error": "missing command"})
+		return
+	}
+
+	nowMs := float64(time.Now().UnixMilli())
+	if math.Abs(nowMs-req.Timestamp) > 30_000 {
+		writeJSON(w, 401, map[string]string{"error": "request expired"})
+		return
+	}
+
+	timeout := time.Duration(req.Timeout) * time.Second
+	if timeout <= 0 {
+		timeout = 60 * time.Second
+	}
+	if timeout > 10*time.Minute {
+		timeout = 10 * time.Minute
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
+	defer cancel()
+
+	start := time.Now()
+	cmd := exec.CommandContext(ctx, "bash", "-c", req.Command)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err = cmd.Run()
+	durationMs := time.Since(start).Milliseconds()
+
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = -1
+		}
+	}
+
+	log.Printf("[EXEC] command=%q exit=%d duration=%dms", truncate(req.Command, 100), exitCode, durationMs)
+
+	writeJSON(w, 200, map[string]any{
+		"exit_code":   exitCode,
+		"stdout":      stdout.String(),
+		"stderr":      stderr.String(),
+		"duration_ms": durationMs,
+	})
+}
+
+func verifyHMAC(body []byte, signature string, secret string) bool {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(body)
+	expected := hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(expected), []byte(signature))
+}
+
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
