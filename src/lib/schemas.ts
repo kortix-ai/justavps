@@ -522,6 +522,20 @@ export const BulkDownloadRequestSchema = z.object({
   paths: z.array(z.string()).min(1).describe('Absolute file paths to include in the zip'),
 });
 
+// ─── Exec Schemas ──────────────────────────────────────────────────────────
+
+export const ExecRequestSchema = z.object({
+  command: z.string().min(1).max(4096).describe('Shell command to execute on the host'),
+  timeout: z.number().int().min(1).max(600).optional().default(60).describe('Timeout in seconds (default 60, max 600)'),
+});
+
+export const ExecResponseSchema = z.object({
+  exit_code: z.number().int(),
+  stdout: z.string(),
+  stderr: z.string(),
+  duration_ms: z.number(),
+});
+
 // ─── Error Schema ───────────────────────────────────────────────────────────
 
 export const ErrorResponseSchema = z.object({

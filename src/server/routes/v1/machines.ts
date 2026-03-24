@@ -45,8 +45,12 @@ import {
   ActionResponseSchema,
   ResizeResponseSchema,
   ImageResponseSchema,
+  ExecRequestSchema,
+  ExecResponseSchema,
   ErrorResponseSchema,
 } from '@/lib/schemas';
+import { createHmac } from 'crypto';
+import { requirePermission, requireMachineAccess } from '../../lib/api-guard';
 
 export const machinesApp = new OpenAPIHono<{ Variables: AuthVariables }>();
 
@@ -1371,4 +1375,78 @@ machinesApp.openapi(disableBackupsRoute, async (c) => {
   await db.update(machines).set({ backupsEnabled: false, priceMonthly: basePrice }).where(eq(machines.id, id));
 
   return c.json({ action: 'disable_backups', status: 'completed' }, 200);
+});
+
+// ─── POST /:id/exec — Execute command on machine ────────────────────────────
+
+const execRoute = createRoute({
+  method: 'post',
+  path: '/{id}/exec',
+  tags: ['Machines'],
+  security: bearerSecurity,
+  summary: 'Execute a command on a machine',
+  description: 'Runs a shell command on the host machine via the daemon. Requires `exec` permission. The command runs as root with a configurable timeout (max 600s).',
+  request: {
+    params: z.object({ id: z.string().uuid().openapi({ description: 'Machine ID' }) }),
+    body: {
+      required: true,
+      content: { 'application/json': { schema: ExecRequestSchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Command executed',
+      content: { 'application/json': { schema: ExecResponseSchema } },
+    },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    403: { description: 'Forbidden', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    502: { description: 'Daemon unreachable', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+machinesApp.use('/:id/exec', requirePermission('exec'), requireMachineAccess());
+
+machinesApp.openapi(execRoute, async (c) => {
+  const { id } = c.req.valid('param');
+  const ownerId = c.get('userId');
+  const { command, timeout } = c.req.valid('json');
+
+  const owned = await requireOwnedResource<Machine>(c, machines, machines.id, id, ownerId, 'Machine');
+  if (owned.response) return owned.response as any;
+
+  const machine = owned.resource;
+  if (!machine.ip) {
+    return errorResponse(c, 404, 'Machine has no IP address') as any;
+  }
+
+  if (machine.status !== 'ready') {
+    return errorResponse(c, 400, `Machine is not ready (status: ${machine.status})`) as any;
+  }
+
+  const token = decryptSecret(machine.machineToken);
+  const payload = JSON.stringify({ command, timeout, timestamp: Date.now() });
+  const signature = createHmac('sha256', token).update(payload).digest('hex');
+
+  try {
+    const resp = await fetch(`http://${machine.ip}/daemon/exec`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Signature': signature,
+      },
+      body: payload,
+      signal: AbortSignal.timeout((timeout + 10) * 1000),
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      return errorResponse(c, resp.status as 502, `Daemon error: ${text.slice(0, 300)}`) as any;
+    }
+
+    const result = await resp.json();
+    return c.json(result, 200);
+  } catch (err: any) {
+    return errorResponse(c, 502, `Daemon unreachable: ${err.message || 'connection failed'}`) as any;
+  }
 });
