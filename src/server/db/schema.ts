@@ -3,8 +3,11 @@
  * This is the source of truth for the database structure.
  */
 
-import { pgTable, uuid, text, timestamp, integer, jsonb, boolean } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, integer, jsonb, boolean, pgEnum, uniqueIndex } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+
+export const accountTypeEnum = pgEnum('account_type', ['personal', 'organization']);
+export const accountRoleEnum = pgEnum('account_role', ['owner', 'admin', 'member']);
 
 // ─── Users ──────────────────────────────────────────────────────────────────
 
@@ -15,7 +18,49 @@ export const users = pgTable('users', {
   githubId: text('github_id').unique(),
   name: text('name'),
   stripeCustomerId: text('stripe_customer_id'),
+  defaultAccountId: uuid('default_account_id'),
   isAdmin: boolean('is_admin').default(false).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ─── Accounts / Memberships / Invitations ───────────────────────────────────
+
+export const accounts = pgTable('accounts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  type: accountTypeEnum('type').notNull().default('personal'),
+  name: text('name').notNull(),
+  slug: text('slug').unique().notNull(),
+  personalForUserId: uuid('personal_for_user_id').references(() => users.id).unique(),
+  billingEmail: text('billing_email'),
+  stripeCustomerId: text('stripe_customer_id'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
+});
+
+export const accountMemberships = pgTable('account_memberships', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  accountId: uuid('account_id').references(() => accounts.id, { onDelete: 'cascade' }).notNull(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  role: accountRoleEnum('role').notNull().default('member'),
+  createdByUserId: uuid('created_by_user_id').references(() => users.id),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  accountUserUnique: uniqueIndex('account_memberships_account_user_uidx').on(table.accountId, table.userId),
+}));
+
+export const accountInvitations = pgTable('account_invitations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  accountId: uuid('account_id').references(() => accounts.id, { onDelete: 'cascade' }).notNull(),
+  email: text('email').notNull(),
+  role: accountRoleEnum('role').notNull().default('member'),
+  tokenSha256: text('token_sha256').unique().notNull(),
+  invitedByUserId: uuid('invited_by_user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  acceptedByUserId: uuid('accepted_by_user_id').references(() => users.id),
+  expiresAt: timestamp('expires_at').notNull(),
+  acceptedAt: timestamp('accepted_at'),
+  revokedAt: timestamp('revoked_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -24,6 +69,7 @@ export const users = pgTable('users', {
 export const sshKeys = pgTable('ssh_keys', {
   id: uuid('id').primaryKey().defaultRandom(),
   ownerId: uuid('owner_id').references(() => users.id).notNull(),
+  accountId: uuid('account_id').references(() => accounts.id),
   name: text('name').notNull(),
   publicKey: text('public_key').notNull(),
   fingerprint: text('fingerprint').notNull(),
@@ -40,6 +86,7 @@ export const sshKeys = pgTable('ssh_keys', {
 export const images = pgTable('images', {
   id: uuid('id').primaryKey().defaultRandom(),
   ownerId: uuid('owner_id').references(() => users.id).notNull(),
+  accountId: uuid('account_id').references(() => accounts.id),
   name: text('name').notNull(),
   description: text('description'),
   status: text('status').notNull().default('creating'),
@@ -59,6 +106,7 @@ export const images = pgTable('images', {
 export const machines = pgTable('machines', {
   id: uuid('id').primaryKey().defaultRandom(),
   ownerId: uuid('owner_id').references(() => users.id).notNull(),
+  accountId: uuid('account_id').references(() => accounts.id),
   slug: text('slug').unique().notNull(),
   name: text('name').notNull(),
   status: text('status').notNull().default('provisioning'),
@@ -136,6 +184,7 @@ export const machines = pgTable('machines', {
 export const apiKeys = pgTable('api_keys', {
   id: uuid('id').primaryKey().defaultRandom(),
   ownerId: uuid('owner_id').references(() => users.id).notNull(),
+  accountId: uuid('account_id').references(() => accounts.id),
   name: text('name').notNull(),
   keyPrefix: text('key_prefix').notNull(),
   keyHash: text('key_hash').notNull(),
@@ -154,6 +203,7 @@ export const apiKeys = pgTable('api_keys', {
 export const proxyTokens = pgTable('proxy_tokens', {
   id: uuid('id').primaryKey().defaultRandom(),
   ownerId: uuid('owner_id').references(() => users.id).notNull(),
+  accountId: uuid('account_id').references(() => accounts.id),
   machineId: uuid('machine_id').references(() => machines.id, { onDelete: 'cascade' }).notNull(),
   tokenHash: text('token_hash').notNull(), // bcrypt hash
   tokenSha256: text('token_sha256').notNull(), // SHA-256 for O(1) lookup
@@ -171,6 +221,7 @@ export const subscriptions = pgTable('subscriptions', {
   id: uuid('id').primaryKey().defaultRandom(),
   machineId: uuid('machine_id').references(() => machines.id, { onDelete: 'cascade' }).unique(),       // 1:1 machine ↔ subscription
   ownerId: uuid('owner_id').references(() => users.id).notNull(),
+  accountId: uuid('account_id').references(() => accounts.id),
   stripeSubscriptionId: text('stripe_subscription_id').notNull(),
   stripeSubscriptionItemId: text('stripe_subscription_item_id'),              // si_xxx — needed for price updates on resize
   stripeCheckoutSessionId: text('stripe_checkout_session_id'),                // cs_xxx — idempotency on checkout webhook
@@ -190,6 +241,7 @@ export const subscriptions = pgTable('subscriptions', {
 export const machineEvents = pgTable('machine_events', {
   id: uuid('id').primaryKey().defaultRandom(),
   machineId: uuid('machine_id').references(() => machines.id).notNull(),
+  accountId: uuid('account_id').references(() => accounts.id),
   event: text('event').notNull(), // stage_changed | status_changed | heartbeat
   stage: text('stage'), // provisioning stage name
   message: text('message'),
@@ -202,6 +254,7 @@ export const machineEvents = pgTable('machine_events', {
 export const webhooks = pgTable('webhooks', {
   id: uuid('id').primaryKey().defaultRandom(),
   ownerId: uuid('owner_id').references(() => users.id).notNull(),
+  accountId: uuid('account_id').references(() => accounts.id),
   url: text('url').notNull(),
   secret: text('secret').notNull(),
   events: jsonb('events').$type<string[]>().notNull().default(['*']),
@@ -252,6 +305,7 @@ export const stripeEvents = pgTable('stripe_events', {
 export const accountLimits = pgTable('account_limits', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').references(() => users.id).notNull().unique(),
+  accountId: uuid('account_id').references(() => accounts.id).unique(),
   maxMachines: integer('max_machines').default(5).notNull(),
   maxImages: integer('max_images').default(10).notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -276,6 +330,12 @@ export const kortixLinks = pgTable('kortix_links', {
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
+export type Account = typeof accounts.$inferSelect;
+export type NewAccount = typeof accounts.$inferInsert;
+export type AccountMembership = typeof accountMemberships.$inferSelect;
+export type NewAccountMembership = typeof accountMemberships.$inferInsert;
+export type AccountInvitation = typeof accountInvitations.$inferSelect;
+export type NewAccountInvitation = typeof accountInvitations.$inferInsert;
 export type ImageRow = typeof images.$inferSelect;
 export type NewImage = typeof images.$inferInsert;
 export type Machine = typeof machines.$inferSelect;

@@ -1,9 +1,10 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Kortix import routes — OAuth link + machine claiming.
  */
 
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { randomBytes, createHash, timingSafeEqual } from 'crypto';
 import { db } from '../../db';
 import { machines, kortixLinks } from '../../db/schema';
@@ -394,6 +395,7 @@ importKortixApp.use('/import/kortix/claim', apiGuard);
 
 importKortixApp.openapi(claimRoute, async (c) => {
   const userId = c.get('userId');
+  const accountId = c.get('accountId');
   const { machine_ids } = c.req.valid('json');
 
   const [link] = await db.select()
@@ -444,12 +446,12 @@ importKortixApp.openapi(claimRoute, async (c) => {
       continue;
     }
 
-    if (machine.source === 'kortix' && machine.ownerId !== userId) {
+    if (machine.source === 'kortix' && machine.accountId && machine.accountId !== accountId) {
       skipped.push({ id: machineId, reason: 'Already claimed by another user' });
       continue;
     }
 
-    if (machine.ownerId === userId && machine.source === 'kortix') {
+    if (machine.accountId === accountId && machine.source === 'kortix') {
       skipped.push({ id: machineId, reason: 'Already owned by you' });
       continue;
     }
@@ -457,6 +459,7 @@ importKortixApp.openapi(claimRoute, async (c) => {
     await db.update(machines)
       .set({
         ownerId: userId,
+        accountId,
         source: 'kortix',
         kortixSandboxId: sandboxId,
       })

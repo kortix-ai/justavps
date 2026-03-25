@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { eq, and } from 'drizzle-orm';
 import { db } from '../../db';
@@ -45,7 +46,8 @@ const createSSHKeyRoute = createRoute({
 
 sshKeysApp.openapi(createSSHKeyRoute, async (c) => {
   const { name, public_key } = c.req.valid('json');
-  const ownerId = c.get('userId');
+  const userId = c.get('userId');
+  const accountId = c.get('accountId');
   try {
     const fingerprint = fingerprintSSHKey(public_key);
 
@@ -56,7 +58,8 @@ sshKeysApp.openapi(createSSHKeyRoute, async (c) => {
     const providerKeyId = uploaded?.result.keyId ?? null;
 
     const [key] = await db.insert(sshKeys).values({
-      ownerId,
+      ownerId: userId,
+      accountId,
       name,
       publicKey: public_key,
       fingerprint,
@@ -88,8 +91,8 @@ const listSSHKeysRoute = createRoute({
 });
 
 sshKeysApp.openapi(listSSHKeysRoute, async (c) => {
-  const ownerId = c.get('userId');
-  const keys = await db.select().from(sshKeys).where(eq(sshKeys.ownerId, ownerId));
+  const accountId = c.get('accountId');
+  const keys = await db.select().from(sshKeys).where(eq(sshKeys.accountId, accountId));
   return c.json({ ssh_keys: keys.map((k) => ({ id: k.id, name: k.name, fingerprint: k.fingerprint, created_at: k.createdAt.toISOString() })) }, 200);
 });
 
@@ -113,8 +116,8 @@ const deleteSSHKeyRoute = createRoute({
 
 sshKeysApp.openapi(deleteSSHKeyRoute, async (c) => {
   const { id } = c.req.valid('param');
-  const ownerId = c.get('userId');
-  const [key] = await db.select().from(sshKeys).where(and(eq(sshKeys.id, id), eq(sshKeys.ownerId, ownerId)));
+  const accountId = c.get('accountId');
+  const [key] = await db.select().from(sshKeys).where(and(eq(sshKeys.id, id), eq(sshKeys.accountId, accountId)));
   if (!key) return c.json({ error: true, message: 'SSH key not found', status: 404 }, 404);
   try {
     if (key.providerKeyId) {

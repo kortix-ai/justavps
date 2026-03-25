@@ -213,19 +213,88 @@ export interface AccountUsage {
 
 export interface AccountProfile {
   id: string;
+  slug: string;
+  type: 'personal' | 'organization';
   email: string;
-  name: string | null;
+  name: string;
+  role: 'owner' | 'admin' | 'member' | null;
+  user_id: string;
+  user_name: string | null;
   machines_count: number;
   stripe_customer_id: string | null;
   has_password: boolean;
   is_admin: boolean;
+  can_manage_billing: boolean;
+  can_manage_members: boolean;
   created_at: string;
 }
 
 export interface BillingPortal {
   portal_url: string | null;
   has_payment_method: boolean;
+  can_manage_billing: boolean;
   message?: string;
+}
+
+export interface AccountMembershipSummary {
+  id: string;
+  role: 'owner' | 'admin' | 'member';
+  account: {
+    id: string;
+    name: string;
+    slug: string;
+    type: 'personal' | 'organization';
+    created_at: string;
+  };
+}
+
+export interface CurrentUserContext {
+  user: {
+    id: string;
+    email: string;
+    name: string | null;
+    has_password: boolean;
+    is_admin: boolean;
+    default_account_id: string | null;
+  };
+  active_account: {
+    id: string;
+    name: string;
+    slug: string;
+    type: 'personal' | 'organization';
+    role: 'owner' | 'admin' | 'member' | null;
+  };
+  memberships: AccountMembershipSummary[];
+}
+
+export interface AccountMember {
+  id: string;
+  role: 'owner' | 'admin' | 'member';
+  user: {
+    id: string;
+    email: string;
+    name: string | null;
+    created_at: string;
+  };
+  created_at: string;
+}
+
+export interface AccountInvitation {
+  id: string;
+  email: string;
+  role: 'owner' | 'admin' | 'member';
+  expires_at: string;
+  created_at: string;
+}
+
+/** An invitation addressed TO the current user (shown in sidebar) */
+export interface PendingInvitation {
+  id: string;
+  role: 'owner' | 'admin' | 'member';
+  account_name: string;
+  account_type: 'personal' | 'organization';
+  expires_at: string;
+  created_at: string;
 }
 
 /** Returned from POST /machines when a payment method is required (402) */

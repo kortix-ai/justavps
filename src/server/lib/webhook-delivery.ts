@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createHmac } from 'crypto';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '../db';
@@ -94,14 +95,14 @@ async function deliverSingle(
   }
 }
 
-export async function deliverWebhooks(ownerId: string, event: MachineEvent): Promise<void> {
+export async function deliverWebhooks(accountId: string, event: MachineEvent): Promise<void> {
   let hooks: Array<{ id: string; url: string; secret: string; events: string[] }>;
 
   try {
     hooks = await db
       .select({ id: webhooks.id, url: webhooks.url, secret: webhooks.secret, events: webhooks.events })
       .from(webhooks)
-      .where(and(eq(webhooks.ownerId, ownerId), eq(webhooks.active, true)));
+      .where(and(eq(webhooks.accountId, accountId), eq(webhooks.active, true)));
   } catch (err) {
     console.error('[WEBHOOKS] Failed to fetch webhooks:', err);
     return;

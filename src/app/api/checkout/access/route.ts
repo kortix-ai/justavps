@@ -5,6 +5,7 @@ import { stripeClient } from '@/server/lib/stripe';
 import { resolveCheckoutUser } from '@/server/lib/checkout-users';
 import { authConfig } from '@/lib/auth-config';
 import { config } from '@/server/lib/config';
+import { ACCOUNT_COOKIE_NAME } from '@/server/lib/accounts';
 
 const AccessSchema = z.object({
   session_id: z.string().min(1),
@@ -58,6 +59,8 @@ export async function POST(req: NextRequest) {
     if (customerId) {
       await stripeClient.linkCustomerToUser(customerId, resolved.user.id, email)
         .catch((err: unknown) => console.warn('[CHECKOUT_ACCESS] Failed to link Stripe customer:', err));
+      await stripeClient.linkCustomerToAccount(customerId, resolved.accountId, email)
+        .catch((err: unknown) => console.warn('[CHECKOUT_ACCESS] Failed to link Stripe account customer:', err));
     }
 
     const cookie = getSessionCookieConfig(req);
@@ -83,6 +86,13 @@ export async function POST(req: NextRequest) {
       requires_password_setup: resolved.requiresPasswordSetup,
     });
     res.cookies.set(cookie.name, token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: cookie.secure,
+      path: '/',
+      maxAge,
+    });
+    res.cookies.set(ACCOUNT_COOKIE_NAME, resolved.accountId, {
       httpOnly: true,
       sameSite: 'lax',
       secure: cookie.secure,

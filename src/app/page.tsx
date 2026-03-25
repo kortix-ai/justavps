@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { buttonVariants } from "@/components/ui/button";
-import { PLAN_PRICE_SNAPSHOT, STARTING_MONTHLY_PRICE } from "@/lib/hetzner-pricing";
+import { PLAN_PRICE_SNAPSHOT } from "@/lib/hetzner-pricing";
 import { cn, PROXY_DOMAIN } from "@/lib/utils";
 import { useTheme } from "@/hooks/use-theme";
 import { Logo } from "@/components/logo";
@@ -43,7 +43,6 @@ export default function Home() {
   const { data: session } = useSession();
   const isLoggedIn = !!session?.user;
   const starterPlan = PLAN_PRICE_SNAPSHOT[0];
-  const formatPrice = (value: number) => value.toFixed(2);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -123,11 +122,11 @@ export default function Home() {
             ...and it&apos;s <span className="text-foreground font-medium">justavps :)</span>
           </p>
           <p className="mt-5 text-sm sm:text-base text-muted-foreground max-w-lg mx-auto leading-relaxed">
-            Persistent, always-on infrastructure for AI agents that run 24/7. Full SSH, Docker, and filesystem — not ephemeral containers. <strong className="text-foreground">10x cheaper. Secure. Stateful.</strong>
+            Persistent, always-on infrastructure for AI agents that run 24/7. Full SSH, Docker, and filesystem — not ephemeral containers. <strong className="text-foreground">Secure. Stateful. Always on.</strong>
           </p>
           <div className="mt-7 flex items-center justify-center gap-3">
             <button onClick={() => setCheckoutOpen(true)} className={cn(buttonVariants({ size: "lg" }), "text-sm px-7 h-12 font-medium rounded-xl")}>
-              Get a machine - from {'$'}{formatPrice(STARTING_MONTHLY_PRICE)}/mo <svg className="ml-2 size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+              Get a machine — from $12/mo <svg className="ml-2 size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
             </button>
             <Link href="/docs" className={cn(buttonVariants({ variant: "outline", size: "lg" }), "text-sm px-7 h-12 font-medium rounded-xl")}>Docs</Link>
           </div>
@@ -342,7 +341,7 @@ export default function Home() {
           {/* Post-pricing CTA */}
           <div className="mt-10 text-center">
             <button onClick={() => setCheckoutOpen(true)} className={cn(buttonVariants({ size: "lg" }), "text-sm px-7 h-12 font-medium rounded-xl")}>
-              Get a machine - from {'$'}{formatPrice(STARTING_MONTHLY_PRICE)}/mo <svg className="ml-2 size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+              Get a machine — from $12/mo <svg className="ml-2 size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
             </button>
           </div>
         </div>
@@ -360,9 +359,9 @@ export default function Home() {
             <div className="px-6 sm:px-8 pb-6 sm:pb-8 -mt-12 relative">
               <h3 className="text-lg sm:text-xl font-medium tracking-tight mb-2">Built by the team behind Kortix</h3>
               <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl">
-                We ran over <strong className="text-foreground">3 million sandboxes</strong> on incumbent providers while building{" "}
+                We ran 3+ million sandboxes on incumbent providers while building{" "}
                 <a href="https://kortix.com" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2 hover:opacity-80 transition-opacity">Kortix</a>
-                {" "}— the AGI OS, serving <strong className="text-foreground">400k+ users</strong>. We hit the cost ceiling. So we rebuilt the infrastructure ourselves.
+                {" "}— the Autonomous Company OS. We hit the cost ceiling. So we rebuilt the infrastructure ourselves.
               </p>
               <div className="mt-4 flex items-center gap-2">
                 <a href="https://kortix.com" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-background text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
@@ -396,7 +395,7 @@ export default function Home() {
       {/* FINAL CTA */}
       <section className="px-6 py-20 sm:py-28 border-t border-border text-center">
         <h2 className="text-3xl sm:text-4xl font-medium tracking-tighter mb-3">Get a machine.</h2>
-          <p className="text-sm text-muted-foreground mb-6">{`From $${formatPrice(starterPlan.usPublicPrice)}/mo in the US and $${formatPrice(starterPlan.euPublicPrice)}/mo in the EU. Running in minutes. Cancel anytime.`}</p>
+          <p className="text-sm text-muted-foreground mb-6">From $12/mo. Running in minutes. Cancel anytime.</p>
         <button onClick={() => setCheckoutOpen(true)} className={cn(buttonVariants({ size: "lg" }), "text-sm px-8 h-12 font-medium rounded-xl")}>
           Deploy now <svg className="ml-2 size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
         </button>
@@ -423,7 +422,7 @@ export default function Home() {
           showFloatingCta ? "translate-y-0 opacity-100" : "translate-y-20 opacity-0 pointer-events-none"
         )}
       >
-        <span className="text-xs text-muted-foreground hidden sm:inline">From <strong className="text-foreground">{`$${formatPrice(STARTING_MONTHLY_PRICE)}/mo`}</strong></span>
+        <span className="text-xs text-muted-foreground hidden sm:inline">From <strong className="text-foreground">$12/mo</strong></span>
         <button
           onClick={() => setCheckoutOpen(true)}
           className={cn(buttonVariants({ size: "sm" }), "rounded-full h-9 px-5 text-sm font-medium")}

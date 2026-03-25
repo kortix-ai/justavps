@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Image routes — list, get, delete user images.
  * Uses @hono/zod-openapi: routes declare schemas inline → spec auto-generated.
@@ -9,7 +10,7 @@ import { db } from '../../db';
 import { images } from '../../db/schema';
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 import { getProvider } from '../../lib/providers';
-import { requireOwnedResource, errorResponse } from '../../lib/route-helpers';
+import { requireAccountResource, errorResponse } from '../../lib/route-helpers';
 import { buildVisibleImageCatalog, serializeImageRow } from '../../lib/image-catalog';
 import {
   ImageResponseSchema,
@@ -48,10 +49,10 @@ const listImagesRoute = createRoute({
 
 // @ts-expect-error — DB returns string status, schema expects enum; runtime values are always valid
 imagesApp.openapi(listImagesRoute, async (c) => {
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   // Show user's own images + public base images (visible to everyone)
   const result = await db.select().from(images)
-    .where(or(eq(images.ownerId, ownerId), eq(images.isTemplate, true)))
+    .where(or(eq(images.accountId, accountId), eq(images.isTemplate, true)))
     .then(rows => rows.filter(r => r.status !== 'deleted'));
   return c.json({ images: buildVisibleImageCatalog(result) }, 200);
 });
@@ -80,8 +81,8 @@ const getImageRoute = createRoute({
 
 imagesApp.openapi(getImageRoute, async (c) => {
   const { id } = c.req.valid('param');
-  const ownerId = c.get('userId');
-  const owned = await requireOwnedResource<ImageRow>(c, images, images.id, id, ownerId, 'Image');
+  const accountId = c.get('accountId');
+  const owned = await requireAccountResource<ImageRow>(c, images, images.id, id, accountId, 'Image');
   if (owned.response) return owned.response as any;
   return c.json(serializeImage(owned.resource));
 });
@@ -107,8 +108,8 @@ const deleteImageRoute = createRoute({
 
 imagesApp.openapi(deleteImageRoute, async (c) => {
   const { id } = c.req.valid('param');
-  const ownerId = c.get('userId');
-  const owned = await requireOwnedResource<ImageRow>(c, images, images.id, id, ownerId, 'Image');
+  const accountId = c.get('accountId');
+  const owned = await requireAccountResource<ImageRow>(c, images, images.id, id, accountId, 'Image');
   if (owned.response) return owned.response as any;
 
   const img = owned.resource;

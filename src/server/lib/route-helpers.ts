@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { Context } from 'hono';
 import { eq } from 'drizzle-orm';
 import { db } from '../db';
@@ -12,16 +13,16 @@ type OwnedResult<T> =
   | { resource: T; response?: never }
   | { resource?: never; response: Response };
 
-export async function requireOwnedResource<T extends Record<string, any>>(
+export async function requireAccountResource<T extends Record<string, any>>(
   c: Context,
   table: any,
   idColumn: any,
   idValue: string,
-  ownerId: string,
+  accountId: string,
   label: string,
 ): Promise<OwnedResult<T>> {
   const [row] = await db.select().from(table).where(eq(idColumn, idValue));
-  if (!row || row.ownerId !== ownerId) {
+  if (!row || row.accountId !== accountId) {
     return { response: errorResponse(c, 404, `${label} not found`) };
   }
   return { resource: row as T };

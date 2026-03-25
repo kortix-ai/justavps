@@ -3,7 +3,7 @@
   "info": {
     "title": "JustAVPS API",
     "version": "1.0.0",
-    "description": "The JustAVPS API lets you programmatically create and manage VPS machines, run commands, manage files, and build infrastructure.\n\n## Authentication\n\nAll authenticated endpoints accept:\n- **Bearer token**: `Authorization: Bearer sk_live_xxx`\n\nGenerate API keys in the [dashboard](https://justavps.com/settings).\n\n## Base URL\n```\nhttps://justavps.com/api/v1\n```\n\n## SDKs\n\n```bash\n# TypeScript / Node.js\nnpm install @kortix/justavps\n\n# Python\npip install kortix-justavps\n```\n\n```typescript\nimport { JustAVPS } from \"@kortix/justavps\";\nconst client = new JustAVPS({ apiKey: \"sk_live_...\" });\n\n// Create a machine\nconst machine = await client.machines.create({ server_type: \"starter\", region: \"eu\" });\n\n// Execute commands\nconst tb = client.toolbox(machine.id);\nconst result = await tb.process.exec(\"echo hello\");\n\n// Manage files\nawait tb.files.upload(\"/root/app.py\", 'print(\"hello\")');\nconst content = await tb.files.download(\"/root/app.py\");\n```\n\n```python\nfrom justavps import JustAVPS\nclient = JustAVPS(\"sk_live_...\")\n\n# Create a machine\nmachine = client.machines.create(server_type=\"starter\", region=\"eu\")\n\n# Execute commands\ntb = client.toolbox(machine[\"id\"])\nresult = tb.process.exec(\"echo hello\")\n\n# Manage files\ntb.files.upload(\"/root/app.py\", 'print(\"hello\")')\ncontent = tb.files.download(\"/root/app.py\")\n```\n",
+    "description": "The JustAVPS API lets you programmatically create and manage VPS machines, run commands, manage files, and build infrastructure.\n\n## Authentication\n\nAll authenticated endpoints accept:\n- **Bearer token**: `Authorization: Bearer sk_live_xxx`\n\nGenerate API keys in the [dashboard](https://justavps.com/settings).\n\n## Base URL\n```\nhttps://justavps.com/api/v1\n```\n\n## Authenticated Proxy (Cloudflare Edge)\n\nMachine HTTP traffic does not go directly to random VPS ports. It always flows through the authenticated Cloudflare proxy on `kortix.cloud` / `kortix-dev.cloud`.\n\nRuntime URL patterns:\n\n```text\nhttps://{slug}.kortix.cloud\nhttps://{port}--{slug}.kortix.cloud\n\nhttps://{slug}.kortix-dev.cloud\nhttps://{port}--{slug}.kortix-dev.cloud\n```\n\nExamples:\n\n```bash\n# Root proxy (default HTTP service)\ncurl https://my-machine.kortix.cloud \\\n  -H \"Authorization: Bearer sk_live_xxx\"\n\n# Specific port through the authenticated proxy\ncurl https://3000--my-machine.kortix.cloud/health \\\n  -H \"Authorization: Bearer sk_live_xxx\"\n\n# Share link using a proxy token\nopen \"https://3000--my-machine.kortix.cloud?__proxy_token=pt_xxx\"\n\n# Programmatic proxy token access\ncurl https://3000--my-machine.kortix.cloud \\\n  -H \"X-Proxy-Token: pt_xxx\"\n```\n\nThe authenticated proxy accepts:\n- `Authorization: Bearer sk_live_xxx` — API key\n- `X-Proxy-Token: pt_xxx` — short-lived proxy token\n- `?__proxy_token=pt_xxx` — browser-friendly share link\n- dashboard session cookies / proxy JWTs for logged-in users\n\nNotes:\n- API keys must include the `proxy` permission (or `*`) to access proxied services.\n- Proxy tokens are machine-scoped, optionally port-scoped, and always expire.\n- The proxy handles normal HTTP traffic and WebSocket upgrades on the same authenticated hostname.\n\n## SDKs\n\n```bash\n# TypeScript / Node.js\nnpm install @kortix/justavps\n\n# Python\npip install kortix-justavps\n```\n\n```typescript\nimport { JustAVPS } from \"@kortix/justavps\";\nconst client = new JustAVPS({ apiKey: \"sk_live_...\" });\n\n// Create a machine\nconst machine = await client.machines.create({ server_type: \"starter\", region: \"eu\" });\n\n// Execute commands\nconst tb = client.toolbox(machine.id);\nconst result = await tb.process.exec(\"echo hello\");\n\n// Manage files\nawait tb.files.upload(\"/root/app.py\", 'print(\"hello\")');\nconst content = await tb.files.download(\"/root/app.py\");\n```\n\n```python\nfrom justavps import JustAVPS\nclient = JustAVPS(\"sk_live_...\")\n\n# Create a machine\nmachine = client.machines.create(server_type=\"starter\", region=\"eu\")\n\n# Execute commands\ntb = client.toolbox(machine[\"id\"])\nresult = tb.process.exec(\"echo hello\")\n\n# Manage files\ntb.files.upload(\"/root/app.py\", 'print(\"hello\")')\ncontent = tb.files.download(\"/root/app.py\")\n```\n",
     "contact": {
       "name": "Kortix",
       "url": "https://kortix.com",
@@ -48,6 +48,10 @@
     {
       "name": "API Keys",
       "description": "Create and manage API keys for programmatic access"
+    },
+    {
+      "name": "Proxy Tokens",
+      "description": "Create and manage short-lived share links for machine proxy access"
     },
     {
       "name": "Webhooks",
@@ -180,6 +184,11 @@
                     ],
                     "default": "monthly",
                     "description": "Billing interval: monthly, yearly (20% off), or 2year (30% off, billed annually)"
+                  },
+                  "enable_backups": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Enable daily automatic backups (+20% of base price). Defaults to false."
                   }
                 },
                 "required": [
@@ -251,6 +260,30 @@
                         "null"
                       ]
                     },
+                    "provider_progress": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "provider_status": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "callback_expected": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "callback_url": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "price_monthly": {
                       "type": [
                         "number",
@@ -275,16 +308,20 @@
                         "null"
                       ],
                       "properties": {
-                        "vscode": {
+                        "proxy": {
                           "type": "string"
                         },
-                        "pty": {
+                        "terminal": {
+                          "type": "string"
+                        },
+                        "port_template": {
                           "type": "string"
                         }
                       },
                       "required": [
-                        "vscode",
-                        "pty"
+                        "proxy",
+                        "terminal",
+                        "port_template"
                       ]
                     },
                     "ssh": {
@@ -363,6 +400,45 @@
                         "cursor_ssh"
                       ]
                     },
+                    "subscription": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "string"
+                        },
+                        "cancel_at_period_end": {
+                          "type": "boolean"
+                        },
+                        "cancel_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cancelled_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "current_period_end": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "cancel_at_period_end",
+                        "cancel_at",
+                        "cancelled_at",
+                        "current_period_end"
+                      ]
+                    },
                     "health": {
                       "type": [
                         "object",
@@ -412,6 +488,10 @@
                     "server_type",
                     "region",
                     "ip",
+                    "provider_progress",
+                    "provider_status",
+                    "callback_expected",
+                    "callback_url",
                     "price_monthly",
                     "backups_enabled",
                     "created_at",
@@ -653,6 +733,30 @@
                               "null"
                             ]
                           },
+                          "provider_progress": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "provider_status": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "callback_expected": {
+                            "type": [
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          "callback_url": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "price_monthly": {
                             "type": [
                               "number",
@@ -677,16 +781,20 @@
                               "null"
                             ],
                             "properties": {
-                              "vscode": {
+                              "proxy": {
                                 "type": "string"
                               },
-                              "pty": {
+                              "terminal": {
+                                "type": "string"
+                              },
+                              "port_template": {
                                 "type": "string"
                               }
                             },
                             "required": [
-                              "vscode",
-                              "pty"
+                              "proxy",
+                              "terminal",
+                              "port_template"
                             ]
                           },
                           "ssh": {
@@ -765,6 +873,45 @@
                               "cursor_ssh"
                             ]
                           },
+                          "subscription": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "properties": {
+                              "status": {
+                                "type": "string"
+                              },
+                              "cancel_at_period_end": {
+                                "type": "boolean"
+                              },
+                              "cancel_at": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "cancelled_at": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "current_period_end": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "status",
+                              "cancel_at_period_end",
+                              "cancel_at",
+                              "cancelled_at",
+                              "current_period_end"
+                            ]
+                          },
                           "health": {
                             "type": [
                               "object",
@@ -814,6 +961,10 @@
                           "server_type",
                           "region",
                           "ip",
+                          "provider_progress",
+                          "provider_status",
+                          "callback_expected",
+                          "callback_url",
                           "price_monthly",
                           "backups_enabled",
                           "created_at",
@@ -964,6 +1115,30 @@
                         "null"
                       ]
                     },
+                    "provider_progress": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "provider_status": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "callback_expected": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "callback_url": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "price_monthly": {
                       "type": [
                         "number",
@@ -988,16 +1163,20 @@
                         "null"
                       ],
                       "properties": {
-                        "vscode": {
+                        "proxy": {
                           "type": "string"
                         },
-                        "pty": {
+                        "terminal": {
+                          "type": "string"
+                        },
+                        "port_template": {
                           "type": "string"
                         }
                       },
                       "required": [
-                        "vscode",
-                        "pty"
+                        "proxy",
+                        "terminal",
+                        "port_template"
                       ]
                     },
                     "ssh": {
@@ -1076,6 +1255,45 @@
                         "cursor_ssh"
                       ]
                     },
+                    "subscription": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "string"
+                        },
+                        "cancel_at_period_end": {
+                          "type": "boolean"
+                        },
+                        "cancel_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cancelled_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "current_period_end": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "cancel_at_period_end",
+                        "cancel_at",
+                        "cancelled_at",
+                        "current_period_end"
+                      ]
+                    },
                     "health": {
                       "type": [
                         "object",
@@ -1125,6 +1343,10 @@
                     "server_type",
                     "region",
                     "ip",
+                    "provider_progress",
+                    "provider_status",
+                    "callback_expected",
+                    "callback_url",
                     "price_monthly",
                     "backups_enabled",
                     "created_at",
@@ -1303,6 +1525,270 @@
         ]
       }
     },
+    "/api/v1/machines/{id}/cancel": {
+      "post": {
+        "tags": [
+          "Machines"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Cancel a machine subscription",
+        "description": "Schedules the machine for cancellation at the end of the current billing period. The machine keeps running until then. Use `POST /:id/reactivate` to undo.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Machine ID"
+            },
+            "required": true,
+            "description": "Machine ID",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancellation scheduled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/machines/{id}/reactivate": {
+      "post": {
+        "tags": [
+          "Machines"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Reactivate a cancelled subscription",
+        "description": "Reverses a scheduled cancellation. The subscription continues as normal and the machine will not be deleted.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Machine ID"
+            },
+            "required": true,
+            "description": "Machine ID",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Subscription reactivated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/machines/{id}/reboot": {
       "post": {
         "tags": [
@@ -1419,6 +1905,270 @@
             "source": "client.machines.reboot(\"machine-id\")"
           }
         ]
+      }
+    },
+    "/api/v1/machines/{id}/stop": {
+      "post": {
+        "tags": [
+          "Machines"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Stop a machine",
+        "description": "Powers off the machine (graceful shutdown). Billing continues while stopped.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Machine ID"
+            },
+            "required": true,
+            "description": "Machine ID",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Stop initiated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/machines/{id}/start": {
+      "post": {
+        "tags": [
+          "Machines"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Start a stopped machine",
+        "description": "Powers on a previously stopped machine.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Machine ID"
+            },
+            "required": true,
+            "description": "Machine ID",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Start initiated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/machines/{id}/resize": {
@@ -3113,6 +3863,53 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 128
+                  },
+                  "scope": {
+                    "type": "string",
+                    "enum": [
+                      "account",
+                      "machine"
+                    ],
+                    "default": "account",
+                    "description": "Key scope: account (full) or machine (restricted)"
+                  },
+                  "machine_ids": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "description": "Machine UUIDs this key can access (required if scope=machine)"
+                  },
+                  "permissions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "*",
+                        "read",
+                        "write",
+                        "delete",
+                        "exec",
+                        "proxy"
+                      ]
+                    },
+                    "default": [
+                      "*"
+                    ],
+                    "description": "Permissions: * (all), read, write, delete, exec, proxy"
+                  },
+                  "expires_in_seconds": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 60,
+                    "maximum": 31536000,
+                    "description": "Expiration in seconds from now (null = never)"
                   }
                 },
                 "required": [
@@ -3144,6 +3941,34 @@
                     "key_prefix": {
                       "type": "string"
                     },
+                    "scope": {
+                      "type": "string",
+                      "enum": [
+                        "account",
+                        "machine"
+                      ]
+                    },
+                    "machine_ids": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "permissions": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "expires_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "created_at": {
                       "type": "string"
                     },
@@ -3158,6 +3983,10 @@
                     "id",
                     "name",
                     "key_prefix",
+                    "scope",
+                    "machine_ids",
+                    "permissions",
+                    "expires_at",
                     "created_at",
                     "last_used"
                   ]
@@ -3222,12 +4051,12 @@
           {
             "lang": "JavaScript",
             "label": "TypeScript SDK",
-            "source": "const key = await client.apiKeys.create({ name: \"ci-deploy\" });\nconsole.log(key.key); // Only shown once!"
+            "source": "const key = await client.apiKeys.create({\n  name: \"ci-deploy\",\n  scope: \"machine\",\n  machine_ids: [\"machine-id\"],\n  permissions: [\"read\", \"proxy\"],\n  expires_in_seconds: 60 * 60 * 24 * 30,\n});\nconsole.log(key.key); // Only shown once!"
           },
           {
             "lang": "Python",
             "label": "Python SDK",
-            "source": "key = client.api_keys.create(\"ci-deploy\")\nprint(key[\"key\"])  # Only shown once!"
+            "source": "key = client.api_keys.create({\n  \"name\": \"ci-deploy\",\n  \"scope\": \"machine\",\n  \"machine_ids\": [\"machine-id\"],\n  \"permissions\": [\"read\", \"proxy\"],\n  \"expires_in_seconds\": 2592000,\n})\nprint(key[\"key\"])  # Only shown once!"
           }
         ]
       },
@@ -3272,6 +4101,34 @@
                           "key_prefix": {
                             "type": "string"
                           },
+                          "scope": {
+                            "type": "string",
+                            "enum": [
+                              "account",
+                              "machine"
+                            ]
+                          },
+                          "machine_ids": {
+                            "type": [
+                              "array",
+                              "null"
+                            ],
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "permissions": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "expires_at": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "created_at": {
                             "type": "string"
                           },
@@ -3286,6 +4143,10 @@
                           "id",
                           "name",
                           "key_prefix",
+                          "scope",
+                          "machine_ids",
+                          "permissions",
+                          "expires_at",
                           "created_at",
                           "last_used"
                         ]
@@ -3439,6 +4300,468 @@
         ]
       }
     },
+    "/api/v1/proxy-tokens": {
+      "post": {
+        "tags": [
+          "Proxy Tokens"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Create a proxy token",
+        "description": "Create a short-lived token for sharing machine access. The full token is only returned once.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "machine_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "Machine UUID to grant access to"
+                  },
+                  "label": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 128,
+                    "description": "Human-readable label"
+                  },
+                  "ports": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 65535
+                    },
+                    "description": "Specific ports to allow (null = all)"
+                  },
+                  "expires_in_seconds": {
+                    "type": "integer",
+                    "minimum": 60,
+                    "maximum": 604800,
+                    "default": 3600,
+                    "description": "Expiration in seconds (default 1h, max 7 days)"
+                  }
+                },
+                "required": [
+                  "machine_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Proxy token created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "token": {
+                      "type": "string",
+                      "description": "Only returned on creation"
+                    },
+                    "token_prefix": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "machine_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "machine_slug": {
+                      "type": "string"
+                    },
+                    "ports": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {
+                        "type": "number"
+                      }
+                    },
+                    "expires_at": {
+                      "type": "string"
+                    },
+                    "proxy_url": {
+                      "type": "string",
+                      "description": "Pre-built shareable URL (only on creation)"
+                    },
+                    "created_at": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "token_prefix",
+                    "label",
+                    "machine_id",
+                    "machine_slug",
+                    "ports",
+                    "expires_at",
+                    "created_at"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Machine not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "TypeScript SDK",
+            "source": "const token = await client.proxyTokens.create({\n  machine_id: \"machine-id\",\n  ports: [3000],\n  expires_in_seconds: 3600,\n  label: \"design-review\",\n});\nconsole.log(token.proxy_url); // Share this link"
+          },
+          {
+            "lang": "Python",
+            "label": "Python SDK",
+            "source": "token = client.proxy_tokens.create({\n  \"machine_id\": \"machine-id\",\n  \"ports\": [3000],\n  \"expires_in_seconds\": 3600,\n  \"label\": \"design-review\",\n})\nprint(token[\"proxy_url\"])  # Share this link"
+          }
+        ]
+      },
+      "get": {
+        "tags": [
+          "Proxy Tokens"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List proxy tokens",
+        "description": "Returns active (non-revoked, non-expired) proxy tokens. Optionally filter by machine_id.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "name": "machine_id",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of proxy tokens",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "proxy_tokens": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "token": {
+                            "type": "string",
+                            "description": "Only returned on creation"
+                          },
+                          "token_prefix": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "machine_id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "machine_slug": {
+                            "type": "string"
+                          },
+                          "ports": {
+                            "type": [
+                              "array",
+                              "null"
+                            ],
+                            "items": {
+                              "type": "number"
+                            }
+                          },
+                          "expires_at": {
+                            "type": "string"
+                          },
+                          "proxy_url": {
+                            "type": "string",
+                            "description": "Pre-built shareable URL (only on creation)"
+                          },
+                          "created_at": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "token_prefix",
+                          "label",
+                          "machine_id",
+                          "machine_slug",
+                          "ports",
+                          "expires_at",
+                          "created_at"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "proxy_tokens"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "TypeScript SDK",
+            "source": "const { proxy_tokens } = await client.proxyTokens.list();"
+          },
+          {
+            "lang": "Python",
+            "label": "Python SDK",
+            "source": "tokens = client.proxy_tokens.list()"
+          }
+        ]
+      }
+    },
+    "/api/v1/proxy-tokens/{id}": {
+      "delete": {
+        "tags": [
+          "Proxy Tokens"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Revoke a proxy token",
+        "description": "Revokes a proxy token. Access using it will immediately fail.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Proxy Token ID"
+            },
+            "required": true,
+            "description": "Proxy Token ID",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Proxy token revoked"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "JavaScript",
+            "label": "TypeScript SDK",
+            "source": "await client.proxyTokens.delete(\"token-id\");"
+          },
+          {
+            "lang": "Python",
+            "label": "Python SDK",
+            "source": "client.proxy_tokens.delete(\"token-id\")"
+          }
+        ]
+      }
+    },
     "/api/v1/server-types/providers": {
       "get": {
         "tags": [
@@ -3574,15 +4897,15 @@
                           },
                           "price_monthly": {
                             "type": "number",
-                            "description": "Our price after markup (includes backups)"
+                            "description": "Base monthly price (without backups)"
+                          },
+                          "backup_price_monthly": {
+                            "type": "number",
+                            "description": "Additional monthly cost for daily backups (+20% of base price)"
                           },
                           "provider_price_monthly": {
                             "type": "number",
                             "description": "Raw provider price"
-                          },
-                          "backup_price_monthly": {
-                            "type": "number",
-                            "description": "Provider backup cost (20% of provider price)"
                           },
                           "available": {
                             "type": "boolean"
@@ -3597,8 +4920,8 @@
                           "cpu_type",
                           "architecture",
                           "price_monthly",
-                          "provider_price_monthly",
                           "backup_price_monthly",
+                          "provider_price_monthly",
                           "available"
                         ]
                       }
@@ -3773,10 +5096,10 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Get account info",
+        "summary": "Get active account info",
         "responses": {
           "200": {
-            "description": "Account details",
+            "description": "Active account details",
             "content": {
               "application/json": {
                 "schema": {
@@ -3786,14 +5109,55 @@
                       "type": "string",
                       "format": "uuid"
                     },
+                    "slug": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "personal",
+                        "organization"
+                      ]
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "role": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "owner",
+                        "admin",
+                        "member",
+                        null
+                      ]
+                    },
                     "email": {
                       "type": "string"
                     },
-                    "name": {
+                    "user_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "user_name": {
                       "type": [
                         "string",
                         "null"
                       ]
+                    },
+                    "has_password": {
+                      "type": "boolean"
+                    },
+                    "is_admin": {
+                      "type": "boolean"
+                    },
+                    "can_manage_billing": {
+                      "type": "boolean"
+                    },
+                    "can_manage_members": {
+                      "type": "boolean"
                     },
                     "machines_count": {
                       "type": "number"
@@ -3804,20 +5168,25 @@
                         "null"
                       ]
                     },
-                    "has_password": {
-                      "type": "boolean"
-                    },
                     "created_at": {
                       "type": "string"
                     }
                   },
                   "required": [
                     "id",
-                    "email",
+                    "slug",
+                    "type",
                     "name",
+                    "role",
+                    "email",
+                    "user_id",
+                    "user_name",
+                    "has_password",
+                    "is_admin",
+                    "can_manage_billing",
+                    "can_manage_members",
                     "machines_count",
                     "stripe_customer_id",
-                    "has_password",
                     "created_at"
                   ]
                 }
@@ -3886,6 +5255,448 @@
         ]
       }
     },
+    "/api/v1/account/me": {
+      "get": {
+        "tags": [
+          "Account"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get current user + memberships",
+        "responses": {
+          "200": {
+            "description": "Current user and memberships",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "email": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "has_password": {
+                          "type": "boolean"
+                        },
+                        "is_admin": {
+                          "type": "boolean"
+                        },
+                        "default_account_id": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "uuid"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "email",
+                        "name",
+                        "has_password",
+                        "is_admin",
+                        "default_account_id"
+                      ]
+                    },
+                    "active_account": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "slug": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "personal",
+                            "organization"
+                          ]
+                        },
+                        "role": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "enum": [
+                            "owner",
+                            "admin",
+                            "member",
+                            null
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "slug",
+                        "type",
+                        "role"
+                      ]
+                    },
+                    "memberships": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "owner",
+                              "admin",
+                              "member"
+                            ]
+                          },
+                          "account": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "slug": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "personal",
+                                  "organization"
+                                ]
+                              },
+                              "created_at": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "name",
+                              "slug",
+                              "type",
+                              "created_at"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "role",
+                          "account"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "user",
+                    "active_account",
+                    "memberships"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/account/memberships": {
+      "get": {
+        "tags": [
+          "Account"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List accessible accounts",
+        "responses": {
+          "200": {
+            "description": "List memberships",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "memberships": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "owner",
+                              "admin",
+                              "member"
+                            ]
+                          },
+                          "account": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "slug": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "personal",
+                                  "organization"
+                                ]
+                              },
+                              "created_at": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "name",
+                              "slug",
+                              "type",
+                              "created_at"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "role",
+                          "account"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "memberships"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/account/switch": {
+      "post": {
+        "tags": [
+          "Account"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Switch active account",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "account_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "account_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Account switched",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "account_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "account_id"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/account/organizations": {
+      "post": {
+        "tags": [
+          "Account"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Create an organization account",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 120
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Organization created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "slug": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "slug"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/account/usage": {
       "get": {
         "tags": [
@@ -3899,8 +5710,7 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Get usage stats",
-        "description": "Returns current billing period usage including active machines and estimated cost.",
+        "summary": "Get active account usage",
         "responses": {
           "200": {
             "description": "Usage statistics",
@@ -3959,32 +5769,6 @@
                 }
               }
             }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "boolean",
-                      "default": true
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "status": {
-                      "type": "number"
-                    }
-                  },
-                  "required": [
-                    "message",
-                    "status"
-                  ]
-                }
-              }
-            }
           }
         },
         "x-codeSamples": [
@@ -4009,8 +5793,7 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Get billing info",
-        "description": "Returns Stripe billing portal URL and payment method status.",
+        "summary": "Get active account billing info",
         "responses": {
           "200": {
             "description": "Billing info",
@@ -4030,37 +5813,15 @@
                     },
                     "message": {
                       "type": "string"
+                    },
+                    "can_manage_billing": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
                     "portal_url",
-                    "has_payment_method"
-                  ]
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "boolean",
-                      "default": true
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "status": {
-                      "type": "number"
-                    }
-                  },
-                  "required": [
-                    "message",
-                    "status"
+                    "has_payment_method",
+                    "can_manage_billing"
                   ]
                 }
               }
@@ -4089,8 +5850,7 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Create billing setup session",
-        "description": "Creates a Stripe Checkout Session in setup mode to add a payment method.",
+        "summary": "Create billing setup session for active account",
         "responses": {
           "200": {
             "description": "Checkout URL",
@@ -4110,60 +5870,8 @@
               }
             }
           },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "boolean",
-                      "default": true
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "status": {
-                      "type": "number"
-                    }
-                  },
-                  "required": [
-                    "message",
-                    "status"
-                  ]
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "boolean",
-                      "default": true
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "status": {
-                      "type": "number"
-                    }
-                  },
-                  "required": [
-                    "message",
-                    "status"
-                  ]
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Service Unavailable",
+          "403": {
+            "description": "Forbidden",
             "content": {
               "application/json": {
                 "schema": {
@@ -4205,7 +5913,6 @@
           }
         ],
         "summary": "Set account password",
-        "description": "Sets the initial password for passwordless checkout-created accounts.",
         "requestBody": {
           "required": true,
           "content": {
@@ -4255,58 +5962,6 @@
                 }
               }
             }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "boolean",
-                      "default": true
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "status": {
-                      "type": "number"
-                    }
-                  },
-                  "required": [
-                    "message",
-                    "status"
-                  ]
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "boolean",
-                      "default": true
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "status": {
-                      "type": "number"
-                    }
-                  },
-                  "required": [
-                    "message",
-                    "status"
-                  ]
-                }
-              }
-            }
           }
         }
       }
@@ -4324,8 +5979,7 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Get account limits",
-        "description": "Returns the resource limits and current usage for the authenticated user.",
+        "summary": "Get active account limits",
         "responses": {
           "200": {
             "description": "Account limits and usage",
@@ -4372,28 +6026,437 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/account/members": {
+      "get": {
+        "tags": [
+          "Account"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
           },
-          "401": {
-            "description": "Unauthorized",
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List members of active account",
+        "responses": {
+          "200": {
+            "description": "Account members",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "error": {
-                      "type": "boolean",
-                      "default": true
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "status": {
-                      "type": "number"
+                    "members": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "owner",
+                              "admin",
+                              "member"
+                            ]
+                          },
+                          "user": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "email": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "created_at": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "email",
+                              "name",
+                              "created_at"
+                            ]
+                          },
+                          "created_at": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "role",
+                          "user",
+                          "created_at"
+                        ]
+                      }
                     }
                   },
                   "required": [
-                    "message",
-                    "status"
+                    "members"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/account/members/{membershipId}": {
+      "patch": {
+        "tags": [
+          "Account"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Update member role",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "membershipId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "owner",
+                      "admin",
+                      "member"
+                    ]
+                  }
+                },
+                "required": [
+                  "role"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Member updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Account"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Remove member from active account",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "membershipId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Member removed"
+          }
+        }
+      }
+    },
+    "/api/v1/account/invitations": {
+      "get": {
+        "tags": [
+          "Account"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List pending invitations for active account",
+        "responses": {
+          "200": {
+            "description": "Pending invitations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "invitations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "email": {
+                            "type": "string"
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "owner",
+                              "admin",
+                              "member"
+                            ]
+                          },
+                          "expires_at": {
+                            "type": "string"
+                          },
+                          "created_at": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "email",
+                          "role",
+                          "expires_at",
+                          "created_at"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "invitations"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Account"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Invite a user to the active account",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "owner",
+                      "admin",
+                      "member"
+                    ],
+                    "default": "member"
+                  }
+                },
+                "required": [
+                  "email"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Invitation created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "email": {
+                      "type": "string"
+                    },
+                    "role": {
+                      "type": "string"
+                    },
+                    "expires_at": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "email",
+                    "role",
+                    "expires_at"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/account/invitations/{invitationId}": {
+      "delete": {
+        "tags": [
+          "Account"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Revoke an invitation for the active account",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "invitationId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Invitation revoked"
+          }
+        }
+      }
+    },
+    "/api/v1/account/invitations/redeem": {
+      "post": {
+        "tags": [
+          "Account"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Redeem an account invitation",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "token"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Invitation redeemed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "account_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "redirect_to": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "account_id",
+                    "redirect_to"
                   ]
                 }
               }
@@ -4422,6 +6485,9 @@
                   "machine_token": {
                     "type": "string"
                   },
+                  "daemon_version": {
+                    "type": "string"
+                  },
                   "uptime": {
                     "type": "number"
                   },
@@ -4448,6 +6514,52 @@
                       "cpu",
                       "memory",
                       "disk"
+                    ]
+                  },
+                  "network": {
+                    "type": "object",
+                    "properties": {
+                      "bytes_in": {
+                        "type": "number"
+                      },
+                      "bytes_out": {
+                        "type": "number"
+                      },
+                      "rate_in": {
+                        "type": "number"
+                      },
+                      "rate_out": {
+                        "type": "number"
+                      },
+                      "connections": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "bytes_in",
+                      "bytes_out",
+                      "rate_in",
+                      "rate_out",
+                      "connections"
+                    ]
+                  },
+                  "security": {
+                    "type": "object",
+                    "properties": {
+                      "ufw_active": {
+                        "type": "boolean"
+                      },
+                      "fail2ban_active": {
+                        "type": "boolean"
+                      },
+                      "ssh_key_only": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "ufw_active",
+                      "fail2ban_active",
+                      "ssh_key_only"
                     ]
                   }
                 },
@@ -4528,6 +6640,91 @@
                   "required": [
                     "message",
                     "status"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/internal/watchdog": {
+      "get": {
+        "tags": [
+          "Internal"
+        ],
+        "summary": "Run machine watchdog",
+        "description": "Platform-side monitoring: checks heartbeat staleness, security tampering, and Hetzner network metrics. Called via cron every 5 minutes.",
+        "responses": {
+          "200": {
+            "description": "Watchdog results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "checked": {
+                      "type": "number"
+                    },
+                    "alerts": {
+                      "type": "number"
+                    },
+                    "details": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "slug": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string"
+                          },
+                          "details": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "slug",
+                          "type",
+                          "details"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "checked",
+                    "alerts",
+                    "details"
                   ]
                 }
               }
@@ -4705,6 +6902,69 @@
         }
       }
     },
+    "/api/v1/internal/gc/ssh-keys": {
+      "post": {
+        "tags": [
+          "Internal"
+        ],
+        "summary": "Garbage-collect orphaned SSH keys",
+        "description": "Deletes SSH keys from Hetzner that belong to deleted/non-existent machines. Run this when hitting the ssh_key_limit.",
+        "responses": {
+          "200": {
+            "description": "GC results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "type": "number"
+                    },
+                    "kept": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "deleted",
+                    "kept",
+                    "total"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/internal/validate-key": {
       "get": {
         "tags": [
@@ -4745,9 +7005,37 @@
                     "valid": {
                       "type": "boolean"
                     },
-                    "owner_id": {
+                    "account_id": {
                       "type": "string",
                       "format": "uuid"
+                    },
+                    "scope": {
+                      "type": "string",
+                      "enum": [
+                        "account",
+                        "machine"
+                      ]
+                    },
+                    "machine_ids": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "permissions": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "expires_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     },
                     "message": {
                       "type": "string"
@@ -4796,9 +7084,37 @@
                     "valid": {
                       "type": "boolean"
                     },
-                    "owner_id": {
+                    "account_id": {
                       "type": "string",
                       "format": "uuid"
+                    },
+                    "scope": {
+                      "type": "string",
+                      "enum": [
+                        "account",
+                        "machine"
+                      ]
+                    },
+                    "machine_ids": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "permissions": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "expires_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     },
                     "message": {
                       "type": "string"
@@ -4821,9 +7137,37 @@
                     "valid": {
                       "type": "boolean"
                     },
-                    "owner_id": {
+                    "account_id": {
                       "type": "string",
                       "format": "uuid"
+                    },
+                    "scope": {
+                      "type": "string",
+                      "enum": [
+                        "account",
+                        "machine"
+                      ]
+                    },
+                    "machine_ids": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "permissions": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "expires_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     },
                     "message": {
                       "type": "string"
@@ -8213,6 +10557,7 @@
       "name": "Authentication & Access",
       "tags": [
         "API Keys",
+        "Proxy Tokens",
         "SSH Keys"
       ]
     },

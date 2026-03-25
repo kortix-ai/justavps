@@ -18,7 +18,7 @@ import { OpenAPIHono } from '@hono/zod-openapi';
 import { eq, and } from 'drizzle-orm';
 import Stripe from 'stripe';
 import { db } from '../../db';
-import { users, machines, images, stripeEvents, subscriptions } from '../../db/schema';
+import { accounts, users, machines, images, stripeEvents, subscriptions } from '../../db/schema';
 import { stripeClient, type CheckoutMachineConfig } from '../../lib/stripe';
 import { config } from '../../lib/config';
 import { getProvider } from '../../lib/providers';
@@ -146,6 +146,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     ? session.customer
     : session.customer?.id || null;
   let userId = metadata.justavps_user_id || '';
+  let accountId = metadata.justavps_account_id || '';
 
   if (!userId) {
     if (!checkoutEmail) {
@@ -159,11 +160,28 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       stripeCustomerId: customerId,
     });
     userId = resolvedUser.user.id;
+    accountId = resolvedUser.accountId;
+  }
+
+  if (!accountId) {
+    const [existingUser] = await db.select().from(users).where(eq(users.id, userId));
+    if (!existingUser) {
+      console.error(`[STRIPE WEBHOOK] Checkout session ${session.id} resolved user ${userId} but no account context`);
+      return;
+    }
+
+    const resolvedUser = await resolveCheckoutUser({
+      email: checkoutEmail || existingUser.email,
+      name: checkoutName || existingUser.name,
+      stripeCustomerId: customerId,
+    });
+    accountId = resolvedUser.accountId;
+    userId = resolvedUser.user.id;
   }
 
   if (customerId) {
-    await stripeClient.linkCustomerToUser(customerId, userId, checkoutEmail)
-      .catch((err: unknown) => console.warn(`[STRIPE WEBHOOK] Failed to link customer ${customerId} to user ${userId}:`, err));
+    await stripeClient.linkCustomerToAccount(customerId, accountId, checkoutEmail)
+      .catch((err: unknown) => console.warn(`[STRIPE WEBHOOK] Failed to link customer ${customerId} to account ${accountId}:`, err));
 
     // Set the checkout payment method as the customer's default for future charges.
     // Stripe Checkout attaches the PM to the subscription but NOT to the customer.
@@ -191,7 +209,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     return;
   }
 
-  console.log(`[STRIPE WEBHOOK] Provisioning machine for user ${userId}: ${machineConfig.server_type} in ${machineConfig.region}`);
+  console.log(`[STRIPE WEBHOOK] Provisioning machine for account ${accountId}: ${machineConfig.server_type} in ${machineConfig.region}`);
 
   // Extract subscription ID and subscription item ID from the checkout session
   let subscriptionId = typeof session.subscription === 'string'
@@ -247,9 +265,9 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     .limit(1);
 
   // Check account machine limit before provisioning
-  const machineLimit = await checkMachineLimit(userId, userRow?.isAdmin ?? false);
+  const machineLimit = await checkMachineLimit(accountId, userId, userRow?.isAdmin ?? false);
   if (!machineLimit.allowed) {
-    console.warn(`[STRIPE WEBHOOK] Machine limit reached for user ${userId} (${machineLimit.current}/${machineLimit.max}) — cancelling subscription ${subscriptionId || 'unknown'}`);
+    console.warn(`[STRIPE WEBHOOK] Machine limit reached for account ${accountId} (${machineLimit.current}/${machineLimit.max}) — cancelling subscription ${subscriptionId || 'unknown'}`);
     if (subscriptionId) {
       await stripeClient.cancelMachineSubscription(subscriptionId);
     }
@@ -286,10 +304,10 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     const resolvedCommand = machineConfig.command;
 
     const { slug, machineToken } = await generateMachineIdentity();
-    const autoKey = await autoGenerateAndSaveSSHKey(userId, slug);
+    const autoKey = await autoGenerateAndSaveSSHKey(userId, accountId, slug);
 
     const extraSSHKeys = machineConfig.ssh_key_ids?.length
-      ? await resolveSSHKeyPublicKeys(userId, machineConfig.ssh_key_ids)
+      ? await resolveSSHKeyPublicKeys(accountId, machineConfig.ssh_key_ids)
       : [];
 
     const providerKeyId = await uploadSSHKeyToProvider(provider, slug, autoKey.publicKey);
@@ -308,6 +326,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
     const machine = await createMachineRecord({
       ownerId: userId,
+      accountId,
       slug,
       name: machineConfig.name || `machine-${slug}`,
       provider: machineConfig.provider,
@@ -334,6 +353,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       await db.insert(subscriptions).values({
         machineId: machine.id,
         ownerId: userId,
+        accountId,
         stripeSubscriptionId: subscriptionId,
         stripeSubscriptionItemId: subscriptionItemId || null,
         stripeCheckoutSessionId: session.id,
@@ -341,7 +361,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       });
     }
 
-    await eventBus.emitStageChange(machine.id, userId, 'server_creating', 'Creating server on provider...');
+    await eventBus.emitStageChange(machine.id, accountId, 'server_creating', 'Creating server on provider...');
 
     await db.update(machines).set({
       providerMeta: {
@@ -353,11 +373,11 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     }).where(eq(machines.id, machine.id));
 
     // Provision async — don't block the webhook response
-    provisionMachineAsync(machine, provider, machineConfig, slug, userId, userdata, providerKeyId, priceMonthly, resolvedImage, subscriptionId, callbackConfig);
+    provisionMachineAsync(machine, provider, machineConfig, slug, accountId, userId, userdata, providerKeyId, priceMonthly, resolvedImage, subscriptionId, callbackConfig);
 
     console.log(`[STRIPE WEBHOOK] Machine ${slug} created and queued for provisioning`);
   } catch (err) {
-    console.error(`[STRIPE WEBHOOK] Failed to provision machine for user ${userId}:`, err);
+    console.error(`[STRIPE WEBHOOK] Failed to provision machine for account ${accountId}:`, err);
   }
 }
 
@@ -368,6 +388,7 @@ function provisionMachineAsync(
   provider: ReturnType<typeof getProvider>,
   machineConfig: CheckoutMachineConfig,
   slug: string,
+  accountId: string,
   userId: string,
   userdata: string,
   providerKeyId: string,
@@ -413,10 +434,10 @@ function provisionMachineAsync(
         },
       }).where(eq(machines.id, machine.id));
 
-      await eventBus.emitStageChange(machine.id, userId, 'server_created', `Server created (IP: ${server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp})`, { ip: server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp });
+      await eventBus.emitStageChange(machine.id, accountId, 'server_created', `Server created (IP: ${server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp})`, { ip: server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp });
 
       if (config.isCloudflareConfigured()) {
-        await setupProxyDNS(machine.id, slug, { ipv4: server.publicIpv4, ipv6: server.publicIpv6 }, userId, machineConfig.server_type);
+        await setupProxyDNS(machine.id, slug, { ipv4: server.publicIpv4, ipv6: server.publicIpv6 }, accountId, machineConfig.server_type);
       }
 
       if (priceMonthly) {
@@ -435,7 +456,7 @@ function provisionMachineAsync(
         status: 'error',
         providerMeta: { error: err instanceof Error ? err.message : String(err) },
       }).where(eq(machines.id, machine.id));
-      await eventBus.emitStatusChange(machine.id, userId, 'error', `Provisioning failed: ${err instanceof Error ? err.message : String(err)}`);
+      await eventBus.emitStatusChange(machine.id, accountId, 'error', `Provisioning failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   })();
 }
@@ -454,10 +475,10 @@ async function handlePaymentFailed(invoice: Stripe.Invoice) {
 
   if (!customerId) return;
 
-  const [user] = await db.select().from(users).where(eq(users.stripeCustomerId, customerId));
-  if (!user) return;
+  const [account] = await db.select().from(accounts).where(eq(accounts.stripeCustomerId, customerId));
+  if (!account) return;
 
-  console.warn(`[STRIPE WEBHOOK] Payment failed for user ${user.email} (${user.id})`);
+  console.warn(`[STRIPE WEBHOOK] Payment failed for account ${account.name} (${account.id})`);
 
   if (!subscriptionId) return;
 
@@ -473,7 +494,7 @@ async function handlePaymentFailed(invoice: Stripe.Invoice) {
     if (attemptCount >= 3 && m.status === 'ready') {
       console.warn(`[STRIPE WEBHOOK] Stopping machine ${m.slug} after ${attemptCount} failed payment attempts`);
       await db.update(machines).set({ status: 'stopped' }).where(eq(machines.id, m.id));
-      await eventBus.emitStatusChange(m.id, user.id, 'stopped', `Machine stopped due to failed payment (attempt #${attemptCount})`);
+      await eventBus.emitStatusChange(m.id, m.accountId ?? account.id, 'stopped', `Machine stopped due to failed payment (attempt #${attemptCount})`);
     } else {
       console.warn(`[STRIPE WEBHOOK] Machine ${m.slug} has failed payment (attempt #${attemptCount}) — Stripe will retry`);
     }
@@ -583,13 +604,13 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
     if ((newStatus === 'past_due' || newStatus === 'unpaid') && machine.status === 'ready') {
       console.warn(`[STRIPE WEBHOOK] Stopping machine ${machine.slug} — subscription is ${newStatus}`);
       await db.update(machines).set({ status: 'stopped' }).where(eq(machines.id, machine.id));
-      await eventBus.emitStatusChange(machine.id, machine.ownerId, 'stopped', `Machine stopped: subscription ${newStatus}`);
+      await eventBus.emitStatusChange(machine.id, machine.accountId ?? machine.ownerId, 'stopped', `Machine stopped: subscription ${newStatus}`);
     }
 
     if (newStatus === 'active' && machine.status === 'stopped') {
       console.log(`[STRIPE WEBHOOK] Reactivating machine ${machine.slug} — subscription is active again`);
       await db.update(machines).set({ status: 'ready' }).where(eq(machines.id, machine.id));
-      await eventBus.emitStatusChange(machine.id, machine.ownerId, 'ready', 'Machine reactivated: payment succeeded');
+      await eventBus.emitStatusChange(machine.id, machine.accountId ?? machine.ownerId, 'ready', 'Machine reactivated: payment succeeded');
     }
   }
 }

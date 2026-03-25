@@ -82,7 +82,7 @@ export interface CloudflareWorkerRoute {
 
 export interface MachineRoutingKVRecord {
   machine_id: string;
-  owner_id: string;
+  account_id: string;
   ip: string;
   origin_hostname?: string;
   status: string;

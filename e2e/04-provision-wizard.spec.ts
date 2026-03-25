@@ -1,58 +1,45 @@
 /**
- * E2E: Provision wizard — 3 featured plans + custom sizes.
+ * E2E: Deploy modal — recommended plan + expandable size chooser.
  */
 import { test, expect } from '@playwright/test';
 import { login } from './helpers';
 
 test.describe('Provision Wizard', () => {
   test.beforeEach(async ({ page }) => {
-    await login(page);
-    await page.goto('/machines/new');
+    await login(page, `wizard-${Date.now()}@example.com`, 'testpassword123');
+    await page.goto('/machines');
     await page.waitForLoadState('networkidle');
+    await page.locator('button:has-text("New Machine")').first().click();
+    await expect(page.locator('h2:has-text("Deploy a machine")')).toBeVisible();
   });
 
   test('shows wizard heading', async ({ page }) => {
-    await expect(page.locator('h1:has-text("New Machine")')).toBeVisible();
+    await expect(page.locator('h2:has-text("Deploy a machine")')).toBeVisible();
   });
 
-  test('has back link to machines list', async ({ page }) => {
-    const backLinks = page.locator('a[href="/machines"]');
-    const count = await backLinks.count();
-    expect(count).toBeGreaterThanOrEqual(2); // sidebar + back arrow
+  test('can close the modal', async ({ page }) => {
+    await page.keyboard.press('Escape');
+    await expect(page.locator('h2:has-text("Deploy a machine")')).toHaveCount(0);
   });
 
-  test('shows featured plan cards', async ({ page }) => {
-    // Wait for server types to load
-    await page.waitForFunction(
-      () => document.body.textContent?.includes('/mo'),
-      { timeout: 15_000 }
-    );
+  test('shows recommended plan card', async ({ page }) => {
+    await expect(page.locator('text=RECOMMENDED')).toBeVisible({ timeout: 15_000 });
     const body = await page.locator('body').textContent();
-    expect(body).toContain('Starter');
-    expect(body).toContain('Pro');
-    expect(body).toContain('Power');
-    expect(body).toContain('Most Popular');
+    expect(body).toContain('Basic');
+    expect(body).toContain('Deploy machine');
   });
 
-  test('shows custom size toggle', async ({ page }) => {
-    await page.waitForFunction(
-      () => document.body.textContent?.includes('Custom size'),
-      { timeout: 15_000 }
-    );
-    await expect(page.locator('text=Custom size').first()).toBeVisible();
+  test('shows expandable size chooser', async ({ page }) => {
+    const toggle = page.locator('button:has-text("Need a different size?")').or(page.locator('button:has-text("Change plan")'));
+    await expect(toggle.first()).toBeVisible();
+    await toggle.first().click();
+    await expect(page.locator('text=Starter').first()).toBeVisible();
+    await expect(page.locator('text=Pro').first()).toBeVisible();
+    await expect(page.locator('text=Power').first()).toBeVisible();
   });
 
-  test('shows Deploy Machine button or snapshot prompt', async ({ page }) => {
-    // Wait for the page to settle
-    await page.waitForFunction(
-      () => {
-        const text = document.body.textContent || '';
-        return text.includes('Deploy Machine') || text.includes('No snapshots') || text.includes('Starter');
-      },
-      { timeout: 15_000 }
-    );
-    const body = await page.locator('body').textContent();
-    // Should show Deploy button (if snapshot exists) or snapshot prompt (if not)
-    expect(body?.includes('Deploy Machine') || body?.includes('No snapshots') || body?.includes('Starter')).toBeTruthy();
+  test('shows deploy controls and backups toggle', async ({ page }) => {
+    await expect(page.locator('button:has-text("Deploy machine")')).toBeVisible();
+    await expect(page.locator('text=Daily backups').first()).toBeVisible();
   });
 });

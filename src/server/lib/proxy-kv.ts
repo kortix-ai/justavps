@@ -2,9 +2,9 @@
  * Sync API keys and proxy tokens to Cloudflare KV for Worker auth.
  *
  * The Worker verifies API keys by computing SHA-256 of the raw key
- * and looking it up in KV: `apikey:{sha256hex} → { owner_id, name, scope, ... }`.
+ * and looking it up in KV: `apikey:{sha256hex} → { account_id, name, scope, ... }`.
  *
- * Proxy tokens use: `pt:{sha256hex} → { owner_id, machine_id, machine_slug, ports, expires_at }`.
+ * Proxy tokens use: `pt:{sha256hex} → { account_id, machine_id, machine_slug, ports, expires_at }`.
  *
  * This is separate from the bcrypt hash stored in the database (used for
  * platform API auth). The Worker runtime doesn't support bcrypt.
@@ -88,13 +88,13 @@ export interface ApiKeyKVExtra {
  */
 export async function syncApiKeyToKV(
   rawKey: string,
-  ownerId: string,
+  accountId: string,
   name: string,
   extra?: ApiKeyKVExtra,
 ): Promise<void> {
   const hash = sha256Hex(rawKey);
   const value = JSON.stringify({
-    owner_id: ownerId,
+    account_id: accountId,
     name,
     scope: extra?.scope ?? 'account',
     machine_ids: extra?.machineIds ?? null,
@@ -125,7 +125,7 @@ export async function deleteApiKeyFromKV(keyPrefix: string): Promise<void> {
 export async function syncProxyTokenToKV(
   rawToken: string,
   data: {
-    owner_id: string;
+    account_id: string;
     machine_id: string;
     machine_slug: string;
     ports: number[] | null;

@@ -366,7 +366,7 @@ export const AckResponseSchema = z.object({
 
 export const ValidateKeyResponseSchema = z.object({
   valid: z.boolean(),
-  owner_id: z.string().uuid().optional(),
+  account_id: z.string().uuid().optional(),
   scope: z.enum(['account', 'machine']).optional(),
   machine_ids: z.array(z.string()).nullable().optional(),
   permissions: z.array(z.string()).optional(),

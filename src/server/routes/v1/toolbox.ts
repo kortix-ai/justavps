@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Toolbox routes — authenticated proxy to daemon's /toolbox/* endpoints.
  *
@@ -54,9 +55,9 @@ const bearerSecurity = [{ bearerAuth: [] as string[] }, { cookieAuth: [] as stri
 /**
  * Resolve machine by ID, verify ownership, ensure it's ready and has an IP.
  */
-async function resolveMachine(c: any, machineId: string, ownerId: string) {
+async function resolveMachine(c: any, machineId: string, accountId: string) {
   const [machine] = await db.select().from(machines).where(eq(machines.id, machineId));
-  if (!machine || machine.ownerId !== ownerId) {
+  if (!machine || machine.accountId !== accountId) {
     return { error: errorResponse(c, 404, 'Machine not found') };
   }
   if (machine.status !== 'ready') {
@@ -105,8 +106,8 @@ async function proxyToToolbox(
 /**
  * Standard proxy handler: resolve machine → proxy GET/POST → return JSON.
  */
-async function proxyJSON(c: any, machineId: string, ownerId: string, method: string, daemonPath: string, body?: any) {
-  const result = await resolveMachine(c, machineId, ownerId);
+async function proxyJSON(c: any, machineId: string, accountId: string, method: string, daemonPath: string, body?: any) {
+  const result = await resolveMachine(c, machineId, accountId);
   if ('error' in result) return result.error;
 
   try {
@@ -152,12 +153,12 @@ const listFilesRoute = createRoute({
 
 toolboxApp.openapi(listFilesRoute, async (c) => {
   const { machineId } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const query = c.req.valid('query');
   const params = new URLSearchParams();
   if (query.path) params.set('path', query.path);
   if (query.depth) params.set('depth', query.depth);
-  return proxyJSON(c, machineId, ownerId, 'GET', `/toolbox/files?${params}`) as any;
+  return proxyJSON(c, machineId, accountId, 'GET', `/toolbox/files?${params}`) as any;
 });
 
 // ── GET /:machineId/toolbox/files/info — File info ──────────────────────────
@@ -184,9 +185,9 @@ const fileInfoRoute = createRoute({
 
 toolboxApp.openapi(fileInfoRoute, async (c) => {
   const { machineId } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const { path } = c.req.valid('query');
-  return proxyJSON(c, machineId, ownerId, 'GET', `/toolbox/files/info?path=${encodeURIComponent(path)}`) as any;
+  return proxyJSON(c, machineId, accountId, 'GET', `/toolbox/files/info?path=${encodeURIComponent(path)}`) as any;
 });
 
 // ── GET /:machineId/toolbox/files/exists — Check exists ─────────────────────
@@ -211,9 +212,9 @@ const fileExistsRoute = createRoute({
 
 toolboxApp.openapi(fileExistsRoute, async (c) => {
   const { machineId } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const { path } = c.req.valid('query');
-  return proxyJSON(c, machineId, ownerId, 'GET', `/toolbox/files/exists?path=${encodeURIComponent(path)}`) as any;
+  return proxyJSON(c, machineId, accountId, 'GET', `/toolbox/files/exists?path=${encodeURIComponent(path)}`) as any;
 });
 
 // ── GET /:machineId/toolbox/files/download — Download file ──────────────────
@@ -240,10 +241,10 @@ const downloadFileRoute = createRoute({
 
 toolboxApp.openapi(downloadFileRoute, async (c) => {
   const { machineId } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const { path } = c.req.valid('query');
 
-  const result = await resolveMachine(c, machineId, ownerId);
+  const result = await resolveMachine(c, machineId, accountId);
   if ('error' in result) return result.error as any;
 
   try {
@@ -293,10 +294,10 @@ const uploadFileRoute = createRoute({
 
 toolboxApp.openapi(uploadFileRoute, async (c) => {
   const { machineId } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const query = c.req.valid('query');
 
-  const result = await resolveMachine(c, machineId, ownerId);
+  const result = await resolveMachine(c, machineId, accountId);
   if ('error' in result) return result.error as any;
 
   try {
@@ -344,12 +345,12 @@ const createFolderRoute = createRoute({
 
 toolboxApp.openapi(createFolderRoute, async (c) => {
   const { machineId } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const query = c.req.valid('query');
   const params = new URLSearchParams();
   params.set('path', query.path);
   if (query.mode) params.set('mode', query.mode);
-  return proxyJSON(c, machineId, ownerId, 'POST', `/toolbox/files/folder?${params}`) as any;
+  return proxyJSON(c, machineId, accountId, 'POST', `/toolbox/files/folder?${params}`) as any;
 });
 
 // ── DELETE /:machineId/toolbox/files — Delete file or directory ─────────────
@@ -378,12 +379,12 @@ const deleteFileRoute = createRoute({
 
 toolboxApp.openapi(deleteFileRoute, async (c) => {
   const { machineId } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const query = c.req.valid('query');
   const params = new URLSearchParams();
   params.set('path', query.path);
   if (query.recursive) params.set('recursive', query.recursive);
-  return proxyJSON(c, machineId, ownerId, 'DELETE', `/toolbox/files?${params}`) as any;
+  return proxyJSON(c, machineId, accountId, 'DELETE', `/toolbox/files?${params}`) as any;
 });
 
 // ── POST /:machineId/toolbox/files/move — Move or rename ────────────────────
@@ -410,9 +411,9 @@ const moveFileRoute = createRoute({
 
 toolboxApp.openapi(moveFileRoute, async (c) => {
   const { machineId } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const query = c.req.valid('query');
-  return proxyJSON(c, machineId, ownerId, 'POST', `/toolbox/files/move?source=${encodeURIComponent(query.source)}&destination=${encodeURIComponent(query.destination)}`) as any;
+  return proxyJSON(c, machineId, accountId, 'POST', `/toolbox/files/move?source=${encodeURIComponent(query.source)}&destination=${encodeURIComponent(query.destination)}`) as any;
 });
 
 // ── GET /:machineId/toolbox/files/find — Search text ────────────────────────
@@ -441,14 +442,14 @@ const findTextRoute = createRoute({
 
 toolboxApp.openapi(findTextRoute, async (c) => {
   const { machineId } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const query = c.req.valid('query');
   const params = new URLSearchParams();
   params.set('path', query.path);
   params.set('pattern', query.pattern);
   if (query.include) params.set('include', query.include);
   if (query.max_results) params.set('max_results', query.max_results);
-  return proxyJSON(c, machineId, ownerId, 'GET', `/toolbox/files/find?${params}`) as any;
+  return proxyJSON(c, machineId, accountId, 'GET', `/toolbox/files/find?${params}`) as any;
 });
 
 // ── POST /:machineId/toolbox/files/replace — Find & replace ─────────────────
@@ -471,9 +472,9 @@ const replaceTextRoute = createRoute({
 
 toolboxApp.openapi(replaceTextRoute, async (c) => {
   const { machineId } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const body = c.req.valid('json');
-  return proxyJSON(c, machineId, ownerId, 'POST', '/toolbox/files/replace', body) as any;
+  return proxyJSON(c, machineId, accountId, 'POST', '/toolbox/files/replace', body) as any;
 });
 
 // ── POST /:machineId/toolbox/files/permissions — Set permissions ────────────
@@ -501,10 +502,10 @@ const setPermissionsRoute = createRoute({
 
 toolboxApp.openapi(setPermissionsRoute, async (c) => {
   const { machineId } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const { path } = c.req.valid('query');
   const body = c.req.valid('json');
-  return proxyJSON(c, machineId, ownerId, 'POST', `/toolbox/files/permissions?path=${encodeURIComponent(path)}`, body) as any;
+  return proxyJSON(c, machineId, accountId, 'POST', `/toolbox/files/permissions?path=${encodeURIComponent(path)}`, body) as any;
 });
 
 // ── POST /:machineId/toolbox/files/bulk-download — Download as zip ──────────
@@ -527,10 +528,10 @@ const bulkDownloadRoute = createRoute({
 
 toolboxApp.openapi(bulkDownloadRoute, async (c) => {
   const { machineId } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const body = c.req.valid('json');
 
-  const result = await resolveMachine(c, machineId, ownerId);
+  const result = await resolveMachine(c, machineId, accountId);
   if ('error' in result) return result.error as any;
 
   try {
@@ -571,9 +572,9 @@ const executeRoute = createRoute({
 
 toolboxApp.openapi(executeRoute, async (c) => {
   const { machineId } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const body = c.req.valid('json');
-  return proxyJSON(c, machineId, ownerId, 'POST', '/toolbox/process/execute', body) as any;
+  return proxyJSON(c, machineId, accountId, 'POST', '/toolbox/process/execute', body) as any;
 });
 
 // ── POST /:machineId/toolbox/process/execute/stream — SSE streaming ─────────
@@ -597,10 +598,10 @@ const executeStreamRoute = createRoute({
 
 toolboxApp.openapi(executeStreamRoute, async (c) => {
   const { machineId } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const body = c.req.valid('json');
 
-  const result = await resolveMachine(c, machineId, ownerId);
+  const result = await resolveMachine(c, machineId, accountId);
   if ('error' in result) return result.error as any;
 
   try {
@@ -637,9 +638,9 @@ const codeRunRoute = createRoute({
 
 toolboxApp.openapi(codeRunRoute, async (c) => {
   const { machineId } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const body = c.req.valid('json');
-  return proxyJSON(c, machineId, ownerId, 'POST', '/toolbox/process/code-run', body) as any;
+  return proxyJSON(c, machineId, accountId, 'POST', '/toolbox/process/code-run', body) as any;
 });
 
 // ── GET /:machineId/toolbox/process/list — List processes ───────────────────
@@ -660,8 +661,8 @@ const listProcessesRoute = createRoute({
 
 toolboxApp.openapi(listProcessesRoute, async (c) => {
   const { machineId } = c.req.valid('param');
-  const ownerId = c.get('userId');
-  return proxyJSON(c, machineId, ownerId, 'GET', '/toolbox/process/list') as any;
+  const accountId = c.get('accountId');
+  return proxyJSON(c, machineId, accountId, 'GET', '/toolbox/process/list') as any;
 });
 
 // ── POST /:machineId/toolbox/process/kill — Kill process ────────────────────
@@ -686,7 +687,7 @@ const killProcessRoute = createRoute({
 
 toolboxApp.openapi(killProcessRoute, async (c) => {
   const { machineId } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const body = c.req.valid('json');
-  return proxyJSON(c, machineId, ownerId, 'POST', '/toolbox/process/kill', body) as any;
+  return proxyJSON(c, machineId, accountId, 'POST', '/toolbox/process/kill', body) as any;
 });

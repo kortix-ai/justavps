@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { eq, and, desc } from 'drizzle-orm';
 import { randomBytes, createHmac } from 'crypto';
@@ -45,11 +46,13 @@ const createWebhookRoute = createRoute({
 webhooksApp.openapi(createWebhookRoute, async (c) => {
   const parsed = c.req.valid('json');
   const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const secret = parsed.secret || `whsec_${randomBytes(24).toString('hex')}`;
 
   try {
     const [webhook] = await db.insert(webhooks).values({
       ownerId,
+      accountId,
       url: parsed.url,
       secret,
       events: parsed.events,
@@ -87,13 +90,13 @@ const listWebhooksRoute = createRoute({
 });
 
 webhooksApp.openapi(listWebhooksRoute, async (c) => {
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
 
   try {
     const rows = await db
       .select()
       .from(webhooks)
-      .where(eq(webhooks.ownerId, ownerId));
+      .where(eq(webhooks.accountId, accountId));
 
     return c.json({
       webhooks: rows.map((w) => ({
@@ -133,12 +136,12 @@ const deleteWebhookRoute = createRoute({
 
 webhooksApp.openapi(deleteWebhookRoute, async (c) => {
   const { id } = c.req.valid('param');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
 
   try {
     const deleted = await db
       .delete(webhooks)
-      .where(and(eq(webhooks.id, id), eq(webhooks.ownerId, ownerId)))
+      .where(and(eq(webhooks.id, id), eq(webhooks.accountId, accountId)))
       .returning();
 
     if (deleted.length === 0) {
@@ -153,7 +156,7 @@ webhooksApp.openapi(deleteWebhookRoute, async (c) => {
 
 webhooksApp.patch('/:id', async (c) => {
   const id = c.req.param('id');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const body = await c.req.json().catch(() => ({}));
 
   const updates: Record<string, unknown> = {};
@@ -175,7 +178,7 @@ webhooksApp.patch('/:id', async (c) => {
   try {
     const [updated] = await db.update(webhooks)
       .set(updates as any)
-      .where(and(eq(webhooks.id, id), eq(webhooks.ownerId, ownerId)))
+      .where(and(eq(webhooks.id, id), eq(webhooks.accountId, accountId)))
       .returning();
 
     if (!updated) return errorResponse(c, 404, 'Webhook not found') as any;
@@ -198,13 +201,13 @@ webhooksApp.patch('/:id', async (c) => {
 
 webhooksApp.get('/:id/deliveries', async (c) => {
   const id = c.req.param('id');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
   const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100);
   const offset = parseInt(c.req.query('offset') || '0');
 
   const [hook] = await db.select({ id: webhooks.id })
     .from(webhooks)
-    .where(and(eq(webhooks.id, id), eq(webhooks.ownerId, ownerId)))
+    .where(and(eq(webhooks.id, id), eq(webhooks.accountId, accountId)))
     .limit(1);
 
   if (!hook) return errorResponse(c, 404, 'Webhook not found') as any;
@@ -238,11 +241,11 @@ webhooksApp.get('/:id/deliveries', async (c) => {
 
 webhooksApp.post('/:id/test', async (c) => {
   const id = c.req.param('id');
-  const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
 
   const [hook] = await db.select()
     .from(webhooks)
-    .where(and(eq(webhooks.id, id), eq(webhooks.ownerId, ownerId)))
+    .where(and(eq(webhooks.id, id), eq(webhooks.accountId, accountId)))
     .limit(1);
 
   if (!hook) return errorResponse(c, 404, 'Webhook not found') as any;
@@ -251,7 +254,7 @@ webhooksApp.post('/:id/test', async (c) => {
     event: 'machine.test',
     data: {
       machineId: '00000000-0000-0000-0000-000000000000',
-      ownerId,
+      accountId,
       event: 'test',
       message: 'Test webhook delivery from JustAVPS',
       timestamp: new Date().toISOString(),

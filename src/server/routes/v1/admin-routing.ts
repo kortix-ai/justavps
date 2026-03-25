@@ -45,7 +45,7 @@ function primaryIp(machine: MachineRow, addresses: { ipv4?: string | null; ipv6?
 function buildMachineKV(machine: MachineRow, ip: string) {
   return {
     machine_id: machine.id,
-    owner_id: machine.ownerId,
+    account_id: machine.accountId ?? machine.ownerId,
     ip,
     status: machine.status,
     server_type: machine.serverType,
@@ -115,7 +115,7 @@ async function scanRoutingState() {
       id: machine.id,
       slug: machine.slug,
       status: machine.status,
-      owner_id: machine.ownerId,
+      account_id: machine.accountId ?? machine.ownerId,
       ip,
       kv_present: kvPresent,
       machine_dns_count: machineDnsCount,

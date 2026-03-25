@@ -108,9 +108,9 @@ export const stripeClient = {
   },
 
   /**
-   * Get or create a Stripe customer for a user.
+   * Get or create a Stripe customer for an account.
    */
-  async getOrCreateCustomer(userId: string, email: string, existingCustomerId?: string | null): Promise<string> {
+  async getOrCreateCustomer(accountId: string, email: string, existingCustomerId?: string | null): Promise<string> {
     if (existingCustomerId) {
       try {
         const existingById = await stripe.customers.retrieve(existingCustomerId);
@@ -124,7 +124,7 @@ export const stripeClient = {
 
     // Search for existing customer by metadata
     const existing = await stripe.customers.search({
-      query: `metadata['justavps_user_id']:'${userId}'`,
+      query: `metadata['justavps_account_id']:'${accountId}'`,
     });
 
     if (existing.data.length > 0) {
@@ -134,7 +134,7 @@ export const stripeClient = {
     // Create new customer
     const customer = await stripe.customers.create({
       email,
-      metadata: { justavps_user_id: userId },
+      metadata: { justavps_account_id: accountId },
     });
 
     return customer.id;
@@ -167,6 +167,7 @@ export const stripeClient = {
   async createCheckoutSession(params: {
     customerId?: string | null;
     userId?: string | null;
+    accountId?: string | null;
     machineConfig: CheckoutMachineConfig;
     priceMonthlyUsd: number;
     successUrl: string;
@@ -205,6 +206,7 @@ export const stripeClient = {
         price_monthly: String(params.priceMonthlyUsd),
         billing_interval: billingInterval,
         ...(params.userId ? { justavps_user_id: params.userId } : {}),
+        ...(params.accountId ? { justavps_account_id: params.accountId } : {}),
       },
       subscription_data: {
         metadata: {
@@ -213,6 +215,7 @@ export const stripeClient = {
           machine_region: params.machineConfig.region,
           billing_interval: billingInterval,
           ...(params.userId ? { justavps_user_id: params.userId } : {}),
+          ...(params.accountId ? { justavps_account_id: params.accountId } : {}),
         },
       },
       payment_method_types: ['card'],
@@ -510,6 +513,17 @@ export const stripeClient = {
     } catch (err) {
       console.warn(`[STRIPE] Failed to set default payment method for ${customerId}:`, err);
     }
+  },
+
+  async linkCustomerToAccount(customerId: string, accountId: string, email?: string | null): Promise<void> {
+    if (!customerId) return;
+
+    await stripe.customers.update(customerId, {
+      ...(email ? { email: email.trim().toLowerCase() } : {}),
+      metadata: {
+        justavps_account_id: accountId,
+      },
+    });
   },
 
   async linkCustomerToUser(customerId: string, userId: string, email?: string | null): Promise<void> {

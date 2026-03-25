@@ -18,6 +18,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/server/lib/auth';
 import { signProxyToken, buildProxyCookieHeader } from '@/server/lib/proxy-token';
 import { config } from '@/server/lib/config';
+import { db } from '@/server/db';
+import { users } from '@/server/db/schema';
+import { eq } from 'drizzle-orm';
+import { ACCOUNT_COOKIE_NAME, resolveAccountForUser } from '@/server/lib/accounts';
 
 const escapedProxyDomain = config.PROXY_DOMAIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const ALLOWED_REDIRECT_PATTERN = new RegExp(`^https:\\/\\/(?:[0-9]+--)?[a-z0-9-]+\\.${escapedProxyDomain}(?:\\/.*)?$`);
@@ -43,8 +47,16 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 3. Sign proxy JWT (user-scoped)
-    const token = await signProxyToken(session.user.id);
+    const [user] = await db.select().from(users).where(eq(users.id, session.user.id)).limit(1);
+    if (!user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    const requestedAccountId = request.cookies.get(ACCOUNT_COOKIE_NAME)?.value || null;
+    const accountContext = await resolveAccountForUser(user, requestedAccountId);
+
+    // 3. Sign proxy JWT (account-scoped)
+    const token = await signProxyToken(accountContext.active.account.id, session.user.id);
 
     // 4. Redirect back to the machine URL with token in query param.
     // The CF Worker will read the token, verify it, set the cookie on .kortix.cloud
@@ -66,13 +78,20 @@ export async function GET(request: NextRequest) {
  * Requires Authorization header (API key or session).
  * Returns the JWT in the response body (for WebSocket connections, iframes, etc.)
  */
-export async function POST() {
+export async function POST(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
   }
 
-  const token = await signProxyToken(session.user.id);
+  const [user] = await db.select().from(users).where(eq(users.id, session.user.id)).limit(1);
+  if (!user) {
+    return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  }
+
+  const requestedAccountId = request.cookies.get(ACCOUNT_COOKIE_NAME)?.value || null;
+  const accountContext = await resolveAccountForUser(user, requestedAccountId);
+  const token = await signProxyToken(accountContext.active.account.id, session.user.id);
 
   return NextResponse.json({
     token,

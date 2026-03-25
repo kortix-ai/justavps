@@ -60,6 +60,7 @@ export default function BillingPage() {
 
   const estimatedCost = usage?.current_period?.estimated_cost ?? 0;
   const hasPaymentMethod = billing?.has_payment_method ?? false;
+  const canManageBilling = billing?.can_manage_billing ?? true;
 
   // Show toast on return from Stripe setup/checkout
   useEffect(() => {
@@ -77,7 +78,7 @@ export default function BillingPage() {
       <h1 className="font-heading text-3xl tracking-tight">Billing</h1>
 
       {/* Payment method status */}
-      {!billingLoading && !hasPaymentMethod && (
+      {!billingLoading && !hasPaymentMethod && canManageBilling && (
         <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
           <AlertTriangle className="size-4 text-amber-500 shrink-0 mt-0.5" />
           <div className="space-y-2">
@@ -104,6 +105,16 @@ export default function BillingPage() {
         <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
           <CheckCircle2 className="size-4 text-emerald-500" />
           <span className="text-sm text-emerald-700 dark:text-emerald-400">Payment method on file</span>
+        </div>
+      )}
+
+      {!billingLoading && !canManageBilling && (
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-muted/40 border">
+          <AlertTriangle className="size-4 text-muted-foreground shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium">Billing managed by account owner/admin</p>
+            <p className="text-xs text-muted-foreground mt-1">Switch to an account where you are an owner/admin to update payment methods or open the Stripe portal.</p>
+          </div>
         </div>
       )}
 
@@ -286,7 +297,7 @@ export default function BillingPage() {
               {billingLoading ? "Loading…" : "No billing portal available"}
             </Button>
           )}
-          {!hasPaymentMethod && !billingLoading && (
+          {!hasPaymentMethod && !billingLoading && canManageBilling && (
             <Button
               onClick={() => setupPayment.mutate()}
               disabled={setupPayment.isPending}

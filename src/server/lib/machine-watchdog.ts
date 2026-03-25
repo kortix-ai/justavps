@@ -53,7 +53,7 @@ const recentReboots = new Map<string, number>(); // machineId -> timestamp
 interface WatchdogAlert {
   machineId: string;
   slug: string;
-  ownerId: string;
+  accountId: string;
   type: 'heartbeat_stale' | 'heartbeat_dead' | 'security_tamper' | 'network_anomaly' | 'auto_reboot';
   details: string[];
 }
@@ -196,7 +196,7 @@ export async function runWatchdog(): Promise<WatchdogAlert[]> {
         alerts.push({
           machineId: machine.id,
           slug: machine.slug,
-          ownerId: machine.ownerId,
+          accountId: machine.accountId ?? machine.ownerId,
           type: 'heartbeat_dead',
           details: [`No heartbeat for ${Math.round(elapsed / 60_000)} minutes — daemon may be killed or machine unreachable`],
         });
@@ -216,7 +216,7 @@ export async function runWatchdog(): Promise<WatchdogAlert[]> {
               alerts.push({
                 machineId: machine.id,
                 slug: machine.slug,
-                ownerId: machine.ownerId,
+                accountId: machine.accountId ?? machine.ownerId,
                 type: 'auto_reboot',
                 details: [`Auto-rebooted via Hetzner API after ${Math.round(elapsed / 60_000)} minutes without heartbeat`],
               });
@@ -227,7 +227,7 @@ export async function runWatchdog(): Promise<WatchdogAlert[]> {
         alerts.push({
           machineId: machine.id,
           slug: machine.slug,
-          ownerId: machine.ownerId,
+          accountId: machine.accountId ?? machine.ownerId,
           type: 'heartbeat_stale',
           details: [`Heartbeat stale for ${Math.round(elapsed / 60_000)} minutes`],
         });
@@ -245,7 +245,7 @@ export async function runWatchdog(): Promise<WatchdogAlert[]> {
         alerts.push({
           machineId: machine.id,
           slug: machine.slug,
-          ownerId: machine.ownerId,
+          accountId: machine.accountId ?? machine.ownerId,
           type: 'security_tamper',
           details: machineAlerts,
         });
@@ -271,7 +271,7 @@ export async function runWatchdog(): Promise<WatchdogAlert[]> {
           alerts.push({
             machineId: machine.id,
             slug: machine.slug,
-            ownerId: machine.ownerId,
+            accountId: machine.accountId ?? machine.ownerId,
             type: 'network_anomaly',
             details: netAlerts,
           });
@@ -289,7 +289,7 @@ export async function runWatchdog(): Promise<WatchdogAlert[]> {
     // Emit as transient event for webhook delivery
     eventBus.emitTransient({
       machineId: alert.machineId,
-      ownerId: alert.ownerId,
+      accountId: alert.accountId,
       event: 'heartbeat',
       metadata: {
         alert: alert.type,

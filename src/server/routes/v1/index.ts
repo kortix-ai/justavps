@@ -19,6 +19,7 @@ import { importKortixApp } from './import-kortix';
 import { proxyTokensApp } from './proxy-tokens';
 import { proxyApp } from './proxy'; // ⚠️ DEPRECATED — see proxy.ts header comment
 import { adminRoutingApp } from './admin-routing';
+import { adminMachinesApp } from './admin-machines';
 
 export const v1 = new OpenAPIHono();
 
@@ -31,6 +32,7 @@ v1.route('/proxy-tokens', proxyTokensApp);
 v1.route('/server-types', serverTypesApp);
 v1.route('/account', accountApp);
 v1.route('/admin/routing', adminRoutingApp);
+v1.route('/admin/machines', adminMachinesApp);
 v1.route('/internal', internalApp);
 v1.route('/machines', sseApp); // SSE status stream mounted under /machines/:id/status/stream
 v1.route('/machines', toolboxApp); // Toolbox FS + Process API under /machines/:id/toolbox/*

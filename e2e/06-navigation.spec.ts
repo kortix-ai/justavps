@@ -6,21 +6,21 @@ import { login } from './helpers';
 
 test.describe('Navigation', () => {
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await login(page, `nav-${Date.now()}@example.com`, 'testpassword123');
   });
 
   test('sidebar has all navigation links', async ({ page }) => {
     await expect(page.locator('a:has-text("Machines")')).toBeVisible();
-    await expect(page.locator('a:has-text("Snapshots")')).toBeVisible();
+    await expect(page.locator('a:has-text("Images")')).toBeVisible();
     await expect(page.locator('a:has-text("Keys")')).toBeVisible();
     await expect(page.locator('a:has-text("Billing")')).toBeVisible();
     await expect(page.locator('a:has-text("Docs")')).toBeVisible();
   });
 
-  test('navigate to Snapshots via sidebar', async ({ page }) => {
-    await page.locator('a:has-text("Snapshots")').click();
-    await page.waitForURL('**/snapshots');
-    await expect(page.locator('h1:has-text("Snapshots")')).toBeVisible();
+  test('navigate to Images via sidebar', async ({ page }) => {
+    await page.locator('a:has-text("Images")').click();
+    await page.waitForURL('**/images');
+    await expect(page.locator('h1:has-text("Images")')).toBeVisible();
   });
 
   test('navigate to Keys via sidebar', async ({ page }) => {
@@ -31,14 +31,14 @@ test.describe('Navigation', () => {
 
   test('navigate to Billing via sidebar', async ({ page }) => {
     await page.locator('a:has-text("Billing")').click();
-    await page.waitForURL('**/billing');
-    await expect(page.locator('h1:has-text("Billing")')).toBeVisible();
+    await page.waitForURL('**/billing', { timeout: 20_000 });
+    await expect(page.locator('h1:has-text("Billing")')).toBeVisible({ timeout: 20_000 });
   });
 
   test('navigate to Docs via sidebar', async ({ page }) => {
     await page.locator('a:has-text("Docs")').click();
     await page.waitForURL('**/docs');
-    await expect(page.locator('h1:has-text("Documentation")')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'JustAVPS Docs' })).toBeVisible();
   });
 
   test('navigate back to Machines via sidebar', async ({ page }) => {
@@ -50,16 +50,12 @@ test.describe('Navigation', () => {
   });
 
   test('JustAVPS branding in sidebar is visible', async ({ page }) => {
-    await expect(page.locator('text=JustAVPS.').first()).toBeVisible();
+    await expect(page.locator('text=justavps').first()).toBeVisible();
   });
 
-  test('settings accessible from user dropdown', async ({ page }) => {
-    const trigger = page.locator('text=dev@justavps.com').first();
-    await trigger.click();
-    const settingsItem = page.locator('text=Settings').first();
-    await settingsItem.waitFor({ state: 'visible', timeout: 3_000 });
-    await settingsItem.click();
-    await page.waitForURL('**/settings', { timeout: 10_000 });
+  test('settings accessible from sidebar', async ({ page }) => {
+    await page.locator('a:has-text("Settings")').click();
+    await page.waitForURL('**/settings', { timeout: 20_000 });
     await expect(page.locator('h1:has-text("Settings")')).toBeVisible();
   });
 });

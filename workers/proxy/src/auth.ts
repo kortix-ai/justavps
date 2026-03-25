@@ -15,6 +15,7 @@
 export interface AuthResult {
   success: boolean;
   userId?: string;
+  accountId?: string;
   machineInfo?: MachineInfo;
   error?: string;
   shouldRefresh?: boolean; // true if JWT is within 6h of expiry
@@ -24,7 +25,7 @@ export interface AuthResult {
 
 export interface MachineInfo {
   machine_id?: string;
-  owner_id: string;
+  account_id: string;
   ip: string;
   origin_hostname?: string; // DNS-only hostname: origin.slug.kortix.cloud
   status: string;
@@ -33,7 +34,7 @@ export interface MachineInfo {
 }
 
 export interface ProxyTokenData {
-  owner_id: string;
+  account_id: string;
   machine_id: string;
   machine_slug: string;
   ports: number[] | null;
@@ -41,7 +42,7 @@ export interface ProxyTokenData {
 }
 
 interface ApiKeyData {
-  owner_id: string;
+  account_id: string;
   name: string;
   scope?: string;
   machine_ids?: string[] | null;
@@ -80,35 +81,38 @@ export async function validateAuth(
 
     return {
       success: true,
-      userId: ptResult.proxyTokenData!.owner_id,
+      accountId: ptResult.proxyTokenData!.account_id,
       machineInfo: machineResult.machineInfo,
       authSource: auth.source as AuthResult['authSource'],
       proxyTokenData: ptResult.proxyTokenData,
     };
   }
 
-  let userId: string;
+  let userId: string | undefined;
+  let accountId: string;
 
   // Validate based on auth method
   if (auth.type === 'jwt') {
     const jwtResult = await verifyJWT(auth.token, proxyAuthSecret);
     if (!jwtResult.success) return { ...jwtResult, authSource: auth.source as AuthResult['authSource'] };
     userId = jwtResult.userId!;
+    accountId = jwtResult.accountId!;
   } else if (auth.type === 'apikey') {
     const apiResult = await verifyApiKey(auth.token, slug, port, kv);
     if (!apiResult.success) return { ...apiResult, authSource: auth.source as AuthResult['authSource'] };
-    userId = apiResult.userId!;
+    accountId = apiResult.accountId!;
   } else {
     return { success: false, error: 'Invalid auth method' };
   }
 
-  // Check machine ownership
-  const machineResult = await checkMachineAccess(slug, userId, kv);
+  // Check machine account access
+  const machineResult = await checkMachineAccess(slug, accountId, kv);
   if (!machineResult.success) return { ...machineResult, authSource: auth.source as AuthResult['authSource'] };
 
   return {
     success: true,
     userId,
+    accountId,
     machineInfo: machineResult.machineInfo,
     shouldRefresh: auth.type === 'jwt' ? auth.shouldRefresh : false,
     authSource: auth.source as AuthResult['authSource'],
@@ -181,7 +185,7 @@ function parseCookie(header: string, name: string): string | null {
 async function verifyJWT(
   token: string,
   secret: string,
-): Promise<{ success: boolean; userId?: string; error?: string; shouldRefresh?: boolean }> {
+): Promise<{ success: boolean; userId?: string; accountId?: string; error?: string; shouldRefresh?: boolean }> {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return { success: false, error: 'Invalid JWT format' };
@@ -212,15 +216,15 @@ async function verifyJWT(
       return { success: false, error: 'JWT expired' };
     }
 
-    if (!payload.sub) {
+    if (!payload.sub || !payload.account_id) {
       return { success: false, error: 'JWT missing sub claim' };
     }
 
     // Check if should refresh (< 6h remaining)
     const shouldRefresh = payload.exp ? (payload.exp - now) < REFRESH_THRESHOLD : false;
 
-    return { success: true, userId: payload.sub, shouldRefresh };
-  } catch (err) {
+    return { success: true, userId: payload.sub, accountId: payload.account_id, shouldRefresh };
+  } catch {
     return { success: false, error: 'JWT verification failed' };
   }
 }
@@ -243,7 +247,7 @@ async function verifyApiKey(
   slug: string,
   port: number | undefined,
   kv: KVNamespace,
-): Promise<{ success: boolean; userId?: string; error?: string }> {
+): Promise<{ success: boolean; accountId?: string; error?: string }> {
   try {
     const hash = await sha256Hex(key);
     const data = await kv.get(`apikey:${hash}`);
@@ -276,7 +280,7 @@ async function verifyApiKey(
       }
     }
 
-    return { success: true, userId: info.owner_id };
+    return { success: true, accountId: info.account_id };
   } catch {
     return { success: false, error: 'API key verification failed' };
   }
@@ -351,7 +355,7 @@ async function sha256Hex(input: string): Promise<string> {
 
 async function checkMachineAccess(
   slug: string,
-  userId: string,
+  accountId: string,
   kv: KVNamespace,
 ): Promise<{ success: boolean; machineInfo?: MachineInfo; error?: string }> {
   const raw = await kv.get(`machine:${slug}`);
@@ -361,7 +365,7 @@ async function checkMachineAccess(
 
   const info: MachineInfo = JSON.parse(raw);
 
-  if (info.owner_id !== userId) {
+  if (info.account_id !== accountId) {
     return { success: false, error: 'Access denied' };
   }
 

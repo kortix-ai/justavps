@@ -1,7 +1,7 @@
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { db } from '../../db';
-import { apiKeys } from '../../db/schema';
+import { apiKeys, machines } from '../../db/schema';
 import { generateApiKey } from '../../lib/crypto';
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 import { syncApiKeyToKV, deleteApiKeyFromKV } from '../../lib/proxy-kv';
@@ -45,6 +45,7 @@ const createAPIKeyRoute = createRoute({
 apiKeysApp.openapi(createAPIKeyRoute, async (c) => {
   const body = c.req.valid('json');
   const ownerId = c.get('userId');
+  const accountId = c.get('accountId');
 
   // Validate scope + machine_ids consistency
   const scope = body.scope ?? 'account';
@@ -52,6 +53,15 @@ apiKeysApp.openapi(createAPIKeyRoute, async (c) => {
   const permissions = body.permissions ?? ['*'];
   if (scope === 'machine' && (!machineIds || machineIds.length === 0)) {
     return c.json({ error: true, message: 'machine_ids is required when scope is "machine"', status: 400 }, 400);
+  }
+
+  if (scope === 'machine' && machineIds) {
+    const ownedMachines = await db.select({ id: machines.id })
+      .from(machines)
+      .where(and(eq(machines.accountId, accountId), inArray(machines.id, machineIds)));
+    if (ownedMachines.length !== machineIds.length) {
+      return c.json({ error: true, message: 'machine_ids must belong to the active account', status: 400 }, 400);
+    }
   }
 
   // Compute expiration
@@ -62,6 +72,7 @@ apiKeysApp.openapi(createAPIKeyRoute, async (c) => {
   const { key, hash, sha256, prefix } = await generateApiKey();
   const [apiKey] = await db.insert(apiKeys).values({
     ownerId,
+    accountId,
     name: body.name,
     keyPrefix: prefix,
     keyHash: hash,
@@ -72,7 +83,7 @@ apiKeysApp.openapi(createAPIKeyRoute, async (c) => {
     expiresAt,
   }).returning();
 
-  await syncApiKeyToKV(key, ownerId, body.name, {
+  await syncApiKeyToKV(key, accountId, body.name, {
     scope,
     machineIds,
     permissions,
@@ -114,8 +125,8 @@ const listAPIKeysRoute = createRoute({
 });
 
 apiKeysApp.openapi(listAPIKeysRoute, async (c) => {
-  const ownerId = c.get('userId');
-  const keys = await db.select().from(apiKeys).where(eq(apiKeys.ownerId, ownerId));
+  const accountId = c.get('accountId');
+  const keys = await db.select().from(apiKeys).where(eq(apiKeys.accountId, accountId));
   return c.json({
     api_keys: keys.map((k) => ({
       id: k.id,
@@ -152,8 +163,8 @@ const deleteAPIKeyRoute = createRoute({
 
 apiKeysApp.openapi(deleteAPIKeyRoute, async (c) => {
   const { id } = c.req.valid('param');
-  const ownerId = c.get('userId');
-  const [key] = await db.select().from(apiKeys).where(and(eq(apiKeys.id, id), eq(apiKeys.ownerId, ownerId)));
+  const accountId = c.get('accountId');
+  const [key] = await db.select().from(apiKeys).where(and(eq(apiKeys.id, id), eq(apiKeys.accountId, accountId)));
   if (!key) return c.json({ error: true, message: 'API key not found', status: 404 }, 404);
 
   await deleteApiKeyFromKV(key.keyPrefix).catch(() => {});
