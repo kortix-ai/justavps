@@ -165,6 +165,7 @@ RUN_ARGS=(
   --security-opt seccomp=unconfined
   --shm-size 2g
   -v justavps-data:/workspace
+  -v justavps-data:/config
 )
 for arg in "\${PORT_ARGS[@]}"; do
   RUN_ARGS+=("$arg")
