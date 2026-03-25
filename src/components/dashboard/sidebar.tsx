@@ -77,6 +77,7 @@ const navigation = [
 ];
 
 const adminNavigation = [
+  { name: "All Machines", href: "/admin/machines", icon: Server },
   { name: "Routing", href: "/admin/routing", icon: ShieldCheck },
 ];
 
@@ -99,7 +100,9 @@ export function AppSidebar() {
   const name = session?.user?.name || email.split("@")[0];
   const initial = name[0]?.toUpperCase() || "U";
   const isAdmin = account?.is_admin ?? false;
-  const allNavigation = isAdmin ? [...navigation, ...adminNavigation] : navigation;
+  const allNavigation = isAdmin
+    ? [...navigation, { name: "__admin_separator__", href: "", icon: ShieldCheck }, ...adminNavigation]
+    : navigation;
   const activeAccount = me?.active_account;
 
   function handleCreateOrganization(e: React.FormEvent) {
@@ -178,6 +181,16 @@ export function AppSidebar() {
         <SidebarContent>
           <nav className="space-y-0.5 px-2 pt-2">
             {allNavigation.map((item) => {
+              if (item.name === "__admin_separator__") {
+                return (
+                  <div key="admin-sep" className="pt-3 pb-1 px-2.5 group-data-[collapsible=icon]:px-0">
+                    <div className="border-t border-sidebar-border" />
+                    <span className="mt-2 block text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 group-data-[collapsible=icon]:hidden">
+                      Admin
+                    </span>
+                  </div>
+                );
+              }
               const isActive = pathname.startsWith(item.href);
               return (
                 <Link
