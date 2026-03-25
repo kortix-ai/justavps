@@ -10,6 +10,7 @@ import type {
   AccountMembershipSummary,
   AccountInvitation,
   AccountMember,
+  PendingInvitation,
 } from "@/lib/types";
 
 export const accountKeys = {
@@ -21,6 +22,7 @@ export const accountKeys = {
   memberships: ["account", "memberships"] as const,
   members: ["account", "members"] as const,
   invitations: ["account", "invitations"] as const,
+  myInvitations: ["account", "me", "invitations"] as const,
 };
 
 export function useAccount() {
@@ -153,5 +155,31 @@ export function useRemoveMember() {
 export function useRevokeInvitation() {
   return useMutation({
     mutationFn: (invitationId: string) => api.delete(`/account/invitations/${invitationId}`),
+  });
+}
+
+// ─── Incoming invitations for current user (sidebar) ────────────────────────
+
+export function useMyPendingInvitations() {
+  return useQuery({
+    queryKey: accountKeys.myInvitations,
+    queryFn: async () => {
+      const data = await api.get<{ invitations: PendingInvitation[] }>("/account/me/invitations");
+      return data.invitations;
+    },
+  });
+}
+
+export function useAcceptMyInvitation() {
+  return useMutation({
+    mutationFn: (invitationId: string) =>
+      api.post<{ ok: true; account_id: string }>(`/account/me/invitations/${invitationId}/accept`),
+  });
+}
+
+export function useDeclineMyInvitation() {
+  return useMutation({
+    mutationFn: (invitationId: string) =>
+      api.post<{ ok: true }>(`/account/me/invitations/${invitationId}/decline`),
   });
 }

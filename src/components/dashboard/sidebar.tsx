@@ -50,8 +50,19 @@ import {
   Building2,
   User,
   Plus,
+  MailOpen,
+  X,
 } from "lucide-react";
-import { useAccount, useMe, useSwitchAccount, useCreateOrganization } from "@/hooks/use-account";
+import {
+  useAccount,
+  useMe,
+  useSwitchAccount,
+  useCreateOrganization,
+  useMyPendingInvitations,
+  useAcceptMyInvitation,
+  useDeclineMyInvitation,
+} from "@/hooks/use-account";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 const navigation = [
@@ -77,6 +88,10 @@ export function AppSidebar() {
   const { data: me } = useMe();
   const switchAccount = useSwitchAccount();
   const createOrganization = useCreateOrganization();
+  const { data: pendingInvitations = [] } = useMyPendingInvitations();
+  const acceptInvitation = useAcceptMyInvitation();
+  const declineInvitation = useDeclineMyInvitation();
+  const queryClient = useQueryClient();
   const [orgDialogOpen, setOrgDialogOpen] = useState(false);
   const [orgName, setOrgName] = useState("");
 
@@ -116,6 +131,38 @@ export function AppSidebar() {
     });
   }
 
+  function handleAcceptInvitation(invitationId: string, accountName: string) {
+    acceptInvitation.mutate(invitationId, {
+      onSuccess: () => {
+        toast.success(`Joined ${accountName}`);
+        queryClient.invalidateQueries({ queryKey: ["account"] });
+        window.location.reload();
+      },
+      onError: (error: Error) => {
+        toast.error(error.message);
+      },
+    });
+  }
+
+  function handleDeclineInvitation(invitationId: string) {
+    // Optimistic removal from cache
+    queryClient.setQueryData<typeof pendingInvitations>(
+      ["account", "me", "invitations"],
+      (old) => (old ?? []).filter((inv) => inv.id !== invitationId),
+    );
+    declineInvitation.mutate(invitationId, {
+      onSuccess: () => {
+        toast.success("Invitation declined");
+        queryClient.invalidateQueries({ queryKey: ["account", "me", "invitations"] });
+      },
+      onError: (error: Error) => {
+        toast.error(error.message);
+        // Revert on error
+        queryClient.invalidateQueries({ queryKey: ["account", "me", "invitations"] });
+      },
+    });
+  }
+
   return (
     <>
       <Sidebar variant="inset" collapsible="icon">
@@ -150,6 +197,65 @@ export function AppSidebar() {
               );
             })}
           </nav>
+
+          {/* Pending invitations */}
+          {pendingInvitations.length > 0 && (
+            <div className="px-2 pt-4 group-data-[collapsible=icon]:hidden">
+              <div className="rounded-lg border border-primary/20 bg-primary/5">
+                <div className="flex items-center gap-2 px-3 py-2 border-b border-primary/10">
+                  <MailOpen className="size-3.5 text-primary shrink-0" />
+                  <span className="text-xs font-semibold text-primary">
+                    {pendingInvitations.length} pending {pendingInvitations.length === 1 ? "invite" : "invites"}
+                  </span>
+                </div>
+                <div className="divide-y divide-primary/10">
+                  {pendingInvitations.map((invite) => (
+                    <div key={invite.id} className="px-3 py-2.5 space-y-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <Building2 className="size-3 text-muted-foreground shrink-0" />
+                        <span className="text-sm font-medium truncate">{invite.account_name}</span>
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Role: <span className="capitalize">{invite.role}</span>
+                      </div>
+                      <div className="flex gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="default"
+                          className="h-6 text-xs px-2 flex-1"
+                          disabled={acceptInvitation.isPending}
+                          onClick={() => handleAcceptInvitation(invite.id, invite.account_name)}
+                        >
+                          {acceptInvitation.isPending ? "..." : "Accept"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 w-6 p-0 shrink-0 text-muted-foreground hover:text-destructive"
+                          disabled={declineInvitation.isPending}
+                          onClick={() => handleDeclineInvitation(invite.id)}
+                        >
+                          <X className="size-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Collapsed icon badge for invitations */}
+          {pendingInvitations.length > 0 && (
+            <div className="hidden group-data-[collapsible=icon]:flex justify-center pt-3">
+              <div className="relative">
+                <MailOpen className="size-4 text-primary" />
+                <span className="absolute -top-1.5 -right-1.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
+                  {pendingInvitations.length}
+                </span>
+              </div>
+            </div>
+          )}
         </SidebarContent>
 
         <SidebarFooter>

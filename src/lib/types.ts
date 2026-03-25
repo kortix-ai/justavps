@@ -287,6 +287,16 @@ export interface AccountInvitation {
   created_at: string;
 }
 
+/** An invitation addressed TO the current user (shown in sidebar) */
+export interface PendingInvitation {
+  id: string;
+  role: 'owner' | 'admin' | 'member';
+  account_name: string;
+  account_type: 'personal' | 'organization';
+  expires_at: string;
+  created_at: string;
+}
+
 /** Returned from POST /machines when a payment method is required (402) */
 export interface CheckoutRequired {
   requires_checkout: true;

@@ -15,6 +15,7 @@ import { config } from '../../lib/config';
 import { hashPassword } from '../../lib/crypto';
 import {
   ACCOUNT_COOKIE_NAME,
+  acceptInvitationById,
   canManageBilling,
   canManageMembers,
   createAccountInvitation,
@@ -22,6 +23,7 @@ import {
   getUserMemberships,
   listActiveInvitationsForAccount,
   listMembersForAccount,
+  listPendingInvitationsForEmail,
   redeemAccountInvitation,
   revokeInvitation,
   updateMembershipRole,
@@ -886,6 +888,131 @@ accountApp.openapi(redeemInvitationRoute, async (c) => {
     return c.json({
       error: true,
       message: error instanceof Error ? error.message : 'Failed to redeem invitation',
+      status: 400,
+    }, 400);
+  }
+});
+
+// ─── Incoming invitations for the current user ─────────────────────────────
+
+const MyPendingInvitationsResponseSchema = z.object({
+  invitations: z.array(z.object({
+    id: z.string().uuid(),
+    role: z.enum(['owner', 'admin', 'member']),
+    account_name: z.string(),
+    account_type: z.enum(['personal', 'organization']),
+    expires_at: z.string(),
+    created_at: z.string(),
+  })),
+});
+
+const listMyPendingInvitationsRoute = createRoute({
+  method: 'get',
+  path: '/me/invitations',
+  tags: ['Account'],
+  security: bearerSecurity,
+  summary: 'List pending invitations addressed to the current user',
+  responses: {
+    200: { description: 'Pending invitations for the signed-in user', content: { 'application/json': { schema: MyPendingInvitationsResponseSchema } } },
+  },
+});
+
+// @ts-ignore mixed success/error response shapes are declared above
+accountApp.openapi(listMyPendingInvitationsRoute, async (c) => {
+  const user = await getCurrentUser(c.get('userId'));
+  if (!user) {
+    return c.json({ error: true, message: 'User not found', status: 404 }, 404);
+  }
+
+  const rows = await listPendingInvitationsForEmail(user.email);
+  return c.json({
+    invitations: rows.map((r) => ({
+      id: r.invitation.id,
+      role: r.invitation.role,
+      account_name: r.account.name,
+      account_type: r.account.type,
+      expires_at: r.invitation.expiresAt.toISOString(),
+      created_at: r.invitation.createdAt.toISOString(),
+    })),
+  });
+});
+
+const acceptMyInvitationRoute = createRoute({
+  method: 'post',
+  path: '/me/invitations/{invitationId}/accept',
+  tags: ['Account'],
+  security: bearerSecurity,
+  summary: 'Accept an invitation addressed to the current user',
+  request: {
+    params: z.object({ invitationId: z.string().uuid() }),
+  },
+  responses: {
+    200: { description: 'Invitation accepted', content: { 'application/json': { schema: z.object({ ok: z.literal(true), account_id: z.string().uuid() }) } } },
+  },
+});
+
+// @ts-ignore mixed success/error response shapes are declared above
+accountApp.openapi(acceptMyInvitationRoute, async (c) => {
+  const user = await getCurrentUser(c.get('userId'));
+  if (!user) {
+    return c.json({ error: true, message: 'User not found', status: 404 }, 404);
+  }
+
+  try {
+    const { invitationId } = c.req.valid('param');
+    const { invitation } = await acceptInvitationById({
+      invitationId,
+      userId: user.id,
+      userEmail: user.email,
+    });
+
+    return c.json({ ok: true, account_id: invitation.accountId });
+  } catch (error) {
+    return c.json({
+      error: true,
+      message: error instanceof Error ? error.message : 'Failed to accept invitation',
+      status: 400,
+    }, 400);
+  }
+});
+
+const declineMyInvitationRoute = createRoute({
+  method: 'post',
+  path: '/me/invitations/{invitationId}/decline',
+  tags: ['Account'],
+  security: bearerSecurity,
+  summary: 'Decline an invitation addressed to the current user',
+  request: {
+    params: z.object({ invitationId: z.string().uuid() }),
+  },
+  responses: {
+    200: { description: 'Invitation declined', content: { 'application/json': { schema: z.object({ ok: z.literal(true) }) } } },
+  },
+});
+
+// @ts-ignore mixed success/error response shapes are declared above
+accountApp.openapi(declineMyInvitationRoute, async (c) => {
+  const user = await getCurrentUser(c.get('userId'));
+  if (!user) {
+    return c.json({ error: true, message: 'User not found', status: 404 }, 404);
+  }
+
+  try {
+    const { invitationId } = c.req.valid('param');
+    // Declining = revoking from the invitee's perspective.
+    // Verify the invitation actually belongs to this user's email first.
+    const rows = await listPendingInvitationsForEmail(user.email);
+    const match = rows.find((r) => r.invitation.id === invitationId);
+    if (!match) {
+      return c.json({ error: true, message: 'Invitation not found', status: 404 }, 404);
+    }
+
+    await revokeInvitation(match.invitation.accountId, invitationId);
+    return c.json({ ok: true });
+  } catch (error) {
+    return c.json({
+      error: true,
+      message: error instanceof Error ? error.message : 'Failed to decline invitation',
       status: 400,
     }, 400);
   }

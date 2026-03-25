@@ -293,6 +293,61 @@ export async function listActiveInvitationsForAccount(accountId: string) {
     ));
 }
 
+/**
+ * List all pending (not accepted, not revoked, not expired) invitations
+ * addressed to a specific email. Joins the account table so we can return
+ * the account name / type to the caller.
+ */
+export async function listPendingInvitationsForEmail(email: string) {
+  const now = new Date();
+  const rows = await db
+    .select({ invitation: accountInvitations, account: accounts })
+    .from(accountInvitations)
+    .innerJoin(accounts, eq(accountInvitations.accountId, accounts.id))
+    .where(and(
+      eq(accountInvitations.email, email.trim().toLowerCase()),
+      isNull(accountInvitations.acceptedAt),
+      isNull(accountInvitations.revokedAt),
+    ));
+
+  // Filter expired in JS (simpler than gt/lt with Drizzle timestamps)
+  return rows.filter((r) => r.invitation.expiresAt > now);
+}
+
+/**
+ * Accept an invitation by ID — used when the signed-in user can see the
+ * invitation in the sidebar (matched by email) and clicks "Accept".
+ * No raw token is needed because the server already validated email match.
+ */
+export async function acceptInvitationById(params: {
+  invitationId: string;
+  userId: string;
+  userEmail: string;
+}) {
+  const [invitation] = await db.select()
+    .from(accountInvitations)
+    .where(eq(accountInvitations.id, params.invitationId))
+    .limit(1);
+
+  if (!invitation) throw new Error('Invitation not found');
+  if (invitation.revokedAt) throw new Error('Invitation has been revoked');
+  if (invitation.acceptedAt) throw new Error('Invitation has already been accepted');
+  if (invitation.expiresAt < new Date()) throw new Error('Invitation has expired');
+  if (invitation.email !== params.userEmail.trim().toLowerCase()) {
+    throw new Error('Signed-in email does not match invitation email');
+  }
+
+  const membership = await ensureMembership(
+    invitation.accountId, params.userId, invitation.role, invitation.invitedByUserId,
+  );
+
+  await db.update(accountInvitations)
+    .set({ acceptedAt: new Date(), acceptedByUserId: params.userId })
+    .where(eq(accountInvitations.id, invitation.id));
+
+  return { invitation, membership };
+}
+
 export async function revokeInvitation(accountId: string, invitationId: string) {
   const [updated] = await db.update(accountInvitations)
     .set({ revokedAt: new Date() })
