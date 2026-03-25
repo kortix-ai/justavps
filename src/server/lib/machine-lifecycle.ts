@@ -525,15 +525,10 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
     machine = { ...machine, providerMeta: probedMeta };
 
     if (daemonReady) {
-      if (machine.dockerImage) {
-        const nextMeta = await updateProviderMeta(machine.id, {
-          daemon_reachable_at: new Date().toISOString(),
-        });
-        machine = { ...machine, providerMeta: nextMeta };
-      } else {
       const now = new Date();
       const nextMeta = await updateProviderMeta(machine.id, {
         ready_via: 'probe',
+        daemon_reachable_at: new Date().toISOString(),
       });
       await db.update(machines).set({
         status: 'ready',
@@ -564,7 +559,6 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
         provisioningStage: 'services_ready',
         providerMeta: nextMeta,
       };
-      }
     }
   }
 
