@@ -229,47 +229,11 @@ describe('cloud-init', () => {
   });
 
   describe('docker workload', () => {
-    it('should include docker block when dockerImage is specified', () => {
-      const script = buildCloudInit({ ...defaultOpts, dockerImage: 'myapp:latest' });
-      expect(script).toContain('justavps-docker.service');
-      expect(script).toContain('RUN_ARGS=(');
-      expect(script).toContain('--name justavps-workload');
-      expect(script).toContain('bXlhcHA6bGF0ZXN0');
-      expect(script).toContain('systemctl enable justavps-docker 2>/dev/null || true');
-      expect(script).toContain('systemctl restart justavps-docker');
-      expect(script).toContain('docker-host-ports');
-    });
-
-    it('should NOT include docker block when no dockerImage', () => {
+    it('should NOT include docker block (moved to start-sandbox.sh in computer repo)', () => {
       const script = buildCloudInit(defaultOpts);
-      expect(script).not.toContain('docker run --rm --name justavps-workload');
-    });
-
-    it('should include entrypoint when specified', () => {
-      const script = buildCloudInit({
-        ...defaultOpts,
-        dockerImage: 'myapp:latest',
-        entrypoint: '/start.sh',
-      });
-      expect(script).toContain('DOCKER_ENTRYPOINT=');
-      expect(script).toContain('RUN_ARGS+=(--entrypoint "$DOCKER_ENTRYPOINT")');
-      expect(script).toContain('L3N0YXJ0LnNo');
-    });
-
-    it('should include command when specified', () => {
-      const script = buildCloudInit({
-        ...defaultOpts,
-        dockerImage: 'myapp:latest',
-        command: 'sleep infinity',
-      });
-      expect(script).toContain('append_command_args "$DOCKER_COMMAND"');
-      expect(script).toContain("b'\\0'");
-      expect(script).toContain('c2xlZXAgaW5maW5pdHk=');
-    });
-
-    it('should remap container port 80 to host 8080', () => {
-      const script = buildCloudInit({ ...defaultOpts, dockerImage: 'nginx:latest' });
-      expect(script).toContain('80) echo 8080');
+      expect(script).not.toContain('justavps-docker.service');
+      expect(script).not.toContain('--name justavps-workload');
+      expect(script).not.toContain('justavps-data:/workspace');
     });
   });
 });
