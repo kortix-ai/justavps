@@ -25,7 +25,6 @@ import {
   useRebootMachine,
   useStopMachine,
   useStartMachine,
-  useCancelMachine,
   useReactivateMachine,
   useBackups,
   useCreateBackup,
@@ -458,48 +457,6 @@ function PortForwardCard({ slug, portTemplate }: { slug: string; portTemplate?: 
   );
 }
 
-/* ─── Provisioning stage progress ────────────────────────────────────── */
-const PROVISIONING_STAGES = [
-  { key: "server_creating", label: "Creating server" },
-  { key: "server_created", label: "Server created" },
-  { key: "cloud_init_running", label: "Configuring machine" },
-  { key: "cloud_init_done", label: "Starting services" },
-  { key: "docker_pulling", label: "Pulling Docker image" },
-  { key: "docker_running", label: "Docker container started" },
-  { key: "services_ready", label: "Services ready" },
-] as const;
-
-function ProvisioningProgress({ stage }: { stage: string }) {
-  const currentIndex = PROVISIONING_STAGES.findIndex((s) => s.key === stage);
-  if (currentIndex === -1) return null;
-
-  return (
-    <div className="mt-2.5 flex items-center gap-1">
-      {PROVISIONING_STAGES.map((s, i) => {
-        const isDone = i < currentIndex;
-        const isCurrent = i === currentIndex;
-        return (
-          <div key={s.key} className="flex items-center gap-1 min-w-0">
-            <div
-              className={cn(
-                "size-1.5 rounded-full shrink-0 transition-colors",
-                isDone
-                  ? "bg-emerald-500"
-                  : isCurrent
-                    ? "bg-yellow-500 animate-pulse"
-                    : "bg-zinc-300 dark:bg-zinc-700",
-              )}
-              title={s.label}
-            />
-          </div>
-        );
-      })}
-      <span className="ml-1.5 text-[11px] text-muted-foreground truncate">
-        {PROVISIONING_STAGES[currentIndex].label}
-      </span>
-    </div>
-  );
-}
 
 function provisioningHeadline(machine: Machine) {
   if (machine.provisioning_stage === "resizing") return "Scaling in progress";
@@ -559,11 +516,11 @@ export default function MachineDetailPage() {
   const rebootMachine = useRebootMachine();
   const stopMachine = useStopMachine();
   const startMachine = useStartMachine();
-  const cancelMachine = useCancelMachine();
+
   const reactivateMachine = useReactivateMachine();
   const createImage = useCreateImage();
   const isDevMode = process.env.NEXT_PUBLIC_DEV_MODE === "true";
-  const [confirmCancel, ConfirmCancelDialog] = useConfirm();
+
 
   const handleReboot = () => {
     rebootMachine.mutate(machineId, {
@@ -643,7 +600,7 @@ export default function MachineDetailPage() {
       </div>
     );
 
-  const statusInfo = statusMap[machine.status] || statusMap.stopped;
+  const statusInfo = statusMap[machine.status] || statusMap.provisioning;
   const isReady = machine.status === "ready";
   const isResizing =
     machine.status === "provisioning" && machine.provisioning_stage === "resizing";
@@ -833,33 +790,6 @@ export default function MachineDetailPage() {
               )}
               Reactivate
             </Button>
-          ) : machine.subscription && machine.status !== "deleted" ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 text-xs gap-1.5 text-red-600 hover:text-red-600 hover:bg-red-500/10 border-red-500/30"
-              onClick={async () => {
-                const ok = await confirmCancel({
-                  title: "Cancel Subscription",
-                  description: "Your machine will keep running until the end of your billing period, then it will be permanently deleted. You can reactivate at any time before then.",
-                  confirmLabel: "Cancel Subscription",
-                  variant: "destructive",
-                });
-                if (!ok) return;
-                cancelMachine.mutate(machineId, {
-                  onSuccess: () => toast.success("Subscription cancelled — machine will be deleted at the end of your billing period"),
-                  onError: (err) => toast.error(err.message),
-                });
-              }}
-              disabled={cancelMachine.isPending}
-            >
-              {cancelMachine.isPending ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <CalendarX2 className="size-3.5" />
-              )}
-              Cancel
-            </Button>
           ) : null}
           {isDevMode && (
             <Button
@@ -945,31 +875,27 @@ export default function MachineDetailPage() {
           PROVISIONING BANNER
           ════════════════════════════════════════════════════════════════ */}
       {machine.status === "provisioning" && (
-        <div className="rounded-xl border bg-card/70 p-4">
+        <div className="rounded-xl border bg-card p-5">
           <div className="flex items-start gap-3">
-            <div className="rounded-lg bg-muted p-1.5 shrink-0 mt-0.5">
+            <div className="rounded-lg bg-yellow-500/10 p-2 shrink-0">
               <Loader2 className="size-4 animate-spin text-yellow-500" />
             </div>
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 space-y-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm font-medium">{provisioningHeadline(machine)}</p>
+                  <p className="text-sm font-semibold">{provisioningHeadline(machine)}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">{provisioningSubcopy(machine)}</p>
                 </div>
                 {typeof machine.provider_progress === "number" && machine.provisioning_stage !== "resizing" && (
-                  <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                  <span className="font-mono text-sm font-semibold tabular-nums text-foreground">
                     {Math.max(0, Math.min(100, machine.provider_progress))}%
                   </span>
                 )}
               </div>
               {typeof machine.provider_progress === "number" && machine.provisioning_stage !== "resizing" && (
-                <Progress value={machine.provider_progress} className="mt-3 h-1.5" />
+                <Progress value={machine.provider_progress} className="h-1.5" />
               )}
-              {machine.provisioning_stage && machine.provisioning_stage !== "resizing" && (
-                <div className="mt-3">
-                  <ProvisioningProgress stage={machine.provisioning_stage} />
-                </div>
-              )}
+
             </div>
           </div>
         </div>
@@ -1358,14 +1284,14 @@ export default function MachineDetailPage() {
         <div className="rounded-xl border border-dashed">
           <div className="flex flex-col items-center justify-center py-16 text-center px-4">
             <div className="rounded-2xl bg-muted p-4 mb-4">
-              <Server className="size-8 text-muted-foreground/40" strokeWidth={1.5} />
+              <Loader2 className="size-8 text-muted-foreground/40 animate-spin" strokeWidth={1.5} />
             </div>
             <h3 className="text-sm font-medium mb-1">
-              {machine.provider_status === "success" || machine.callback_expected === false ? "Almost there" : "Machine not ready yet"}
+              {machine.provider_status === "success" || machine.callback_expected === false ? "Almost there" : "Setting up your machine"}
             </h3>
             <p className="text-xs text-muted-foreground max-w-xs">
               {machine.provider_status === "success" || machine.callback_expected === false
-                ? "Terminal, SSH, and tools show up as soon as the machine finishes syncing."
+                ? "Terminal, SSH, and tools appear in a few seconds."
                 : "Terminal, SSH, and tools appear once the machine is ready."}
             </p>
           </div>
@@ -1373,7 +1299,6 @@ export default function MachineDetailPage() {
       )}
 
       <ConfirmDeleteDialog />
-      <ConfirmCancelDialog />
 
       {machine && (
         <RescaleDialog open={rescaleOpen} onOpenChange={setRescaleOpen} machine={machine} />

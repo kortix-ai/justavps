@@ -23,34 +23,21 @@ import {
   ChevronDown,
   AlertTriangle,
   KeyRound,
-  Star,
   Shield,
 } from "lucide-react";
 import {
-  BillingToggle,
   effectiveMonthlyPrice,
-  totalPrice,
   type BillingInterval,
 } from "@/components/plan-picker";
+import { PlanList } from "@/components/plan-list";
 import { BACKUP_SURCHARGE_PERCENT, backupSurcharge } from "@/lib/hetzner-pricing";
 import type { Image } from "@/lib/types";
 import { cn, regionDisplay } from "@/lib/utils";
 
-/* ═══ Plan meta — maps tier index → display info ═══ */
-const PLAN_META: Record<number, { label: string; tagline: string }> = {
-  0: { label: "Starter", tagline: "Lightweight agents & side projects" },
-  1: { label: "Basic", tagline: "More headroom for daily work" },
-  2: { label: "Pro", tagline: "Best for always-on workloads" },
-  3: { label: "Power", tagline: "Heavy parallel agents" },
-  4: { label: "Ultra", tagline: "Maximum performance" },
-};
-
-/* The recommended tier index — Basic (idx 1): EU 4C/8G/160G $21, US 3C/4G/80G $18 */
 const RECOMMENDED_IDX = 1;
-
 const DEFAULT_TEMPLATE_NAME = "justavps standard";
 
-/* ═══ Helpers ═══ */
+/* ═══ Sub-components ═══ */
 
 function ImageChoiceRow({
   image,
@@ -78,12 +65,12 @@ function ImageChoiceRow({
         {selected && <Check className="size-2 text-primary-foreground" />}
       </div>
       <HardDrive className="size-3 shrink-0 text-muted-foreground" />
-        <div className="min-w-0">
-          <p className="text-xs leading-tight">{image.name}</p>
-          <p className="text-[10px] text-muted-foreground truncate">
-            {image.kind === "template" ? "Template" : "Saved image"}
-            {image.disk_size_gb ? ` · ${image.disk_size_gb} GB` : ""}
-          </p>
+      <div className="min-w-0">
+        <p className="text-xs leading-tight">{image.name}</p>
+        <p className="text-[10px] text-muted-foreground truncate">
+          {image.kind === "template" ? "Template" : "Saved image"}
+          {image.disk_size_gb ? ` · ${image.disk_size_gb} GB` : ""}
+        </p>
         {image.description ? (
           <p className="text-[10px] text-muted-foreground/80 line-clamp-2 mt-0.5">{image.description}</p>
         ) : null}
@@ -92,7 +79,8 @@ function ImageChoiceRow({
   );
 }
 
-/* ═══ Component ═══ */
+/* ═══ CheckoutModal ═══ */
+
 interface CheckoutModalProps {
   open: boolean;
   onClose: () => void;
@@ -103,6 +91,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
   const { data: session } = useSession();
   const isLoggedIn = !!session?.user;
 
+  /* ─── Data fetching ─── */
   const { data: allProviders } = useProviders();
   const providers = allProviders ?? [];
   const selectedProvider = providers[0]?.name || "";
@@ -111,6 +100,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
   const { data: userSSHKeys } = useSSHKeys(isLoggedIn);
   const { data: allImages } = useImages(isLoggedIn);
 
+  /* ─── Selection state ─── */
   const [regionOverride, setRegionOverride] = useState("");
   const selectedRegion = regionOverride || pickDefaultRegion(regions) || "";
   const { data: serverTypes } = useServerTypes(
@@ -122,9 +112,9 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
     serverTypeOverride ||
     serverTypes?.[Math.min(RECOMMENDED_IDX, (serverTypes?.length ?? 1) - 1)]?.name ||
     "";
-  const [billingInterval, setBillingInterval] =
-    useState<BillingInterval>("monthly");
+  const [billingInterval] = useState<BillingInterval>("monthly");
 
+  /* ─── Config state ─── */
   const [machineName, setMachineName] = useState("");
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [showImagePicker, setShowImagePicker] = useState(false);
@@ -134,12 +124,12 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
   const [showDockerConfig, setShowDockerConfig] = useState(false);
   const [selectedSSHKeyIds, setSelectedSSHKeyIds] = useState<string[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [showAllPlans, setShowAllPlans] = useState(false);
   const [backupsEnabled, setBackupsEnabled] = useState(false);
 
   const [guestCheckoutPending, setGuestCheckoutPending] = useState(false);
   const createMachine = useCreateMachine();
 
+  /* ─── Derived values ─── */
   const publicTemplates =
     allImages?.filter(
       (img) => img.status === "ready" && img.kind === "template" && img.name !== DEFAULT_TEMPLATE_NAME,
@@ -154,14 +144,9 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
   const selectedST = serverTypes?.find((s) => s.name === selectedServerType);
   const basePriceMonthly = selectedST?.price_monthly ?? 0;
   const backupCost = backupsEnabled ? backupSurcharge(basePriceMonthly) : 0;
-  const priceWithBackups = basePriceMonthly + backupCost;
-  const displayMonthly = selectedST
-    ? effectiveMonthlyPrice(priceWithBackups, billingInterval)
+  const footerMonthly = selectedST
+    ? effectiveMonthlyPrice(basePriceMonthly + backupCost, billingInterval)
     : 0;
-  const total = selectedST
-    ? totalPrice(priceWithBackups, billingInterval)
-    : 0;
-  const isDiscounted = billingInterval !== "monthly";
 
   const machineUsage = limits?.usage.machines ?? 0;
   const machineMax = limits?.limits.max_machines;
@@ -172,17 +157,12 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
 
   const selectionReady = !showDockerConfig || Boolean(dockerImage.trim());
   const canCreate = Boolean(
-    selectedProvider &&
-      selectedRegion &&
-      selectedServerType &&
-      selectionReady &&
-      !machineLimitReached,
+    selectedProvider && selectedRegion && selectedServerType && selectionReady && !machineLimitReached,
   );
 
-  // Which tier index is currently selected?
-  const selectedIdx = serverTypes?.findIndex((s) => s.name === selectedServerType) ?? RECOMMENDED_IDX;
-  const isRecommendedSelected = selectedIdx === RECOMMENDED_IDX;
+  const allPlans = serverTypes ?? [];
 
+  /* ─── Effects ─── */
   useEffect(() => {
     document.body.style.overflow = open ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
@@ -195,11 +175,9 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
     return () => window.removeEventListener("keydown", handleKey);
   }, [open, onClose]);
 
+  /* ─── Deploy handler ─── */
   const handleDeploy = () => {
     if (!selectedProvider || !selectedRegion || !selectedServerType) return;
-
-    const imageId =
-      selectedImageId ?? undefined;
 
     if (!isLoggedIn) {
       setGuestCheckoutPending(true);
@@ -233,7 +211,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
         region: selectedRegion,
         billing_interval: billingInterval,
         name: machineName || undefined,
-        image_id: imageId,
+        image_id: selectedImageId ?? undefined,
         docker_image: showDockerConfig ? dockerImage || undefined : undefined,
         entrypoint: showDockerConfig ? entrypoint || undefined : undefined,
         command: showDockerConfig ? command || undefined : undefined,
@@ -259,321 +237,115 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
 
   const isPending = createMachine.isPending || guestCheckoutPending;
 
-  // Split tiers: recommended hero, lighter options, heavier options
-  const allPlans = serverTypes ?? [];
-  const recommendedPlan = allPlans[RECOMMENDED_IDX];
-  const lighterPlans = allPlans.slice(0, RECOMMENDED_IDX);   // Starter, Basic
-  const heavierPlans = allPlans.slice(RECOMMENDED_IDX + 1);   // Power, Ultra
-
   return (
     <div className="fixed inset-0 z-[100]">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
       <div className="relative h-full flex items-center justify-center p-0 md:p-6">
-        <div className="w-full max-w-[540px] bg-background flex flex-col h-full md:h-auto md:max-h-[calc(100vh-3rem)] md:rounded-2xl md:border md:border-border overflow-hidden shadow-2xl">
+        <div className="w-full max-w-[520px] bg-background flex flex-col h-full md:h-auto md:max-h-[calc(100vh-3rem)] md:rounded-2xl md:border md:border-border overflow-hidden shadow-2xl">
 
           {/* ─── HEADER ─── */}
-          <div className="shrink-0 px-6 pt-5 pb-4 flex items-start justify-between">
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight">Deploy a machine</h2>
-              <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-3">
-                <span>Backups optional</span>
-                <span className="text-border">·</span>
-                <span>Ready in minutes</span>
-                <span className="text-border">·</span>
-                <span>Cancel anytime</span>
-              </p>
+          <div className="shrink-0 px-6 pt-5 pb-3 border-b border-border">
+            <div className="flex items-start justify-between">
+              <div>
+                <h2 className="text-lg font-semibold tracking-tight">Deploy your machine</h2>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {isLoggedIn
+                    ? "Choose a plan — your machine deploys in about 60 seconds."
+                    : "Choose a plan — we\u2019ll use your email at checkout to set up your account."}
+                </p>
+              </div>
+              <button
+                onClick={onClose}
+                className="size-7 rounded-lg flex items-center justify-center hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0 ml-4"
+              >
+                <X className="size-4" />
+              </button>
             </div>
-            <button
-              onClick={onClose}
-              className="size-7 rounded-lg flex items-center justify-center hover:bg-muted transition-colors text-muted-foreground hover:text-foreground -mt-0.5"
-            >
-              <X className="size-4" />
-            </button>
           </div>
 
-          {/* ─── BODY ─── */}
-          <div className="flex-1 overflow-y-auto px-6 pb-4 space-y-4">
+          {/* ─── SCROLLABLE BODY ─── */}
+          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
 
-            {/* Billing + Region row */}
-            <div className="flex items-center justify-between gap-3">
-              <BillingToggle interval={billingInterval} onChange={setBillingInterval} />
-              {regions && regions.length > 1 && (
-                <div className="flex items-center gap-1">
-                  {regions.map((r) => {
-                    const active = selectedRegion === r.id;
-                    const rm = regionDisplay(r.id);
-                    return (
-                      <button
-                        key={r.id}
-                        onClick={() => { setRegionOverride(r.id); setServerTypeOverride(""); }}
-                        className={cn(
-                          "px-2.5 py-1 rounded-lg text-xs font-medium transition-all",
-                          active
-                            ? "bg-foreground text-background"
-                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                        )}
-                      >
-                        {rm.flag}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* ═══ HERO: Recommended plan — always visible, prominent ═══ */}
-            {recommendedPlan && (() => {
-              const meta = PLAN_META[RECOMMENDED_IDX];
-              const isActive = selectedServerType === recommendedPlan.name;
-              const heroBase = recommendedPlan.price_monthly;
-              const heroWithBackups = heroBase + (backupsEnabled ? backupSurcharge(heroBase) : 0);
-              const heroMonthly = effectiveMonthlyPrice(heroWithBackups, billingInterval);
-
-              return (
-                <button
-                  onClick={() => { setServerTypeOverride(recommendedPlan.name); setShowAllPlans(false); }}
-                  className={cn(
-                    "w-full relative rounded-2xl border-2 p-5 text-left transition-all",
-                    isActive
-                      ? "border-primary bg-primary/[0.04] ring-1 ring-primary/30"
-                      : "border-border hover:border-primary/50",
-                  )}
-                >
-                  {/* Recommended badge */}
-                  <span className="absolute -top-2.5 left-5 px-2.5 py-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold tracking-wide">
-                    RECOMMENDED
-                  </span>
-
-                  <div className="flex items-center justify-between mt-1">
-                    {/* Left: plan info */}
-                    <div className="flex items-center gap-3">
-                      <div className={cn(
-                        "size-10 rounded-xl flex items-center justify-center shrink-0",
-                        isActive ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
-                      )}>
-                        <Star className="size-4" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-base font-semibold">{meta.label}</span>
-                          {isActive && <Check className="size-4 text-primary" />}
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5 text-[11px] text-muted-foreground">
-                          <span>{recommendedPlan.vcpu} vCPU</span>
-                          <span className="text-border">·</span>
-                          <span>{recommendedPlan.ram_gb} GB RAM</span>
-                          <span className="text-border">·</span>
-                          <span>{recommendedPlan.disk_gb} GB SSD</span>
-                        </div>
-                        <p className="text-[10px] text-muted-foreground/70 mt-0.5">{meta.tagline}</p>
-                      </div>
-                    </div>
-
-                    {/* Right: price */}
-                    <div className="text-right shrink-0 pl-4">
-                      <div className="flex items-baseline gap-0.5 justify-end">
-                        {isDiscounted && (
-                          <span className="text-[11px] text-muted-foreground/50 line-through mr-1">${heroWithBackups}</span>
-                        )}
-                        <span className="text-2xl font-bold tabular-nums">${heroMonthly}</span>
-                        <span className="text-xs text-muted-foreground">/mo</span>
-                      </div>
-                    </div>
-                  </div>
-                </button>
-              );
-            })()}
-
-            {/* ═══ OTHER PLANS — collapsed by default ═══ */}
-            {!showAllPlans && !isRecommendedSelected && selectedST && (
-              <div className="rounded-xl border border-primary/30 bg-primary/[0.03] px-4 py-2.5 flex items-center justify-between">
-                <div className="text-xs">
-                  <span className="font-medium text-foreground">{PLAN_META[selectedIdx]?.label ?? selectedST.name}</span>
-                  <span className="text-muted-foreground ml-2">{selectedST.vcpu} vCPU · {selectedST.ram_gb} GB · {selectedST.disk_gb} GB SSD</span>
-                </div>
-                <span className="text-sm font-semibold tabular-nums">${displayMonthly}/mo</span>
+            {/* ── Region ── */}
+            {regions && regions.length > 1 && (
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mr-2">Region</span>
+                {regions.map((r) => {
+                  const active = selectedRegion === r.id;
+                  const rm = regionDisplay(r.id);
+                  return (
+                    <button
+                      key={r.id}
+                      onClick={() => { setRegionOverride(r.id); setServerTypeOverride(""); }}
+                      className={cn(
+                        "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all",
+                        active
+                          ? "bg-foreground text-background"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                      )}
+                    >
+                      <span className="text-sm leading-none">{rm.flag}</span>
+                      {rm.label}
+                    </button>
+                  );
+                })}
               </div>
             )}
 
-            {!showAllPlans ? (
-              <button
-                onClick={() => setShowAllPlans(true)}
-                className="w-full flex items-center justify-center gap-1.5 py-2 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <ChevronDown className="size-3" />
-                {isRecommendedSelected ? "Need a different size?" : "Change plan"}
-              </button>
-            ) : (
-              <div className="space-y-3">
-                {/* Lighter plans */}
-                {lighterPlans.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-medium text-muted-foreground mb-1.5 uppercase tracking-wider">Need less?</p>
-                    <div className="space-y-1.5">
-                      {lighterPlans.map((s, idx) => {
-                        const meta = PLAN_META[idx];
-                        const isActive = selectedServerType === s.name;
-                        const monthlyWithBackups = s.price_monthly + (backupsEnabled ? backupSurcharge(s.price_monthly) : 0);
-                        const mp = effectiveMonthlyPrice(monthlyWithBackups, billingInterval);
-                        return (
-                          <button
-                            key={s.name}
-                            onClick={() => setServerTypeOverride(s.name)}
-                            className={cn(
-                              "w-full flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-all",
-                              isActive
-                                ? "border-foreground bg-foreground/[0.03]"
-                                : "border-border hover:border-foreground/40",
-                            )}
-                          >
-                            <div className="flex items-center gap-3">
-                              {/* Radio */}
-                              <div className={cn(
-                                "size-4 rounded-full border-[1.5px] flex items-center justify-center shrink-0",
-                                isActive ? "border-foreground bg-foreground" : "border-border",
-                              )}>
-                                {isActive && <Check className="size-2.5 text-background" />}
-                              </div>
-                              <div>
-                                <span className="text-sm font-medium">{meta.label}</span>
-                                <span className="text-[11px] text-muted-foreground ml-2">
-                                  {s.vcpu}C / {s.ram_gb}G / {s.disk_gb}G
-                                </span>
-                              </div>
-                            </div>
-                            <div className="flex items-baseline gap-px">
-                              <span className="text-sm font-semibold tabular-nums">${mp}</span>
-                              <span className="text-[10px] text-muted-foreground">/mo</span>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
+            {/* ── Plan list ── */}
+            <PlanList
+              plans={allPlans}
+              selected={selectedServerType}
+              onSelect={(name) => setServerTypeOverride(name)}
+              showPopular
+            />
 
-                {/* Heavier plans */}
-                {heavierPlans.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-medium text-muted-foreground mb-1.5 uppercase tracking-wider">Need more?</p>
-                    <div className="space-y-1.5">
-                      {heavierPlans.map((s, rawIdx) => {
-                        const idx = RECOMMENDED_IDX + 1 + rawIdx;
-                        const meta = PLAN_META[idx];
-                        const isActive = selectedServerType === s.name;
-                        const monthlyWithBackups = s.price_monthly + (backupsEnabled ? backupSurcharge(s.price_monthly) : 0);
-                        const mp = effectiveMonthlyPrice(monthlyWithBackups, billingInterval);
-                        return (
-                          <button
-                            key={s.name}
-                            onClick={() => setServerTypeOverride(s.name)}
-                            className={cn(
-                              "w-full flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-all",
-                              isActive
-                                ? "border-foreground bg-foreground/[0.03]"
-                                : "border-border hover:border-foreground/40",
-                            )}
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className={cn(
-                                "size-4 rounded-full border-[1.5px] flex items-center justify-center shrink-0",
-                                isActive ? "border-foreground bg-foreground" : "border-border",
-                              )}>
-                                {isActive && <Check className="size-2.5 text-background" />}
-                              </div>
-                              <div>
-                                <span className="text-sm font-medium">{meta.label}</span>
-                                <span className="text-[11px] text-muted-foreground ml-2">
-                                  {s.vcpu}C / {s.ram_gb}G / {s.disk_gb}G
-                                </span>
-                              </div>
-                            </div>
-                            <div className="flex items-baseline gap-px">
-                              <span className="text-sm font-semibold tabular-nums">${mp}</span>
-                              <span className="text-[10px] text-muted-foreground">/mo</span>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                <button
-                  onClick={() => setShowAllPlans(false)}
-                  className="w-full flex items-center justify-center gap-1.5 py-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <ChevronDown className="size-3 rotate-180" />
-                  Collapse
-                </button>
-              </div>
-            )}
-
-            {/* ─── Selected plan detail strip ─── */}
-            {selectedST && (
-              <div className="flex items-center justify-between rounded-lg bg-muted/40 px-3.5 py-2">
-                <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                  <span className="font-medium text-foreground">
-                    {PLAN_META[selectedIdx]?.label ?? selectedST.name}
-                  </span>
-                  <span>{selectedST.vcpu} vCPU</span>
-                  <span className="text-border">·</span>
-                  <span>{selectedST.ram_gb} GB RAM</span>
-                  <span className="text-border">·</span>
-                  <span>{selectedST.disk_gb} GB SSD</span>
-                  <span className="text-border">·</span>
-                  <span>{regionDisplay(selectedRegion).flag} {regionDisplay(selectedRegion).label}</span>
-                </div>
-              </div>
-            )}
-
-            {/* ─── Daily backups toggle ─── */}
+            {/* ── Daily backups add-on ── */}
             <button
               type="button"
               onClick={() => setBackupsEnabled((v) => !v)}
               className={cn(
-                "flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2.5 transition-all text-left",
+                "flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-all text-left",
                 backupsEnabled
-                  ? "border-emerald-500/30 bg-emerald-500/5"
+                  ? "border-foreground/20 bg-foreground/[0.03]"
                   : "border-border hover:border-foreground/20"
               )}
             >
               <div className="flex items-center gap-3 min-w-0">
                 <div className={cn(
                   "flex size-4 shrink-0 items-center justify-center rounded border-[1.5px] transition-colors",
-                  backupsEnabled ? "border-emerald-500 bg-emerald-500" : "border-muted-foreground/30",
+                  backupsEnabled ? "border-foreground bg-foreground" : "border-muted-foreground/30",
                 )}>
-                  {backupsEnabled && <Check className="size-2.5 text-white" />}
+                  {backupsEnabled && <Check className="size-2.5 text-background" />}
                 </div>
-                <Shield className={cn("size-3.5 shrink-0", backupsEnabled ? "text-emerald-500" : "text-muted-foreground")} />
+                <Shield className={cn("size-3.5 shrink-0", backupsEnabled ? "text-foreground" : "text-muted-foreground")} />
                 <div className="min-w-0">
-                  <p className="text-xs font-medium">Daily backups</p>
-                  <p className="text-[10px] text-muted-foreground">Optional, +20%</p>
+                  <p className="text-xs font-medium">Add daily backups</p>
+                  <p className="text-[10px] text-muted-foreground">Automatic daily snapshots · +{BACKUP_SURCHARGE_PERCENT}% of plan price</p>
                 </div>
               </div>
               <span className={cn(
                 "text-xs font-medium shrink-0 tabular-nums",
-                backupsEnabled ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"
+                backupsEnabled ? "text-foreground" : "text-muted-foreground"
               )}>
-                {backupsEnabled ? `+${BACKUP_SURCHARGE_PERCENT}%` : 'Off'}
+                {backupsEnabled ? `+$${backupSurcharge(basePriceMonthly)}/mo` : "Off"}
               </span>
             </button>
 
-            {/* ─── Config (logged-in) ─── */}
+            {/* ── Advanced config (logged-in) ── */}
             {isLoggedIn && (
               <div className="space-y-3">
-                {/* Advanced */}
                 <button
                   onClick={() => setShowAdvanced((v) => !v)}
                   className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70 hover:text-foreground transition-colors"
                 >
                   <ChevronDown className={cn("size-3 transition-transform", showAdvanced && "rotate-180")} />
-                  Advanced
+                  Advanced options
                 </button>
 
                 {showAdvanced && (
-                  <div className="space-y-3 rounded-lg border border-border/50 bg-muted/5 p-3">
+                  <div className="space-y-3 rounded-xl border border-border/50 bg-muted/5 p-3">
                     {/* Machine name */}
                     <Input
                       placeholder="Machine name (auto-generated if blank)"
@@ -646,35 +418,35 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                         <div className="space-y-1.5">
                           <p className="text-[10px] text-muted-foreground/70">Add existing keys too</p>
                           <div className="flex flex-wrap gap-1.5">
-                          {userSSHKeys?.map((key) => {
-                            const isSelected = selectedSSHKeyIds.includes(key.id);
-                            return (
-                              <button
-                                key={key.id}
-                                onClick={() =>
-                                  setSelectedSSHKeyIds((prev) =>
+                            {userSSHKeys?.map((key) => {
+                              const isSelected = selectedSSHKeyIds.includes(key.id);
+                              return (
+                                <button
+                                  key={key.id}
+                                  onClick={() =>
+                                    setSelectedSSHKeyIds((prev) =>
+                                      isSelected
+                                        ? prev.filter((id) => id !== key.id)
+                                        : [...prev, key.id],
+                                    )
+                                  }
+                                  className={cn(
+                                    "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] transition-colors",
                                     isSelected
-                                      ? prev.filter((id) => id !== key.id)
-                                      : [...prev, key.id],
-                                  )
-                                }
-                                className={cn(
-                                  "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] transition-colors",
-                                  isSelected
-                                    ? "border-foreground/30 bg-foreground/5 text-foreground"
-                                    : "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground",
-                                )}
-                              >
-                                <div className={cn(
-                                  "flex size-2.5 shrink-0 items-center justify-center rounded-sm border transition-colors",
-                                  isSelected ? "border-foreground bg-foreground" : "border-muted-foreground/30",
-                                )}>
-                                  {isSelected && <Check className="size-1.5 text-background" />}
-                                </div>
-                                {key.name}
-                              </button>
-                            );
-                          })}
+                                      ? "border-foreground/30 bg-foreground/5 text-foreground"
+                                      : "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground",
+                                  )}
+                                >
+                                  <div className={cn(
+                                    "flex size-2.5 shrink-0 items-center justify-center rounded-sm border transition-colors",
+                                    isSelected ? "border-foreground bg-foreground" : "border-muted-foreground/30",
+                                  )}>
+                                    {isSelected && <Check className="size-1.5 text-background" />}
+                                  </div>
+                                  {key.name}
+                                </button>
+                              );
+                            })}
                           </div>
                         </div>
                       )}
@@ -712,17 +484,17 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
               </div>
             )}
 
-            {/* Guest card */}
-            {!isLoggedIn && (
-              <div className="rounded-lg border bg-muted/20 px-3.5 py-2.5">
-                <p className="text-xs text-muted-foreground">
-                  No account needed — Stripe collects your email at checkout. Machine unlocks immediately.
-                </p>
-              </div>
-            )}
+            {/* ── Trust signals ── */}
+            <div className="flex items-center justify-center gap-3 text-[10px] text-muted-foreground/50 pt-1">
+              <span>Ready in ~60s</span>
+              <span>·</span>
+              <span>Cancel anytime</span>
+              <span>·</span>
+              <span>No lock-in</span>
+            </div>
           </div>
 
-          {/* ─── FOOTER CTA ─── */}
+          {/* ─── STICKY FOOTER ─── */}
           <div className="shrink-0 border-t border-border px-6 py-4 bg-background">
             {isLoggedIn && machineLimitReached && (
               <div className="mb-3 flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2">
@@ -732,34 +504,28 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
             )}
 
             <div className="flex items-center gap-4">
-              {/* Price summary */}
+              {/* Price */}
               <div className="min-w-0">
                 <div className="flex items-baseline gap-1">
-                  {isDiscounted && selectedST && (
-                    <span className="text-xs text-muted-foreground/40 line-through">${priceWithBackups}</span>
-                  )}
-                  <span className="text-xl font-semibold tabular-nums">${displayMonthly}</span>
+                  <span className="text-2xl font-bold tabular-nums">${footerMonthly}</span>
                   <span className="text-xs text-muted-foreground">/mo</span>
                 </div>
                 <p className="text-[10px] text-muted-foreground">
-                  {isDiscounted
-                    ? `$${total} billed ${billingInterval === "yearly" ? "annually" : "every 2 yrs"}`
-                    : "Billed monthly · cancel anytime"}
-                  {backupsEnabled && <span className="text-emerald-600 dark:text-emerald-400"> · incl. backups</span>}
+                  Billed monthly{backupsEnabled ? " · incl. backups" : ""}
                 </p>
               </div>
 
-              {/* Deploy button */}
+              {/* CTA */}
               <Button
-                className="flex-1 h-11 text-sm font-medium rounded-xl"
+                className="flex-1 h-12 text-sm font-semibold rounded-xl"
                 onClick={handleDeploy}
                 disabled={isPending || !canCreate || (isLoggedIn && machineLimitReached)}
               >
                 {isPending ? (
-                  <><Loader2 className="size-4 animate-spin mr-2" />Deploying…</>
+                  <><Loader2 className="size-4 animate-spin mr-2" />Processing…</>
                 ) : (
                   <>
-                    {isLoggedIn ? "Deploy machine" : "Continue to checkout"}
+                    {isLoggedIn ? "Deploy now" : "Continue to checkout"}
                     <ArrowRight className="size-4 ml-2" />
                   </>
                 )}
