@@ -186,9 +186,6 @@ export function buildMachineUserData(
   machineToken: string,
   platformCallbackUrl: string,
   envVars?: Record<string, string>,
-  dockerImage?: string,
-  entrypoint?: string,
-  command?: string,
   extraSSHKeys?: string[],
 ) {
   return buildCloudInit({
@@ -198,9 +195,6 @@ export function buildMachineUserData(
     platformCallbackUrl,
     proxyDomain: config.PROXY_DOMAIN,
     envVars,
-    dockerImage,
-    entrypoint,
-    command,
     extraSSHKeys,
     daemonChannel: config.DAEMON_CHANNEL,
   });

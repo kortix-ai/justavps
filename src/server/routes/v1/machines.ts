@@ -246,6 +246,10 @@ machinesApp.openapi(createMachineRoute, async (c) => {
 
     resolvedImage = resolved.selection.providerImage;
     machineImageId = resolved.selection.machineImageId;
+  } else if (data.image_id === null) {
+    // Explicit null: skip template, use plain Ubuntu
+    resolvedImage = 'ubuntu-24.04';
+    machineImageId = null;
   } else {
     const [baseImage] = await db.select().from(images)
       .where(and(eq(images.isTemplate, true), eq(images.status, 'ready'), eq(images.name, DEFAULT_TEMPLATE_NAME)))
@@ -408,7 +412,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
     const providerKeyId = await uploadSSHKeyToProvider(provider, slug, autoKey.publicKey);
     const callbackConfig = resolveMachineCallbackConfig(c.req.url);
     const callbackUrl = callbackConfig.url;
-    const userdata = buildMachineUserData(slug, autoKey.publicKey, machineToken, callbackUrl, data.env_vars, resolvedDockerImage, resolvedEntrypoint, resolvedCommand, extraSSHKeys);
+    const userdata = buildMachineUserData(slug, autoKey.publicKey, machineToken, callbackUrl, data.env_vars, extraSSHKeys);
 
     const machine = await createMachineRecord({
       ownerId: userId,
