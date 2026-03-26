@@ -318,9 +318,6 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       machineToken,
       callbackConfig.url,
       machineConfig.env_vars,
-      resolvedDockerImage,
-      resolvedEntrypoint,
-      resolvedCommand,
       extraSSHKeys,
     );
 

@@ -18,9 +18,6 @@ interface CloudInitOpts {
   platformCallbackUrl: string;
   proxyDomain: string;
   envVars?: Record<string, string>;
-  dockerImage?: string;
-  entrypoint?: string;
-  command?: string;
   extraSSHKeys?: string[];
   daemonChannel?: 'dev' | 'latest';
 }
@@ -52,168 +49,8 @@ export function buildCloudInit(opts: CloudInitOpts): string {
       .join('\n')
     : '';
 
-  const dockerImageBase64 = opts.dockerImage
-    ? Buffer.from(opts.dockerImage).toString('base64')
-    : '';
-  const dockerEntrypointBase64 = opts.entrypoint
-    ? Buffer.from(opts.entrypoint).toString('base64')
-    : '';
-  const dockerCommandBase64 = opts.command
-    ? Buffer.from(opts.command).toString('base64')
-    : '';
-
-  const dockerBlock = opts.dockerImage ? `
-# ── Configure Docker workload ─────────────────────────────────────────────
-${stageCallback('docker_pulling', 'Configuring Docker workload...')}
-
-cat > /etc/systemd/system/justavps-docker.service << 'DOCKERSERVICEEOF'
-[Unit]
-Description=JustAVPS Docker workload
-After=network-online.target docker.service
-Requires=docker.service
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/justavps-docker-start.sh
-Restart=always
-RestartSec=5
-TimeoutStartSec=0
-
-[Install]
-WantedBy=multi-user.target
-DOCKERSERVICEEOF
-
-cat > /usr/local/bin/justavps-docker-start.sh << 'DOCKERSTARTEOF'
-#!/bin/bash
-set -e
-
-ENV_FILE="/etc/justavps/env"
-for i in $(seq 1 60); do
-  [ -s "$ENV_FILE" ] && break
-  sleep 1
-done
-if [ ! -s "$ENV_FILE" ]; then
-  touch "$ENV_FILE"
-fi
-
-DOCKER_IMAGE="$(printf '%s' '${dockerImageBase64}' | base64 -d)"
-DOCKER_ENTRYPOINT="$(printf '%s' '${dockerEntrypointBase64}' | base64 -d 2>/dev/null || true)"
-DOCKER_COMMAND="$(printf '%s' '${dockerCommandBase64}' | base64 -d 2>/dev/null || true)"
-
-append_command_args() {
-  local command_text="$1"
-  [ -n "$command_text" ] || return 0
-
-  while IFS= read -r -d '' arg; do
-    RUN_ARGS+=("$arg")
-  done < <(python3 - "$command_text" <<'PY'
-import shlex
-import sys
-
-for token in shlex.split(sys.argv[1]):
-    sys.stdout.buffer.write(token.encode('utf-8') + b'\\0')
-PY
-)
-}
-
-resolve_host_port() {
-  case "$1" in
-    80) echo 8080 ;;
-    443) echo 8443 ;;
-    22) echo 22222 ;;
-    *) echo "$1" ;;
-  esac
-}
-
-PORT_ARGS=()
-HOST_PORTS=()
-while IFS= read -r exposed; do
-  [ -n "$exposed" ] || continue
-  port="\${exposed%/*}"
-  [ -n "$port" ] || continue
-  host_port="$(resolve_host_port "$port")"
-  PORT_ARGS+=("-p" "\${host_port}:\${port}")
-  HOST_PORTS+=("$host_port")
-done < <(docker image inspect "$DOCKER_IMAGE" --format '{{range $port, $_ := .Config.ExposedPorts}}{{println $port}}{{end}}' 2>/dev/null || true)
-
-if [ \${#PORT_ARGS[@]} -eq 0 ]; then
-  PORT_ARGS=(
-    -p 3000:3000
-    -p 3456:3456
-    -p 8000:8000
-    -p 8080:8080
-    -p 6080:6080
-    -p 6081:6081
-    -p 3111:3111
-    -p 3210:3210
-    -p 3211:3211
-    -p 9223:9223
-    -p 9224:9224
-    -p 22222:22
-  )
-  HOST_PORTS=(3000 3456 8000 8080 6080 6081 3111 3210 3211 9223 9224 22222)
-fi
-
-docker rm -f justavps-workload 2>/dev/null || true
-
-RUN_ARGS=(
-  docker run --rm
-  --name justavps-workload
-  --env-file "$ENV_FILE"
-  --cap-add SYS_ADMIN
-  --security-opt seccomp=unconfined
-  --shm-size 2g
-  -v justavps-data:/workspace
-  -v justavps-data:/config
-)
-for arg in "\${PORT_ARGS[@]}"; do
-  RUN_ARGS+=("$arg")
-done
-if [ -n "$DOCKER_ENTRYPOINT" ]; then
-  RUN_ARGS+=(--entrypoint "$DOCKER_ENTRYPOINT")
-fi
-RUN_ARGS+=("$DOCKER_IMAGE")
-append_command_args "$DOCKER_COMMAND"
-
-printf '%s\n' "\${HOST_PORTS[@]}" > /etc/justavps/docker-host-ports
-
-exec "\${RUN_ARGS[@]}"
-DOCKERSTARTEOF
-chmod +x /usr/local/bin/justavps-docker-start.sh
-
-BOOT_DOCKER_IMAGE="$(printf '%s' '${dockerImageBase64}' | base64 -d)"
-if ! docker image inspect "$BOOT_DOCKER_IMAGE" >/dev/null 2>&1; then
-  echo "[justavps] Pulling $BOOT_DOCKER_IMAGE..."
-  docker pull "$BOOT_DOCKER_IMAGE"
-fi
-
-systemctl daemon-reload
-systemctl enable justavps-docker 2>/dev/null || true
-systemctl restart justavps-docker
-
-echo "[justavps] Waiting for Docker workload..."
-for i in $(seq 1 120); do
-  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q justavps-workload; then
-    ${stageCallback('docker_running', 'Docker container started')}
-    break
-  fi
-  sleep 2
-done
-
-${stageCallback('services_starting', 'Services booting...')}
-echo "[justavps] Waiting for services to be ready..."
-for i in $(seq 1 120); do
-  while IFS= read -r host_port; do
-    [ -n "$host_port" ] || continue
-    if curl -sf "http://localhost:\${host_port}/" >/dev/null 2>&1 || curl -sf "http://localhost:\${host_port}/health" >/dev/null 2>&1; then
-      ${stageCallback('services_ready', 'All services are up')}
-      break 2
-    fi
-  done < /etc/justavps/docker-host-ports
-  sleep 2
-done
-` : '';
+  // Docker workload setup is no longer handled by cloud-init.
+  // It is baked into the machine snapshot via start-sandbox.sh during image build.
 
   return `#!/bin/bash
 export HOME=/root
@@ -531,11 +368,10 @@ systemctl enable --now justavps-docker-guard 2>/dev/null || true
 systemctl enable justavps-daemon 2>/dev/null || true
 systemctl restart justavps-daemon 2>/dev/null || true
 systemctl enable --now sandbox-agent 2>/dev/null || true
-${opts.dockerImage ? `systemctl disable --now opencode-web 2>/dev/null || true` : `systemctl enable --now opencode-web 2>/dev/null || true`}
+systemctl enable --now opencode-web 2>/dev/null || true
 systemctl enable --now justavps-watchdog.timer 2>/dev/null || true
 
 ${stageCallback('cloud_init_done', 'Configuration complete')}
-${dockerBlock}
 echo "[justavps] Machine ${opts.slug} ready!"
 `;
 }
