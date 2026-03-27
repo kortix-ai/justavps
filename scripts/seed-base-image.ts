@@ -6,7 +6,7 @@ import { eq } from 'drizzle-orm';
 
 const TEMPLATE_OWNER_EMAIL = 'templates@justavps.internal';
 const TEMPLATE_OWNER_NAME = 'JustAVPS Templates';
-const BASE_TEMPLATE_SNAPSHOT_ID = process.env.HETZNER_BASE_SNAPSHOT_ID || '370621396';
+const BASE_TEMPLATE_SNAPSHOT_ID = process.env.HETZNER_BASE_SNAPSHOT_ID || '370623098';
 const LEGACY_TEMPLATE_NAMES = ['Kortix'];
 
 async function main() {
