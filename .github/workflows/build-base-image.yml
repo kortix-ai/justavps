@@ -7,6 +7,7 @@ name: Build Base Image
 #   4. Seed the DB image record with the new snapshot ID
 
 on:
+  # Manual trigger — run anytime from the Actions tab
   workflow_dispatch:
     inputs:
       location:
@@ -22,6 +23,13 @@ on:
         required: false
         default: 'latest'
 
+  # Automatic trigger — rebuild base image after every production daemon release
+  # so the new daemon version is baked in and machines provision faster.
+  workflow_run:
+    workflows: ["Release Daemon"]
+    branches: [production]
+    types: [completed]
+
 env:
   VERCEL_ORG_ID: team_6wPTUrLXccl65xQAtgxIFIt6
   VERCEL_PROJECT_ID: prj_Ky8G1r3uj0nlr5SrmDhrPauaVuLw
@@ -31,6 +39,8 @@ jobs:
     name: Build snapshot
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # When triggered by workflow_run, only proceed if the daemon release succeeded
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     outputs:
       snapshot_id: ${{ steps.build.outputs.snapshot_id }}
       disk_gb: ${{ steps.build.outputs.disk_gb }}
@@ -45,9 +55,9 @@ jobs:
         id: build
         env:
           HETZNER_API_KEY: ${{ secrets.HETZNER_API_KEY }}
-          BUILD_LOCATION: ${{ inputs.location }}
-          BUILD_SERVER_TYPE: ${{ inputs.server_type }}
-          DAEMON_CHANNEL: ${{ inputs.daemon_channel }}
+          BUILD_LOCATION: ${{ inputs.location || 'hel1' }}
+          BUILD_SERVER_TYPE: ${{ inputs.server_type || 'cx23' }}
+          DAEMON_CHANNEL: ${{ inputs.daemon_channel || 'latest' }}
         run: |
           npx tsx scripts/build-base-image.ts 2>&1 | tee /tmp/build-output.txt
           SNAP_ID=$(grep -oP 'Snapshot ID:\s+\K\d+' /tmp/build-output.txt)
