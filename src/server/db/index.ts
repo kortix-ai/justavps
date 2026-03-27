@@ -16,7 +16,10 @@ export function getDb() {
     if (!url) {
       throw new Error('DATABASE_URL not set. Configure it in .env');
     }
-    const sql = postgres(url);
+    // In CI/production environments the DB requires SSL. postgres.js needs
+    // ssl:true passed as an option (sslmode=require in the URL is not enough).
+    const requireSsl = url.includes('sslmode=require') || url.includes('ssl=require') || process.env.DB_SSL === 'true';
+    const sql = postgres(url, requireSsl ? { ssl: 'require' } : {});
     _db = drizzlePostgres(sql, { schema });
   }
   return _db;
