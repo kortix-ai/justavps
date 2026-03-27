@@ -1,13 +1,20 @@
 name: Build Base Image
 
-# Fully automated base image pipeline:
-#   1. Build a fresh 40 GB snapshot on Hetzner (cx23, hel1)
-#   2. Update HETZNER_BASE_SNAPSHOT_ID in Vercel (all environments) via API
-#   3. Trigger a production redeploy so the new snapshot is live
-#   4. Seed the DB image record with the new snapshot ID
+# Fully automated base image pipeline.
+#
+# Two separate automatic triggers, one per deployment:
+#
+#   production branch daemon release
+#     → builds snapshot with daemon/latest (stable)
+#     → updates Vercel PRODUCTION env (justavps.com)
+#
+#   main branch daemon release
+#     → builds snapshot with daemon/dev (latest commit)
+#     → updates Vercel PREVIEW env (dev.justavps.com)
+#
+# Manual dispatch always available from the Actions tab.
 
 on:
-  # Manual trigger — run anytime from the Actions tab
   workflow_dispatch:
     inputs:
       location:
@@ -22,12 +29,15 @@ on:
         description: 'Daemon release channel (latest or dev)'
         required: false
         default: 'latest'
+      vercel_target:
+        description: 'Which Vercel env to update (production, preview, all)'
+        required: false
+        default: 'all'
 
-  # Automatic trigger — rebuild base image after every production daemon release
-  # so the new daemon version is baked in and machines provision faster.
+  # Production daemon released → rebuild for justavps.com
   workflow_run:
     workflows: ["Release Daemon"]
-    branches: [production]
+    branches: [production, main]
     types: [completed]
 
 env:
@@ -35,12 +45,46 @@ env:
   VERCEL_PROJECT_ID: prj_Ky8G1r3uj0nlr5SrmDhrPauaVuLw
 
 jobs:
+  resolve-context:
+    name: Resolve build context
+    runs-on: ubuntu-latest
+    # Only proceed if daemon release succeeded (or manual dispatch)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    outputs:
+      daemon_channel: ${{ steps.ctx.outputs.daemon_channel }}
+      vercel_target: ${{ steps.ctx.outputs.vercel_target }}
+      should_redeploy: ${{ steps.ctx.outputs.should_redeploy }}
+    steps:
+      - name: Resolve context
+        id: ctx
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual: use explicit inputs
+            echo "daemon_channel=${{ inputs.daemon_channel || 'latest' }}" >> "$GITHUB_OUTPUT"
+            echo "vercel_target=${{ inputs.vercel_target || 'all' }}"       >> "$GITHUB_OUTPUT"
+            echo "should_redeploy=true"                                      >> "$GITHUB_OUTPUT"
+          else
+            # Automatic: derive from which branch triggered the daemon release
+            BRANCH="${{ github.event.workflow_run.head_branch }}"
+            if [ "$BRANCH" = "production" ]; then
+              echo "daemon_channel=latest"    >> "$GITHUB_OUTPUT"
+              echo "vercel_target=production" >> "$GITHUB_OUTPUT"
+              echo "should_redeploy=true"     >> "$GITHUB_OUTPUT"
+            else
+              # main → dev channel → preview deployment
+              echo "daemon_channel=dev"       >> "$GITHUB_OUTPUT"
+              echo "vercel_target=preview"    >> "$GITHUB_OUTPUT"
+              echo "should_redeploy=false"    >> "$GITHUB_OUTPUT"
+            fi
+          fi
+          echo "Branch: ${{ github.event.workflow_run.head_branch || 'manual' }}"
+          cat "$GITHUB_OUTPUT"
+
   build:
     name: Build snapshot
+    needs: resolve-context
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # When triggered by workflow_run, only proceed if the daemon release succeeded
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     outputs:
       snapshot_id: ${{ steps.build.outputs.snapshot_id }}
       disk_gb: ${{ steps.build.outputs.disk_gb }}
@@ -57,32 +101,38 @@ jobs:
           HETZNER_API_KEY: ${{ secrets.HETZNER_API_KEY }}
           BUILD_LOCATION: ${{ inputs.location || 'hel1' }}
           BUILD_SERVER_TYPE: ${{ inputs.server_type || 'cx23' }}
-          DAEMON_CHANNEL: ${{ inputs.daemon_channel || 'latest' }}
+          DAEMON_CHANNEL: ${{ needs.resolve-context.outputs.daemon_channel }}
         run: |
+          echo "Building with daemon_channel=$DAEMON_CHANNEL target=${{ needs.resolve-context.outputs.vercel_target }}"
           npx tsx scripts/build-base-image.ts 2>&1 | tee /tmp/build-output.txt
           SNAP_ID=$(grep -oP 'Snapshot ID:\s+\K\d+' /tmp/build-output.txt)
           DISK_GB=$(grep -oP 'Disk size:\s+\K\d+' /tmp/build-output.txt)
           echo "snapshot_id=$SNAP_ID" >> "$GITHUB_OUTPUT"
-          echo "disk_gb=$DISK_GB" >> "$GITHUB_OUTPUT"
-          echo "Snapshot $SNAP_ID (${DISK_GB}GB) built"
+          echo "disk_gb=$DISK_GB"     >> "$GITHUB_OUTPUT"
+          echo "Snapshot $SNAP_ID (${DISK_GB}GB) built with daemon=$DAEMON_CHANNEL"
 
   update-vercel:
     name: Update Vercel env
-    needs: build
+    needs: [resolve-context, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Update HETZNER_BASE_SNAPSHOT_ID in all Vercel environments
+      - name: Update HETZNER_BASE_SNAPSHOT_ID
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ env.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ env.VERCEL_PROJECT_ID }}
-        run: python3 scripts/vercel-update-env.py ${{ needs.build.outputs.snapshot_id }}
+        run: |
+          python3 scripts/vercel-update-env.py \
+            ${{ needs.build.outputs.snapshot_id }} \
+            --target=${{ needs.resolve-context.outputs.vercel_target }}
 
   redeploy:
     name: Redeploy production
-    needs: update-vercel
+    needs: [resolve-context, update-vercel]
     runs-on: ubuntu-latest
+    # Only redeploy production when it was actually updated
+    if: ${{ needs.resolve-context.outputs.should_redeploy == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - name: Trigger Vercel production redeploy
@@ -94,8 +144,10 @@ jobs:
 
   seed-db:
     name: Seed DB
-    needs: build
+    needs: [resolve-context, build]
     runs-on: ubuntu-latest
+    # Only seed when targeting production (one source of truth for the DB)
+    if: ${{ needs.resolve-context.outputs.vercel_target == 'production' || needs.resolve-context.outputs.vercel_target == 'all' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -112,7 +164,7 @@ jobs:
 
   summary:
     name: Summary
-    needs: [build, update-vercel, redeploy, seed-db]
+    needs: [resolve-context, build, update-vercel, redeploy, seed-db]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -120,24 +172,21 @@ jobs:
         run: |
           SNAP="${{ needs.build.outputs.snapshot_id }}"
           DISK="${{ needs.build.outputs.disk_gb }}"
-          BUILD="${{ needs.build.result }}"
-          ENV="${{ needs.update-vercel.result }}"
-          DEPLOY="${{ needs.redeploy.result }}"
-          SEED="${{ needs.seed-db.result }}"
-          icon() { [ "$1" = "success" ] && echo "✅" || echo "❌"; }
+          CHANNEL="${{ needs.resolve-context.outputs.daemon_channel }}"
+          TARGET="${{ needs.resolve-context.outputs.vercel_target }}"
+          icon() { [ "$1" = "success" ] && echo "✅" || ([ "$1" = "skipped" ] && echo "⊘" || echo "❌"); }
           echo "### Base Image Pipeline" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| Step | Status |" >> "$GITHUB_STEP_SUMMARY"
           echo "|------|--------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Build snapshot | $(icon $BUILD) $BUILD |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Update Vercel env | $(icon $ENV) $ENV |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Redeploy production | $(icon $DEPLOY) $DEPLOY |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Seed DB | $(icon $SEED) $SEED |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Build snapshot | $(icon ${{ needs.build.result }}) ${{ needs.build.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Update Vercel (\`$TARGET\`) | $(icon ${{ needs.update-vercel.result }}) ${{ needs.update-vercel.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Redeploy production | $(icon ${{ needs.redeploy.result }}) ${{ needs.redeploy.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Seed DB | $(icon ${{ needs.seed-db.result }}) ${{ needs.seed-db.result }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
           echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
           echo "| Snapshot ID | \`$SNAP\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Disk | ${DISK} GB |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Location | ${{ inputs.location }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Server type | ${{ inputs.server_type }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Daemon | ${{ inputs.daemon_channel }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Daemon channel | \`$CHANNEL\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Vercel target | \`$TARGET\` |" >> "$GITHUB_STEP_SUMMARY"
