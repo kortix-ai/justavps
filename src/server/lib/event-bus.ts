@@ -50,7 +50,6 @@ class MachineEventBus {
     const STAGE_ORDER = [
       'server_creating', 'server_created',
       'cloud_init_running', 'cloud_init_done',
-      'docker_pulling', 'docker_running',
       'services_starting', 'services_ready',
     ];
 

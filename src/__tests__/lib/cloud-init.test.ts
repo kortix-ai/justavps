@@ -228,12 +228,4 @@ describe('cloud-init', () => {
     });
   });
 
-  describe('docker workload', () => {
-    it('should NOT include docker block (moved to start-sandbox.sh in computer repo)', () => {
-      const script = buildCloudInit(defaultOpts);
-      expect(script).not.toContain('justavps-docker.service');
-      expect(script).not.toContain('--name justavps-workload');
-      expect(script).not.toContain('justavps-data:/workspace');
-    });
-  });
 });

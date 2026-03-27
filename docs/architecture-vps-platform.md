@@ -58,11 +58,6 @@ systemctl enable --now code-server
 systemctl enable --now sandbox-agent
 systemctl enable --now caddy
 
-# ── Phase 4: Docker workload (optional) ──────────────────────────
-if [ -n "$DOCKER_IMAGE" ]; then
-  docker pull $DOCKER_IMAGE  # skips if cached
-  docker run ... $DOCKER_IMAGE $ENTRYPOINT
-fi
 ```
 
 ---
@@ -252,7 +247,7 @@ API keys are passed via the machine's env vars (`/etc/justavps/env`).
 | Sandbox Agent | 2468 | `/agent/*` | Coding agent API + Inspector |
 | OpenCode Web | 3456 | `/opencode/*` | OpenCode web UI |
 | justavps-daemon | 7777 | `/daemon/*` | Platform agent (heartbeat, health) |
-| Docker workload | 8000+ | — | User's container (if configured) |
+
 
 ---
 

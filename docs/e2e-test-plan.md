@@ -83,7 +83,7 @@ The entire snapshot system was refactored. "Snapshots" are now "Images." The arc
 
 ### `images` (renamed from `snapshots`)
 - `id`, `owner_id`, `name`, `status`, `source_machine_id`, `provider`, `provider_image_id`, `disk_size_gb`, `architecture`, `created_at`, `updated_at`
-- No more: `docker_image`, `entrypoint`, `is_default`, `provider_data`, `build_logs`
+- No more: `is_default`, `provider_data`, `build_logs`
 
 ### `machines`
 - `image_id` (renamed from `snapshot_id`) — nullable, no FK

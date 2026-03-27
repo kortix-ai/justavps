@@ -197,7 +197,7 @@ Important distinction:
   - Introduce a plan catalog service that owns stable plan IDs like `starter`, `pro`, `power`, `ultra`
   - Introduce a template registry that owns stable template IDs like `kortix-sandbox`
   - Move request normalization out of the route so the route turns either old or new payloads into one internal provisioning request
-  - Keep the underlying compute provider free to map plan/template choices to raw provider SKUs, images, Docker workload defaults, and readiness logic
+  - Keep the underlying compute provider free to map plan/template choices to raw provider SKUs, images, and readiness logic
 - Acceptance criteria:
   - Plan selection no longer depends on `computer` knowing Hetzner SKUs
   - Template resolution no longer depends on `computer` knowing snapshot IDs

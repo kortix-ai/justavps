@@ -195,7 +195,6 @@ Recommended profile:
 That profile can internally mean:
 
 - JustAVPS base machine snapshot
-- Docker workload image = `SANDBOX_IMAGE`
 - expected open port = `8000`
 - expected auth = `KORTIX_TOKEN`
 - health contract = sandbox-ready when port `8000` responds

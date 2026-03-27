@@ -143,7 +143,7 @@ export const machines = pgTable('machines', {
   domains: jsonb('domains').$type<string[]>().default([]),
 
   // Provisioning progress
-  provisioningStage: text('provisioning_stage'), // server_creating | server_created | cloud_init_running | cloud_init_done | docker_pulling | docker_running | services_starting | services_ready
+  provisioningStage: text('provisioning_stage'), // server_creating | server_created | cloud_init_running | cloud_init_done | services_ready
   provisioningStageUpdatedAt: timestamp('provisioning_stage_updated_at'),
 
   // Daemon

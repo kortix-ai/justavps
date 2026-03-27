@@ -223,11 +223,7 @@ Cloud-init currently does machine-specific bootstrapping. It:
 
 This is more accurate than the old spec's rigid snapshot-only / code-server / caddy orchestration story.
 
-### 5.4 Reserved
-
-_(Docker workload mode was removed. Container orchestration is no longer part of machine creation.)_
-
-### 5.5 Provisioning stages
+### 5.4 Provisioning stages
 
 The database tracks provisioning progress with stages such as:
 
@@ -235,9 +231,6 @@ The database tracks provisioning progress with stages such as:
 - `server_created`
 - `cloud_init_running`
 - `cloud_init_done`
-- `docker_pulling`
-- `docker_running`
-- `services_starting`
 - `services_ready`
 
 Machines become `ready` through callbacks / heartbeat flow, not just blind provider polling.
