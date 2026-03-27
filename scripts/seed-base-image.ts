@@ -6,7 +6,7 @@ import { eq } from 'drizzle-orm';
 
 const TEMPLATE_OWNER_EMAIL = 'templates@justavps.internal';
 const TEMPLATE_OWNER_NAME = 'JustAVPS Templates';
-const BASE_TEMPLATE_SNAPSHOT_ID = process.env.HETZNER_BASE_SNAPSHOT_ID || '367950002';
+const BASE_TEMPLATE_SNAPSHOT_ID = process.env.HETZNER_BASE_SNAPSHOT_ID || '370616341';
 const LEGACY_TEMPLATE_NAMES = ['Kortix'];
 
 async function main() {
@@ -40,7 +40,7 @@ async function main() {
         status: 'ready',
         provider: 'cloud',
         providerImageId: template.providerImageId,
-        diskSizeGb: 80,
+        diskSizeGb: 40,
         isTemplate: true,
         updatedAt: new Date(),
       }).where(eq(images.id, present.id));

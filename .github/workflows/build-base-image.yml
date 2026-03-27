@@ -1,0 +1,70 @@
+name: Build Base Image
+
+# Builds a fresh JustAVPS base snapshot on the smallest Hetzner machine (40 GB disk).
+# The snapshot is global and can deploy to any region/size.
+#
+# Trigger manually from the Actions tab.
+# After completion the workflow prints the new snapshot ID — update
+# HETZNER_BASE_SNAPSHOT_ID in Vercel env and re-run seed-base-image.ts.
+
+on:
+  workflow_dispatch:
+    inputs:
+      location:
+        description: 'Hetzner datacenter (hel1, fsn1, nbg1, hil, ash)'
+        required: false
+        default: 'hel1'
+      server_type:
+        description: 'Server type for build machine (cx23 = 2v/4GB/40GB disk)'
+        required: false
+        default: 'cx23'
+      daemon_channel:
+        description: 'Daemon release channel (latest or dev)'
+        required: false
+        default: 'latest'
+
+jobs:
+  build:
+    name: Build base snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build base image
+        env:
+          HETZNER_API_KEY: ${{ secrets.HETZNER_API_KEY }}
+          BUILD_LOCATION: ${{ inputs.location }}
+          BUILD_SERVER_TYPE: ${{ inputs.server_type }}
+          DAEMON_CHANNEL: ${{ inputs.daemon_channel }}
+        run: npx tsx scripts/build-base-image.ts 2>&1 | tee build-output.txt
+
+      - name: Extract snapshot ID
+        id: snapshot
+        run: |
+          SNAP_ID=$(grep -oP 'Snapshot ID:\s+\K\d+' build-output.txt || true)
+          DISK_SIZE=$(grep -oP 'Disk size:\s+\K\d+' build-output.txt || true)
+          echo "snapshot_id=$SNAP_ID" >> "$GITHUB_OUTPUT"
+          echo "disk_size=$DISK_SIZE" >> "$GITHUB_OUTPUT"
+          echo "### Base Image Built ✓" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Snapshot ID | \`$SNAP_ID\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Disk Size | ${DISK_SIZE} GB |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Location | ${{ inputs.location }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Server Type | ${{ inputs.server_type }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Daemon | ${{ inputs.daemon_channel }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Next steps:**" >> "$GITHUB_STEP_SUMMARY"
+          echo "1. Set \`HETZNER_BASE_SNAPSHOT_ID=$SNAP_ID\` in Vercel env (preview + production)" >> "$GITHUB_STEP_SUMMARY"
+          echo "2. Run \`npx tsx scripts/seed-base-image.ts\` to update the DB" >> "$GITHUB_STEP_SUMMARY"
+          echo "3. Deploy to activate" >> "$GITHUB_STEP_SUMMARY"
