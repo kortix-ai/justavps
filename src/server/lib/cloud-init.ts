@@ -49,9 +49,6 @@ export function buildCloudInit(opts: CloudInitOpts): string {
       .join('\n')
     : '';
 
-  // Docker workload setup is no longer handled by cloud-init.
-  // It is baked into the machine snapshot via start-sandbox.sh during image build.
-
   return `#!/bin/bash
 export HOME=/root
 export DEBIAN_FRONTEND=noninteractive

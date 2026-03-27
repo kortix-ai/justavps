@@ -118,18 +118,6 @@ export type PostApiV1MachinesData = {
             [key: string]: string;
         };
         /**
-         * Docker image to run on boot (e.g. "myapp:latest")
-         */
-        docker_image?: string;
-        /**
-         * Optional Docker --entrypoint override (binary/path only)
-         */
-        entrypoint?: string;
-        /**
-         * Optional container command/args passed after the image name
-         */
-        command?: string;
-        /**
          * IDs of user SSH keys to add to the machine. Auto-generated key is always included.
          */
         ssh_key_ids?: Array<string>;

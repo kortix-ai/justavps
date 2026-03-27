@@ -64,48 +64,6 @@ describe('validation schemas', () => {
       }
     });
 
-    it('should accept docker_image field', () => {
-      const data = {
-        ...validData,
-        docker_image: 'nginx:latest',
-      };
-      
-      const result = CreateMachineSchema.safeParse(data);
-      
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.docker_image).toBe('nginx:latest');
-      }
-    });
-
-    it('should accept entrypoint field', () => {
-      const data = {
-        ...validData,
-        entrypoint: '/bin/sh',
-      };
-      
-      const result = CreateMachineSchema.safeParse(data);
-      
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.entrypoint).toBe('/bin/sh');
-      }
-    });
-
-    it('should accept command field', () => {
-      const data = {
-        ...validData,
-        command: 'sleep infinity',
-      };
-
-      const result = CreateMachineSchema.safeParse(data);
-
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.command).toBe('sleep infinity');
-      }
-    });
-
     it('should reject invalid server_type', () => {
       const invalidData = { ...validData, server_type: '' };
       const result = CreateMachineSchema.safeParse(invalidData);

@@ -333,9 +333,6 @@ interface CreateMachineInput {
   sshPublicKey: string;
   sshPrivateKey: string;
   priceMonthly: number | null;
-  dockerImage?: string | null;
-  entrypoint?: string | null;
-  dockerCommand?: string | null;
   backupsEnabled?: boolean;
 }
 
@@ -428,12 +425,10 @@ export async function cleanupMachineResources(
  * Provisioning timeout — if a machine has been provisioning for longer than
  * this without receiving a heartbeat, mark it as error.
  *
- * Cloud-init downloads daemon + sandbox-agent + optionally Docker images,
- * so 5 minutes is a reasonable upper bound for non-Docker machines and
- * 10 minutes for Docker workloads.
+ * Cloud-init downloads daemon + sandbox-agent,
+ * so 20 minutes is a reasonable upper bound.
  */
-const PROVISION_TIMEOUT_MS = 20 * 60 * 1000; // 10 minutes
-const PROVISION_TIMEOUT_DOCKER_MS = 30 * 60 * 1000; // 15 minutes for Docker workloads
+const PROVISION_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
 
 export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
   const meta = readProviderMeta(machine);
@@ -559,7 +554,7 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
     }
   }
 
-  if (Date.now() - machine.createdAt.getTime() > (machine.dockerImage ? PROVISION_TIMEOUT_DOCKER_MS : PROVISION_TIMEOUT_MS)) {
+  if (Date.now() - machine.createdAt.getTime() > PROVISION_TIMEOUT_MS) {
     console.warn(`[MACHINES] Provisioning timeout for ${machine.slug} (${Math.round((Date.now() - machine.createdAt.getTime()) / 1000)}s elapsed, no heartbeat or successful probe)`);
     await db.update(machines).set({
       status: 'error',

@@ -219,23 +219,13 @@ Cloud-init currently does machine-specific bootstrapping. It:
 - disables Caddy if present
 - configures UFW rules
 - installs / configures fail2ban
-- can optionally configure a Docker workload if `docker_image` is requested
 - reports provisioning stages back to the platform
 
 This is more accurate than the old spec's rigid snapshot-only / code-server / caddy orchestration story.
 
-### 5.4 Docker workload mode
+### 5.4 Reserved
 
-Machine creation supports an optional Docker workload mode:
-
-- `docker_image`
-- `entrypoint`
-- `command`
-- `env_vars`
-
-When present, cloud-init installs and enables a `justavps-docker` systemd service that runs the selected container and maps a set of exposed/default ports.
-
-This is a real current capability and should be considered part of the product.
+_(Docker workload mode was removed. Container orchestration is no longer part of machine creation.)_
 
 ### 5.5 Provisioning stages
 

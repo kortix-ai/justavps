@@ -27,8 +27,6 @@ class PostApiV1MachinesBody:
         name (str | Unset): Human-readable name
         env_vars (PostApiV1MachinesBodyEnvVars | Unset): Extra environment variables written to /etc/justavps/env on the
             machine
-        docker_image (str | Unset): Docker image to run on boot (e.g. "myapp:latest")
-        entrypoint (str | Unset): Entrypoint for the Docker container
         ssh_key_ids (list[UUID] | Unset): IDs of user SSH keys to add to the machine. Auto-generated key is always
             included.
     """
@@ -39,8 +37,6 @@ class PostApiV1MachinesBody:
     provider: str | Unset = "cloud"
     name: str | Unset = UNSET
     env_vars: PostApiV1MachinesBodyEnvVars | Unset = UNSET
-    docker_image: str | Unset = UNSET
-    entrypoint: str | Unset = UNSET
     ssh_key_ids: list[UUID] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -65,10 +61,6 @@ class PostApiV1MachinesBody:
         if not isinstance(self.env_vars, Unset):
             env_vars = self.env_vars.to_dict()
 
-        docker_image = self.docker_image
-
-        entrypoint = self.entrypoint
-
         ssh_key_ids: list[str] | Unset = UNSET
         if not isinstance(self.ssh_key_ids, Unset):
             ssh_key_ids = []
@@ -92,10 +84,6 @@ class PostApiV1MachinesBody:
             field_dict["name"] = name
         if env_vars is not UNSET:
             field_dict["env_vars"] = env_vars
-        if docker_image is not UNSET:
-            field_dict["docker_image"] = docker_image
-        if entrypoint is not UNSET:
-            field_dict["entrypoint"] = entrypoint
         if ssh_key_ids is not UNSET:
             field_dict["ssh_key_ids"] = ssh_key_ids
 
@@ -138,10 +126,6 @@ class PostApiV1MachinesBody:
         else:
             env_vars = PostApiV1MachinesBodyEnvVars.from_dict(_env_vars)
 
-        docker_image = d.pop("docker_image", UNSET)
-
-        entrypoint = d.pop("entrypoint", UNSET)
-
         _ssh_key_ids = d.pop("ssh_key_ids", UNSET)
         ssh_key_ids: list[UUID] | Unset = UNSET
         if _ssh_key_ids is not UNSET:
@@ -158,8 +142,6 @@ class PostApiV1MachinesBody:
             provider=provider,
             name=name,
             env_vars=env_vars,
-            docker_image=docker_image,
-            entrypoint=entrypoint,
             ssh_key_ids=ssh_key_ids,
         )
 

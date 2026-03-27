@@ -466,8 +466,6 @@ for await (const event of client.streamEvents("my-session")) {
   -d '{"name": "my-app-image"}'`}</CodeBlock>
         <P>Poll <IC>GET /api/v1/images</IC> or <IC>GET /api/v1/images/{'{id}'}</IC> until the image status becomes <IC>ready</IC>, then pass its <IC>image_id</IC> when creating a new machine.</P>
 
-        <H3 id="docker-workloads">Docker On Boot</H3>
-        <P>If you provide a <IC>docker_image</IC> while creating a machine, JustAVPS still boots the underlying base image and then starts your container on top of it. This is separate from templates and separate from your saved images.</P>
         <CodeBlock title="Create a machine from a template image" lang="bash">{`curl -X POST https://justavps.com/api/v1/machines \
   -H "Authorization: Bearer sk_live_xxx" \
   -H "Content-Type: application/json" \
@@ -477,18 +475,7 @@ for await (const event of client.streamEvents("my-session")) {
     "region": "hel1",
     "image_id": "<template-image-id>"
   }'`}</CodeBlock>
-        <CodeBlock title="Create a machine with a custom Docker image" lang="bash">{`curl -X POST https://justavps.com/api/v1/machines \
-  -H "Authorization: Bearer sk_live_xxx" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "provider": "cloud",
-    "server_type": "pro",
-    "region": "hel1",
-    "docker_image": "python:3.12-alpine",
-    "entrypoint": "python",
-    "command": "-m http.server 8000"
-  }'`}</CodeBlock>
-        <P>Use <IC>image_id</IC> for built-in templates or your own saved images. Use <IC>docker_image</IC> when you want the base machine plus a container started automatically on boot. <IC>entrypoint</IC> maps to Docker <IC>--entrypoint</IC>, while <IC>command</IC> is passed after the image name.</P>
+        <P>Use <IC>image_id</IC> for built-in templates or your own saved images.</P>
 
         <Hr />
 

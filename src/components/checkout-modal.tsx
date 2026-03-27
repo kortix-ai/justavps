@@ -18,7 +18,6 @@ import {
   ArrowRight,
   Check,
   Monitor,
-  Container,
   HardDrive,
   ChevronDown,
   AlertTriangle,
@@ -118,10 +117,6 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
   const [machineName, setMachineName] = useState("");
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [showImagePicker, setShowImagePicker] = useState(false);
-  const [dockerImage, setDockerImage] = useState("");
-  const [entrypoint, setEntrypoint] = useState("");
-  const [command, setCommand] = useState("");
-  const [showDockerConfig, setShowDockerConfig] = useState(false);
   const [selectedSSHKeyIds, setSelectedSSHKeyIds] = useState<string[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [backupsEnabled, setBackupsEnabled] = useState(false);
@@ -155,9 +150,8 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
     !machineUnlimited && machineMax !== undefined && machineUsage >= machineMax;
   const hasExistingKeys = Boolean(userSSHKeys && userSSHKeys.length > 0);
 
-  const selectionReady = !showDockerConfig || Boolean(dockerImage.trim());
   const canCreate = Boolean(
-    selectedProvider && selectedRegion && selectedServerType && selectionReady && !machineLimitReached,
+    selectedProvider && selectedRegion && selectedServerType && !machineLimitReached,
   );
 
   const allPlans = serverTypes ?? [];
@@ -212,9 +206,6 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
         billing_interval: billingInterval,
         name: machineName || undefined,
         image_id: selectedImageId ?? undefined,
-        docker_image: showDockerConfig ? dockerImage || undefined : undefined,
-        entrypoint: showDockerConfig ? entrypoint || undefined : undefined,
-        command: showDockerConfig ? command || undefined : undefined,
         ssh_key_ids: selectedSSHKeyIds.length > 0 ? selectedSSHKeyIds : undefined,
         enable_backups: backupsEnabled,
       },
@@ -452,33 +443,6 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                       )}
                     </div>
 
-                    {/* Docker auto-run */}
-                    <div className="space-y-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setShowDockerConfig((current) => !current)}
-                        className="flex w-full items-center justify-between gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors hover:bg-muted/30"
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <Container className="size-3 shrink-0 text-muted-foreground" />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs leading-tight">Docker auto-run</p>
-                            <p className="mt-0.5 text-[10px] text-muted-foreground truncate">
-                              {showDockerConfig && dockerImage ? dockerImage : "Optional — runs after boot"}
-                            </p>
-                          </div>
-                        </div>
-                        <ChevronDown className={cn("size-3 shrink-0 text-muted-foreground transition-transform", showDockerConfig && "rotate-180")} />
-                      </button>
-
-                      {showDockerConfig && (
-                        <div className="space-y-2 pl-1">
-                          <Input id="co-docker-image" placeholder="python:3.12-alpine" value={dockerImage} onChange={(e) => setDockerImage(e.target.value)} className="h-8 text-xs font-mono" />
-                          <Input id="co-docker-entry" placeholder="Entrypoint override, e.g. /bin/sh" value={entrypoint} onChange={(e) => setEntrypoint(e.target.value)} className="h-8 text-xs font-mono" />
-                          <Input id="co-docker-command" placeholder="Command, e.g. -m http.server 8000" value={command} onChange={(e) => setCommand(e.target.value)} className="h-8 text-xs font-mono" />
-                        </div>
-                      )}
-                    </div>
                   </div>
                 )}
               </div>

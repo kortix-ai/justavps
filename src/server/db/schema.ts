@@ -115,9 +115,6 @@ export const machines = pgTable('machines', {
   // Provider-agnostic fields
   provider: text('provider').notNull(), // "cloud" | future providers...
   imageId: uuid('image_id'), // nullable, no FK
-  dockerImage: text('docker_image'),
-  entrypoint: text('entrypoint'),
-  dockerCommand: text('docker_command'),
   serverType: text('server_type').notNull(),
   region: text('region').notNull(),
   ip: text('ip'),

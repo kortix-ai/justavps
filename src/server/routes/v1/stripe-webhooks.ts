@@ -299,10 +299,6 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
     const resolvedImage = resolvedImageResult.selection.providerImage;
     const machineImageId = resolvedImageResult.selection.machineImageId;
-    const resolvedDockerImage = machineConfig.docker_image;
-    const resolvedEntrypoint = machineConfig.entrypoint;
-    const resolvedCommand = machineConfig.command;
-
     const { slug, machineToken } = await generateMachineIdentity();
     const autoKey = await autoGenerateAndSaveSSHKey(userId, accountId, slug);
 
@@ -336,9 +332,6 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       sshPublicKey: autoKey.publicKey,
       sshPrivateKey: autoKey.privateKey,
       priceMonthly: priceMonthly || null,
-      dockerImage: resolvedDockerImage || null,
-      entrypoint: resolvedEntrypoint || null,
-      dockerCommand: resolvedCommand || null,
       backupsEnabled: machineConfig.enable_backups === true,
     });
 

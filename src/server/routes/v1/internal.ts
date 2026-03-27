@@ -60,11 +60,7 @@ internalApp.openapi(heartbeatRoute, async (c) => {
       return errorResponse(c, 401, 'Unauthorized') as any;
     }
 
-    const hasDockerWorkload = !!machine.dockerImage;
-    const currentStage = machine.provisioningStage || '';
-    const servicesReported = currentStage === 'services_ready';
-    const shouldMarkReady = (machine.status === 'provisioning' || machine.status === 'error')
-      && (!hasDockerWorkload || servicesReported);
+    const shouldMarkReady = (machine.status === 'provisioning' || machine.status === 'error');
 
     const providerMeta = {
       ...((machine.providerMeta ?? {}) as Record<string, unknown>),

@@ -10,7 +10,6 @@ The entire snapshot system was refactored. "Snapshots" are now "Images." The arc
 
 - **Default boot = Ubuntu 24.04** — `image_id` is optional/nullable. When null, Hetzner boots from `ubuntu-24.04`.
 - **Images = point-in-time captures** of running machines (not built from Docker images). Created via `POST /machines/:id/image`.
-- **Docker images** are a machine-level concern — `docker_image` + optional `entrypoint` + optional `command` fields on machine creation. Pulled at boot via cloud-init.
 - **Cloud-init** has smart install detection — installs everything on fresh Ubuntu, skips on image boots.
 - **5 services per VPS**: code-server (:8080), Sandbox Agent (:2468), OpenCode (:3456), justavps-daemon (:7777), Caddy (:80/443 reverse proxy).
 - **justavps-daemon** = Go binary. Heartbeats, health monitoring, local API on :7777.
@@ -39,7 +38,6 @@ The entire snapshot system was refactored. "Snapshots" are now "Images." The arc
 |---|---|---|---|
 | `POST /machines` | Create machine | Bearer API key | `202` with machine object |
 | `POST /machines` (no `image_id`) | Ubuntu default boot | Bearer API key | `202`, `image_id: null` in response |
-| `POST /machines` (with `docker_image` + `entrypoint` + `command`) | Docker workload | Bearer API key | `202`, fields stored in DB |
 | `POST /machines` (with `image_id`) | Boot from user image | Bearer API key | `202`, uses image's `provider_image_id` |
 | `GET /machines` | List machines | Bearer API key | `200` with `{ machines: [...] }` |
 | `GET /machines/:id` | Get machine | Bearer API key | `200` with full machine object |
@@ -55,9 +53,6 @@ The entire snapshot system was refactored. "Snapshots" are now "Images." The arc
   "region": "nbg1",            // required
   "name": "my-machine",        // optional
   "image_id": null,             // optional — null = Ubuntu 24.04
-  "docker_image": "python:3.12-alpine", // optional
-  "entrypoint": "python",               // optional
-  "command": "-m http.server 8000",     // optional
   "env_vars": { "KEY": "val" }        // optional
 }
 ```
@@ -92,9 +87,6 @@ The entire snapshot system was refactored. "Snapshots" are now "Images." The arc
 
 ### `machines`
 - `image_id` (renamed from `snapshot_id`) — nullable, no FK
-- `docker_image` — new column, nullable
-- `entrypoint` — new column, nullable
-- `docker_command` — new column, nullable
 
 ---
 
@@ -119,10 +111,8 @@ The cloud-init output should be verified for:
     - `/opencode/*` → localhost:3456 (OpenCode)
     - `/daemon/*` → localhost:7777 (justavps-daemon)
 11. **code-server config** — password, bind addr
-12. **Docker workload** (when `dockerImage` specified) — docker run command, env-file, volume mount, entrypoint, command args
-13. **No Docker block** when `dockerImage` not specified
-14. **Service startup order** — justavps-daemon, code-server, sandbox-agent, caddy, opencode-web
-15. **Stage callbacks** — `cloud_init_running`, `cloud_init_done`, `docker_pulling`, `docker_running`, `services_ready`
+12. **Service startup order** — justavps-daemon, code-server, sandbox-agent, caddy, opencode-web
+13. **Stage callbacks** — `cloud_init_running`, `cloud_init_done`
 
 ---
 
@@ -170,13 +160,13 @@ Given a running machine at `{slug}.{domain}`:
 
 ### Heavily Modified
 - `src/server/db/schema.ts` — `snapshots` → `images` table, new columns
-- `src/server/routes/v1/machines.ts` — `snapshot_id` → `image_id`, `POST /:id/image` endpoint, docker_image + entrypoint + command
+- `src/server/routes/v1/machines.ts` — `snapshot_id` → `image_id`, `POST /:id/image` endpoint
 - `src/server/lib/cloud-init.ts` — full rewrite (smart install, sandbox-agent, caddy routes)
-- `src/server/lib/machine-lifecycle.ts` — added dockerImage + entrypoint + command to CreateMachineInput
+- `src/server/lib/machine-lifecycle.ts` — CreateMachineInput
 - `src/server/lib/providers/hetzner.ts` — removed builder system, added `createImage()`
 - `src/server/lib/providers/types.ts` — removed `buildSnapshot`, added `createImage`/`deleteImage`
 - `src/lib/types.ts` — `Snapshot` → `Image`, new fields
-- `src/lib/schemas.ts` — `snapshot_id` → `image_id`, added docker_image + entrypoint + command
+- `src/lib/schemas.ts` — `snapshot_id` → `image_id`
 - `src/app/(dashboard)/snapshots/page.tsx` — renamed/simplified
 - `src/components/dashboard/create-machine-dialog.tsx` — image_id optional, docker fields
 - `src/hooks/use-snapshots.ts` — kept for backward compat, delegates to use-images

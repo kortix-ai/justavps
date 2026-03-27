@@ -285,10 +285,6 @@ machinesApp.openapi(createMachineRoute, async (c) => {
     }
   }
 
-  const resolvedDockerImage = data.docker_image;
-  const resolvedEntrypoint = data.entrypoint;
-  const resolvedCommand = data.command;
-
   const { priceMonthly: basePrice, specs } = await lookupPriceAndSpecs(provider, data.region, data.server_type);
   const wantBackups = data.enable_backups === true;
   const priceMonthly = wantBackups ? basePrice + backupSurcharge(basePrice) : basePrice;
@@ -344,9 +340,6 @@ machinesApp.openapi(createMachineRoute, async (c) => {
             region: data.region,
             name: data.name,
             image_id: data.image_id ?? machineImageId,
-            docker_image: resolvedDockerImage,
-            entrypoint: resolvedEntrypoint,
-            command: resolvedCommand,
             env_vars: data.env_vars,
             ssh_key_ids: data.ssh_key_ids,
             specs,
@@ -434,9 +427,6 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       sshPublicKey: autoKey.publicKey,
       sshPrivateKey: autoKey.privateKey,
       priceMonthly,
-      dockerImage: resolvedDockerImage || null,
-      entrypoint: resolvedEntrypoint || null,
-      dockerCommand: resolvedCommand || null,
       backupsEnabled: wantBackups,
     });
 

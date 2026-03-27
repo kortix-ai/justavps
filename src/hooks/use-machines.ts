@@ -41,9 +41,6 @@ interface CreateMachineInput {
   server_type: string;
   region: string;
   name?: string;
-  docker_image?: string;
-  entrypoint?: string;
-  command?: string;
   ssh_key_ids?: string[];
   billing_interval?: "monthly" | "yearly" | "2year";
   enable_backups?: boolean;

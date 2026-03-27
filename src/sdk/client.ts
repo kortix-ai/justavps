@@ -27,9 +27,6 @@ export interface Machine {
   status: string;
   provider: string;
   image_id?: string | null;
-  docker_image?: string | null;
-  entrypoint?: string | null;
-  command?: string | null;
   server_type: string;
   region: string;
   ip?: string | null;
