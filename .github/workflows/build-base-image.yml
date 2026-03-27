@@ -95,9 +95,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Seed DB with new snapshot ID
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL_PROD }}
           HETZNER_BASE_SNAPSHOT_ID: ${{ needs.build.outputs.snapshot_id }}
-        run: npx tsx scripts/seed-base-image.ts
+        run: |
+          # Append sslmode=require if not already present
+          BASE_URL="${{ secrets.DATABASE_URL_PROD }}"
+          if [[ "$BASE_URL" != *"sslmode"* ]]; then
+            export DATABASE_URL="${BASE_URL}?sslmode=require"
+          else
+            export DATABASE_URL="$BASE_URL"
+          fi
+          npx tsx scripts/seed-base-image.ts
 
   summary:
     name: Summary

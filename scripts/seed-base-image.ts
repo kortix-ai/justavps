@@ -1,8 +1,4 @@
 import 'dotenv/config';
-// Ensure SSL is required for DB connections (needed in CI/GitHub Actions)
-if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('sslmode')) {
-  process.env.DATABASE_URL += '?sslmode=require';
-}
 import { db } from '../src/server/db/index.js';
 import { images, users } from '../src/server/db/schema.js';
 import { randomUUID } from 'crypto';
