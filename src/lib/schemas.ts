@@ -16,6 +16,7 @@ export const CreateMachineSchema = z.object({
   region: z.string().min(1).describe('Region (e.g. "eu", "us")'),
   name: z.string().min(1).max(64).optional().describe('Human-readable name'),
   env_vars: z.record(z.string(), z.string()).optional().describe('Extra environment variables written to /etc/justavps/env on the machine'),
+  cloud_init_script: z.string().optional().describe('Optional custom shell script appended to the provider cloud-init after the base platform bootstrap completes'),
   ssh_key_ids: z.array(z.string().uuid()).optional().describe('IDs of user SSH keys to add to the machine. Auto-generated key is always included.'),
   billing_interval: z.enum(['monthly', 'yearly', '2year']).optional().default('monthly').describe('Billing interval: monthly, yearly (20% off), or 2year (30% off, billed annually)'),
   enable_backups: z.boolean().optional().default(false).describe('Enable daily automatic backups (+20% of base price). Defaults to false.'),

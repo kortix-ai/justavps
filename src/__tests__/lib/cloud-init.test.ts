@@ -130,6 +130,12 @@ describe('cloud-init', () => {
       expect(script).toContain('base64 -d > /etc/justavps/env');
     });
 
+    it('should append an optional customer cloud-init extension', () => {
+      const script = buildCloudInit({ ...defaultOpts, cloudInitScript: 'echo custom-extension' });
+      expect(script).toContain('/tmp/justavps-custom-cloud-init.sh');
+      expect(script).toContain('custom cloud-init extension failed');
+    });
+
     it('should restart justavps-docker after writing fresh env/config', () => {
       const script = buildCloudInit(defaultOpts);
       expect(script).toContain("systemctl list-unit-files 2>/dev/null | grep -q '^justavps-docker.service'");

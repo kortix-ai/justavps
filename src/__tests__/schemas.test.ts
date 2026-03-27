@@ -64,6 +64,19 @@ describe('validation schemas', () => {
       }
     });
 
+    it('should accept optional cloud_init_script', () => {
+      const data = {
+        ...validData,
+        cloud_init_script: 'echo hello from custom init',
+      };
+
+      const result = CreateMachineSchema.safeParse(data);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.cloud_init_script).toContain('custom init');
+      }
+    });
+
     it('should reject invalid server_type', () => {
       const invalidData = { ...validData, server_type: '' };
       const result = CreateMachineSchema.safeParse(invalidData);

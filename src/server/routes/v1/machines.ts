@@ -410,7 +410,15 @@ machinesApp.openapi(createMachineRoute, async (c) => {
     const providerKeyId = await uploadSSHKeyToProvider(provider, slug, autoKey.publicKey);
     const callbackConfig = resolveMachineCallbackConfig(c.req.url);
     const callbackUrl = callbackConfig.url;
-    const userdata = buildMachineUserData(slug, autoKey.publicKey, machineToken, callbackUrl, data.env_vars, extraSSHKeys);
+    const userdata = buildMachineUserData(
+      slug,
+      autoKey.publicKey,
+      machineToken,
+      callbackUrl,
+      data.env_vars,
+      extraSSHKeys,
+      data.cloud_init_script,
+    );
 
     const machine = await createMachineRecord({
       ownerId: userId,

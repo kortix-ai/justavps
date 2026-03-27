@@ -153,6 +153,7 @@ export function buildMachineUserData(
   platformCallbackUrl: string,
   envVars?: Record<string, string>,
   extraSSHKeys?: string[],
+  cloudInitScript?: string,
 ) {
   return buildCloudInit({
     slug,
@@ -162,6 +163,7 @@ export function buildMachineUserData(
     proxyDomain: config.PROXY_DOMAIN,
     envVars,
     extraSSHKeys,
+    cloudInitScript,
     daemonChannel: config.DAEMON_CHANNEL,
   });
 }

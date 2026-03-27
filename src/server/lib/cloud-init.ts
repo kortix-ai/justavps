@@ -19,6 +19,7 @@ interface CloudInitOpts {
   proxyDomain: string;
   envVars?: Record<string, string>;
   extraSSHKeys?: string[];
+  cloudInitScript?: string;
   daemonChannel?: 'dev' | 'latest';
 }
 
@@ -36,6 +37,9 @@ export function buildCloudInit(opts: CloudInitOpts): string {
     .map(([key, value]) => `${key}=${value}`)
     .join('\n');
   const envLinesBase64 = Buffer.from(envLines).toString('base64');
+  const cloudInitScriptBase64 = opts.cloudInitScript
+    ? Buffer.from(opts.cloudInitScript).toString('base64')
+    : '';
 
   const stageCallback = (stage: string, message: string) =>
     `curl -sf -X POST "${opts.platformCallbackUrl}/api/v1/internal/stage" ` +
@@ -397,6 +401,13 @@ systemctl restart justavps-daemon 2>/dev/null || true
 systemctl enable --now sandbox-agent 2>/dev/null || true
 systemctl enable --now opencode-web 2>/dev/null || true
 systemctl enable --now justavps-watchdog.timer 2>/dev/null || true
+
+# ── Optional customer-provided cloud-init extension ───────────────────────
+if [ -n '${cloudInitScriptBase64}' ]; then
+  echo '${cloudInitScriptBase64}' | base64 -d > /tmp/justavps-custom-cloud-init.sh
+  chmod +x /tmp/justavps-custom-cloud-init.sh
+  /bin/bash /tmp/justavps-custom-cloud-init.sh || report_error "custom cloud-init extension failed"
+fi
 
 # If the snapshot already has justavps-docker enabled, it may have started too
 # early using the baked /etc/justavps/env from the image. Restart it now so the
