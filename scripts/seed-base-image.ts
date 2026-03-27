@@ -1,4 +1,8 @@
 import 'dotenv/config';
+// Ensure SSL is required for DB connections (needed in CI/GitHub Actions)
+if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('sslmode')) {
+  process.env.DATABASE_URL += '?sslmode=require';
+}
 import { db } from '../src/server/db/index.js';
 import { images, users } from '../src/server/db/schema.js';
 import { randomUUID } from 'crypto';
@@ -6,7 +10,7 @@ import { eq } from 'drizzle-orm';
 
 const TEMPLATE_OWNER_EMAIL = 'templates@justavps.internal';
 const TEMPLATE_OWNER_NAME = 'JustAVPS Templates';
-const BASE_TEMPLATE_SNAPSHOT_ID = process.env.HETZNER_BASE_SNAPSHOT_ID || '370616341';
+const BASE_TEMPLATE_SNAPSHOT_ID = process.env.HETZNER_BASE_SNAPSHOT_ID || '370621396';
 const LEGACY_TEMPLATE_NAMES = ['Kortix'];
 
 async function main() {
