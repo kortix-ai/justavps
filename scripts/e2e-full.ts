@@ -10,7 +10,7 @@
  *   npx tsx scripts/e2e-full.ts
  *   SKIP_CLEANUP=1 npx tsx scripts/e2e-full.ts
  *
- * Cost: ~$0.01 (cpx22 for ~5 min)
+ * Cost: ~$0.01 (starter tier for ~5 min)
  * Time: ~5-8 minutes
  */
 
@@ -183,8 +183,8 @@ async function main() {
   log('Phase 2: Deploy Machine');
 
   const createResp = await api('/v1/machines', {
-    provider: 'hetzner',
-    server_type: 'cpx22',
+    provider: 'cloud',
+    server_type: 'starter',
     region: 'hel1',
     name: 'e2e-full-test',
   });

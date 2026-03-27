@@ -31,7 +31,7 @@ async function main() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       provider: 'cloud',
-      server_type: 'cpx42',
+      server_type: 'pro',
       region: 'hel1',
     }),
   });
@@ -41,7 +41,7 @@ async function main() {
 
   const machineConfig = JSON.stringify({
     provider: 'cloud',
-    server_type: 'cpx42',
+    server_type: 'pro',
     region: 'hel1',
     name: 'direct-checkout-e2e',
   });

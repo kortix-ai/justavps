@@ -131,7 +131,7 @@ async function main() {
     method: 'POST',
     headers,
     body: JSON.stringify({
-      server_type: 'cx23',
+      server_type: 'starter',
       template: 'blank',
       ssh_key_id: sshKeyId,
       name: 'e2e-test-machine',
@@ -144,7 +144,7 @@ async function main() {
   assert(machine.slug?.length > 0, `Slug assigned: ${machine.slug}`);
   assert(machine.status === 'provisioning', `Status: provisioning`);
   assert(machine.ip?.length > 0, `IP assigned: ${machine.ip}`);
-  assert(machine.server_type === 'cx23', 'Server type: cx23');
+  assert(machine.server_type === 'starter', 'Server type: starter');
   assert(machine.template === 'blank', 'Template: blank');
   assert(machine.region === 'nbg1', 'Region: nbg1');
   

@@ -27,7 +27,7 @@ async function main() {
     name: 'Limits E2E Machine',
     status: 'ready',
     provider: 'cloud',
-    serverType: 'cpx11',
+    serverType: 'starter',
     region: 'hel1',
     providerServerId: `fake-${randomUUID()}`,
     machineToken: generateMachineToken(),

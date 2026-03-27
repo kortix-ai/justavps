@@ -429,8 +429,8 @@ const sdkSamples: Record<string, { ts: string; py: string }> = {
     py: `response = list_machines.sync(client=client)`,
   },
   createMachine: {
-    ts: `const machine = await client.machines.create({\n  provider: 'hetzner',\n  server_type: 'cpx22',\n  region: 'nbg1',\n});\nconst ready = await client.machines.waitForReady(machine.id);`,
-    py: `body = CreateMachineBody(provider="hetzner", server_type="cpx22", region="nbg1")\nmachine = create_machine.sync(client=client, body=body)`,
+    ts: `const machine = await client.machines.create({\n  provider: 'cloud',\n  server_type: 'pro',\n  region: 'hel1',\n});\nconst ready = await client.machines.waitForReady(machine.id);`,
+    py: `body = CreateMachineBody(provider="cloud", server_type="pro", region="hel1")\nmachine = create_machine.sync(client=client, body=body)`,
   },
   getMachine: {
     ts: `const machine = await client.machines.get('machine-uuid');`,
@@ -445,8 +445,8 @@ const sdkSamples: Record<string, { ts: string; py: string }> = {
     py: `reboot_machine.sync(client=client, id="machine-uuid")`,
   },
   resizeMachine: {
-    ts: `await client.machines.resize('machine-uuid', { server_type: 'cpx32' });`,
-    py: `body = ResizeMachineBody(server_type="cpx32")\nresize_machine.sync(client=client, id="machine-uuid", body=body)`,
+    ts: `await client.machines.resize('machine-uuid', { server_type: 'power' });`,
+    py: `body = ResizeMachineBody(server_type="power")\nresize_machine.sync(client=client, id="machine-uuid", body=body)`,
   },
   createImageFromMachine: {
     ts: `const image = await client.machines.createImage('machine-uuid', { name: 'my-backup' });`,
@@ -513,8 +513,8 @@ const sdkSamples: Record<string, { ts: string; py: string }> = {
     py: `response = list_providers.sync(client=client)`,
   },
   listRegions: {
-    ts: `const { regions } = await client.serverTypes.regions('hetzner');`,
-    py: `response = list_regions.sync(client=client, provider="hetzner")`,
+    ts: `const { regions } = await client.serverTypes.regions('cloud');`,
+    py: `response = list_regions.sync(client=client, provider="cloud")`,
   },
   getAccount: {
     ts: `const account = await client.account.get();`,

@@ -104,7 +104,7 @@ async function verifyNoPmRequiresCheckout() {
     method: 'POST',
     body: JSON.stringify({
       provider: 'cloud',
-      server_type: 'cpx32',
+      server_type: 'basic',
       region: 'hel1',
       name: 'billing-e2e-checkout-gate',
     }),
@@ -123,7 +123,7 @@ async function verifyInstantChargeAndResize() {
     method: 'POST',
     body: JSON.stringify({
       provider: 'cloud',
-      server_type: 'cpx32',
+      server_type: 'basic',
       region: 'hel1',
       name: 'billing-e2e-instant-charge',
     }),
@@ -138,7 +138,7 @@ async function verifyInstantChargeAndResize() {
     8 * 60 * 1000,
     'instant-charge create',
   );
-  assert(readyMachine.server_type === 'cpx32', 'initial machine type mismatch');
+  assert(readyMachine.server_type === 'basic', 'initial machine type mismatch');
   assert(readyMachine.price_monthly === 21, 'initial monthly price mismatch');
 
   const [sub] = await db.select().from(subscriptions)
@@ -148,13 +148,13 @@ async function verifyInstantChargeAndResize() {
 
   const resizeRes = await api<{ status: string }>(`/machines/${machineId}/resize`, {
     method: 'POST',
-    body: JSON.stringify({ server_type: 'cpx52' }),
+    body: JSON.stringify({ server_type: 'power' }),
   });
   assert(resizeRes.status === 202, `expected 202 for resize, got ${resizeRes.status}`);
 
   const resizedMachine = await waitForMachine(
     machineId,
-    (machine) => machine.status === 'ready' && machine.server_type === 'cpx52',
+    (machine) => machine.status === 'ready' && machine.server_type === 'power',
     8 * 60 * 1000,
     'resize',
   );
