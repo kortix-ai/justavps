@@ -127,6 +127,9 @@ export default function AdminMachinesPage() {
 
   // Filters
   const [search, setSearch] = useState("");
+  const [ownerFilter, setOwnerFilter] = useState("");
+  const [accountFilter, setAccountFilter] = useState("");
+  const [accountTypeFilter, setAccountTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [includeDeleted, setIncludeDeleted] = useState(false);
@@ -141,15 +144,29 @@ export default function AdminMachinesPage() {
   const buildQueryParams = useCallback(() => {
     const params = new URLSearchParams();
     if (search) params.set("search", search);
+    if (ownerFilter) params.set("owner_query", ownerFilter);
+    if (accountFilter) params.set("account_query", accountFilter);
+    if (accountTypeFilter !== "all") params.set("account_type", accountTypeFilter);
     if (statusFilter !== "all") params.set("status", statusFilter);
     if (sourceFilter !== "all") params.set("source", sourceFilter);
     if (includeDeleted) params.set("include_deleted", "true");
     params.set("limit", String(PAGE_SIZE));
     params.set("offset", String(page * PAGE_SIZE));
     return params.toString();
-  }, [search, statusFilter, sourceFilter, includeDeleted, page]);
+  }, [search, ownerFilter, accountFilter, accountTypeFilter, statusFilter, sourceFilter, includeDeleted, page]);
 
-  const queryKey = ["admin", "machines", search, statusFilter, sourceFilter, includeDeleted, page] as const;
+  const queryKey = [
+    "admin",
+    "machines",
+    search,
+    ownerFilter,
+    accountFilter,
+    accountTypeFilter,
+    statusFilter,
+    sourceFilter,
+    includeDeleted,
+    page,
+  ] as const;
 
   const { data, isLoading, error, isFetching, refetch } = useQuery({
     queryKey,
@@ -307,10 +324,32 @@ export default function AdminMachinesPage() {
           <Input
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(0); }}
-            placeholder="Search slug, name, IP, sandbox ID..."
+            placeholder="Search machine, owner, account, IP, sandbox ID..."
             className="pl-9"
           />
         </div>
+        <Input
+          value={ownerFilter}
+          onChange={(e) => { setOwnerFilter(e.target.value); setPage(0); }}
+          placeholder="Owner email, name, or user ID"
+          className="min-w-[220px] flex-1"
+        />
+        <Input
+          value={accountFilter}
+          onChange={(e) => { setAccountFilter(e.target.value); setPage(0); }}
+          placeholder="Account / org name, slug, or ID"
+          className="min-w-[220px] flex-1"
+        />
+        <Select value={accountTypeFilter} onValueChange={(v) => { setAccountTypeFilter(v ?? "all"); setPage(0); }}>
+          <SelectTrigger className="w-[170px]">
+            <SelectValue placeholder="Account type" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All account types</SelectItem>
+            <SelectItem value="personal">Personal</SelectItem>
+            <SelectItem value="organization">Organizations</SelectItem>
+          </SelectContent>
+        </Select>
         <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v ?? "all"); setPage(0); }}>
           <SelectTrigger className="w-[140px]">
             <SelectValue placeholder="Status" />
@@ -343,6 +382,24 @@ export default function AdminMachinesPage() {
           />
           Include deleted
         </label>
+        {(search || ownerFilter || accountFilter || accountTypeFilter !== "all" || statusFilter !== "all" || sourceFilter !== "all" || includeDeleted) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setSearch("");
+              setOwnerFilter("");
+              setAccountFilter("");
+              setAccountTypeFilter("all");
+              setStatusFilter("all");
+              setSourceFilter("all");
+              setIncludeDeleted(false);
+              setPage(0);
+            }}
+          >
+            Clear filters
+          </Button>
+        )}
       </div>
 
       {/* Loading / Error */}

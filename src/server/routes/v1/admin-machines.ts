@@ -5,7 +5,7 @@
 
 import { OpenAPIHono } from '@hono/zod-openapi';
 import type { Context } from 'hono';
-import { eq, and, ne, like, sql, inArray, desc, or } from 'drizzle-orm';
+import { eq, and, ne, ilike, sql, inArray, desc, or, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { machines, users, accounts, subscriptions } from '../../db/schema';
@@ -17,11 +17,86 @@ import { getProvider } from '../../lib/providers';
 export const adminMachinesApp = new OpenAPIHono<{ Variables: AuthVariables }>();
 adminMachinesApp.use('*', apiGuard);
 
+type ListFilters = {
+  status?: string;
+  source?: string;
+  accountId?: string;
+  userId?: string;
+  ownerQuery?: string;
+  accountQuery?: string;
+  accountType?: string;
+  search?: string;
+  includeDeleted: boolean;
+};
+
 function requireAdmin(c: Context<{ Variables: AuthVariables }>) {
   if (!c.get('isAdmin')) {
     return errorResponse(c, 403, 'Admin access required');
   }
   return null;
+}
+
+function buildMachineConditions(filters: ListFilters, options?: { exclude?: Array<keyof ListFilters> }) {
+  const exclude = new Set(options?.exclude ?? []);
+  const conditions: SQL<unknown>[] = [];
+
+  if (!filters.includeDeleted && !exclude.has('includeDeleted')) {
+    conditions.push(ne(machines.status, 'deleted'));
+  }
+  if (filters.status && !exclude.has('status')) {
+    conditions.push(eq(machines.status, filters.status));
+  }
+  if (filters.source && !exclude.has('source')) {
+    conditions.push(eq(machines.source, filters.source));
+  }
+  if (filters.accountId && !exclude.has('accountId')) {
+    conditions.push(eq(machines.accountId, filters.accountId));
+  }
+  if (filters.userId && !exclude.has('userId')) {
+    conditions.push(eq(machines.ownerId, filters.userId));
+  }
+  if (filters.ownerQuery && !exclude.has('ownerQuery')) {
+    const pattern = `%${filters.ownerQuery}%`;
+    conditions.push(
+      or(
+        ilike(users.email, pattern),
+        ilike(users.name, pattern),
+        ilike(sql`cast(${machines.ownerId} as text)`, pattern),
+      )!,
+    );
+  }
+  if (filters.accountQuery && !exclude.has('accountQuery')) {
+    const pattern = `%${filters.accountQuery}%`;
+    conditions.push(
+      or(
+        ilike(accounts.name, pattern),
+        ilike(accounts.slug, pattern),
+        ilike(sql`cast(${machines.accountId} as text)`, pattern),
+      )!,
+    );
+  }
+  if (filters.accountType && !exclude.has('accountType')) {
+    conditions.push(eq(accounts.type, filters.accountType as 'personal' | 'organization'));
+  }
+  if (filters.search && !exclude.has('search')) {
+    const pattern = `%${filters.search}%`;
+    conditions.push(
+      or(
+        ilike(machines.slug, pattern),
+        ilike(machines.name, pattern),
+        ilike(machines.ip, pattern),
+        ilike(machines.kortixSandboxId, pattern),
+        ilike(users.email, pattern),
+        ilike(users.name, pattern),
+        ilike(accounts.name, pattern),
+        ilike(accounts.slug, pattern),
+        ilike(sql`cast(${machines.ownerId} as text)`, pattern),
+        ilike(sql`cast(${machines.accountId} as text)`, pattern),
+      )!,
+    );
+  }
+
+  return conditions.length > 0 ? and(...conditions) : undefined;
 }
 
 // ─── GET / — List all machines (admin view, with joins + filters) ───────────
@@ -35,48 +110,37 @@ adminMachinesApp.get('/', async (c) => {
   const source = c.req.query('source'); // user | kortix
   const accountId = c.req.query('account_id');
   const userId = c.req.query('user_id');
-  const search = c.req.query('search'); // slug / name / IP search
+  const ownerQuery = c.req.query('owner_query');
+  const accountQuery = c.req.query('account_query');
+  const accountType = c.req.query('account_type'); // personal | organization
+  const search = c.req.query('search'); // machine / owner / account search
   const includeDeleted = c.req.query('include_deleted') === 'true';
   const rawLimit = Number(c.req.query('limit') || '200');
   const limit = Math.min(Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 200, 500);
   const rawOffset = Number(c.req.query('offset') || '0');
   const offset = Number.isFinite(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
 
-  // Build conditions
-  const conditions = [];
+  const filters: ListFilters = {
+    status: status || undefined,
+    source: source || undefined,
+    accountId: accountId || undefined,
+    userId: userId || undefined,
+    ownerQuery: ownerQuery || undefined,
+    accountQuery: accountQuery || undefined,
+    accountType: accountType || undefined,
+    search: search || undefined,
+    includeDeleted,
+  };
 
-  if (!includeDeleted) {
-    conditions.push(ne(machines.status, 'deleted'));
-  }
-  if (status) {
-    conditions.push(eq(machines.status, status));
-  }
-  if (source) {
-    conditions.push(eq(machines.source, source));
-  }
-  if (accountId) {
-    conditions.push(eq(machines.accountId, accountId));
-  }
-  if (userId) {
-    conditions.push(eq(machines.ownerId, userId));
-  }
-  if (search) {
-    const pattern = `%${search}%`;
-    conditions.push(
-      or(
-        like(machines.slug, pattern),
-        like(machines.name, pattern),
-        like(machines.ip, pattern),
-        like(machines.kortixSandboxId, pattern),
-      )!,
-    );
-  }
-
-  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  const where = buildMachineConditions(filters);
+  const statusWhere = buildMachineConditions(filters, { exclude: ['status', 'includeDeleted'] });
+  const sourceWhere = buildMachineConditions(filters, { exclude: ['source'] });
 
   // Count total matching
   const [{ count: totalCount }] = await db.select({ count: sql<number>`count(*)` })
     .from(machines)
+    .leftJoin(users, eq(machines.ownerId, users.id))
+    .leftJoin(accounts, eq(machines.accountId, accounts.id))
     .where(where);
 
   // Fetch rows with owner + account info
@@ -104,27 +168,32 @@ adminMachinesApp.get('/', async (c) => {
     : [];
   const subsByMachineId = new Map(subs.map((s) => [s.machineId, s]));
 
-  // Status summary (always unfiltered)
+  // Status summary within current scope, excluding status itself
   const statusCounts = await db
     .select({
       status: machines.status,
       count: sql<number>`count(*)`,
     })
     .from(machines)
+    .leftJoin(users, eq(machines.ownerId, users.id))
+    .leftJoin(accounts, eq(machines.accountId, accounts.id))
+    .where(statusWhere)
     .groupBy(machines.status);
   const statusSummary: Record<string, number> = {};
   for (const row of statusCounts) {
     statusSummary[row.status] = Number(row.count);
   }
 
-  // Source summary
+  // Source summary within current scope, excluding source itself
   const sourceCounts = await db
     .select({
       source: machines.source,
       count: sql<number>`count(*)`,
     })
     .from(machines)
-    .where(ne(machines.status, 'deleted'))
+    .leftJoin(users, eq(machines.ownerId, users.id))
+    .leftJoin(accounts, eq(machines.accountId, accounts.id))
+    .where(sourceWhere)
     .groupBy(machines.source);
   const sourceSummary: Record<string, number> = {};
   for (const row of sourceCounts) {
