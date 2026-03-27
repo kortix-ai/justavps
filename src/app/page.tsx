@@ -122,7 +122,7 @@ export default function Home() {
             ...and it&apos;s <span className="text-foreground font-medium">justavps :)</span>
           </p>
           <p className="mt-5 text-sm sm:text-base text-muted-foreground max-w-lg mx-auto leading-relaxed">
-            Persistent, always-on infrastructure for AI agents that run 24/7. Full SSH, Docker, and filesystem — not ephemeral containers. <strong className="text-foreground">Secure. Stateful. Always on.</strong>
+            Persistent, always-on Linux Machine that run 24/7 so your agents can to. <strong className="text-foreground">Secure by default. Stateful. Always on.</strong>
           </p>
           <div className="mt-7 flex items-center justify-center gap-3">
             <button onClick={() => setCheckoutOpen(true)} className={cn(buttonVariants({ size: "lg" }), "text-sm px-7 h-12 font-medium rounded-xl")}>
@@ -176,13 +176,7 @@ export default function Home() {
                   SSH in or connect your IDE — it&apos;s just a Linux box. Close your laptop, your agents keep going. Come back tomorrow, everything&apos;s still there.
                 </p>
                 <div className="mt-4 flex items-center gap-1.5 flex-wrap">
-                  <Chip><LogoClaudeCode /></Chip>
-                  <Chip><LogoCodex /></Chip>
-                  <Chip><LogoOpenCode /></Chip>
-                  <Chip><LogoPiCoding /></Chip>
-                  <Chip><LogoCursor /></Chip>
-                  <Chip><LogoVSCode /></Chip>
-                  <span className="text-xs text-muted-foreground ml-1.5">+ any SSH client</span>
+                  <span className="text-xs text-muted-foreground">any IDE or SSH client</span>
                 </div>
               </div>
               <div className="border-t border-border bg-muted p-4 font-mono text-xs leading-relaxed h-[124px] flex flex-col justify-center">
@@ -361,7 +355,7 @@ export default function Home() {
               <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl">
                 We ran 3+ million sandboxes on incumbent providers while building{" "}
                 <a href="https://kortix.com" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2 hover:opacity-80 transition-opacity">Kortix</a>
-                {" "}— the Autonomous Company OS. We hit the cost ceiling. So we rebuilt the infrastructure ourselves.
+                {" "}— the Autonomous Company OS. We hit the cost ceiling. So we rebuilt the infrastructure needed for ourselves.
               </p>
               <div className="mt-4 flex items-center gap-2">
                 <a href="https://kortix.com" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-background text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">

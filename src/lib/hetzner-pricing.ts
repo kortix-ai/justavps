@@ -23,7 +23,7 @@ export interface HetznerPlanMachine {
 }
 
 export interface HetznerPlanTier {
-  key: 'micro' | 'starter' | 'basic' | 'pro' | 'power' | 'ultra';
+  key: 'starter' | 'basic' | 'pro' | 'power' | 'ultra';
   label: string;
   tagline: string;
   regions: Record<HetznerMarket, HetznerPlanMachine>;
@@ -38,15 +38,6 @@ export const HETZNER_REGION_MARKET: Record<string, HetznerMarket> = {
 };
 
 export const HETZNER_PLAN_TIERS: HetznerPlanTier[] = [
-  ...(process.env.SHOW_SMALLEST_MACHINE === 'true' ? [{
-    key: 'micro' as const,
-    label: 'Micro',
-    tagline: 'Snapshot builds and testing',
-    regions: {
-      eu: { sku: 'cx23', vcpu: 2, memory: 4, disk: 40, traffic: '20 TB', providerPriceMonthly: 2.99 },
-      us: { sku: 'cpx11', vcpu: 2, memory: 2, disk: 40, traffic: '1 TB', providerPriceMonthly: 4.49 },
-    },
-  }] : []),
   {
     key: 'starter',
     label: 'Starter',
@@ -120,9 +111,7 @@ export function getPlansForMarket(market: HetznerMarket) {
         priceMonthly,
         markupMonthly: roundMoney(priceMonthly - machine.providerPriceMonthly),
       };
-    })
-    // Temporary: hide the smallest US machine until the base snapshot fits on it again.
-    .filter((plan) => !(market === 'us' && plan.sku === 'cpx11'));
+    });
 }
 
 export function getPlansForRegion(region: string) {
