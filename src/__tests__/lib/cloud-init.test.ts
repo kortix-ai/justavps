@@ -29,9 +29,22 @@ describe('cloud-init', () => {
       expect(script).not.toMatch(/^set -e$/m);
     });
 
-    it('should NOT contain OS-level install logic except fail2ban (belongs in base image)', () => {
+    it('should create the machine user before Docker exists', () => {
       const script = buildCloudInit(defaultOpts);
-      // fail2ban is the only apt-get install allowed (security hardening)
+      expect(script).toContain('useradd -m -s /bin/bash -G sudo user');
+      expect(script).not.toContain('useradd -m -s /bin/bash -G sudo,docker user');
+    });
+
+    it('should install Docker if missing (raw Ubuntu boot)', () => {
+      const script = buildCloudInit(defaultOpts);
+      expect(script).toContain('https://get.docker.com');
+      expect(script).toContain('usermod -aG docker user');
+      expect(script).toContain('systemctl enable docker');
+    });
+
+    it('should NOT contain unnecessary OS-level install logic', () => {
+      const script = buildCloudInit(defaultOpts);
+      // fail2ban is allowed (security hardening)
       expect(script).toContain('apt-get install -y -qq fail2ban');
       // But no other package installations
       expect(script).not.toContain('gpg --dearmor');
@@ -72,6 +85,7 @@ describe('cloud-init', () => {
     it('should lock root password and clear expiry flags', () => {
       const script = buildCloudInit(defaultOpts);
       expect(script).toContain('passwd -d root');
+      expect(script).toContain('chage -d -1 root');
       expect(script).toContain('chage -M -1 root');
       expect(script).toContain('chage -E -1 root');
       expect(script).toContain('passwd -l root');
@@ -114,6 +128,12 @@ describe('cloud-init', () => {
     it('should base64-encode environment variables', () => {
       const script = buildCloudInit({ ...defaultOpts, envVars: { FOO: 'bar' } });
       expect(script).toContain('base64 -d > /etc/justavps/env');
+    });
+
+    it('should restart justavps-docker after writing fresh env/config', () => {
+      const script = buildCloudInit(defaultOpts);
+      expect(script).toContain("systemctl list-unit-files 2>/dev/null | grep -q '^justavps-docker.service'");
+      expect(script).toContain('systemctl restart justavps-docker 2>/dev/null || true');
     });
   });
 
@@ -204,11 +224,16 @@ describe('cloud-init', () => {
       expect(script).toContain('fail2ban not running, starting');
       // Watchdog should re-enable UFW
       expect(script).toContain('UFW inactive, re-enabling');
+      // Watchdog should self-heal stale baked sandbox env on snapshot-based boots
+      expect(script).toContain("HOST_SLUG=\"$(grep '^JUSTAVPS_SLUG=' /etc/justavps/env");
+      expect(script).toContain("HOST_SERVICE_KEY=\"$(grep '^INTERNAL_SERVICE_KEY=' /etc/justavps/env");
+      expect(script).toContain('Detected stale justavps-workload env, restarting justavps-docker');
     });
 
-    it('should create user account with sudo + docker access', () => {
+    it('should create user account with sudo access before Docker group exists', () => {
       const script = buildCloudInit(defaultOpts);
-      expect(script).toContain('useradd -m -s /bin/bash -G sudo,docker user');
+      expect(script).toContain('useradd -m -s /bin/bash -G sudo user');
+      expect(script).toContain('usermod -aG docker user');
       expect(script).toContain('NOPASSWD:ALL');
     });
   });

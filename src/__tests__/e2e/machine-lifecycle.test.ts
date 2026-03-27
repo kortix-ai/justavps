@@ -461,6 +461,20 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
     expect(done).toBe(true);
   });
 
+  it('5b. root account is key-only and not stuck in forced password rotation', () => {
+    if (!sshKeyPath) return;
+
+    const rootStatus = ssh('passwd -S root 2>/dev/null || true');
+    const rootAging = ssh('chage -l root 2>/dev/null || true');
+
+    expect(rootStatus).toBeTruthy();
+    expect(rootStatus).toContain(' root ');
+    expect(rootStatus).toContain(' L ');
+    expect(rootAging).toBeTruthy();
+    expect(rootAging).not.toContain('must be changed');
+    expect(rootAging).not.toContain('password must be changed');
+  });
+
   it('6. opencode-web active on port 3456', () => {
     if (!sshKeyPath) return;
     expect(ssh('systemctl is-active opencode-web')).toBe('active');

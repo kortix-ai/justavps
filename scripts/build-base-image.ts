@@ -93,6 +93,16 @@ echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/user
 mkdir -p /home/user/.ssh
 chown -R user:user /home/user
 
+# ── Root account hardening ───────────────────────────────────────────────
+# Hetzner/Ubuntu images can carry an expired root password state into the
+# snapshot. Clear any forced-change markers now so snapshot-based machines do
+# not prompt for a password rotation on first SSH login.
+passwd -d root 2>/dev/null || true
+chage -d -1 root 2>/dev/null || true
+chage -M -1 root 2>/dev/null || true
+chage -E -1 root 2>/dev/null || true
+passwd -l root 2>/dev/null || true
+
 # ── Docker ────────────────────────────────────────────────────────────────
 if ! command -v docker &>/dev/null; then
   echo "[base-image] Installing Docker..."

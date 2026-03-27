@@ -65,7 +65,9 @@ echo "[justavps] Configuring machine ${opts.slug}..."
 ${stageCallback('cloud_init_running', 'Cloud-init started')}
 
 # ── User account ──────────────────────────────────────────────────────────
-id -u user &>/dev/null || useradd -m -s /bin/bash -G sudo,docker user
+# Create the machine user before Docker exists. The docker group is appended
+# later after Docker is installed, otherwise useradd fails on raw Ubuntu.
+id -u user &>/dev/null || useradd -m -s /bin/bash -G sudo user
 mkdir -p /home/user
 chown -R user:user /home/user
 echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/user
@@ -83,6 +85,7 @@ chown -R user:user /home/user/.ssh
 
 # ── Lock down password auth (SSH-key-only access) ────────────────────────
 passwd -d root 2>/dev/null || true
+chage -d -1 root 2>/dev/null || true
 chage -M -1 root 2>/dev/null || true
 chage -E -1 root 2>/dev/null || true
 passwd -l root 2>/dev/null || true
@@ -125,6 +128,15 @@ fi
 
 # ── Disable Caddy (daemon handles :80 now) ────────────────────────────────
 systemctl disable --now caddy 2>/dev/null || true
+
+# ── Install Docker if missing (raw Ubuntu boot without base snapshot) ─────
+if ! command -v docker &>/dev/null; then
+  echo "[justavps] Docker not found, installing..."
+  curl -fsSL https://get.docker.com | sh || report_error "Docker install failed"
+  usermod -aG docker user 2>/dev/null || true
+  systemctl enable docker 2>/dev/null || true
+  systemctl start docker 2>/dev/null || true
+fi
 
 # ── Lock down network exposure (proxy-only public access) ─────────────────
 if command -v ufw &>/dev/null; then
@@ -334,6 +346,24 @@ if command -v ufw &>/dev/null; then
     ufw --force enable 2>/dev/null || true
   fi
 fi
+
+# 5. If the baked snapshot container started with stale env, restart it once the
+# host's /etc/justavps/env has the correct machine-specific values. This heals
+# both old snapshots and races where systemd started justavps-docker before
+# cloud-init overwrote /etc/justavps/env.
+if systemctl list-unit-files 2>/dev/null | grep -q '^justavps-docker.service'; then
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^justavps-workload$'; then
+    HOST_SLUG="$(grep '^JUSTAVPS_SLUG=' /etc/justavps/env 2>/dev/null | cut -d= -f2- || true)"
+    HOST_SERVICE_KEY="$(grep '^INTERNAL_SERVICE_KEY=' /etc/justavps/env 2>/dev/null | cut -d= -f2- || true)"
+    CONTAINER_SLUG="$(docker inspect justavps-workload --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^JUSTAVPS_SLUG=' | cut -d= -f2- || true)"
+    CONTAINER_SERVICE_KEY="$(docker inspect justavps-workload --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^INTERNAL_SERVICE_KEY=' | cut -d= -f2- || true)"
+
+    if [ -n "$HOST_SERVICE_KEY" ] && { [ -z "$CONTAINER_SERVICE_KEY" ] || [ "$HOST_SLUG" != "$CONTAINER_SLUG" ]; }; then
+      echo "[justavps-watchdog] Detected stale justavps-workload env, restarting justavps-docker..."
+      systemctl restart justavps-docker 2>/dev/null || true
+    fi
+  fi
+fi
 WATCHDOGEOF
 chmod +x /usr/local/bin/justavps-watchdog.sh
 
@@ -367,6 +397,13 @@ systemctl restart justavps-daemon 2>/dev/null || true
 systemctl enable --now sandbox-agent 2>/dev/null || true
 systemctl enable --now opencode-web 2>/dev/null || true
 systemctl enable --now justavps-watchdog.timer 2>/dev/null || true
+
+# If the snapshot already has justavps-docker enabled, it may have started too
+# early using the baked /etc/justavps/env from the image. Restart it now so the
+# machine-specific env we just wrote is applied to the running container.
+if systemctl list-unit-files 2>/dev/null | grep -q '^justavps-docker.service'; then
+  systemctl restart justavps-docker 2>/dev/null || true
+fi
 
 ${stageCallback('cloud_init_done', 'Configuration complete')}
 echo "[justavps] Machine ${opts.slug} ready!"
