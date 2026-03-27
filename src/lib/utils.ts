@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
-import { getPlanBySku } from "@/lib/hetzner-pricing"
+import { resolvePlanForDisplay } from "@/lib/plan-catalog"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -34,14 +34,14 @@ export function regionDisplay(regionId: string): { flag: string; label: string }
 }
 
 export function planName(serverType: string): string {
-  return getPlanBySku(serverType)?.label ?? serverType;
+  return resolvePlanForDisplay(serverType)?.label ?? serverType;
 }
 
 /**
- * Map SKU -> actual provider specs (vcpu / memory GB / disk GB).
+ * Map plan ID or legacy SKU -> actual specs (vcpu / memory GB / disk GB).
  */
 export function planSpecs(serverType: string): { vcpu: number; memory: number; disk: number } | null {
-  const plan = getPlanBySku(serverType);
+  const plan = resolvePlanForDisplay(serverType);
   if (!plan) return null;
   return { vcpu: plan.vcpu, memory: plan.memory, disk: plan.disk };
 }

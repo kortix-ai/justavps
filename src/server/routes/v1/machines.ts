@@ -17,8 +17,8 @@ import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 import { stripeClient } from '../../lib/stripe';
 import { requireAccountResource, requireProvider, errorResponse, handleRouteError } from '../../lib/route-helpers';
 import { checkMachineLimit, checkImageLimit } from '../../lib/account-limits';
-import { HetznerProvider, getPlanTierIndex } from '../../lib/providers/hetzner';
-import { backupSurcharge } from '@/lib/hetzner-pricing';
+import { HetznerProvider } from '../../lib/providers/hetzner';
+import { planTierIndex as getPlanTierIndex, backupSurcharge, planIdFromProviderSku, resolvePlanForDisplay } from '@/lib/plan-catalog';
 import { eventBus } from '../../lib/event-bus';
 import { after } from 'next/server';
 import {
@@ -112,6 +112,10 @@ function serializeMachine(
 
   const provisionMeta = readProvisionMeta(m.providerMeta);
 
+  // Resolve stored server type (may be legacy provider SKU) to our plan ID
+  const planId = planIdFromProviderSku(m.serverType) ?? m.serverType;
+  const planMeta = resolvePlanForDisplay(m.serverType);
+
   return {
     id: m.id,
     slug: m.slug,
@@ -121,7 +125,8 @@ function serializeMachine(
     provisioning_stage_updated_at: m.provisioningStageUpdatedAt?.toISOString() ?? null,
     provider: m.provider,
     image_id: m.imageId,
-    server_type: m.serverType,
+    server_type: planId,
+    plan_label: planMeta?.label ?? null,
     region: m.region,
     ip: m.ip,
     provider_progress: provisionMeta.providerProgress,
@@ -1031,7 +1036,7 @@ machinesApp.openapi(resizeMachineRoute, async (c) => {
   after(async () => {
     try {
       // 1. Provider resize (stop → change_type → start)
-      await lookup.provider.resizeServer(machine.providerServerId!, server_type);
+      await lookup.provider.resizeServer(machine.providerServerId!, server_type, machine.region);
 
       // 2. Update machine record: new server type, new price, back to ready
       await db.update(machines)

@@ -67,7 +67,7 @@ import {
 } from "lucide-react";
 import { RescaleDialog } from "@/components/dashboard/rescale-dialog";
 import Link from "next/link";
-import { BACKUP_SURCHARGE_PERCENT, backupSurcharge } from "@/lib/hetzner-pricing";
+import { BACKUP_SURCHARGE_PERCENT, backupSurcharge } from "@/lib/plan-catalog";
 import { timeAgo, cn, regionDisplay, planName, planSpecs, PROXY_DOMAIN } from "@/lib/utils";
 
 const Terminal = dynamic(() => import("@/components/dashboard/terminal"), {

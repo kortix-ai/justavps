@@ -66,7 +66,7 @@ export interface ComputeProvider {
   startServer(serverId: string): Promise<void>;
   stopServer(serverId: string): Promise<void>;
   rebootServer(serverId: string): Promise<void>;
-  resizeServer(serverId: string, serverType: string): Promise<void>;
+  resizeServer(serverId: string, serverType: string, region?: string): Promise<void>;
   getServerStatus(serverId: string): Promise<string>;
   getActionProgress?(actionId: string): Promise<ProviderActionProgress>;
   getServerNetwork?(serverId: string): Promise<ProviderServerNetwork>;

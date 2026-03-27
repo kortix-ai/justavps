@@ -147,7 +147,7 @@ beforeAll(async () => {
 
   const baseMachine = {
     provider: 'cloud',
-    serverType: 'cpx11',
+    serverType: 'starter',
     region: 'hel1',
     machineToken: generateMachineToken(),
     codeServerPassword: '',
@@ -312,7 +312,7 @@ describe('admin machines: list with default params', () => {
     expect(m.name).toBeTruthy();
     expect(m.status).toBe('ready');
     expect(m.provider).toBe('cloud');
-    expect(m.server_type).toBe('cpx11');
+    expect(m.server_type).toBe('starter');
     expect(m.region).toBe('hel1');
     expect(m.ip).toBe('10.0.0.1');
     expect(m.source).toBe('user');

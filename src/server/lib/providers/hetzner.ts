@@ -1,5 +1,10 @@
 import { config } from '../config';
-import { getPlanBySku, getPlansForRegion, HETZNER_PLAN_TIERS, backupSurcharge } from '@/lib/hetzner-pricing';
+import {
+  plansForRegion,
+  resolveProviderSku,
+  resolvePlanForDisplay,
+  backupSurcharge,
+} from '@/lib/plan-catalog';
 import type {
   ComputeProvider,
   CreateServerOpts,
@@ -120,18 +125,16 @@ async function getOrCreateManagedFirewall(): Promise<number> {
 }
 
 /**
- * Get the plan tier index for a given SKU across any region.
- * Returns -1 if not found.
+ * Get the plan tier index for a plan ID or legacy provider SKU.
+ * Returns -1 if not found. Accepts both "pro" and legacy "cpx42".
  */
-export function getPlanTierIndex(sku: string): number {
-  return HETZNER_PLAN_TIERS.findIndex((tier) => tier.regions.eu.sku === sku || tier.regions.us.sku === sku);
-}
+export { planTierIndex as getPlanTierIndex } from '@/lib/plan-catalog';
 
 /**
- * Get the plan tier for a given SKU.
+ * Get the plan tier metadata for a plan ID or legacy provider SKU.
  */
-export function getPlanTier(sku: string) {
-  return getPlanBySku(sku);
+export function getPlanTier(planIdOrSku: string) {
+  return resolvePlanForDisplay(planIdOrSku);
 }
 
 interface HetznerServer {
@@ -296,10 +299,12 @@ export class HetznerProvider implements ComputeProvider {
   }
 
   async createServer(opts: CreateServerOpts): Promise<ServerResult> {
+    // Resolve plan ID (e.g. "pro") or legacy SKU (e.g. "cpx42") → provider SKU
+    const providerSku = resolveProviderSku(opts.serverType, opts.region) || opts.serverType;
     const firewallId = await getOrCreateManagedFirewall();
     const body: Record<string, unknown> = {
       name: opts.name,
-      server_type: opts.serverType,
+      server_type: providerSku,
       image: isNaN(Number(opts.image)) ? opts.image : parseInt(opts.image, 10),
       location: opts.region,
       start_after_create: true,
@@ -433,7 +438,11 @@ export class HetznerProvider implements ComputeProvider {
    *
    * `upgrade_disk: true` — disk is permanently enlarged (irreversible).
    */
-  async resizeServer(serverId: string, serverType: string): Promise<void> {
+  async resizeServer(serverId: string, serverType: string, region?: string): Promise<void> {
+    // Resolve plan ID (e.g. "power") → provider SKU. For resize the region
+    // of the existing machine should be passed; fall back to default EU.
+    const providerSku = resolveProviderSku(serverType, region || config.HETZNER_DEFAULT_LOCATION) || serverType;
+
     // 1. Check current status — only stop if running
     const currentStatus = await this.getServerStatus(serverId);
     if (currentStatus === 'running') {
@@ -446,15 +455,15 @@ export class HetznerProvider implements ComputeProvider {
     // 2. Change type
     await hetznerFetch(`/servers/${serverId}/actions/change_type`, {
       method: 'POST',
-      body: { server_type: serverType, upgrade_disk: true },
+      body: { server_type: providerSku, upgrade_disk: true },
     });
-    console.log(`[hetzner] Server ${serverId} type changed to ${serverType}`);
+    console.log(`[hetzner] Server ${serverId} type changed to ${providerSku}`);
 
     // 3. Start the server back up
     console.log(`[hetzner] Starting server ${serverId} after resize...`);
     await this.startServer(serverId);
     await waitForServerStatus(Number(serverId), 'running', 120_000);
-    console.log(`[hetzner] Server ${serverId} resized to ${serverType} and running`);
+    console.log(`[hetzner] Server ${serverId} resized to ${providerSku} and running`);
   }
 
   async getServerStatus(serverId: string): Promise<string> {
@@ -547,17 +556,17 @@ export class HetznerProvider implements ComputeProvider {
   async listServerTypes(region: string): Promise<ServerTypeInfo[]> {
     const loc = region || config.HETZNER_DEFAULT_LOCATION;
 
-    return getPlansForRegion(loc).map((tier) => ({
-      name: tier.sku,
-      description: `${tier.vcpu} vCPU / ${tier.memory} GB RAM / ${tier.disk} GB SSD / ${tier.traffic}`,
-      cores: tier.vcpu,
-      memory: tier.memory,
-      disk: tier.disk,
+    return plansForRegion(loc).map((plan) => ({
+      name: plan.id,
+      description: `${plan.vcpu} vCPU / ${plan.memory} GB RAM / ${plan.disk} GB SSD / ${plan.traffic}`,
+      cores: plan.vcpu,
+      memory: plan.memory,
+      disk: plan.disk,
       cpuType: 'shared' as const,
       architecture: 'x86' as const,
-      providerPriceMonthly: tier.providerPriceMonthly,
-      priceMonthly: tier.priceMonthly,
-      backupPriceMonthly: backupSurcharge(tier.priceMonthly),
+      providerPriceMonthly: plan.providerCostMonthly,
+      priceMonthly: plan.priceMonthly,
+      backupPriceMonthly: backupSurcharge(plan.priceMonthly),
       region: loc,
     }));
   }

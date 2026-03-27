@@ -10,7 +10,7 @@ import { cloudflareClient, type MachineRoutingKVRecord } from './cloudflare';
 import { stripeClient, type MachineSpecs } from './stripe';
 import { signProxyToken } from './proxy-token';
 import { getProvider, type ComputeProvider } from './providers';
-import { getPlanBySku, STARTING_MONTHLY_PRICE } from '@/lib/hetzner-pricing';
+import { resolvePlanForDisplay, STARTING_MONTHLY_PRICE, marketForRegion } from '@/lib/plan-catalog';
 
 interface ProvisionProviderMeta {
   create_action_id?: string | null;
@@ -250,7 +250,10 @@ export async function lookupPriceAndSpecs(
   region: string,
   serverType: string,
 ): Promise<{ priceMonthly: number; specs?: MachineSpecs }> {
-  const mapped = getPlanBySku(serverType);
+  // serverType can be a plan ID ("pro") or a legacy provider SKU ("cpx42").
+  // resolvePlanForDisplay handles both.
+  const market = marketForRegion(region) ?? undefined;
+  const mapped = resolvePlanForDisplay(serverType, market);
   if (mapped) {
     return {
       priceMonthly: mapped.priceMonthly,

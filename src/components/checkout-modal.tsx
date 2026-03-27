@@ -30,7 +30,7 @@ import {
   type BillingInterval,
 } from "@/components/plan-picker";
 import { PlanList } from "@/components/plan-list";
-import { BACKUP_SURCHARGE_PERCENT, backupSurcharge } from "@/lib/hetzner-pricing";
+import { BACKUP_SURCHARGE_PERCENT, backupSurcharge } from "@/lib/plan-catalog";
 import type { Image } from "@/lib/types";
 import { cn, regionDisplay } from "@/lib/utils";
 

@@ -447,7 +447,7 @@ export default function AdminMachinesPage() {
                             </span>
                           )}
                           {m.provider_server_id && (
-                            <span className="font-mono">hetzner:{m.provider_server_id}</span>
+                            <span className="font-mono">cloud:{m.provider_server_id}</span>
                           )}
                         </div>
 

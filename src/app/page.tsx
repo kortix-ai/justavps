@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { buttonVariants } from "@/components/ui/button";
-import { PLAN_PRICE_SNAPSHOT } from "@/lib/hetzner-pricing";
+import { PLAN_PRICE_SNAPSHOT } from "@/lib/plan-catalog";
 import { cn, PROXY_DOMAIN } from "@/lib/utils";
 import { useTheme } from "@/hooks/use-theme";
 import { Logo } from "@/components/logo";

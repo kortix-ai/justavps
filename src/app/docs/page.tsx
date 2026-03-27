@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { PLAN_PRICE_SNAPSHOT } from "@/lib/hetzner-pricing";
+import { PLAN_PRICE_SNAPSHOT } from "@/lib/plan-catalog";
 import { cn, PROXY_DOMAIN } from "@/lib/utils";
 import {
   CreditCard, HardDrive,
@@ -473,7 +473,7 @@ for await (const event of client.streamEvents("my-session")) {
   -H "Content-Type: application/json" \
   -d '{
     "provider": "cloud",
-    "server_type": "cpx42",
+    "server_type": "pro",
     "region": "hel1",
     "image_id": "<template-image-id>"
   }'`}</CodeBlock>
@@ -482,7 +482,7 @@ for await (const event of client.streamEvents("my-session")) {
   -H "Content-Type: application/json" \
   -d '{
     "provider": "cloud",
-    "server_type": "cpx42",
+    "server_type": "pro",
     "region": "hel1",
     "docker_image": "python:3.12-alpine",
     "entrypoint": "python",
@@ -730,13 +730,13 @@ app.listen(3000, () => console.log("Custom proxy on :3000"));`}</CodeBlock>
         {/*  BILLING                                                    */}
         {/* ──────────────────────────────────────────────────────────── */}
         <H2 id="billing">Billing</H2>
-        <P>Fixed monthly pricing per machine, with region-specific exact prices derived from the matching Hetzner machine and a fixed 2x markup.</P>
+        <P>Fixed monthly pricing per machine, region-specific specs with a simple flat rate.</P>
 
         <Table headers={["Plan", "EU", "US"]} rows={[
           ...PLAN_PRICE_SNAPSHOT.map((plan) => [
             plan.label,
-            `${plan.eu.sku} · ${plan.eu.vcpu} vCPU / ${plan.eu.memory} GB / ${plan.eu.disk} GB · $${plan.euPublicPrice.toFixed(2)}/mo`,
-            `${plan.us.sku} · ${plan.us.vcpu} vCPU / ${plan.us.memory} GB / ${plan.us.disk} GB · $${plan.usPublicPrice.toFixed(2)}/mo`,
+            `${plan.eu.vcpu} vCPU / ${plan.eu.memory} GB / ${plan.eu.disk} GB · $${plan.euPublicPrice.toFixed(2)}/mo`,
+            `${plan.us.vcpu} vCPU / ${plan.us.memory} GB / ${plan.us.disk} GB · $${plan.usPublicPrice.toFixed(2)}/mo`,
           ]),
         ]} />
 
