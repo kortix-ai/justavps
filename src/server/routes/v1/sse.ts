@@ -1,14 +1,14 @@
 /**
  * SSE endpoint — streams machine provisioning status.
  *
- * Vercel-compatible: polls the DB (machine_events table) instead of
- * relying on in-memory EventEmitter. The frontend also polls via
- * React Query, so this SSE endpoint is a progressive enhancement.
+ * Simple design:
+ *   - Polls machine_events table for real-time stage changes
+ *   - Polls machine row for status/ip/progress changes
+ *   - Fetches Hetzner action progress (lightweight, no daemon probe)
+ *   - Terminal state → close stream
  *
- * NOTE: SSE routes cannot be expressed as full OpenAPIHono typed routes
- * (the response is a stream, not a typed JSON body). We register the
- * route description separately via openAPIRegistry and keep the handler
- * as a plain Hono route.
+ * No daemon probing in the hot path — readiness comes from the heartbeat
+ * endpoint which marks machines ready on first contact.
  */
 
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
@@ -17,12 +17,12 @@ import { eq, gt, and } from 'drizzle-orm';
 import { db } from '../../db';
 import { machines, machineEvents } from '../../db/schema';
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
-import { syncMachineStatus } from '../../lib/machine-lifecycle';
+import { getProvider } from '../../lib/providers';
+import { updateProviderMeta } from '../../lib/provider-meta';
 
 export const sseApp = new OpenAPIHono<{ Variables: AuthVariables }>();
 sseApp.use('*', apiGuard);
 
-// Register the route in the OpenAPI spec (without full body typing — it's a stream)
 const streamMachineStatusRoute = createRoute({
   method: 'get',
   path: '/{id}/status/stream',
@@ -43,20 +43,34 @@ const streamMachineStatusRoute = createRoute({
   },
 });
 
-// Use openapi() for spec registration but return a stream response
+function readProgress(meta: Record<string, unknown> | null | undefined) {
+  const v = (meta ?? {}) as Record<string, unknown>;
+  return {
+    provider_progress: typeof v.create_progress === 'number' ? v.create_progress : null,
+    provider_status: typeof v.create_status === 'string' ? v.create_status : null,
+  };
+}
+
+function isTerminal(status: string) {
+  return status === 'ready' || status === 'error' || status === 'deleted';
+}
+
+function machineSnapshot(m: typeof machines.$inferSelect) {
+  return JSON.stringify({
+    status: m.status,
+    provisioning_stage: m.provisioningStage,
+    ip: m.ip,
+    ready_at: m.readyAt?.toISOString() ?? null,
+    ...readProgress(m.providerMeta),
+  });
+}
+
 sseApp.openapi(streamMachineStatusRoute, async (c) => {
   const id = c.req.valid('param').id;
   const accountId = c.get('accountId');
 
-  const readProvisionMeta = (meta: Record<string, unknown> | null | undefined) => {
-    const value = (meta ?? {}) as Record<string, unknown>;
-    return {
-      provider_progress: typeof value.create_progress === 'number' ? value.create_progress : null,
-      provider_status: typeof value.create_status === 'string' ? value.create_status : null,
-    };
-  };
-
   return streamSSE(c, async (stream) => {
+    // ── Initial fetch ───────────────────────────────────────────────────
     let machine: typeof machines.$inferSelect | undefined;
     try {
       const [row] = await db.select().from(machines).where(eq(machines.id, id));
@@ -70,6 +84,7 @@ sseApp.openapi(streamMachineStatusRoute, async (c) => {
       return;
     }
 
+    // ── Emit current state immediately ──────────────────────────────────
     await stream.writeSSE({
       data: JSON.stringify({
         id: machine.id,
@@ -78,108 +93,126 @@ sseApp.openapi(streamMachineStatusRoute, async (c) => {
         provisioning_stage: machine.provisioningStage,
         ip: machine.ip,
         ready_at: machine.readyAt?.toISOString() ?? null,
-        ...readProvisionMeta(machine.providerMeta),
+        ...readProgress(machine.providerMeta),
       }),
       event: 'status',
     });
 
-    if (machine.status === 'ready' || machine.status === 'error' || machine.status === 'deleted') {
-      await stream.writeSSE({ data: JSON.stringify({ done: true }), event: 'done' });
+    if (isTerminal(machine.status)) {
+      await stream.writeSSE({ data: JSON.stringify({ done: true, status: machine.status }), event: 'done' });
       return;
     }
 
+    // ── Poll loop ───────────────────────────────────────────────────────
+    const POLL_MS = 2_000;
+    const MAX_MS = 10 * 60 * 1000;
+    const startTime = Date.now();
     let resolved = false;
     let lastEventTime = new Date();
-    let lastSnapshot = JSON.stringify({
-      status: machine.status,
-      provisioning_stage: machine.provisioningStage,
-      ip: machine.ip,
-      ready_at: machine.readyAt?.toISOString() ?? null,
-      ...readProvisionMeta(machine.providerMeta),
-    });
-    const POLL_INTERVAL_MS = 2_000;
-    const MAX_DURATION_MS = 10 * 60 * 1000;
-    const startTime = Date.now();
+    let lastSnapshot = machineSnapshot(machine);
+    const meta = (machine.providerMeta ?? {}) as Record<string, unknown>;
+    // Only poll Hetzner action while create is still in progress
+    let hetznerDone = meta.create_status === 'success' || (meta.create_progress as number) === 100;
 
-    stream.onAbort(() => {
-      resolved = true;
-    });
+    stream.onAbort(() => { resolved = true; });
 
     while (!resolved) {
-      if (Date.now() - startTime > MAX_DURATION_MS) {
+      if (Date.now() - startTime > MAX_MS) {
         await stream.writeSSE({ data: JSON.stringify({ done: true, reason: 'timeout' }), event: 'done' }).catch(() => {});
         break;
       }
 
       try {
+        // ── 1. Stream new machine_events ──────────────────────────────
         const newEvents = await db.select()
           .from(machineEvents)
-          .where(
-            and(
-              eq(machineEvents.machineId, id),
-              gt(machineEvents.createdAt, lastEventTime),
-            )
-          )
+          .where(and(eq(machineEvents.machineId, id), gt(machineEvents.createdAt, lastEventTime)))
           .orderBy(machineEvents.createdAt);
 
         for (const evt of newEvents) {
           if (resolved) break;
-
-          const sseEvent = evt.event === 'stage_changed' ? 'stage' : 'status';
+          const isStageChange = evt.event === 'stage_changed';
           await stream.writeSSE({
             data: JSON.stringify({
               id: machine!.id,
               slug: machine!.slug,
               event: evt.event,
-              status: evt.stage,
-              provisioning_stage: evt.stage,
+              // stage_changed: stage = stage name, status = machine status (e.g. 'provisioning')
+              // status_changed: stage = undefined, status = new machine status (e.g. 'ready')
+              stage: isStageChange ? evt.stage : undefined,
+              status: isStageChange ? machine!.status : (evt.stage ?? machine!.status),
+              // provisioning_stage: for stage events = the stage; for status events = null (don't clobber)
+              provisioning_stage: isStageChange ? evt.stage : null,
               message: evt.message,
               timestamp: evt.createdAt.toISOString(),
             }),
-            event: sseEvent,
+            event: isStageChange ? 'stage' : 'status',
           });
-
           lastEventTime = evt.createdAt;
 
-          if (evt.event === 'status_changed' && (evt.stage === 'ready' || evt.stage === 'error' || evt.stage === 'deleted')) {
+          if (!isStageChange && isTerminal(evt.stage ?? '')) {
             resolved = true;
-            await stream.writeSSE({ data: JSON.stringify({ done: true }), event: 'done' });
+            await stream.writeSSE({ data: JSON.stringify({ done: true, status: evt.stage }), event: 'done' });
           }
         }
 
-        if (!resolved) {
-          const [currentRow] = await db.select().from(machines).where(eq(machines.id, id));
-          if (currentRow) {
-            const current = await syncMachineStatus(currentRow);
-            const snapshot = JSON.stringify({
-              status: current.status,
-              provisioning_stage: current.provisioningStage,
-              ip: current.ip,
-              ready_at: current.readyAt?.toISOString() ?? null,
-              ...readProvisionMeta(current.providerMeta),
-            });
-            if (snapshot !== lastSnapshot) {
-              lastSnapshot = snapshot;
-              await stream.writeSSE({ data: snapshot, event: 'status' });
-            }
+        if (resolved) break;
 
-            if (current.status === 'ready' || current.status === 'error' || current.status === 'deleted') {
-              resolved = true;
-              await stream.writeSSE({ data: JSON.stringify({ done: true, status: current.status }), event: 'done' });
+        // ── 2. Fetch Hetzner action progress (skip once done) ────────
+        if (!hetznerDone && machine!.provider === 'cloud') {
+          const currentMeta = (machine!.providerMeta ?? {}) as Record<string, unknown>;
+          const actionId = currentMeta.create_action_id as string | null;
+          if (actionId) {
+            try {
+              const provider = getProvider(machine!.provider);
+              if (provider.getActionProgress) {
+                const action = await provider.getActionProgress(actionId);
+                if (action.status === 'success' || action.progress === 100) hetznerDone = true;
+                await updateProviderMeta(machine!.id, {
+                  create_status: action.status,
+                  create_progress: action.progress,
+                });
+              }
+            } catch {
+              // Non-fatal — Hetzner API hiccup, try next cycle
             }
+          }
+        }
+
+        // ── 3. Read fresh machine state ──────────────────────────────
+        const [current] = await db.select().from(machines).where(eq(machines.id, id));
+        if (current) {
+          machine = current;
+          const snap = machineSnapshot(current);
+          if (snap !== lastSnapshot) {
+            lastSnapshot = snap;
+            await stream.writeSSE({
+              data: JSON.stringify({
+                id: current.id,
+                slug: current.slug,
+                status: current.status,
+                provisioning_stage: current.provisioningStage,
+                ip: current.ip,
+                ready_at: current.readyAt?.toISOString() ?? null,
+                ...readProgress(current.providerMeta),
+              }),
+              event: 'status',
+            });
+          }
+
+          if (isTerminal(current.status)) {
+            resolved = true;
+            await stream.writeSSE({ data: JSON.stringify({ done: true, status: current.status }), event: 'done' });
           }
         }
       } catch {
-        await stream.writeSSE({ data: '', event: 'ping' }).catch(() => {
-          resolved = true;
-        });
+        // DB hiccup — send ping to keep connection alive
+        await stream.writeSSE({ data: '', event: 'ping' }).catch(() => { resolved = true; });
       }
 
       if (!resolved) {
-        await stream.writeSSE({ data: '', event: 'ping' }).catch(() => {
-          resolved = true;
-        });
-        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        await stream.writeSSE({ data: '', event: 'ping' }).catch(() => { resolved = true; });
+        await new Promise((r) => setTimeout(r, POLL_MS));
       }
     }
   });

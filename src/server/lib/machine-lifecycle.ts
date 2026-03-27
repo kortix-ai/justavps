@@ -8,8 +8,8 @@ import { buildCloudInit } from './cloud-init';
 import { config } from './config';
 import { cloudflareClient, type MachineRoutingKVRecord } from './cloudflare';
 import { stripeClient, type MachineSpecs } from './stripe';
-import { signProxyToken } from './proxy-token';
 import { getProvider, type ComputeProvider } from './providers';
+import { updateProviderMeta } from './provider-meta';
 import { resolvePlanForDisplay, STARTING_MONTHLY_PRICE, marketForRegion } from '@/lib/plan-catalog';
 
 interface ProvisionProviderMeta {
@@ -83,40 +83,6 @@ function readProviderMeta(machine: typeof machines.$inferSelect): ProvisionProvi
   return (machine.providerMeta ?? {}) as ProvisionProviderMeta;
 }
 
-async function updateProviderMeta(machineId: string, patch: Partial<ProvisionProviderMeta>) {
-  const [current] = await db.select({ providerMeta: machines.providerMeta }).from(machines).where(eq(machines.id, machineId));
-  const merged = {
-    ...((current?.providerMeta ?? {}) as ProvisionProviderMeta),
-    ...patch,
-  };
-  await db.update(machines).set({ providerMeta: merged }).where(eq(machines.id, machineId));
-  return merged;
-}
-
-async function probeMachineDaemon(machine: typeof machines.$inferSelect): Promise<boolean> {
-  if (!config.isCloudflareConfigured()) return false;
-  const token = await signProxyToken(machine.accountId ?? machine.ownerId, machine.ownerId);
-  const url = `https://${machine.slug}.${config.PROXY_DOMAIN}/daemon/health?token=${encodeURIComponent(token)}`;
-  try {
-    const res = await fetch(url, {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(5_000),
-    });
-    if (!res.ok) return false;
-    const data = await res.json().catch(() => null) as { status?: string } | null;
-    return data?.status === 'ok';
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Upload SSH key to provider. This is MANDATORY for server creation —
- * without it, the provider sets a temporary root password with forced expiry,
- * making SSH access impossible even with cloud-init injected keys.
- *
- * Retries up to 3 times before throwing.
- */
 export async function uploadSSHKeyToProvider(
   provider: ComputeProvider,
   slug: string,
@@ -472,25 +438,11 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
     }
   }
 
+  // Only run sync logic for provisioning machines (or timeout-recoverable errors)
   const canRecoverTimeout = machine.status === 'error' && machine.provisioningStage === 'timeout';
   if ((machine.status !== 'provisioning' && !canRecoverTimeout) || !machine.providerServerId) return machine;
 
-  if (machine.provider === 'cloud' && meta.create_action_id) {
-    try {
-      const provider = getProvider(machine.provider);
-      if (provider.getActionProgress) {
-        const action = await provider.getActionProgress(meta.create_action_id);
-        const nextMeta = await updateProviderMeta(machine.id, {
-          create_status: action.status,
-          create_progress: action.progress,
-        });
-        machine = { ...machine, providerMeta: nextMeta };
-      }
-    } catch (err) {
-      console.warn(`[MACHINES] Failed to refresh provider action for ${machine.slug}:`, err);
-    }
-  }
-
+  // ── Heartbeat arrived → mark ready ──────────────────────────────────────
   if (machine.lastHeartbeatAt) {
     const now = new Date();
     await db.update(machines).set({
@@ -501,69 +453,15 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
     return { ...machine, status: 'ready' as const, readyAt: now };
   }
 
-  const providerMeta = readProviderMeta(machine);
-  const createFinished = providerMeta.create_status === 'success' || providerMeta.create_progress === 100;
-  const shouldProbeDaemon = !!machine.ip && (
-    createFinished
-    || machine.provisioningStage === 'server_created'
-    || Date.now() - machine.createdAt.getTime() > 30_000
-  );
-
-  if (shouldProbeDaemon) {
-    const daemonReady = await probeMachineDaemon(machine);
-    const probedMeta = await updateProviderMeta(machine.id, {
-      last_probe_at: new Date().toISOString(),
-    });
-    machine = { ...machine, providerMeta: probedMeta };
-
-    if (daemonReady) {
-      const now = new Date();
-      const nextMeta = await updateProviderMeta(machine.id, {
-        ready_via: 'probe',
-        daemon_reachable_at: new Date().toISOString(),
-      });
-      await db.update(machines).set({
-        status: 'ready',
-        readyAt: now,
-        provisioningStage: 'services_ready',
-        providerMeta: nextMeta,
-      }).where(eq(machines.id, machine.id));
-
-      const { eventBus } = await import('./event-bus');
-      await eventBus.emitStageChange(machine.id, machine.accountId ?? machine.ownerId, 'services_ready', 'Daemon is reachable via proxy health check');
-      await eventBus.emitStatusChange(machine.id, machine.accountId ?? machine.ownerId, 'ready', 'Machine is ready');
-
-      if (config.isCloudflareConfigured() && machine.ip) {
-        cloudflareClient.writeKVMachine(machine.slug, buildMachineRoutingKVData({
-          machineId: machine.id,
-          slug: machine.slug,
-          accountId: machine.accountId ?? machine.ownerId,
-          ip: machine.ip,
-          status: 'ready',
-          serverType: machine.serverType,
-        })).catch(() => {});
-      }
-
-      return {
-        ...machine,
-        status: 'ready' as const,
-        readyAt: now,
-        provisioningStage: 'services_ready',
-        providerMeta: nextMeta,
-      };
-    }
-  }
-
+  // ── Provisioning timeout ─────────────────────────────────────────────────
   if (Date.now() - machine.createdAt.getTime() > PROVISION_TIMEOUT_MS) {
-    console.warn(`[MACHINES] Provisioning timeout for ${machine.slug} (${Math.round((Date.now() - machine.createdAt.getTime()) / 1000)}s elapsed, no heartbeat or successful probe)`);
+    console.warn(`[MACHINES] Provisioning timeout for ${machine.slug} (${Math.round((Date.now() - machine.createdAt.getTime()) / 1000)}s elapsed, no heartbeat)`);
     await db.update(machines).set({
       status: 'error',
       provisioningStage: 'timeout',
     }).where(eq(machines.id, machine.id));
-
     const { eventBus } = await import('./event-bus');
-    await eventBus.emitStatusChange(machine.id, machine.accountId ?? machine.ownerId, 'error', 'Provisioning timed out — machine never became reachable');
-
+    await eventBus.emitStatusChange(machine.id, machine.accountId ?? machine.ownerId, 'error', 'Provisioning timed out');
     return { ...machine, status: 'error' as const, provisioningStage: 'timeout' };
   }
 

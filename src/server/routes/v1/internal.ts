@@ -118,6 +118,9 @@ internalApp.openapi(heartbeatRoute, async (c) => {
     }
 
     if (shouldMarkReady) {
+      // Emit services_starting before ready so the frontend sees a smooth final step
+      await eventBus.emitStageChange(machine.id, machine.accountId ?? machine.ownerId, 'services_starting', 'Daemon connected, services starting');
+      await eventBus.emitStageChange(machine.id, machine.accountId ?? machine.ownerId, 'services_ready', 'All services ready');
       await eventBus.emitStatusChange(machine.id, machine.accountId ?? machine.ownerId, 'ready', 'Machine is ready');
     }
     eventBus.emitTransient({
