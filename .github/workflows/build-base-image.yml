@@ -60,9 +60,16 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             # Manual: use explicit inputs
-            echo "daemon_channel=${{ inputs.daemon_channel || 'latest' }}" >> "$GITHUB_OUTPUT"
-            echo "vercel_target=${{ inputs.vercel_target || 'all' }}"       >> "$GITHUB_OUTPUT"
-            echo "should_redeploy=true"                                      >> "$GITHUB_OUTPUT"
+            TARGET="${{ inputs.vercel_target || 'all' }}"
+            CHANNEL="${{ inputs.daemon_channel || 'latest' }}"
+            echo "daemon_channel=$CHANNEL"  >> "$GITHUB_OUTPUT"
+            echo "vercel_target=$TARGET"    >> "$GITHUB_OUTPUT"
+            # Only redeploy production if the target includes production
+            if [ "$TARGET" = "production" ] || [ "$TARGET" = "all" ]; then
+              echo "should_redeploy=true"   >> "$GITHUB_OUTPUT"
+            else
+              echo "should_redeploy=false"  >> "$GITHUB_OUTPUT"
+            fi
           else
             # Automatic: derive from which branch triggered the daemon release
             BRANCH="${{ github.event.workflow_run.head_branch }}"
@@ -71,7 +78,7 @@ jobs:
               echo "vercel_target=production" >> "$GITHUB_OUTPUT"
               echo "should_redeploy=true"     >> "$GITHUB_OUTPUT"
             else
-              # main → dev channel → preview deployment
+              # main → dev channel → preview deployment only
               echo "daemon_channel=dev"       >> "$GITHUB_OUTPUT"
               echo "vercel_target=preview"    >> "$GITHUB_OUTPUT"
               echo "should_redeploy=false"    >> "$GITHUB_OUTPUT"
