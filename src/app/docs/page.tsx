@@ -528,8 +528,8 @@ for await (const event of client.streamEvents("my-session")) {
 
         <H3 id="firewall-layers">Firewall Layers</H3>
         <Table headers={["Layer", "What It Does", "Can Be Bypassed?"]} rows={[
-          ["Hetzner Firewall", "External, provider-level firewall applied at provision. Only allows TCP 22 (anywhere) and TCP 80 (Cloudflare IPs). All other inbound traffic is dropped before it reaches the machine.", "No — managed by the platform, not editable from inside the VM"],
-          ["UFW (in-VM)", "Defense-in-depth. Denies all incoming traffic except SSH and port 80.", "Technically yes (root can change it), but the Hetzner Firewall still blocks externally"],
+          ["Cloud Firewall", "External, provider-level firewall applied at provision. Only allows TCP 22 (anywhere) and TCP 80 (Cloudflare IPs). All other inbound traffic is dropped before it reaches the machine.", "No — managed by the platform, not editable from inside the VM"],
+          ["UFW (in-VM)", "Defense-in-depth. Denies all incoming traffic except SSH and port 80.", "Technically yes (root can change it), but the Cloud Firewall still blocks externally"],
           ["Docker ingress guard", "iptables DOCKER-USER chain rule that blocks external traffic from reaching Docker-published ports, even if a container binds a host port.", "No — survives Docker restarts and container recreation"],
         ]} />
 
