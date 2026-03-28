@@ -13,54 +13,6 @@ const GuestCheckoutSchema = CreateMachineSchema.pick({
   enable_backups: true,
 });
 
-// Temporary diagnostic — test raw Stripe connectivity from Vercel
-export async function GET() {
-  const key = process.env.STRIPE_SECRET_KEY || '';
-  const results: Record<string, unknown> = { key_prefix: key.slice(0, 15) };
-
-  // Test 1: Raw fetch
-  try {
-    const resp = await fetch('https://api.stripe.com/v1/customers?limit=1', {
-      headers: { 'Authorization': `Bearer ${key}` },
-    });
-    results.fetch_status = resp.status;
-    results.fetch_ok = resp.ok;
-    if (!resp.ok) {
-      results.fetch_error = await resp.text();
-    }
-  } catch (e) {
-    results.fetch_error = e instanceof Error ? e.message : String(e);
-  }
-
-  // Test 2: Stripe SDK (shared instance from stripe.ts)
-  try {
-    const ok = stripeClient.isConfigured();
-    results.sdk_configured = ok;
-  } catch (e) {
-    results.sdk_configured_error = e instanceof Error ? e.message : String(e);
-  }
-
-  // Test 3: Stripe SDK call
-  try {
-    const Stripe = (await import('stripe')).default;
-    const s = new Stripe(key, {
-      httpClient: Stripe.createFetchHttpClient(),
-      maxNetworkRetries: 0,
-      timeout: 15000,
-    });
-    const list = await s.customers.list({ limit: 1 });
-    results.sdk_ok = true;
-    results.sdk_count = list.data.length;
-  } catch (e) {
-    results.sdk_ok = false;
-    results.sdk_error = e instanceof Error ? e.message : String(e);
-    results.sdk_error_type = e instanceof Error ? e.constructor.name : typeof e;
-  }
-
-  const ok = results.fetch_ok === true && results.sdk_ok === true;
-  return NextResponse.json({ ok, ...results }, { status: ok ? 200 : 500 });
-}
-
 export async function POST(req: NextRequest) {
   if (!stripeClient.isConfigured()) {
     return NextResponse.json({ error: true, message: 'Stripe not configured' }, { status: 503 });
@@ -110,8 +62,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ checkout_url: url });
   } catch (error) {
     console.error('[CHECKOUT_START] error:', error);
-    const detail = error instanceof Error ? error.message : String(error);
-    const keyPrefix = (process.env.STRIPE_SECRET_KEY || '').slice(0, 15) + '...';
-    return NextResponse.json({ error: true, message: 'Failed to start checkout', detail, key_prefix: keyPrefix }, { status: 500 });
+    return NextResponse.json({ error: true, message: 'Failed to start checkout' }, { status: 500 });
   }
 }
