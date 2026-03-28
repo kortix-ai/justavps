@@ -29,6 +29,8 @@ import {
   useBackups,
   useCreateBackup,
   useToggleBackups,
+  useRestoreBackup,
+  useDeleteBackup,
 } from "@/hooks/use-machines";
 import { useMachineSSE } from "@/hooks/use-machine-sse";
 import { useCreateImage } from "@/hooks/use-images";
@@ -64,6 +66,7 @@ import {
   MapPin,
   CalendarX2,
   Trash2,
+  RotateCcw,
 } from "lucide-react";
 import { RescaleDialog } from "@/components/dashboard/rescale-dialog";
 import Link from "next/link";
@@ -265,6 +268,9 @@ function BackupsPanel({ machineId, machine }: { machineId: string; machine: { pr
   const { data, isLoading } = useBackups(machineId);
   const createBackup = useCreateBackup();
   const toggleBackups = useToggleBackups();
+  const restoreBackup = useRestoreBackup();
+  const deleteBackup = useDeleteBackup();
+  const [confirm, ConfirmDialog] = useConfirm();
   const backups = data?.backups ?? [];
   const enabled = data?.backups_enabled ?? false;
   const loaded = !isLoading && data !== undefined;
@@ -388,27 +394,91 @@ function BackupsPanel({ machineId, machine }: { machineId: string; machine: { pr
         ) : (
           <div className="divide-y">
             {backups.map((b) => (
-              <div key={b.id} className="flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors">
-                <div className="min-w-0">
+              <div key={b.id} className="flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors gap-2">
+                <div className="min-w-0 flex-1">
                   <p className="text-xs font-medium truncate">{b.description}</p>
                   <p className="text-[11px] text-muted-foreground">
                     {timeAgo(b.created)}{b.size > 0 && ` · ${b.size.toFixed(1)} GB`}
                   </p>
                 </div>
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    "text-[10px] shrink-0 ml-3",
-                    b.status === "available" ? "border-emerald-500/30 text-emerald-600 dark:text-emerald-400" : "",
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {b.status === "creating" ? (
+                    <Badge variant="outline" className="text-[10px] border-blue-500/30 text-blue-600 dark:text-blue-400 gap-1">
+                      <Loader2 className="size-2.5 animate-spin" />
+                      Creating
+                    </Badge>
+                  ) : (
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "text-[10px]",
+                        b.status === "available" ? "border-emerald-500/30 text-emerald-600 dark:text-emerald-400" : "",
+                      )}
+                    >
+                      {b.status}
+                    </Badge>
                   )}
-                >
-                  {b.status}
-                </Badge>
+                  {b.status === "available" && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        disabled={restoreBackup.isPending}
+                        title="Restore from this backup"
+                        onClick={async () => {
+                          const ok = await confirm({
+                            title: "Restore from backup",
+                            description: `This will rebuild the server from "${b.description}". All current data will be replaced. The machine will restart.`,
+                            confirmLabel: "Restore",
+                            variant: "destructive",
+                          });
+                          if (!ok) return;
+                          restoreBackup.mutate(
+                            { machineId, backupId: b.id },
+                            {
+                              onSuccess: () => toast.success("Restore initiated — machine is rebuilding"),
+                              onError: (err) => toast.error(err.message),
+                            },
+                          );
+                        }}
+                      >
+                        {restoreBackup.isPending ? <Loader2 className="size-3 animate-spin" /> : <RotateCcw className="size-3" />}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 text-muted-foreground hover:text-destructive"
+                        disabled={deleteBackup.isPending}
+                        title="Delete this backup"
+                        onClick={async () => {
+                          const ok = await confirm({
+                            title: "Delete backup",
+                            description: `Permanently delete "${b.description}"? This cannot be undone.`,
+                            confirmLabel: "Delete",
+                            variant: "destructive",
+                          });
+                          if (!ok) return;
+                          deleteBackup.mutate(
+                            { machineId, backupId: b.id },
+                            {
+                              onSuccess: () => toast.success("Backup deleted"),
+                              onError: (err) => toast.error(err.message),
+                            },
+                          );
+                        }}
+                      >
+                        {deleteBackup.isPending ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
             ))}
           </div>
         )}
       </div>
+      <ConfirmDialog />
     </div>
   );
 }
