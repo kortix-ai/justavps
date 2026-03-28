@@ -1395,6 +1395,103 @@ machinesApp.openapi(disableBackupsRoute, async (c) => {
   return c.json({ action: 'disable_backups', status: 'completed' }, 200);
 });
 
+// ─── POST /:id/backups/:backupId/restore — Restore from backup ─────────────
+
+const restoreBackupRoute = createRoute({
+  method: 'post',
+  path: '/{id}/backups/{backupId}/restore',
+  tags: ['Machines'],
+  security: bearerSecurity,
+  summary: 'Restore a machine from a backup',
+  description: 'Rebuilds the server from a backup image. The server will be stopped and rebuilt — all current data will be replaced with the backup contents.',
+  request: {
+    params: z.object({
+      id: z.string().uuid(),
+      backupId: z.string(),
+    }),
+  },
+  responses: {
+    200: {
+      description: 'Restore initiated',
+      content: { 'application/json': { schema: ActionResponseSchema } },
+    },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+machinesApp.openapi(restoreBackupRoute, async (c) => {
+  const { id, backupId } = c.req.valid('param');
+  const accountId = c.get('accountId');
+
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+  if (owned.response) return owned.response as any;
+
+  const machine = owned.resource;
+  if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
+
+  const lookup = requireProvider(c, machine.provider);
+  if (lookup.response) return lookup.response as any;
+
+  const provider = lookup.provider as HetznerProvider;
+
+  const backups = await provider.listBackups(machine.providerServerId);
+  const backupExists = backups.some((b) => b.id === backupId);
+  if (!backupExists) return errorResponse(c, 404, 'Backup not found for this machine') as any;
+
+  await provider.restoreBackup(machine.providerServerId, backupId);
+
+  return c.json({ action: 'restore_backup', status: 'initiated' }, 200);
+});
+
+// ─── DELETE /:id/backups/:backupId — Delete a backup ────────────────────────
+
+const deleteBackupRoute = createRoute({
+  method: 'delete',
+  path: '/{id}/backups/{backupId}',
+  tags: ['Machines'],
+  security: bearerSecurity,
+  summary: 'Delete a backup',
+  request: {
+    params: z.object({
+      id: z.string().uuid(),
+      backupId: z.string(),
+    }),
+  },
+  responses: {
+    200: {
+      description: 'Backup deleted',
+      content: { 'application/json': { schema: ActionResponseSchema } },
+    },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+machinesApp.openapi(deleteBackupRoute, async (c) => {
+  const { id, backupId } = c.req.valid('param');
+  const accountId = c.get('accountId');
+
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+  if (owned.response) return owned.response as any;
+
+  const machine = owned.resource;
+  if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
+
+  const lookup = requireProvider(c, machine.provider);
+  if (lookup.response) return lookup.response as any;
+
+  const provider = lookup.provider as HetznerProvider;
+
+  const backups = await provider.listBackups(machine.providerServerId);
+  const backupExists = backups.some((b) => b.id === backupId);
+  if (!backupExists) return errorResponse(c, 404, 'Backup not found for this machine') as any;
+
+  await provider.deleteBackup(backupId);
+
+  return c.json({ action: 'delete_backup', status: 'completed' }, 200);
+});
+
 // ─── POST /:id/exec — Execute command on machine ────────────────────────────
 
 const execRoute = createRoute({

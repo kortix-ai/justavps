@@ -578,23 +578,29 @@ export class HetznerProvider implements ComputeProvider {
   // ─── Backups ──────────────────────────────────────────────────────────────
 
   async listBackups(serverId: string): Promise<BackupInfo[]> {
-    const data = await hetznerFetch<{ images: HetznerBackup[] }>(`/images?type=backup&sort=created:desc&status=available&per_page=25`);
-    // Filter to only backups for this server
-    return data.images
+    const [backups, snapshots] = await Promise.all([
+      hetznerFetch<{ images: HetznerBackup[] }>(`/images?type=backup&sort=created:desc&per_page=25`),
+      hetznerFetch<{ images: HetznerBackup[] }>(`/images?type=snapshot&sort=created:desc&per_page=25`),
+    ]);
+
+    const allImages = [...backups.images, ...snapshots.images]
       .filter((img) => img.created_from?.id === Number(serverId))
-      .map((img) => ({
-        id: String(img.id),
-        description: img.description || `Backup ${img.id}`,
-        created: img.created,
-        size: img.image_size ?? 0,
-        status: img.status,
-      }));
+      .sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime());
+
+    return allImages.map((img) => ({
+      id: String(img.id),
+      description: img.description || `Backup ${img.id}`,
+      created: img.created,
+      size: img.image_size ?? 0,
+      status: img.status,
+    }));
   }
 
   async createBackup(serverId: string, description?: string): Promise<{ id: string }> {
+    const defaultDesc = `Backup ${new Date().toISOString().replace('T', ' ').slice(0, 19)}`;
     const result = await hetznerFetch<{ image: { id: number } }>(`/servers/${serverId}/actions/create_image`, {
       method: 'POST',
-      body: { type: 'backup', description: description || `Manual backup` },
+      body: { type: 'backup', description: description || defaultDesc },
     });
     console.log(`[hetzner] Created backup for server ${serverId}: image ${result.image.id}`);
     return { id: String(result.image.id) };
@@ -608,6 +614,19 @@ export class HetznerProvider implements ComputeProvider {
   async disableBackups(serverId: string): Promise<void> {
     await hetznerFetch(`/servers/${serverId}/actions/disable_backup`, { method: 'POST' });
     console.log(`[hetzner] Disabled backups for server ${serverId}`);
+  }
+
+  async restoreBackup(serverId: string, backupId: string): Promise<void> {
+    await hetznerFetch(`/servers/${serverId}/actions/rebuild`, {
+      method: 'POST',
+      body: { image: Number(backupId) },
+    });
+    console.log(`[hetzner] Restoring server ${serverId} from backup ${backupId}`);
+  }
+
+  async deleteBackup(backupId: string): Promise<void> {
+    await hetznerFetch(`/images/${backupId}`, { method: 'DELETE' });
+    console.log(`[hetzner] Deleted backup image ${backupId}`);
   }
 }
 

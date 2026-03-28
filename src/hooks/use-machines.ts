@@ -213,7 +213,11 @@ export function useBackups(machineId: string) {
   return useQuery({
     queryKey: ["backups", machineId] as const,
     queryFn: () => api.get<{ backups: Backup[]; backups_enabled: boolean }>(`/machines/${machineId}/backups`),
-    refetchInterval: 30_000,
+    refetchInterval: (query) => {
+      const backups = query.state.data?.backups;
+      if (backups?.some((b) => b.status === "creating")) return 5_000;
+      return 30_000;
+    },
   });
 }
 
@@ -236,6 +240,29 @@ export function useToggleBackups() {
     onSuccess: (_data, { machineId }) => {
       qc.invalidateQueries({ queryKey: ["backups", machineId] });
       qc.invalidateQueries({ queryKey: machineKeys.detail(machineId) });
+    },
+  });
+}
+
+export function useRestoreBackup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ machineId, backupId }: { machineId: string; backupId: string }) =>
+      api.post<{ action: string; status: string }>(`/machines/${machineId}/backups/${backupId}/restore`),
+    onSuccess: (_data, { machineId }) => {
+      qc.invalidateQueries({ queryKey: machineKeys.detail(machineId) });
+      qc.invalidateQueries({ queryKey: machineKeys.all });
+    },
+  });
+}
+
+export function useDeleteBackup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ machineId, backupId }: { machineId: string; backupId: string }) =>
+      api.delete(`/machines/${machineId}/backups/${backupId}`),
+    onSuccess: (_data, { machineId }) => {
+      qc.invalidateQueries({ queryKey: ["backups", machineId] });
     },
   });
 }
