@@ -39,7 +39,9 @@ import {
 import { checkMachineLimit } from '../../lib/account-limits';
 import { desc } from 'drizzle-orm';
 
-const stripe = new Stripe(config.STRIPE_SECRET_KEY || 'sk_test_placeholder_not_configured');
+const stripe = new Stripe(config.STRIPE_SECRET_KEY || 'sk_test_placeholder_not_configured', {
+  httpClient: Stripe.createFetchHttpClient(),
+});
 import { DEFAULT_TEMPLATE_NAME, resolveRequestedProviderImage } from '../../lib/image-catalog';
 
 export const stripeWebhooksApp = new OpenAPIHono();

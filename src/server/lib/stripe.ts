@@ -12,7 +12,11 @@
 import Stripe from 'stripe';
 import { config } from './config';
 
-const stripe = new Stripe(config.STRIPE_SECRET_KEY || 'sk_test_placeholder_not_configured');
+const stripe = new Stripe(config.STRIPE_SECRET_KEY || 'sk_test_placeholder_not_configured', {
+  httpClient: Stripe.createFetchHttpClient(),
+  maxNetworkRetries: 2,
+  timeout: 30000,
+});
 
 // ─── Machine specs for Stripe product naming ───────────────────────────────
 
@@ -139,21 +143,28 @@ export const stripeClient = {
 
   /**
    * Check if a Stripe customer has a valid default payment method.
+   * Returns false if the customer doesn't exist (e.g. stale ID from a previous Stripe account).
    */
   async hasPaymentMethod(customerId: string): Promise<boolean> {
-    const customer = await stripe.customers.retrieve(customerId);
-    if (customer.deleted) return false;
+    try {
+      const customer = await stripe.customers.retrieve(customerId);
+      if (customer.deleted) return false;
 
-    // Check for default payment method on the customer
-    if (customer.invoice_settings?.default_payment_method) return true;
+      // Check for default payment method on the customer
+      if (customer.invoice_settings?.default_payment_method) return true;
 
-    // Check for any attached payment methods
-    const methods = await stripe.paymentMethods.list({
-      customer: customerId,
-      limit: 1,
-    });
+      // Check for any attached payment methods
+      const methods = await stripe.paymentMethods.list({
+        customer: customerId,
+        limit: 1,
+      });
 
-    return methods.data.length > 0;
+      return methods.data.length > 0;
+    } catch {
+      // Customer doesn't exist on this Stripe account (stale ID) — treat as no payment method
+      console.warn(`[STRIPE] hasPaymentMethod failed for ${customerId} — customer may not exist on this account`);
+      return false;
+    }
   },
 
   /**
@@ -547,13 +558,19 @@ export const stripeClient = {
 
   /**
    * Create a Stripe Customer Portal session for billing management.
+   * Returns null if the customer doesn't exist (stale ID from a previous Stripe account).
    */
-  async createPortalSession(customerId: string, returnUrl: string): Promise<string> {
-    const session = await stripe.billingPortal.sessions.create({
-      customer: customerId,
-      return_url: returnUrl,
-    });
-    return session.url;
+  async createPortalSession(customerId: string, returnUrl: string): Promise<string | null> {
+    try {
+      const session = await stripe.billingPortal.sessions.create({
+        customer: customerId,
+        return_url: returnUrl,
+      });
+      return session.url;
+    } catch {
+      console.warn(`[STRIPE] createPortalSession failed for ${customerId} — customer may not exist on this account`);
+      return null;
+    }
   },
 
   /**

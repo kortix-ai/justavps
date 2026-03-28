@@ -490,6 +490,13 @@ accountApp.openapi(getBillingRoute, async (c) => {
   }
 
   const portalUrl = await stripeClient.createPortalSession(account.stripeCustomerId, `${config.APP_URL}/billing`);
+  if (!portalUrl) {
+    // Stale Stripe customer — clear it so next request creates a fresh one
+    await db.update(accounts)
+      .set({ stripeCustomerId: null, updatedAt: new Date() })
+      .where(eq(accounts.id, accountId));
+    return c.json({ portal_url: null, has_payment_method: false, can_manage_billing: true, message: 'Billing account needs to be re-linked. Please add a payment method.' });
+  }
   return c.json({ portal_url: portalUrl, has_payment_method: hasPM, can_manage_billing: true });
 });
 
