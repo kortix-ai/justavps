@@ -26,6 +26,62 @@ export const emailClient = {
     return !!getClient();
   },
 
+  async sendVerificationEmail(params: {
+    email: string;
+    name?: string | null;
+    code: string;
+    expiresInMinutes?: number;
+  }): Promise<boolean> {
+    const mailer = getClient();
+    if (!mailer) {
+      console.warn('[EMAIL] Mailtrap not configured - skipping verification email');
+      return false;
+    }
+
+    const recipientName = params.name?.trim() || params.email.split('@')[0] || 'there';
+    const expiryText = params.expiresInMinutes ? `${params.expiresInMinutes} minutes` : '15 minutes';
+
+    try {
+      await mailer.send({
+        from: {
+          email: config.MAILTRAP_SENDER_EMAIL,
+          name: config.MAILTRAP_SENDER_NAME,
+        },
+        to: [{ email: params.email, name: recipientName }],
+        subject: `${params.code} is your JustAVPS verification code`,
+        category: 'email-verification',
+        text: [
+          `Hi ${recipientName},`,
+          '',
+          `Your verification code is: ${params.code}`,
+          '',
+          `This code expires in ${expiryText}.`,
+          '',
+          'If you did not create an account on JustAVPS, you can safely ignore this email.',
+          '',
+          'JustAVPS',
+        ].join('\n'),
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;color:#111827;line-height:1.6;">
+            <p style="margin:0 0 16px;">Hi ${recipientName},</p>
+            <p style="margin:0 0 16px;">Your verification code is:</p>
+            <p style="margin:0 0 24px;text-align:center;">
+              <span style="display:inline-block;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:10px;padding:16px 32px;font-size:32px;font-weight:700;letter-spacing:8px;font-family:monospace;">${params.code}</span>
+            </p>
+            <p style="margin:0 0 16px;color:#6b7280;font-size:14px;">This code expires in ${expiryText}.</p>
+            <p style="margin:0;color:#6b7280;font-size:14px;">If you did not create an account on JustAVPS, you can safely ignore this email.</p>
+          </div>
+        `,
+      });
+
+      console.log(`[EMAIL] Sent verification email to ${params.email}`);
+      return true;
+    } catch (error) {
+      console.error(`[EMAIL] Failed to send verification email to ${params.email}:`, error);
+      return false;
+    }
+  },
+
   async sendCheckoutAccessEmail(params: {
     email: string;
     name?: string | null;

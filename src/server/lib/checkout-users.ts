@@ -25,6 +25,7 @@ export async function resolveCheckoutUser(params: ResolveCheckoutUserParams) {
       name: desiredName,
       stripeCustomerId: params.stripeCustomerId ?? null,
       passwordHash: null,
+      emailVerified: new Date(), // Stripe checkout verifies email via payment
       isAdmin,
     }).returning();
 

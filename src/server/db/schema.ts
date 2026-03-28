@@ -16,10 +16,24 @@ export const users = pgTable('users', {
   email: text('email').unique().notNull(),
   passwordHash: text('password_hash'), // bcrypt hash — null for legacy/OAuth users
   githubId: text('github_id').unique(),
+  googleId: text('google_id').unique(),
   name: text('name'),
+  emailVerified: timestamp('email_verified'), // null = not verified
   stripeCustomerId: text('stripe_customer_id'),
   defaultAccountId: uuid('default_account_id'),
   isAdmin: boolean('is_admin').default(false).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ─── Email Verification Tokens ──────────────────────────────────────────────
+
+export const emailVerificationTokens = pgTable('email_verification_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  email: text('email').notNull(),
+  tokenHash: text('token_hash').notNull(), // SHA-256 of the 6-digit code
+  expiresAt: timestamp('expires_at').notNull(),
+  usedAt: timestamp('used_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -348,3 +362,4 @@ export type AccountLimitRow = typeof accountLimits.$inferSelect;
 export type NewAccountLimit = typeof accountLimits.$inferInsert;
 export type KortixLink = typeof kortixLinks.$inferSelect;
 export type NewKortixLink = typeof kortixLinks.$inferInsert;
+export type EmailVerificationToken = typeof emailVerificationTokens.$inferSelect;
