@@ -190,10 +190,30 @@ export default function AdminMachinesPage() {
     },
   });
 
-  // Batch delete
+  // Batch delete (chunks into batches of 50 to respect API limit)
   const batchDeleteMutation = useMutation({
-    mutationFn: (machineIds: string[]) =>
-      api.post<BatchDeleteResponse>("/admin/machines/batch-delete", { machine_ids: machineIds }),
+    mutationFn: async (machineIds: string[]) => {
+      const BATCH_LIMIT = 50;
+      const chunks: string[][] = [];
+      for (let i = 0; i < machineIds.length; i += BATCH_LIMIT) {
+        chunks.push(machineIds.slice(i, i + BATCH_LIMIT));
+      }
+      const results = await Promise.all(
+        chunks.map((chunk) =>
+          api.post<BatchDeleteResponse>("/admin/machines/batch-delete", { machine_ids: chunk }),
+        ),
+      );
+      return results.reduce<BatchDeleteResponse>(
+        (acc, r) => ({
+          ok: acc.ok && r.ok,
+          total: acc.total + r.total,
+          succeeded: acc.succeeded + r.succeeded,
+          failed: acc.failed + r.failed,
+          results: [...acc.results, ...r.results],
+        }),
+        { ok: true, total: 0, succeeded: 0, failed: 0, results: [] },
+      );
+    },
     onSuccess: (result) => {
       if (result.failed > 0) {
         toast.warning(`${result.succeeded} deleted, ${result.failed} failed`);
