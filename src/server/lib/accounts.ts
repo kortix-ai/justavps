@@ -37,7 +37,7 @@ function slugify(input: string): string {
     .slice(0, 48) || 'account';
 }
 
-async function createUniqueAccountSlug(base: string): Promise<string> {
+async function createUniqueAccountSlug(base: string, excludeAccountId?: string): Promise<string> {
   const normalized = slugify(base);
 
   for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -50,7 +50,7 @@ async function createUniqueAccountSlug(base: string): Promise<string> {
       .where(eq(accounts.slug, candidate))
       .limit(1);
 
-    if (!existing) return candidate;
+    if (!existing || existing.id === excludeAccountId) return candidate;
   }
 
   return `${normalized}-${randomBytes(6).toString('hex')}`;
@@ -210,6 +210,29 @@ export async function createOrganizationAccount(params: {
   return account;
 }
 
+export async function renameOrganizationAccount(params: {
+  accountId: string;
+  name: string;
+}) {
+  const trimmedName = params.name.trim();
+  const slug = await createUniqueAccountSlug(trimmedName, params.accountId);
+
+  const [account] = await db.update(accounts)
+    .set({
+      name: trimmedName,
+      slug,
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(accounts.id, params.accountId),
+      eq(accounts.type, 'organization'),
+      isNull(accounts.deletedAt),
+    ))
+    .returning();
+
+  return account ?? null;
+}
+
 export async function createAccountInvitation(params: {
   accountId: string;
   email: string;
@@ -299,13 +322,14 @@ export async function listActiveInvitationsForAccount(accountId: string) {
  * the account name / type to the caller.
  */
 export async function listPendingInvitationsForEmail(email: string) {
+  const normalized = email.trim().toLowerCase();
   const now = new Date();
   const rows = await db
     .select({ invitation: accountInvitations, account: accounts })
     .from(accountInvitations)
     .innerJoin(accounts, eq(accountInvitations.accountId, accounts.id))
     .where(and(
-      eq(accountInvitations.email, email.trim().toLowerCase()),
+      eq(accountInvitations.email, normalized),
       isNull(accountInvitations.acceptedAt),
       isNull(accountInvitations.revokedAt),
     ));

@@ -126,6 +126,12 @@ export function useCreateOrganization() {
   });
 }
 
+export function useUpdateOrganization() {
+  return useMutation({
+    mutationFn: (name: string) => api.patch<AccountProfile>("/account", { name }),
+  });
+}
+
 export function useInviteAccountMember() {
   return useMutation({
     mutationFn: (input: { email: string; role: "owner" | "admin" | "member" }) =>

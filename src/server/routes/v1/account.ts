@@ -24,6 +24,7 @@ import {
   listActiveInvitationsForAccount,
   listMembersForAccount,
   listPendingInvitationsForEmail,
+  renameOrganizationAccount,
   redeemAccountInvitation,
   revokeInvitation,
   updateMembershipRole,
@@ -104,6 +105,10 @@ const MembershipListResponseSchema = z.object({
 });
 
 const CreateOrganizationSchema = z.object({
+  name: z.string().min(2).max(120),
+});
+
+const UpdateOrganizationSchema = z.object({
   name: z.string().min(2).max(120),
 });
 
@@ -229,6 +234,75 @@ accountApp.openapi(getAccountRoute, async (c) => {
   if (!user || !account) {
     return c.json({ error: true, message: 'Account context not found', status: 404 }, 404);
   }
+
+  return c.json({
+    id: account.id,
+    slug: account.slug,
+    type: account.type,
+    name: account.name,
+    role: c.get('accountRole'),
+    email: user.email,
+    user_id: user.id,
+    user_name: user.name,
+    has_password: !!user.passwordHash,
+    is_admin: user.isAdmin,
+    can_manage_billing: canManageBilling(c.get('accountRole')),
+    can_manage_members: canManageMembers(c.get('accountRole')),
+    machines_count: machineCount,
+    stripe_customer_id: account.stripeCustomerId ?? null,
+    created_at: account.createdAt.toISOString(),
+  });
+});
+
+const updateAccountRoute = createRoute({
+  method: 'patch',
+  path: '/',
+  tags: ['Account'],
+  security: bearerSecurity,
+  summary: 'Rename active organization account',
+  request: {
+    body: {
+      required: true,
+      content: { 'application/json': { schema: UpdateOrganizationSchema } },
+    },
+  },
+  responses: {
+    200: { description: 'Active account updated', content: { 'application/json': { schema: ActiveAccountResponseSchema } } },
+    403: { description: 'Forbidden', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+// @ts-ignore mixed success/error response shapes are declared above
+accountApp.openapi(updateAccountRoute, async (c) => {
+  const userId = c.get('userId');
+  const accountId = c.get('accountId');
+
+  if (!canManageMembers(c.get('accountRole'))) {
+    return c.json({ error: true, message: 'Only account owners/admins can rename organizations', status: 403 }, 403);
+  }
+
+  const [user, existingAccount] = await Promise.all([
+    getCurrentUser(userId),
+    getCurrentAccount(accountId),
+  ]);
+
+  if (!user || !existingAccount) {
+    return c.json({ error: true, message: 'Account context not found', status: 404 }, 404);
+  }
+
+  if (existingAccount.type !== 'organization') {
+    return c.json({ error: true, message: 'Only organization accounts can be renamed', status: 403 }, 403);
+  }
+
+  const { name } = c.req.valid('json');
+  const account = await renameOrganizationAccount({ accountId, name });
+
+  if (!account) {
+    return c.json({ error: true, message: 'Organization not found', status: 404 }, 404);
+  }
+
+  const machineCount = await countActiveMachines(account.id);
 
   return c.json({
     id: account.id,

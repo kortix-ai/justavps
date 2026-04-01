@@ -31,9 +31,10 @@ import {
   useRemoveMember,
   useRevokeInvitation,
   useCreateOrganization,
+  useUpdateOrganization,
 } from "@/hooks/use-account";
 import { formatLimit, isUnlimitedLimit } from "@/lib/account-limits";
-import type { AccountInvitation } from "@/lib/types";
+import type { AccountInvitation, CurrentUserContext } from "@/lib/types";
 import {
   Server,
   HardDrive,
@@ -137,6 +138,94 @@ function RoleBadge({ role }: { role: string }) {
   );
 }
 
+function OrganizationRenameForm({
+  activeAccount,
+  canManageMembers,
+}: {
+  activeAccount: CurrentUserContext["active_account"];
+  canManageMembers: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const updateOrganization = useUpdateOrganization();
+  const [organizationName, setOrganizationName] = useState(activeAccount.name);
+
+  function handleRenameOrganization(e: React.FormEvent) {
+    e.preventDefault();
+
+    const trimmedName = organizationName.trim();
+    if (!trimmedName || trimmedName === activeAccount.name) return;
+
+    updateOrganization.mutate(trimmedName, {
+      onSuccess: async (updatedAccount) => {
+        queryClient.setQueryData(["account", "profile"], updatedAccount);
+        queryClient.setQueryData(["account", "me"], (current: CurrentUserContext | undefined) => {
+          if (!current) return current;
+
+          return {
+            ...current,
+            active_account: {
+              ...current.active_account,
+              name: updatedAccount.name,
+              slug: updatedAccount.slug,
+            },
+            memberships: current.memberships.map((membership) =>
+              membership.account.id === updatedAccount.id
+                ? {
+                    ...membership,
+                    account: {
+                      ...membership.account,
+                      name: updatedAccount.name,
+                      slug: updatedAccount.slug,
+                    },
+                  }
+                : membership,
+            ),
+          };
+        });
+
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["account", "profile"] }),
+          queryClient.invalidateQueries({ queryKey: ["account", "me"] }),
+          queryClient.invalidateQueries({ queryKey: ["account", "memberships"] }),
+        ]);
+
+        toast.success("Organization renamed");
+      },
+      onError: (error: Error) => toast.error(error.message),
+    });
+  }
+
+  return (
+    <form onSubmit={handleRenameOrganization} className="mt-4 space-y-2">
+      <Label htmlFor="organization-name">Organization name</Label>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Input
+          id="organization-name"
+          value={organizationName}
+          onChange={(e) => setOrganizationName(e.target.value)}
+          minLength={2}
+          maxLength={120}
+          disabled={!canManageMembers || updateOrganization.isPending}
+        />
+        {canManageMembers && (
+          <Button
+            type="submit"
+            className="sm:self-end"
+            disabled={updateOrganization.isPending || !organizationName.trim() || organizationName.trim() === activeAccount.name}
+          >
+            {updateOrganization.isPending ? "Saving..." : "Save"}
+          </Button>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground px-0.5">
+        {canManageMembers
+          ? "Updating the organization name also refreshes the account slug everywhere in your workspace."
+          : "Only account owners and admins can rename this organization."}
+      </p>
+    </form>
+  );
+}
+
 // ─── General Tab ─────────────────────────────────────────────────────────────
 
 function GeneralTab() {
@@ -226,6 +315,13 @@ function GeneralTab() {
             <p className="text-xs text-muted-foreground mt-3 px-0.5">
               Billing and invite management are restricted to account owners and admins.
             </p>
+          )}
+          {activeAccount?.type === "organization" && (
+            <OrganizationRenameForm
+              key={activeAccount.id}
+              activeAccount={activeAccount}
+              canManageMembers={Boolean(account?.can_manage_members)}
+            />
           )}
         </div>
       </div>
@@ -486,6 +582,7 @@ function InvitationsTab() {
           <form onSubmit={onInviteSubmit} className="flex flex-col sm:flex-row gap-3">
             <div className="flex-1">
               <Input
+                id="invite-email"
                 type="email"
                 value={inviteEmail}
                 onChange={(e) => setInviteEmail(e.target.value)}
@@ -495,6 +592,7 @@ function InvitationsTab() {
               />
             </div>
             <select
+              id="invite-role"
               className="flex h-9 rounded-md border bg-background px-3 py-1 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               value={inviteRole}
               onChange={(e) => setInviteRole(e.target.value as "owner" | "admin" | "member")}
