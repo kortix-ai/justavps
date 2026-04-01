@@ -176,6 +176,56 @@ export const machines = pgTable('machines', {
   deletedAt: timestamp('deleted_at'),
 });
 
+// ─── Bare-metal fleet ────────────────────────────────────────────────────────
+
+export const baremetalHosts = pgTable('baremetal_hosts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  vendor: text('vendor').notNull().default('hetzner_robot'),
+  hostClass: text('host_class').notNull(),
+  region: text('region').notNull(),
+  location: text('location').notNull(),
+  name: text('name').notNull().unique(),
+  status: text('status').notNull().default('requested'), // requested | ordering | bootstrapping | active | draining | disabled | error | deleted
+  providerServerNumber: text('provider_server_number').unique(),
+  providerTransactionId: text('provider_transaction_id'),
+  publicIpv4: text('public_ipv4'),
+  publicIpv6: text('public_ipv6'),
+  runnerBaseUrl: text('runner_base_url'),
+  runnerToken: text('runner_token'),
+  totalVcpu: integer('total_vcpu'),
+  totalMemoryGb: integer('total_memory_gb'),
+  totalDiskGb: integer('total_disk_gb'),
+  usedVcpu: integer('used_vcpu').notNull().default(0),
+  usedMemoryGb: integer('used_memory_gb').notNull().default(0),
+  usedDiskGb: integer('used_disk_gb').notNull().default(0),
+  lastHeartbeatAt: timestamp('last_heartbeat_at'),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const baremetalProcurements = pgTable('baremetal_procurements', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  vendor: text('vendor').notNull().default('hetzner_robot'),
+  hostClass: text('host_class').notNull(),
+  productId: text('product_id').notNull(),
+  region: text('region').notNull(),
+  location: text('location').notNull(),
+  status: text('status').notNull().default('requested'), // requested | approved | ordering | bootstrapping | active | failed | cancelled
+  requestedByUserId: uuid('requested_by_user_id').references(() => users.id).notNull(),
+  approvedByUserId: uuid('approved_by_user_id').references(() => users.id),
+  hostId: uuid('host_id').references(() => baremetalHosts.id),
+  providerTransactionId: text('provider_transaction_id'),
+  requiresApproval: boolean('requires_approval').notNull().default(true),
+  error: text('error'),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+  approvedAt: timestamp('approved_at'),
+  orderedAt: timestamp('ordered_at'),
+  resolvedAt: timestamp('resolved_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // ─── API Keys ───────────────────────────────────────────────────────────────
 
 export const apiKeys = pgTable('api_keys', {
@@ -337,6 +387,10 @@ export type ImageRow = typeof images.$inferSelect;
 export type NewImage = typeof images.$inferInsert;
 export type Machine = typeof machines.$inferSelect;
 export type NewMachine = typeof machines.$inferInsert;
+export type BaremetalHost = typeof baremetalHosts.$inferSelect;
+export type NewBaremetalHost = typeof baremetalHosts.$inferInsert;
+export type BaremetalProcurement = typeof baremetalProcurements.$inferSelect;
+export type NewBaremetalProcurement = typeof baremetalProcurements.$inferInsert;
 export type SSHKey = typeof sshKeys.$inferSelect;
 export type ApiKey = typeof apiKeys.$inferSelect;
 export type ProxyTokenRow = typeof proxyTokens.$inferSelect;

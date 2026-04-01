@@ -4,7 +4,7 @@
  */
 
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
-import { listProviders } from '../../lib/providers';
+import { listCustomerVisibleProviders } from '../../lib/providers';
 import { requireProvider, handleRouteError } from '../../lib/route-helpers';
 import {
   ServerTypeListResponseSchema,
@@ -31,7 +31,7 @@ const listProvidersRoute = createRoute({
 });
 
 serverTypesApp.openapi(listProvidersRoute, async (c) => {
-  return c.json({ providers: listProviders() });
+  return c.json({ providers: listCustomerVisibleProviders() });
 });
 
 // ─── GET / — List server types ──────────────────────────────────────────────
@@ -61,7 +61,7 @@ serverTypesApp.openapi(listServerTypesRoute, async (c) => {
   const { provider: providerName, region } = c.req.valid('query');
 
   const lookup = requireProvider(c, providerName);
-  if (lookup.response) return lookup.response as any;
+  if (lookup.response) return lookup.response;
 
   try {
     const types = await lookup.provider.listServerTypes(region);
@@ -84,7 +84,7 @@ serverTypesApp.openapi(listServerTypesRoute, async (c) => {
       })),
     });
   } catch (err) {
-    return handleRouteError(c, err, 'SERVER-TYPES') as any;
+    return handleRouteError(c, err, 'SERVER-TYPES');
   }
 });
 
@@ -113,12 +113,12 @@ serverTypesApp.openapi(listRegionsRoute, async (c) => {
   const { provider: providerName } = c.req.valid('query');
 
   const lookup = requireProvider(c, providerName);
-  if (lookup.response) return lookup.response as any;
+  if (lookup.response) return lookup.response;
 
   try {
     const regions = await lookup.provider.listRegions();
     return c.json({ provider: providerName, regions });
   } catch (err) {
-    return handleRouteError(c, err, 'REGIONS') as any;
+    return handleRouteError(c, err, 'REGIONS');
   }
 });

@@ -1,13 +1,22 @@
 import type { ComputeProvider } from './types';
 import { HetznerProvider } from './hetzner';
+import { BaremetalProvider } from './baremetal';
 import { config } from '../config';
 
-const providers = new Map<string, ComputeProvider>();
+type ProviderRegistration = {
+  driver: ComputeProvider;
+  customerVisible: boolean;
+};
+
+const providers = new Map<string, ProviderRegistration>();
 
 function init() {
   if (providers.size > 0) return;
   if (config.HETZNER_API_KEY) {
-    providers.set('cloud', new HetznerProvider());
+    providers.set('cloud', { driver: new HetznerProvider(), customerVisible: true });
+  }
+  if (config.BAREMETAL_ENABLED) {
+    providers.set('baremetal', { driver: new BaremetalProvider(), customerVisible: false });
   }
 }
 
@@ -15,7 +24,7 @@ export function getProvider(name: string): ComputeProvider {
   init();
   // Resolve legacy alias — existing DB records store 'hetzner'
   const resolved = name === 'hetzner' ? 'cloud' : name;
-  const provider = providers.get(resolved);
+  const provider = providers.get(resolved)?.driver;
   if (!provider) {
     const available = Array.from(providers.keys()).join(', ') || 'none';
     throw new Error(`Unknown provider '${resolved}'. Available: ${available}`);
@@ -25,10 +34,17 @@ export function getProvider(name: string): ComputeProvider {
 
 export function listProviders(): Array<{ name: string; displayName: string }> {
   init();
-  return Array.from(providers.values()).map((p) => ({
-    name: p.name,
-    displayName: p.displayName,
+  return Array.from(providers.entries()).map(([name, entry]) => ({
+    name,
+    displayName: entry.driver.displayName,
   }));
+}
+
+export function listCustomerVisibleProviders(): Array<{ name: string; displayName: string }> {
+  init();
+  return Array.from(providers.entries())
+    .filter(([, entry]) => entry.customerVisible)
+    .map(([name, entry]) => ({ name, displayName: entry.driver.displayName }));
 }
 
 export function isProviderAvailable(name: string): boolean {
@@ -36,4 +52,14 @@ export function isProviderAvailable(name: string): boolean {
   return providers.has(name);
 }
 
-export type { ComputeProvider, ServerTypeInfo, RegionInfo, CreateServerOpts, ServerResult, SSHKeyResult } from './types';
+export type {
+  ComputeProvider,
+  ServerTypeInfo,
+  RegionInfo,
+  CreateServerOpts,
+  ServerResult,
+  SSHKeyResult,
+  BackupInfo,
+  BackupCapableProvider,
+} from './types';
+export { isBackupCapableProvider } from './types';

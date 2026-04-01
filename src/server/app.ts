@@ -5,6 +5,7 @@ import { prettyJSON } from 'hono/pretty-json';
 import { Scalar } from '@scalar/hono-api-reference';
 
 import { v1 } from './routes/v1';
+import { v2 } from './routes/v2';
 import { enrichOpenAPISpec } from './lib/openapi-enrichment';
 import { config } from './lib/config';
 
@@ -41,6 +42,7 @@ app.get('/health', (c) => {
 });
 
 app.route('/v1', v1);
+app.route('/v2', v2);
 
 // ─── Security Scheme Registration ─────────────────────────────────────────
 

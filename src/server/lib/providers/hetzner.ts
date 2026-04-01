@@ -248,6 +248,11 @@ function extractIpv4(raw?: string | null): string | null {
 export class HetznerProvider implements ComputeProvider {
   readonly name = 'cloud' as const;
   readonly displayName = 'JustAVPS Cloud';
+  readonly capabilities = {
+    backups: true,
+    images: true,
+    bareMetal: false,
+  } as const;
 
   async validateImage(imageId: string): Promise<boolean> {
     if (isNaN(Number(imageId))) return true;
@@ -263,13 +268,14 @@ export class HetznerProvider implements ComputeProvider {
     }
   }
 
-  async createImage(serverId: number, description: string): Promise<{ imageId: string; diskSize: number; architecture: string }> {
+  async createImage(serverId: string, description: string): Promise<{ imageId: string; diskSize: number; architecture: string }> {
+    const numericServerId = Number(serverId);
     const resp = await hetznerFetch<{ image: HetznerImage }>(
-      `/servers/${serverId}/actions/create_image`,
+      `/servers/${numericServerId}/actions/create_image`,
       { method: 'POST', body: { type: 'snapshot', description } },
     );
     const imageId = resp.image.id;
-    console.log(`[hetzner] Snapshot creation started: imageId=${imageId} serverId=${serverId}`);
+    console.log(`[hetzner] Snapshot creation started: imageId=${imageId} serverId=${numericServerId}`);
 
     // Snapshots of large disks can take 10-15 min. Use a dedicated timeout
     // (15 min) instead of the generic PROVISION_TIMEOUT_MS (10 min).

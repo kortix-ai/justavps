@@ -8,6 +8,9 @@ import { vi } from 'vitest';
 // Set environment variables immediately
 process.env.HETZNER_API_KEY = 'test-hetzner-key';
 process.env.HETZNER_DEFAULT_LOCATION = 'nbg1';
+process.env.HETZNER_ROBOT_USER = 'robot-user';
+process.env.HETZNER_ROBOT_PASSWORD = 'robot-pass';
+process.env.BAREMETAL_ENABLED = 'true';
 process.env.CLOUDFLARE_API_KEY = 'test-cf-key';
 process.env.CLOUDFLARE_GLOBAL_API_KEY = 'test-cf-key';
 process.env.CLOUDFLARE_EMAIL = 'test@example.com';

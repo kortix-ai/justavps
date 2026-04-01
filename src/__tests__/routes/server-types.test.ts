@@ -14,7 +14,7 @@ type MockedProviders = typeof providers & {
 
 vi.mock('@/server/lib/providers', () => ({
   getProvider: vi.fn(),
-  listProviders: vi.fn(() => [{ name: 'cloud', displayName: 'JustAVPS Cloud' }]),
+  listCustomerVisibleProviders: vi.fn(() => [{ name: 'cloud', displayName: 'JustAVPS Cloud' }]),
   isProviderAvailable: vi.fn(() => true),
 }));
 

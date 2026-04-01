@@ -7,6 +7,10 @@ export const config = {
   // Cloud provider
   HETZNER_API_KEY: process.env.HETZNER_API_KEY || '',
   HETZNER_DEFAULT_LOCATION: process.env.HETZNER_DEFAULT_LOCATION || 'nbg1',
+  HETZNER_ROBOT_USER: (process.env.HETZNER_ROBOT_USER || '').trim(),
+  HETZNER_ROBOT_PASSWORD: (process.env.HETZNER_ROBOT_PASSWORD || '').trim(),
+  BAREMETAL_BOOTSTRAP_PUBLIC_KEY: (process.env.BAREMETAL_BOOTSTRAP_PUBLIC_KEY || '').trim(),
+  BAREMETAL_BOOTSTRAP_PRIVATE_KEY: (process.env.BAREMETAL_BOOTSTRAP_PRIVATE_KEY || '').trim(),
   // Pre-built snapshot with all platform software (OpenCode, Caddy, Docker, daemon, etc.)
   // Machines from this snapshot skip install and only do machine-specific config (~5s vs ~100s)
   HETZNER_BASE_SNAPSHOT_ID: (process.env.HETZNER_BASE_SNAPSHOT_ID || '').trim(),
@@ -42,6 +46,8 @@ export const config = {
   // Public callback URL embedded into new machines for /api/v1/internal/* callbacks.
   // Must be reachable from the public Internet; localhost will not work for remote VPSes.
   MACHINE_CALLBACK_URL: (process.env.MACHINE_CALLBACK_URL || '').trim(),
+  BAREMETAL_ENABLED: (process.env.BAREMETAL_ENABLED || '').trim().toLowerCase() === 'true',
+  BAREMETAL_PURCHASE_APPROVAL_REQUIRED: (process.env.BAREMETAL_PURCHASE_APPROVAL_REQUIRED || 'true').trim().toLowerCase() !== 'false',
   // Daemon release channel: "dev" downloads from daemon/dev/latest/, "latest" (default) from daemon/latest/
   DAEMON_CHANNEL: (process.env.DAEMON_CHANNEL || 'latest').trim() as 'dev' | 'latest',
   // Daemon auto-update: set to a version string (e.g. "a1b2c3d") to trigger fleet-wide update.
@@ -73,6 +79,15 @@ export const config = {
   },
   isCloudProviderConfigured(): boolean {
     return !!this.HETZNER_API_KEY;
+  },
+  isBaremetalConfigured(): boolean {
+    return this.BAREMETAL_ENABLED;
+  },
+  hasHetznerRobotCredentials(): boolean {
+    return !!this.HETZNER_ROBOT_USER && !!this.HETZNER_ROBOT_PASSWORD;
+  },
+  hasBaremetalBootstrapKey(): boolean {
+    return !!this.BAREMETAL_BOOTSTRAP_PUBLIC_KEY && !!this.BAREMETAL_BOOTSTRAP_PRIVATE_KEY;
   },
   isCloudflareConfigured(): boolean {
     return !!this.CLOUDFLARE_API_KEY && !!this.CLOUDFLARE_ZONE_ID;

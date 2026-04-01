@@ -17,7 +17,7 @@ import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 import { stripeClient } from '../../lib/stripe';
 import { requireAccountResource, requireProvider, errorResponse, handleRouteError } from '../../lib/route-helpers';
 import { checkMachineLimit, checkImageLimit } from '../../lib/account-limits';
-import { HetznerProvider } from '../../lib/providers/hetzner';
+import { isBackupCapableProvider } from '../../lib/providers';
 import { planTierIndex as getPlanTierIndex, backupSurcharge, planIdFromProviderSku, resolvePlanForDisplay } from '@/lib/plan-catalog';
 import { eventBus } from '../../lib/event-bus';
 import { after } from 'next/server';
@@ -83,6 +83,13 @@ function shouldSyncMachineStatusForList(machine: typeof machines.$inferSelect) {
   return machine.status === 'error' && machine.provisioningStage === 'timeout';
 }
 
+function requireBackupProvider(c: any, provider: any) {
+  if (!isBackupCapableProvider(provider)) {
+    return errorResponse(c, 400, `Provider '${provider.name}' does not support backups`);
+  }
+  return null;
+}
+
 function serializeMachine(
   m: typeof machines.$inferSelect,
   sub?: typeof subscriptions.$inferSelect | null,
@@ -91,6 +98,13 @@ function serializeMachine(
   const includeSensitive = options?.includeSensitive ?? true;
   const proxyDomain = config.PROXY_DOMAIN;
   const sshKeyPath = `~/.ssh/justavps_${m.slug}`;
+  const providerMeta = (m.providerMeta ?? {}) as Record<string, unknown>;
+  const sshPort = typeof providerMeta.ssh_port === 'number'
+    ? providerMeta.ssh_port
+    : typeof providerMeta.ssh_port === 'string' && providerMeta.ssh_port.trim()
+      ? Number(providerMeta.ssh_port)
+      : null;
+  const sshHost = (m.ip || (typeof providerMeta.public_ipv4 === 'string' ? providerMeta.public_ipv4 : null));
 
   // Decrypt SSH private key from DB (may be encrypted at rest).
   // If decryption fails (wrong key, corrupted data), degrade gracefully —
@@ -104,11 +118,11 @@ function serializeMachine(
     }
   }
 
-  const setupCommand = sshPrivateKeyPlain && m.ip
-    ? `mkdir -p ~/.ssh && echo '${sshPrivateKeyPlain.replace(/'/g, "'\\''")}' > ${sshKeyPath} && chmod 600 ${sshKeyPath} && ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${m.ip}`
+  const setupCommand = sshPrivateKeyPlain && sshHost
+    ? `mkdir -p ~/.ssh && echo '${sshPrivateKeyPlain.replace(/'/g, "'\\''")}' > ${sshKeyPath} && chmod 600 ${sshKeyPath} && ssh -i ${sshKeyPath}${sshPort ? ` -p ${sshPort}` : ''} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${sshHost}`
     : null;
 
-  const sshCommand = m.ip ? `ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no root@${m.ip}` : null;
+  const sshCommand = sshHost ? `ssh -i ${sshKeyPath}${sshPort ? ` -p ${sshPort}` : ''} -o StrictHostKeyChecking=no root@${sshHost}` : null;
 
   const provisionMeta = readProvisionMeta(m.providerMeta);
 
@@ -499,6 +513,7 @@ machinesApp.openapi(createMachineRoute, async (c) => {
             create_progress: 1,
             public_ipv4: server.publicIpv4 ?? null,
             public_ipv6: server.publicIpv6 ?? null,
+            ...(server.metadata ?? {}),
           },
         }).where(eq(machines.id, machine.id));
 
@@ -1153,7 +1168,7 @@ machinesApp.openapi(createImageFromMachineRoute, async (c) => {
   (async () => {
     try {
       const result = await lookup.provider.createImage(
-        Number(machine.providerServerId),
+        machine.providerServerId,
         `justavps-img-${name.replace(/[^a-z0-9-]/gi, '-').slice(0, 50)}`,
       );
       await db.update(images).set({
@@ -1230,8 +1245,10 @@ machinesApp.openapi(listBackupsRoute, async (c) => {
 
   const lookup = requireProvider(c, machine.provider);
   if (lookup.response) return lookup.response as any;
+  const backupProviderError = requireBackupProvider(c, lookup.provider);
+  if (backupProviderError) return backupProviderError as any;
 
-  const provider = lookup.provider as HetznerProvider;
+  const provider = lookup.provider;
   const backups = await provider.listBackups(machine.providerServerId);
 
   return c.json({ backups, backups_enabled: machine.backupsEnabled }, 200);
@@ -1274,9 +1291,11 @@ machinesApp.openapi(createBackupRoute, async (c) => {
 
   const lookup = requireProvider(c, machine.provider);
   if (lookup.response) return lookup.response as any;
+  const backupProviderError = requireBackupProvider(c, lookup.provider);
+  if (backupProviderError) return backupProviderError as any;
 
   const body = await c.req.json().catch(() => ({}));
-  const provider = lookup.provider as HetznerProvider;
+  const provider = lookup.provider;
   const result = await provider.createBackup(machine.providerServerId, body?.description);
 
   return c.json({ backup_id: result.id, status: 'creating' }, 202);
@@ -1314,9 +1333,11 @@ machinesApp.openapi(enableBackupsRoute, async (c) => {
 
   const lookup = requireProvider(c, machine.provider);
   if (lookup.response) return lookup.response as any;
+  const backupProviderError = requireBackupProvider(c, lookup.provider);
+  if (backupProviderError) return backupProviderError as any;
 
   // 1. Enable on provider
-  const provider = lookup.provider as HetznerProvider;
+  const provider = lookup.provider;
   await provider.enableBackups(machine.providerServerId).catch((err) => {
     console.error('[MACHINES] Provider backup enable failed, continuing with billing state update:', err);
   });
@@ -1371,9 +1392,11 @@ machinesApp.openapi(disableBackupsRoute, async (c) => {
 
   const lookup = requireProvider(c, machine.provider);
   if (lookup.response) return lookup.response as any;
+  const backupProviderError = requireBackupProvider(c, lookup.provider);
+  if (backupProviderError) return backupProviderError as any;
 
   // 1. Disable on provider
-  const provider = lookup.provider as HetznerProvider;
+  const provider = lookup.provider;
   await provider.disableBackups(machine.providerServerId).catch((err) => {
     console.error('[MACHINES] Provider backup disable failed, continuing with billing state update:', err);
   });
@@ -1432,8 +1455,10 @@ machinesApp.openapi(restoreBackupRoute, async (c) => {
 
   const lookup = requireProvider(c, machine.provider);
   if (lookup.response) return lookup.response as any;
+  const backupProviderError = requireBackupProvider(c, lookup.provider);
+  if (backupProviderError) return backupProviderError as any;
 
-  const provider = lookup.provider as HetznerProvider;
+  const provider = lookup.provider;
 
   const backups = await provider.listBackups(machine.providerServerId);
   const backupExists = backups.some((b) => b.id === backupId);
@@ -1480,8 +1505,10 @@ machinesApp.openapi(deleteBackupRoute, async (c) => {
 
   const lookup = requireProvider(c, machine.provider);
   if (lookup.response) return lookup.response as any;
+  const backupProviderError = requireBackupProvider(c, lookup.provider);
+  if (backupProviderError) return backupProviderError as any;
 
-  const provider = lookup.provider as HetznerProvider;
+  const provider = lookup.provider;
 
   const backups = await provider.listBackups(machine.providerServerId);
   const backupExists = backups.some((b) => b.id === backupId);

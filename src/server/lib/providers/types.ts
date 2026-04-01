@@ -36,6 +36,13 @@ export interface ServerResult {
   publicIpv4?: string | null;
   publicIpv6?: string | null;
   createActionId?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ProviderCapabilities {
+  backups: boolean;
+  images: boolean;
+  bareMetal: boolean;
 }
 
 export interface ProviderActionProgress {
@@ -55,10 +62,11 @@ export interface SSHKeyResult {
 export interface ComputeProvider {
   readonly name: string;
   readonly displayName: string;
+  readonly capabilities: ProviderCapabilities;
 
   validateImage(imageId: string): Promise<boolean>;
 
-  createImage(serverId: number, description: string): Promise<{ imageId: string; diskSize: number; architecture: string }>;
+  createImage(serverId: string, description: string): Promise<{ imageId: string; diskSize: number; architecture: string }>;
   deleteImage(imageId: string): Promise<void>;
 
   createServer(opts: CreateServerOpts): Promise<ServerResult>;
@@ -76,4 +84,24 @@ export interface ComputeProvider {
 
   listServerTypes(region: string): Promise<ServerTypeInfo[]>;
   listRegions(): Promise<RegionInfo[]>;
+}
+
+export interface BackupInfo {
+  id: string;
+  createdAt: string;
+  description?: string | null;
+  type?: string | null;
+}
+
+export interface BackupCapableProvider extends ComputeProvider {
+  listBackups(serverId: string): Promise<BackupInfo[]>;
+  createBackup(serverId: string, description?: string): Promise<{ id: string }>;
+  enableBackups(serverId: string): Promise<void>;
+  disableBackups(serverId: string): Promise<void>;
+  restoreBackup(serverId: string, backupId: string): Promise<void>;
+  deleteBackup(backupId: string): Promise<void>;
+}
+
+export function isBackupCapableProvider(provider: ComputeProvider): provider is BackupCapableProvider {
+  return provider.capabilities.backups;
 }
