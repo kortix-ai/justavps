@@ -31,6 +31,8 @@ import {
   useRemoveMember,
   useRevokeInvitation,
   useCreateOrganization,
+  useDeleteOrganization,
+  useLeaveOrganization,
   useUpdateOrganization,
 } from "@/hooks/use-account";
 import { formatLimit, isUnlimitedLimit } from "@/lib/account-limits";
@@ -50,6 +52,8 @@ import {
   Send,
   Clock,
   X,
+  LogOut,
+  Trash2,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -226,6 +230,93 @@ function OrganizationRenameForm({
   );
 }
 
+function OrganizationDangerZone({
+  activeAccount,
+  role,
+}: {
+  activeAccount: CurrentUserContext["active_account"];
+  role: CurrentUserContext["active_account"]["role"];
+}) {
+  const leaveOrganization = useLeaveOrganization();
+  const deleteOrganization = useDeleteOrganization();
+  const isOwner = role === "owner";
+
+  function handleLeaveOrganization() {
+    if (!confirm(`Leave ${activeAccount.name}?`)) return;
+    leaveOrganization.mutate(undefined, {
+      onSuccess: () => {
+        toast.success("Left organization");
+        window.location.reload();
+      },
+      onError: (error: Error) => toast.error(error.message),
+    });
+  }
+
+  function handleDeleteOrganization() {
+    if (!confirm(`Delete ${activeAccount.name}? This removes all members and pending invitations.`)) return;
+    deleteOrganization.mutate(undefined, {
+      onSuccess: () => {
+        toast.success("Organization deleted");
+        window.location.reload();
+      },
+      onError: (error: Error) => toast.error(error.message),
+    });
+  }
+
+  return (
+    <div className="rounded-xl border border-destructive/30 bg-card p-5 space-y-4">
+      <div>
+        <h3 className="text-sm font-medium text-destructive">Danger zone</h3>
+        <p className="text-xs text-muted-foreground mt-1">
+          Leave this organization or permanently delete it when it is no longer needed.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-sm font-medium">Leave organization</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Switch back to another account. If you are the last owner, transfer ownership or delete the organization first.
+            </p>
+          </div>
+          <Button
+            id="leave-organization-button"
+            variant="outline"
+            className="gap-1.5"
+            onClick={handleLeaveOrganization}
+            disabled={leaveOrganization.isPending}
+          >
+            <LogOut className="size-4" />
+            {leaveOrganization.isPending ? "Leaving..." : "Leave"}
+          </Button>
+        </div>
+
+        {isOwner && (
+          <div className="flex flex-col gap-3 rounded-lg border border-destructive/30 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-sm font-medium text-destructive">Delete organization</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Only available when the organization has no machines, images, keys, API keys, webhooks, proxy tokens, or subscriptions.
+              </p>
+            </div>
+            <Button
+              id="delete-organization-button"
+              variant="destructive"
+              className="gap-1.5"
+              onClick={handleDeleteOrganization}
+              disabled={deleteOrganization.isPending}
+            >
+              <Trash2 className="size-4" />
+              {deleteOrganization.isPending ? "Deleting..." : "Delete org"}
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── General Tab ─────────────────────────────────────────────────────────────
 
 function GeneralTab() {
@@ -346,6 +437,10 @@ function GeneralTab() {
           </div>
         ) : null}
       </div>
+
+      {activeAccount?.type === "organization" && activeAccount.role && (
+        <OrganizationDangerZone activeAccount={activeAccount} role={activeAccount.role} />
+      )}
 
       {/* Create Org Dialog */}
       <Dialog open={orgDialogOpen} onOpenChange={setOrgDialogOpen}>
@@ -476,7 +571,7 @@ function MembersTab() {
               </div>
               {canManageMembers && member.role !== "owner" && member.user.id !== me?.user.id && (
                 <DropdownMenu>
-                  <DropdownMenuTrigger className="flex size-7 items-center justify-center rounded-md hover:bg-muted shrink-0 outline-none">
+                  <DropdownMenuTrigger aria-label={`Manage ${member.user.email}`} className="flex size-7 items-center justify-center rounded-md hover:bg-muted shrink-0 outline-none">
                     <MoreHorizontal className="size-4 text-muted-foreground" />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-44">

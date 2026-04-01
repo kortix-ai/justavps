@@ -132,6 +132,18 @@ export function useUpdateOrganization() {
   });
 }
 
+export function useLeaveOrganization() {
+  return useMutation({
+    mutationFn: () => api.delete<{ ok: true; account_id: string }>("/account/members/me"),
+  });
+}
+
+export function useDeleteOrganization() {
+  return useMutation({
+    mutationFn: () => api.delete<{ ok: true; account_id: string }>("/account"),
+  });
+}
+
 export function useInviteAccountMember() {
   return useMutation({
     mutationFn: (input: { email: string; role: "owner" | "admin" | "member" }) =>

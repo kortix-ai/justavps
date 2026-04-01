@@ -1,5 +1,5 @@
 import { randomBytes, createHash } from 'crypto';
-import { and, eq, isNull, asc } from 'drizzle-orm';
+import { and, eq, isNull, asc, ne } from 'drizzle-orm';
 import { db } from '../db';
 import {
   accounts,
@@ -231,6 +231,69 @@ export async function renameOrganizationAccount(params: {
     .returning();
 
   return account ?? null;
+}
+
+export async function deleteOrganizationAccount(accountId: string) {
+  const now = new Date();
+
+  const [machine, image, sshKey, apiKey, proxyToken, subscription, webhook] = await Promise.all([
+    db.select({ id: machines.id })
+      .from(machines)
+      .where(and(eq(machines.accountId, accountId), isNull(machines.deletedAt)))
+      .limit(1),
+    db.select({ id: images.id })
+      .from(images)
+      .where(and(eq(images.accountId, accountId), ne(images.status, 'deleted')))
+      .limit(1),
+    db.select({ id: sshKeys.id })
+      .from(sshKeys)
+      .where(eq(sshKeys.accountId, accountId))
+      .limit(1),
+    db.select({ id: apiKeys.id })
+      .from(apiKeys)
+      .where(eq(apiKeys.accountId, accountId))
+      .limit(1),
+    db.select({ id: proxyTokens.id })
+      .from(proxyTokens)
+      .where(and(eq(proxyTokens.accountId, accountId), isNull(proxyTokens.revokedAt)))
+      .limit(1),
+    db.select({ id: subscriptions.id })
+      .from(subscriptions)
+      .where(eq(subscriptions.accountId, accountId))
+      .limit(1),
+    db.select({ id: webhooks.id })
+      .from(webhooks)
+      .where(eq(webhooks.accountId, accountId))
+      .limit(1),
+  ]);
+
+  if (machine.length > 0) throw new Error('Delete all machines before deleting this organization');
+  if (image.length > 0) throw new Error('Delete all images before deleting this organization');
+  if (sshKey.length > 0) throw new Error('Delete all SSH keys before deleting this organization');
+  if (apiKey.length > 0) throw new Error('Delete all API keys before deleting this organization');
+  if (proxyToken.length > 0) throw new Error('Revoke all proxy tokens before deleting this organization');
+  if (subscription.length > 0) throw new Error('Cancel all subscriptions before deleting this organization');
+  if (webhook.length > 0) throw new Error('Delete all webhooks before deleting this organization');
+
+  await db.transaction(async (tx) => {
+    await tx.update(accountInvitations)
+      .set({ revokedAt: now })
+      .where(and(
+        eq(accountInvitations.accountId, accountId),
+        isNull(accountInvitations.acceptedAt),
+        isNull(accountInvitations.revokedAt),
+      ));
+
+    await tx.delete(accountMemberships).where(eq(accountMemberships.accountId, accountId));
+
+    await tx.update(accounts)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(and(
+        eq(accounts.id, accountId),
+        eq(accounts.type, 'organization'),
+        isNull(accounts.deletedAt),
+      ));
+  });
 }
 
 export async function createAccountInvitation(params: {

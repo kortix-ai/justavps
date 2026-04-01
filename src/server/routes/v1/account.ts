@@ -20,16 +20,19 @@ import {
   canManageMembers,
   createAccountInvitation,
   createOrganizationAccount,
+  deleteOrganizationAccount,
   getUserMemberships,
+  isAccountOwner,
   listActiveInvitationsForAccount,
   listMembersForAccount,
   listPendingInvitationsForEmail,
   renameOrganizationAccount,
+  resolveAccountForUser,
   redeemAccountInvitation,
   revokeInvitation,
+  removeMembership,
   updateMembershipRole,
   userHasAccountAccess,
-  removeMembership,
 } from '../../lib/accounts';
 import { emailClient } from '../../lib/email';
 import {
@@ -755,6 +758,46 @@ accountApp.openapi(updateMemberRoute, async (c) => {
   return c.json({ ok: true });
 });
 
+const leaveOrganizationRoute = createRoute({
+  method: 'delete',
+  path: '/members/me',
+  tags: ['Account'],
+  security: bearerSecurity,
+  summary: 'Leave active organization',
+  responses: {
+    200: { description: 'Left organization', content: { 'application/json': { schema: z.object({ ok: z.literal(true), account_id: z.string().uuid() }) } } },
+  },
+});
+
+// @ts-ignore mixed success/error response shapes are declared above
+accountApp.openapi(leaveOrganizationRoute, async (c) => {
+  const userId = c.get('userId');
+  const activeAccount = await getCurrentAccount(c.get('accountId'));
+  if (!activeAccount || activeAccount.type !== 'organization') {
+    return c.json({ error: true, message: 'You can only leave organization accounts', status: 400 }, 400);
+  }
+
+  const membership = await userHasAccountAccess(userId, c.get('accountId'));
+  if (!membership) {
+    return c.json({ error: true, message: 'Membership not found', status: 404 }, 404);
+  }
+
+  try {
+    await removeMembership(c.get('accountId'), membership.id);
+  } catch (error) {
+    return c.json({ error: true, message: error instanceof Error ? error.message : 'Failed to leave organization', status: 400 }, 400);
+  }
+
+  const user = await getCurrentUser(userId);
+  if (!user) {
+    return c.json({ error: true, message: 'User not found', status: 404 }, 404);
+  }
+
+  const resolved = await resolveAccountForUser(user);
+  setCookie(c, ACCOUNT_COOKIE_NAME, resolved.active.account.id, accountCookieOptions(c));
+  return c.json({ ok: true, account_id: resolved.active.account.id });
+});
+
 const deleteMemberRoute = createRoute({
   method: 'delete',
   path: '/members/{membershipId}',
@@ -790,6 +833,46 @@ accountApp.openapi(deleteMemberRoute, async (c) => {
     return c.json({ error: true, message: 'Member not found', status: 404 }, 404);
   }
   return c.body(null, 204);
+});
+
+const deleteOrganizationRoute = createRoute({
+  method: 'delete',
+  path: '/',
+  tags: ['Account'],
+  security: bearerSecurity,
+  summary: 'Delete active organization',
+  responses: {
+    200: { description: 'Organization deleted', content: { 'application/json': { schema: z.object({ ok: z.literal(true), account_id: z.string().uuid() }) } } },
+    403: { description: 'Forbidden', content: { 'application/json': { schema: ErrorResponseSchema } } },
+  },
+});
+
+// @ts-ignore mixed success/error response shapes are declared above
+accountApp.openapi(deleteOrganizationRoute, async (c) => {
+  const userId = c.get('userId');
+  const accountId = c.get('accountId');
+  const activeAccount = await getCurrentAccount(accountId);
+  if (!activeAccount || activeAccount.type !== 'organization') {
+    return c.json({ error: true, message: 'Only organization accounts can be deleted', status: 400 }, 400);
+  }
+  if (!isAccountOwner(c.get('accountRole'))) {
+    return c.json({ error: true, message: 'Only organization owners can delete this organization', status: 403 }, 403);
+  }
+
+  try {
+    await deleteOrganizationAccount(accountId);
+  } catch (error) {
+    return c.json({ error: true, message: error instanceof Error ? error.message : 'Failed to delete organization', status: 400 }, 400);
+  }
+
+  const user = await getCurrentUser(userId);
+  if (!user) {
+    return c.json({ error: true, message: 'User not found', status: 404 }, 404);
+  }
+
+  const resolved = await resolveAccountForUser(user);
+  setCookie(c, ACCOUNT_COOKIE_NAME, resolved.active.account.id, accountCookieOptions(c));
+  return c.json({ ok: true, account_id: resolved.active.account.id });
 });
 
 const listInvitationsRoute = createRoute({
