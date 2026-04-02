@@ -20,11 +20,17 @@ test.describe('Account organizations', () => {
     });
     expect(switchOrg.status).toBe(200);
 
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'http://localhost:4100' });
+
     await page.goto('/settings');
     await waitForDataLoad(page, 20_000);
 
     await expect(page.getByText('Playwright Org').first()).toBeVisible();
     await expect(page.getByText('Organization').first()).toBeVisible();
+    await expect(page.locator('#organization-id-value')).toContainText(createOrg.data.id);
+    await page.locator('#copy-organization-id-button').click();
+    await expect(page.locator('#copy-organization-id-button')).toContainText('Copied');
+    await expect.poll(async () => page.evaluate(() => navigator.clipboard.readText())).toBe(createOrg.data.id);
 
     const renameResponse = page.waitForResponse((response) => response.url().includes('/api/v1/account') && response.request().method() === 'PATCH');
     await page.getByLabel('Organization name').fill(renamedOrg);

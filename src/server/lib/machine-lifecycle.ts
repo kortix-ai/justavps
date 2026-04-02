@@ -302,6 +302,9 @@ interface CreateMachineInput {
   sshPrivateKey: string;
   priceMonthly: number | null;
   backupsEnabled?: boolean;
+  createdByApiKeyId?: string | null;
+  createdByApiKeyName?: string | null;
+  createdByApiKeyPrefix?: string | null;
 }
 
 export async function createMachineRecord(input: CreateMachineInput) {

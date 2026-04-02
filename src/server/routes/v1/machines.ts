@@ -157,6 +157,9 @@ function serializeMachine(
     },
     source: m.source || 'user',
     kortix_sandbox_id: m.kortixSandboxId ?? null,
+    created_by_api_key_id: m.createdByApiKeyId ?? null,
+    created_by_api_key_name: m.createdByApiKeyName ?? null,
+    created_by_api_key_prefix: m.createdByApiKeyPrefix ?? null,
     daemon_version: m.daemonVersion ?? null,
     subscription: sub ? {
       status: sub.status,
@@ -222,6 +225,9 @@ machinesApp.openapi(createMachineRoute, async (c) => {
   const userId = c.get('userId');
   const accountId = c.get('accountId');
   const isAdmin = c.get('isAdmin');
+  const apiKeyId = c.get('apiKeyId');
+  const apiKeyName = c.get('apiKeyName');
+  const apiKeyPrefix = c.get('apiKeyPrefix');
 
   // 0. Check account machine limit
   const machineLimit = await checkMachineLimit(accountId, userId, isAdmin);
@@ -436,6 +442,9 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       sshPrivateKey: autoKey.privateKey,
       priceMonthly,
       backupsEnabled: wantBackups,
+      createdByApiKeyId: apiKeyId ?? null,
+      createdByApiKeyName: apiKeyName ?? null,
+      createdByApiKeyPrefix: apiKeyPrefix ?? null,
     });
 
     if (stripeSubId) {

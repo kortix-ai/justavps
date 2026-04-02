@@ -28,6 +28,9 @@ export type AuthVariables = {
   isAccountOwner: boolean;
   isAccountAdmin: boolean;
   isAdmin: boolean;
+  apiKeyId?: string;
+  apiKeyName?: string;
+  apiKeyPrefix?: string;
   apiKeyScope?: string;
   apiKeyMachineIds?: string[] | null;
   apiKeyPermissions?: string[];
@@ -74,6 +77,9 @@ async function setResolvedContext(
   },
   options?: {
     forcedAccountId?: string;
+    apiKeyId?: string;
+    apiKeyName?: string;
+    apiKeyPrefix?: string;
     apiKeyScope?: string;
     apiKeyMachineIds?: string[] | null;
     apiKeyPermissions?: string[];
@@ -106,6 +112,9 @@ async function setResolvedContext(
   c.set('isAccountAdmin', isAccountAdmin(accountContext.active.membership.role));
   c.set('isAdmin', resolvedUser.isAdmin);
 
+  if (options?.apiKeyId) c.set('apiKeyId', options.apiKeyId);
+  if (options?.apiKeyName) c.set('apiKeyName', options.apiKeyName);
+  if (options?.apiKeyPrefix) c.set('apiKeyPrefix', options.apiKeyPrefix);
   if (options?.apiKeyScope) c.set('apiKeyScope', options.apiKeyScope);
   if (options?.apiKeyMachineIds !== undefined) c.set('apiKeyMachineIds', options.apiKeyMachineIds);
   if (options?.apiKeyPermissions) c.set('apiKeyPermissions', options.apiKeyPermissions);
@@ -189,6 +198,9 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(async (c,
 
         const denied = await setResolvedContext(c, user, {
           forcedAccountId: match.accountId ?? undefined,
+          apiKeyId: match.id,
+          apiKeyName: match.name,
+          apiKeyPrefix: match.keyPrefix,
           apiKeyScope: match.scope,
           apiKeyMachineIds: match.machineIds,
           apiKeyPermissions: match.permissions,
@@ -228,6 +240,9 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(async (c,
 
         const denied = await setResolvedContext(c, user, {
           forcedAccountId: candidate.accountId ?? undefined,
+          apiKeyId: candidate.id,
+          apiKeyName: candidate.name,
+          apiKeyPrefix: candidate.keyPrefix,
           apiKeyScope: candidate.scope,
           apiKeyMachineIds: candidate.machineIds,
           apiKeyPermissions: candidate.permissions,

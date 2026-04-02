@@ -135,6 +135,9 @@ export const machines = pgTable('machines', {
   // Source tracking (user = self-provisioned, kortix = imported from Kortix)
   source: text('source').default('user').notNull(),
   kortixSandboxId: text('kortix_sandbox_id'),
+  createdByApiKeyId: uuid('created_by_api_key_id'),
+  createdByApiKeyName: text('created_by_api_key_name'),
+  createdByApiKeyPrefix: text('created_by_api_key_prefix'),
 
   // Billing
   priceMonthly: integer('price_monthly'),
