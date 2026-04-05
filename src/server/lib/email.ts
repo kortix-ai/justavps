@@ -1,5 +1,10 @@
 import { MailtrapClient } from 'mailtrap';
 import { config } from './config';
+import { renderPasswordResetEmail, renderVerificationEmail } from './email-templates';
+
+function resolveRecipientName(email: string, name?: string | null): string {
+  return name?.trim() || email.split('@')[0] || 'there';
+}
 
 let client: MailtrapClient | null = null;
 
@@ -138,6 +143,70 @@ export const emailClient = {
       return true;
     } catch (error) {
       console.error(`[EMAIL] Failed to send account invitation email to ${params.email}:`, error);
+      return false;
+    }
+  },
+
+  async sendVerificationEmail(params: {
+    email: string;
+    name?: string | null;
+    token: string;
+  }): Promise<boolean> {
+    const mailer = getClient();
+    if (!mailer) {
+      console.warn('[EMAIL] Mailtrap not configured - skipping verification email');
+      return false;
+    }
+
+    const recipientName = resolveRecipientName(params.email, params.name);
+    const verifyUrl = `${config.APP_URL}/verify-email?token=${encodeURIComponent(params.token)}`;
+    const content = renderVerificationEmail({ recipientName, verifyUrl });
+
+    try {
+      await mailer.send({
+        from: { email: config.MAILTRAP_SENDER_EMAIL, name: config.MAILTRAP_SENDER_NAME },
+        to: [{ email: params.email, name: recipientName }],
+        subject: content.subject,
+        category: 'email-verification',
+        text: content.text,
+        html: content.html,
+      });
+      console.log(`[EMAIL] Sent verification email to ${params.email}`);
+      return true;
+    } catch (error) {
+      console.error(`[EMAIL] Failed to send verification email to ${params.email}:`, error);
+      return false;
+    }
+  },
+
+  async sendPasswordResetEmail(params: {
+    email: string;
+    name?: string | null;
+    token: string;
+  }): Promise<boolean> {
+    const mailer = getClient();
+    if (!mailer) {
+      console.warn('[EMAIL] Mailtrap not configured - skipping password reset email');
+      return false;
+    }
+
+    const recipientName = resolveRecipientName(params.email, params.name);
+    const resetUrl = `${config.APP_URL}/reset-password?token=${encodeURIComponent(params.token)}`;
+    const content = renderPasswordResetEmail({ recipientName, resetUrl });
+
+    try {
+      await mailer.send({
+        from: { email: config.MAILTRAP_SENDER_EMAIL, name: config.MAILTRAP_SENDER_NAME },
+        to: [{ email: params.email, name: recipientName }],
+        subject: content.subject,
+        category: 'password-reset',
+        text: content.text,
+        html: content.html,
+      });
+      console.log(`[EMAIL] Sent password reset email to ${params.email}`);
+      return true;
+    } catch (error) {
+      console.error(`[EMAIL] Failed to send password reset email to ${params.email}:`, error);
       return false;
     }
   },

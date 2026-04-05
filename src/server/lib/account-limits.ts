@@ -21,7 +21,12 @@ async function hasUnlimitedAccountLimits(userId: string | null | undefined, isAd
   if (!userId) return false;
 
   const [user] = await db
-    .select({ id: users.id, email: users.email, isAdmin: users.isAdmin })
+    .select({
+      id: users.id,
+      email: users.email,
+      emailVerified: users.emailVerified,
+      isAdmin: users.isAdmin,
+    })
     .from(users)
     .where(eq(users.id, userId));
 

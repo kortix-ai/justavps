@@ -81,7 +81,7 @@ export function Infrastructure() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-border/60">
           {/* Header cell — spans col 1 rows 1-3 on lg, top row on sm, full row on mobile */}
           <div className="bg-background col-span-1 sm:col-span-2 lg:col-span-1 lg:row-span-3 px-8 py-12 md:p-12 lg:p-14 flex flex-col">
-            <p className="text-[11px] text-amber-500 uppercase tracking-[0.24em] mb-5 font-medium">
+            <p className="text-[11px] text-brand uppercase tracking-[0.24em] mb-5 font-medium">
               Infrastructure
             </p>
             <h2 className="text-3xl md:text-4xl lg:text-[2.75rem] font-medium tracking-[-0.03em] leading-[1.05] text-foreground">

@@ -38,7 +38,7 @@ export function UseCases({ onDeploy: _onDeploy }: { onDeploy: () => void }) {
       <Reveal>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-border/60">
           <div className="bg-background col-span-1 md:col-span-2 px-8 py-12 md:p-12 lg:p-14 flex flex-col">
-            <p className="text-[11px] text-amber-500 uppercase tracking-[0.24em] mb-5 font-medium">
+            <p className="text-[11px] text-brand uppercase tracking-[0.24em] mb-5 font-medium">
               Use cases
             </p>
             <h2 className="text-3xl md:text-4xl lg:text-[2.75rem] font-medium tracking-[-0.03em] leading-[1.05] text-foreground max-w-2xl">
@@ -64,7 +64,7 @@ export function UseCases({ onDeploy: _onDeploy }: { onDeploy: () => void }) {
                 <span className="text-emerald-500/70">$</span>{" "}
                 <span className="text-foreground/90">opencode</span>
               </div>
-              <div className="text-amber-500/70">
+              <div className="text-brand/70">
                 Open the machine URL in your browser
                 <span className="inline-block w-[2px] h-3.5 bg-foreground/60 ml-0.5 align-text-bottom animate-pulse" />
               </div>

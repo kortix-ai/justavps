@@ -43,7 +43,7 @@ export function About() {
           />
         </div>
         <div className="bg-background px-8 py-12 md:p-12 lg:p-14 flex flex-col justify-center">
-          <p className="text-[11px] text-amber-500 uppercase tracking-[0.24em] mb-5 font-medium">
+          <p className="text-[11px] text-brand uppercase tracking-[0.24em] mb-5 font-medium">
             About
           </p>
           <h2 className="text-3xl md:text-4xl lg:text-[2.75rem] font-medium tracking-[-0.03em] leading-[1.05] text-foreground">

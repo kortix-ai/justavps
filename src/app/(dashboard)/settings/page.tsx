@@ -97,7 +97,7 @@ function LimitCard({
           </div>
         )}
         {isNearLimit && (
-          <div className="flex items-center gap-1 text-xs text-amber-500 font-medium">
+          <div className="flex items-center gap-1 text-xs text-brand font-medium">
             <AlertTriangle className="size-3" />
             Near limit
           </div>
@@ -110,7 +110,7 @@ function LimitCard({
       {!unlimited && (
         <Progress
           value={pct}
-          className={`h-2 ${isAtLimit ? "[&_div[data-slot=progress-indicator]]:bg-destructive" : isNearLimit ? "[&_div[data-slot=progress-indicator]]:bg-amber-500" : ""}`}
+          className={`h-2 ${isAtLimit ? "[&_div[data-slot=progress-indicator]]:bg-destructive" : isNearLimit ? "[&_div[data-slot=progress-indicator]]:bg-brand" : ""}`}
         />
       )}
     </div>
