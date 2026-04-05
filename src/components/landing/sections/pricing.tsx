@@ -47,7 +47,7 @@ function PlanRow({
           <div className="flex items-center gap-2.5 mb-1.5">
             <h3 className="text-lg font-medium text-foreground">{plan.label}</h3>
             {highlight && (
-              <span className="inline-flex items-center text-[9px] font-semibold text-amber-600 dark:text-amber-400 border border-brand/30 bg-brand/10 rounded-full px-2 py-0.5 uppercase tracking-[0.15em]">
+              <span className="inline-flex items-center text-[9px] font-semibold text-brand-strong border border-brand/30 bg-brand/10 rounded-full px-2 py-0.5 uppercase tracking-[0.15em]">
                 Popular
               </span>
             )}
@@ -76,7 +76,7 @@ function PlanRow({
           </div>
 
           <div className="shrink-0">
-            <span className="inline-flex items-center text-[11px] font-semibold text-amber-600 dark:text-amber-400 bg-brand/10 border border-brand/30 rounded-full px-2.5 py-1 font-mono tabular-nums">
+            <span className="inline-flex items-center text-[11px] font-semibold text-brand-strong bg-brand/10 border border-brand/30 rounded-full px-2.5 py-1 font-mono tabular-nums">
               {plan.savingsLabel}
             </span>
           </div>
@@ -113,7 +113,7 @@ export function Pricing({
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <button
                 onClick={onDeploy}
-                className="h-11 px-6 rounded-full bg-foreground text-background text-[13px] font-medium border border-brand/40 shadow-[0_0_32px_rgba(245,158,11,0.15)] hover:shadow-[0_0_48px_rgba(245,158,11,0.32)] hover:border-brand/70 transition-all"
+                className="h-11 px-6 rounded-full bg-foreground text-background text-[13px] font-medium border border-brand/40 shadow-[0_0_32px_color-mix(in_oklch,var(--color-brand)_16%,transparent)] hover:shadow-[0_0_48px_color-mix(in_oklch,var(--color-brand)_32%,transparent)] hover:border-brand/70 transition-all"
               >
                 Deploy from ${startingPrice}/mo
               </button>
@@ -140,7 +140,7 @@ export function Pricing({
       <div className="border-t border-border/60 grid grid-cols-1 md:grid-cols-2 gap-px bg-border/60">
         <div className="bg-background px-8 py-10 md:px-12 md:py-12 relative">
           <div className="flex items-center gap-2.5 mb-5">
-            <div className="size-6 rounded-full bg-brand/15 border border-brand/30 flex items-center justify-center text-amber-600 dark:text-amber-400">
+            <div className="size-6 rounded-full bg-brand/15 border border-brand/30 flex items-center justify-center text-brand-strong">
               <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
                 <polyline points="20 6 9 17 4 12" />
               </svg>

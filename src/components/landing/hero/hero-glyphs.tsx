@@ -19,7 +19,7 @@ export function PowerGlyph() {
         className="size-[0.85em] text-brand"
         style={{
           filter:
-            "drop-shadow(0 0 10px rgba(251,191,36,0.7)) drop-shadow(0 0 22px rgba(245,158,11,0.4))",
+            "drop-shadow(0 0 10px var(--brand))",
         }}
       />
     </span>
@@ -32,10 +32,10 @@ export function JustavpsMark() {
       justavps
       <span
         aria-hidden
-        className="pointer-events-none absolute left-[0.05em] right-[0.05em] -bottom-[0.08em] h-[0.06em] rounded-full bg-gradient-to-r from-amber-400/0 via-amber-400 to-amber-400/0"
+        className="pointer-events-none absolute left-[0.05em] right-[0.05em] -bottom-[0.08em] h-[0.06em] rounded-full bg-gradient-to-r from-brand/0 via-brand to-brand/0"
         style={{
           boxShadow:
-            "0 0 14px rgba(251,191,36,0.9), 0 0 28px rgba(245,158,11,0.5)",
+            "0 0 14px var(--brand)",
         }}
       />
     </span>
