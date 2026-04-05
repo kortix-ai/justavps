@@ -21,7 +21,7 @@ export function Hero({
     <section className="relative px-4 sm:px-6 min-h-[80vh] sm:min-h-[92vh] flex items-center overflow-hidden">
       <div className="relative max-w-6xl mx-auto w-full mt-16 text-center py-20 sm:py-24">
         <Reveal>
-          <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl tracking-[-0.045em] leading-[0.95] text-foreground/40">
+          <h1 className="text-5xl sm:text-6xl md:text-7xl tracking-[-0.045em] leading-[0.95] text-foreground/40">
             <span className="bg-gradient-to-r from-foreground/20 via-foreground/70 to-foreground/20 text-transparent bg-clip-text">
               Infrastructure for
             </span>
