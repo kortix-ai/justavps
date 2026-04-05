@@ -39,7 +39,7 @@ export function Faq() {
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-px bg-border/60">
         {/* Header cell */}
         <div className="bg-background px-8 py-12 md:p-12 lg:p-14 flex flex-col">
-          <p className="text-[11px] text-amber-500 uppercase tracking-[0.24em] mb-5 font-medium">
+          <p className="text-[11px] text-brand uppercase tracking-[0.24em] mb-5 font-medium">
             FAQ
           </p>
           <h2 className="text-3xl md:text-4xl lg:text-[2.75rem] font-medium tracking-[-0.03em] leading-[1.05] text-foreground">

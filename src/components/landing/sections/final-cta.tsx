@@ -25,11 +25,11 @@ export function FinalCta({
     <section className="relative overflow-hidden">
       {/* Ambient glow */}
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute bottom-[-20%] left-1/2 -translate-x-1/2 w-[900px] h-[500px] rounded-full bg-gradient-to-t from-amber-500/[0.08] via-amber-500/[0.02] to-transparent blur-3xl" />
+        <div className="absolute bottom-[-20%] left-1/2 -translate-x-1/2 w-[900px] h-[500px] rounded-full bg-gradient-to-t from-brand/[0.08] via-brand/[0.02] to-transparent blur-3xl" />
       </div>
 
       <div className="relative px-6 py-24 md:py-32 lg:py-36 text-center">
-        <p className="text-[11px] text-amber-500 uppercase tracking-[0.24em] mb-6 font-medium">
+        <p className="text-[11px] text-brand uppercase tracking-[0.24em] mb-6 font-medium">
           Deploy
         </p>
 
@@ -42,7 +42,7 @@ export function FinalCta({
           Running in minutes. Cancel anytime.
         </p>
 
-        <div className="mt-10 flex items-center justify-center gap-3">
+        <div className="mt-10 flex flex-col items-center justify-center gap-3">
           <Button
             onClick={onDeploy}
             className="group relative h-12 px-7 rounded-full bg-foreground text-background hover:bg-foreground/90"

@@ -98,11 +98,11 @@ export default function ImagesPage() {
       {(imageLimitReached || imageLimitNear) && (
         <div className={cn(
           "flex items-start gap-3 rounded-xl border p-4",
-          imageLimitReached ? "border-destructive/20 bg-destructive/5" : "border-amber-500/20 bg-amber-500/10",
+          imageLimitReached ? "border-destructive/20 bg-destructive/5" : "border-brand/20 bg-brand/10",
         )}>
           <AlertTriangle className={cn(
             "mt-0.5 size-4 shrink-0",
-            imageLimitReached ? "text-destructive" : "text-amber-500",
+            imageLimitReached ? "text-destructive" : "text-brand",
           )} />
           <div className="space-y-0.5">
             <p className="text-sm font-medium">

@@ -7,7 +7,7 @@ import { AlarmClockIcon, InfinityIcon } from "lucide-react";
 export function InfinityGlyph() {
   return (
     <span className="inline-block align-middle mx-1 sm:mx-2">
-      <InfinityIcon className="size-[0.85em] text-amber-500" />
+      <InfinityIcon className="size-[0.85em] text-brand" />
     </span>
   );
 }
@@ -16,7 +16,7 @@ export function PowerGlyph() {
   return (
     <span className="inline-block align-middle mx-1 sm:mx-1.5">
       <AlarmClockIcon
-        className="size-[0.85em] text-amber-500"
+        className="size-[0.85em] text-brand"
         style={{
           filter:
             "drop-shadow(0 0 10px rgba(251,191,36,0.7)) drop-shadow(0 0 22px rgba(245,158,11,0.4))",
@@ -68,7 +68,7 @@ export function StrokeInfinityGlyph({
           <InfinityIcon
             key={i}
             strokeWidth={strokeWidth}
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-amber-500"
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-brand"
             style={{
               width: `${layerSize}em`,
               height: `${layerSize}em`,

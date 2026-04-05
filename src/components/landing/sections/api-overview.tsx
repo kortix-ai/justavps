@@ -124,9 +124,9 @@ const API_GROUPS: ApiGroup[] = [
 ];
 
 const METHOD_COLORS: Record<ApiOp["method"], string> = {
-  GET: "text-amber-300/70 bg-amber-500/[0.06] border border-amber-500/15",
-  POST: "text-amber-400 bg-amber-500/[0.12] border border-amber-500/25",
-  DEL: "text-amber-200/60 bg-amber-500/[0.04] border border-amber-500/10",
+  GET: "text-amber-300/70 bg-brand/[0.06] border border-brand/15",
+  POST: "text-amber-400 bg-brand/[0.12] border border-brand/25",
+  DEL: "text-amber-200/60 bg-brand/[0.04] border border-brand/10",
 };
 
 function MethodBadge({ method }: { method: ApiOp["method"] }) {
@@ -257,7 +257,7 @@ export function ApiOverview() {
         {/* ── Sticky header column ── */}
         <div className="bg-background">
           <div className="lg:sticky lg:top-24 px-8 py-12 md:p-12 lg:p-14">
-            <p className="text-[11px] text-amber-500 uppercase tracking-[0.24em] mb-5 font-medium">
+            <p className="text-[11px] text-brand uppercase tracking-[0.24em] mb-5 font-medium">
               API
             </p>
             <h2 className="text-3xl md:text-4xl lg:text-[2.75rem] font-medium tracking-[-0.03em] leading-[1.05] text-foreground">

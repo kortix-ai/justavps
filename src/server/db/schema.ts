@@ -14,12 +14,27 @@ export const accountRoleEnum = pgEnum('account_role', ['owner', 'admin', 'member
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
   email: text('email').unique().notNull(),
-  passwordHash: text('password_hash'), // bcrypt hash — null for legacy/OAuth users
+  emailVerified: timestamp('email_verified'),
+  passwordHash: text('password_hash'),
   githubId: text('github_id').unique(),
   name: text('name'),
   stripeCustomerId: text('stripe_customer_id'),
   defaultAccountId: uuid('default_account_id'),
   isAdmin: boolean('is_admin').default(false).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const authTokenPurposeEnum = ['email_verification', 'password_reset'] as const;
+export type AuthTokenPurpose = (typeof authTokenPurposeEnum)[number];
+
+export const authTokens = pgTable('auth_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  tokenSha256: text('token_sha256').unique().notNull(),
+  bindingSha256: text('binding_sha256'),
+  purpose: text('purpose').$type<AuthTokenPurpose>().notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  usedAt: timestamp('used_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
