@@ -124,9 +124,9 @@ const API_GROUPS: ApiGroup[] = [
 ];
 
 const METHOD_COLORS: Record<ApiOp["method"], string> = {
-  GET: "text-amber-300/70 bg-brand/[0.06] border border-brand/15",
-  POST: "text-amber-400 bg-brand/[0.12] border border-brand/25",
-  DEL: "text-amber-200/60 bg-brand/[0.04] border border-brand/10",
+  GET: "text-brand/80 bg-brand/[0.08] border border-brand/20",
+  POST: "text-brand bg-brand/[0.14] border border-brand/30",
+  DEL: "text-brand/60 bg-brand/[0.05] border border-brand/15",
 };
 
 function MethodBadge({ method }: { method: ApiOp["method"] }) {
