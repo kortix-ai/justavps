@@ -4,24 +4,10 @@ import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { Reveal } from "@/components/landing/shared/reveal";
 
-/* ────────────────────────────────────────────────────────────
- * SupportedAgents
- *
- * Sits directly under the hero. Mirrors the classic "trusted by"
- * logo grid pattern: a text cell on the left spanning two rows,
- * then a 4×2 grid of agent logos on the right.
- *
- * Uses the `gap-px + bg-border` trick for dividers so we never
- * have to manage border-right / border-bottom on individual
- * cells — the parent background bleeds through the 1px gaps.
- * ──────────────────────────────────────────────────────────── */
-
 type Agent = {
   src: string;
   name: string;
-  /** Invert in light mode (for logos that are white-on-dark source art) */
   invert?: boolean;
-  /** Extra classes applied to the <Image> */
   extraClass?: string;
 };
 
@@ -52,20 +38,17 @@ export function SupportedAgents() {
     <section className="relative">
       <Reveal>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-px bg-border/60">
-          {/* Headline cell — spans both rows on md+, full-width row on mobile */}
           <div className="bg-background col-span-2 md:col-span-1 md:row-span-2 px-6 py-10 md:p-10 flex items-center justify-center md:justify-start">
             <p className="text-sm md:text-[15px] text-muted-foreground text-center md:text-left leading-snug max-w-[14rem]">
               Runs every{" "}
-              <span className="text-emerald-500 font-medium">coding agent</span>
+              <span className="text-foreground font-medium">coding agent</span>
               {" "}you already use
             </p>
           </div>
-
-          {/* Agent cells */}
           {AGENTS.map((agent) => (
             <div
               key={agent.name}
-              className="bg-background px-4 py-8 md:px-6 md:py-10 flex items-center justify-center gap-2.5"
+              className="group bg-background px-4 py-8 md:px-6 md:py-10 flex items-center justify-center gap-2.5"
             >
               <Image
                 src={agent.src}
@@ -73,7 +56,7 @@ export function SupportedAgents() {
                 width={32}
                 height={32}
                 className={cn(
-                  "size-6 md:size-7 object-contain shrink-0",
+                  "size-6 md:size-7 object-contain shrink-0 grayscale opacity-70 transition-all duration-300 group-hover:opacity-100 group-hover:grayscale-0",
                   agent.extraClass,
                   agent.invert && "dark:invert-0 invert",
                 )}
@@ -83,8 +66,6 @@ export function SupportedAgents() {
               </span>
             </div>
           ))}
-
-          {/* "+ more" cell — fills the 8th slot */}
           <div className="bg-background px-4 py-8 md:px-6 md:py-10 flex items-center justify-center">
             <span className="text-xs md:text-sm text-muted-foreground">+ and more</span>
           </div>

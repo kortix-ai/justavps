@@ -11,7 +11,7 @@ export function PageFrame({
   return (
     <div
       className={cn(
-        "relative mx-auto w-full max-w-6xl border-x border-border/60",
+        "relative mx-auto w-full max-w-6xl border-x border-border",
         className,
       )}
     >

@@ -5,7 +5,10 @@ import {
   InfinityGlyph,
   JustavpsMark,
   PowerGlyph,
+  StrokeInfinityGlyph,
 } from "@/components/landing/hero/hero-glyphs";
+import { ArrowRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export function Hero({
   onDeploy,
@@ -24,7 +27,7 @@ export function Hero({
             </span>
             <br />
             <span className="bg-gradient-to-r from-foreground/20 via-foreground/70 to-foreground/20 text-transparent bg-clip-text">
-              AI agents <InfinityGlyph /> that
+              AI agents <StrokeInfinityGlyph size={0.7} step={0.18} /> that
             </span>
             <br />
             <span className="text-foreground"> never </span>
@@ -42,23 +45,15 @@ export function Hero({
 
         <Reveal delay={280}>
           <div className="mt-10 sm:mt-14 flex flex-col items-center gap-5">
-            <button
+            <Button
               onClick={onDeploy}
-              className="group relative h-11 sm:h-12 px-6 sm:px-7 rounded-full bg-foreground text-background border border-emerald-400/30 text-sm transition-all duration-300 hover:border-emerald-400/60 shadow-[0_0_40px_rgba(16,185,129,0.15)] hover:shadow-[0_0_60px_rgba(16,185,129,0.35)]"
+              className="group relative h-11 sm:h-12 px-6 sm:px-7 rounded-full bg-foreground text-background hover:bg-foreground/90"
             >
               <span className="relative flex items-center gap-2">
                 Deploy a machine
-                <svg
-                  className="size-4 transition-transform group-hover:translate-x-0.5"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M5 12h14M12 5l7 7-7 7" />
-                </svg>
+                <ArrowRight className="size-4" />
               </span>
-            </button>
+            </Button>
             <p className="text-xs text-foreground/40 tracking-wide">
               From ${startingPrice}/mo &middot; Running in minutes &middot; Cancel anytime
             </p>

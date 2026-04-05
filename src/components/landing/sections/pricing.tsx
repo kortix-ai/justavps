@@ -38,7 +38,7 @@ function PlanRow({
     <div
       className={cn(
         "px-6 py-6 md:px-10 md:py-7 transition-colors",
-        highlight && "bg-emerald-500/[0.04]",
+        highlight && "bg-amber-500/[0.04]",
       )}
     >
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5">
@@ -47,7 +47,7 @@ function PlanRow({
           <div className="flex items-center gap-2.5 mb-1.5">
             <h3 className="text-lg font-medium text-foreground">{plan.label}</h3>
             {highlight && (
-              <span className="inline-flex items-center text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 bg-emerald-500/10 rounded-full px-2 py-0.5 uppercase tracking-[0.15em]">
+              <span className="inline-flex items-center text-[9px] font-semibold text-amber-600 dark:text-amber-400 border border-amber-500/30 bg-amber-500/10 rounded-full px-2 py-0.5 uppercase tracking-[0.15em]">
                 Popular
               </span>
             )}
@@ -76,7 +76,7 @@ function PlanRow({
           </div>
 
           <div className="shrink-0">
-            <span className="inline-flex items-center text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-2.5 py-1 font-mono tabular-nums">
+            <span className="inline-flex items-center text-[11px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-full px-2.5 py-1 font-mono tabular-nums">
               {plan.savingsLabel}
             </span>
           </div>
@@ -100,7 +100,7 @@ export function Pricing({
         {/* Sticky header */}
         <div className="bg-background">
           <div className="px-8 py-12 md:p-12 lg:p-14 flex flex-col">
-            <p className="text-[11px] text-emerald-500 uppercase tracking-[0.24em] mb-5 font-medium">
+            <p className="text-[11px] text-amber-500 uppercase tracking-[0.24em] mb-5 font-medium">
               Pricing
             </p>
             <h2 className="text-3xl md:text-4xl lg:text-[2.75rem] font-medium tracking-[-0.03em] leading-[1.05] text-foreground">
@@ -113,7 +113,7 @@ export function Pricing({
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <button
                 onClick={onDeploy}
-                className="h-11 px-6 rounded-full bg-foreground text-background text-[13px] font-medium border border-emerald-500/40 shadow-[0_0_32px_rgba(16,185,129,0.12)] hover:shadow-[0_0_48px_rgba(16,185,129,0.24)] hover:border-emerald-500/70 transition-all"
+                className="h-11 px-6 rounded-full bg-foreground text-background text-[13px] font-medium border border-amber-500/40 shadow-[0_0_32px_rgba(245,158,11,0.15)] hover:shadow-[0_0_48px_rgba(245,158,11,0.32)] hover:border-amber-500/70 transition-all"
               >
                 Deploy from ${startingPrice}/mo
               </button>
@@ -140,7 +140,7 @@ export function Pricing({
       <div className="border-t border-border/60 grid grid-cols-1 md:grid-cols-2 gap-px bg-border/60">
         <div className="bg-background px-8 py-10 md:px-12 md:py-12 relative">
           <div className="flex items-center gap-2.5 mb-5">
-            <div className="size-6 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+            <div className="size-6 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-600 dark:text-amber-400">
               <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
                 <polyline points="20 6 9 17 4 12" />
               </svg>

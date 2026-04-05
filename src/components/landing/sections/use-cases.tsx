@@ -37,17 +37,14 @@ export function UseCases({ onDeploy: _onDeploy }: { onDeploy: () => void }) {
     <section className="relative">
       <Reveal>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-border/60">
-          {/* Header cell — full width */}
           <div className="bg-background col-span-1 md:col-span-2 px-8 py-12 md:p-12 lg:p-14 flex flex-col">
-            <p className="text-[11px] text-cyan-500 uppercase tracking-[0.24em] mb-5 font-medium">
+            <p className="text-[11px] text-amber-500 uppercase tracking-[0.24em] mb-5 font-medium">
               Use cases
             </p>
             <h2 className="text-3xl md:text-4xl lg:text-[2.75rem] font-medium tracking-[-0.03em] leading-[1.05] text-foreground max-w-2xl">
               Personal machine or platform primitive
             </h2>
           </div>
-
-          {/* Personal use case */}
           <div className="bg-background px-8 py-10 md:p-12 flex flex-col">
             <span className="inline-flex self-start text-[10px] font-medium text-muted-foreground uppercase tracking-[0.2em] border border-border/60 rounded-full px-2.5 py-1 mb-5">
               Personal
@@ -55,11 +52,9 @@ export function UseCases({ onDeploy: _onDeploy }: { onDeploy: () => void }) {
             <h3 className="text-lg md:text-xl font-medium text-foreground mb-3">
               Your dev machine in the cloud
             </h3>
-            <p className="text-sm text-muted-foreground leading-relaxed mb-8 max-w-md">
+            <p className="text-sm text-muted-foreground leading-relaxed max-w-md">
               SSH in or connect your IDE. It&apos;s just a Linux box. Close your laptop, your agents keep going.
             </p>
-
-            {/* Terminal preview */}
             <div className="mt-auto rounded-xl border border-border/60 bg-muted/30 p-5 font-mono text-[13px] leading-[1.9]">
               <div>
                 <span className="text-emerald-500/70">$</span>{" "}
@@ -69,14 +64,12 @@ export function UseCases({ onDeploy: _onDeploy }: { onDeploy: () => void }) {
                 <span className="text-emerald-500/70">$</span>{" "}
                 <span className="text-foreground/90">opencode</span>
               </div>
-              <div className="text-cyan-500/70">
+              <div className="text-amber-500/70">
                 Open the machine URL in your browser
                 <span className="inline-block w-[2px] h-3.5 bg-foreground/60 ml-0.5 align-text-bottom animate-pulse" />
               </div>
             </div>
           </div>
-
-          {/* Platform use case */}
           <div className="bg-background px-8 py-10 md:p-12 flex flex-col">
             <span className="inline-flex self-start text-[10px] font-medium text-muted-foreground uppercase tracking-[0.2em] border border-border/60 rounded-full px-2.5 py-1 mb-5">
               Platform
@@ -99,8 +92,6 @@ export function UseCases({ onDeploy: _onDeploy }: { onDeploy: () => void }) {
                 <TbApi className="size-5" />
               </Chip>
             </div>
-
-            {/* API capabilities grid */}
             <div className="mt-auto grid grid-cols-2 gap-2">
               {PLATFORM_CAPABILITIES.map((c) => (
                 <div

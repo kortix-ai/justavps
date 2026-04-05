@@ -1,5 +1,6 @@
 "use client";
 
+import { Scales } from "@/components/ui/scales";
 import { useEffect, useState } from "react";
 
 /* ────────────────────────────────────────────────────────────
@@ -33,17 +34,14 @@ export function About() {
   return (
     <section id="about" className="relative">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-border/60">
-        {/* Team photo — keeps natural aspect, no crop */}
-        <div className="bg-background flex items-center justify-center p-6 md:p-8">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
+        <div className="relative bg-background flex items-center justify-center p-4 md:p-8 overflow-hidden">
+          <Scales size={8} />
           <img
             src="/team.png"
             alt="The Kortix team"
-            className="w-full h-auto object-contain"
+            className="relative z-10 w-full h-auto object-contain"
           />
         </div>
-
-        {/* Text */}
         <div className="bg-background px-8 py-12 md:p-12 lg:p-14 flex flex-col justify-center">
           <p className="text-[11px] text-amber-500 uppercase tracking-[0.24em] mb-5 font-medium">
             About
@@ -63,7 +61,6 @@ export function About() {
             </a>
             . We hit the cost ceiling. So we rebuilt the infrastructure we needed.
           </p>
-
           <div className="mt-8 flex flex-wrap items-center gap-2">
             <a
               href="https://kortix.com"
