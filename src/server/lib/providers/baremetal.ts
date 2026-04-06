@@ -160,14 +160,51 @@ export class BaremetalProvider implements ComputeProvider {
   }
 
   async createServer(opts: CreateServerOpts): Promise<ServerResult> {
-    const selectHost = this.deps.selectHost ?? defaultSelectHost;
-    const placement = await selectHost({ region: opts.region, serverType: opts.serverType });
-    if (!placement) {
-      throw new Error(`No active bare metal host has enough capacity for ${opts.serverType} in ${opts.region}`);
+    // V2 path: custom resources passed directly, no plan lookup needed
+    const hasCustomResources = opts.vcpu && opts.memoryGb && opts.diskGb;
+
+    let hostCandidate: BaremetalHostCandidate;
+    let vcpu: number;
+    let memoryGb: number;
+    let diskGb: number;
+
+    if (hasCustomResources) {
+      vcpu = opts.vcpu!;
+      memoryGb = opts.memoryGb!;
+      diskGb = opts.diskGb!;
+
+      // Host was pre-selected and validated upstream — just load it
+      const { db } = await import('../../db');
+      const { baremetalHosts } = await import('../../db/schema');
+      const rows = await db.select().from(baremetalHosts);
+      const active = rows
+        .filter((r) => r.status === 'active' && r.region === opts.region && r.runnerBaseUrl)
+        .map((r) => ({
+          id: r.id, region: r.region, status: r.status as BaremetalHostCandidate['status'],
+          runnerBaseUrl: r.runnerBaseUrl, publicIpv4: r.publicIpv4, publicIpv6: r.publicIpv6, runnerToken: r.runnerToken,
+          capacity: { totalVcpu: r.totalVcpu ?? 0, totalMemoryGb: r.totalMemoryGb ?? 0, totalDiskGb: r.totalDiskGb ?? 0, usedVcpu: r.usedVcpu ?? 0, usedMemoryGb: r.usedMemoryGb ?? 0, usedDiskGb: r.usedDiskGb ?? 0 },
+        }));
+      const eligible = active.filter((h) => {
+        const fv = h.capacity.totalVcpu - h.capacity.usedVcpu;
+        const fm = h.capacity.totalMemoryGb - h.capacity.usedMemoryGb;
+        const fd = h.capacity.totalDiskGb - h.capacity.usedDiskGb;
+        return fv >= vcpu && fm >= memoryGb && fd >= diskGb;
+      });
+      if (!eligible.length) throw new Error(`No host with enough capacity for ${vcpu} vCPU, ${memoryGb} GB RAM, ${diskGb} GB disk`);
+      hostCandidate = eligible[0];
+    } else {
+      // V1 fallback: plan-based placement
+      const selectHost = this.deps.selectHost ?? defaultSelectHost;
+      const placement = await selectHost({ region: opts.region, serverType: opts.serverType });
+      if (!placement) throw new Error(`No active bare metal host has enough capacity for ${opts.serverType} in ${opts.region}`);
+      hostCandidate = placement.host;
+      vcpu = placement.plan.vcpu;
+      memoryGb = placement.plan.memory;
+      diskGb = placement.plan.disk;
     }
 
     const runnerClientFactory = this.deps.createRunnerClient ?? defaultRunnerClientFactory;
-    const runner = runnerClientFactory(placement.host);
+    const runner = runnerClientFactory(hostCandidate);
     const slug = opts.labels.slug || opts.name;
     const result = await runner.createInstance({
       instanceName: opts.name,
@@ -176,18 +213,16 @@ export class BaremetalProvider implements ComputeProvider {
       region: opts.region,
       serverType: opts.serverType,
       cloudInitUserData: opts.userData,
-      vcpu: placement.plan.vcpu,
-      memoryGb: placement.plan.memory,
-      diskGb: placement.plan.disk,
+      vcpu,
+      memoryGb,
+      diskGb,
       labels: opts.labels,
     });
 
-    const publicIpv4 = result.hostIpv4 ?? placement.host.publicIpv4 ?? null;
-    const publicIpv6 = result.hostIpv6 ?? placement.host.publicIpv6 ?? null;
+    const publicIpv4 = result.hostIpv4 ?? hostCandidate.publicIpv4 ?? null;
+    const publicIpv6 = result.hostIpv6 ?? hostCandidate.publicIpv6 ?? null;
     const publicIp = publicIpv4 ?? publicIpv6;
-    if (!publicIp) {
-      throw new Error(`Bare metal host ${placement.host.id} did not report a reachable public IP`);
-    }
+    if (!publicIp) throw new Error(`Bare metal host ${hostCandidate.id} did not report a reachable public IP`);
 
     return {
       serverId: result.instanceId,
@@ -195,10 +230,10 @@ export class BaremetalProvider implements ComputeProvider {
       publicIpv4,
       publicIpv6,
       metadata: {
-        baremetal_host_id: placement.host.id,
+        baremetal_host_id: hostCandidate.id,
         private_ipv4: result.privateIpv4,
         ssh_port: result.sshPort,
-        runner_base_url: placement.host.runnerBaseUrl,
+        runner_base_url: hostCandidate.runnerBaseUrl,
         ...(result.metadata ?? {}),
       },
     };

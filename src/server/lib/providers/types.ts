@@ -28,6 +28,10 @@ export interface CreateServerOpts {
   sshKeyIds: string[];
   labels: Record<string, string>;
   enableBackups?: boolean;
+  // V2 custom resource sizing (baremetal only)
+  vcpu?: number;
+  memoryGb?: number;
+  diskGb?: number;
 }
 
 export interface ServerResult {

@@ -115,8 +115,11 @@ export const machines = pgTable('machines', {
   // Provider-agnostic fields
   provider: text('provider').notNull(), // "cloud" | future providers...
   imageId: uuid('image_id'), // nullable, no FK
-  serverType: text('server_type').notNull(),
+  serverType: text('server_type').notNull(), // V1: plan id; V2: 'custom'
   region: text('region').notNull(),
+  vcpu: integer('vcpu'),        // V2: actual allocated vCPU count
+  ramGb: integer('ram_gb'),     // V2: actual allocated RAM in GB
+  diskGb: integer('disk_gb'),   // V2: actual allocated disk in GB
   ip: text('ip'),
 
   // Provider-specific (generic storage)

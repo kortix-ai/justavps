@@ -314,7 +314,8 @@ app.post('/v1/instances', async (c) => {
   const cloudInitUserData = String(body.cloudInitUserData || '');
 
   try {
-    console.log(`[runnerd] create ${instanceName} from ${image}`);
+    const isGoldenImage = image === 'justavps-golden' || image.startsWith('justavps-golden');
+    console.log(`[runnerd] create ${instanceName} from ${image}${isGoldenImage ? ' (golden fast-path)' : ''}`);
     const resolvedImage = await resolveVmImageReference(image);
     await retryTransient(() => runIncusPty(['delete', incusTarget(instanceName), '--force'], 20000).catch(() => ({ stdout: '', stderr: '' })), 20000);
     await retryTransient(() => runIncusPty(['init', resolvedImage, incusTarget(instanceName), '--vm'], 300000), 310000);
@@ -323,6 +324,29 @@ app.post('/v1/instances', async (c) => {
     await ensureRootDiskSize(instanceName, diskGb);
     await setIncusConfig(instanceName, 'limits.cpu', String(vcpu));
     await setIncusConfig(instanceName, 'limits.memory', `${memoryGb}GiB`);
+
+    if (isGoldenImage) {
+      // Golden fast-path: cloud-init still runs but our user-data is minimal (~3s)
+      // because all heavy deps are pre-installed in the image
+      if (cloudInitUserData.trim()) {
+        await setIncusConfig(instanceName, 'cloud-init.user-data', cloudInitUserData);
+      }
+      await retryBusy(() => runIncus(['start', incusTarget(instanceName)]));
+      console.log(`[runnerd] started ${instanceName}`);
+      const inspected = await waitForPrivateIpv4(instanceName);
+      // Don't wait for full cloud-init — our script is <3s and the daemon handles readiness callbacks
+      console.log(`[runnerd] inspected ${instanceName} privateIpv4=${inspected.privateIpv4 ?? 'none'} status=${inspected.status ?? 'unknown'}`);
+      return c.json({
+        instanceId: instanceName,
+        hostIpv4: RUNNERD_PUBLIC_IPV4,
+        hostIpv6: RUNNERD_PUBLIC_IPV6,
+        privateIpv4: inspected.privateIpv4,
+        sshPort: sshPortForInstance(instanceName),
+        metadata: { incus_status: inspected.status },
+      }, 201);
+    }
+
+    // Standard cloud-init path (raw images)
     if (cloudInitUserData.trim()) {
       await setIncusConfig(instanceName, 'cloud-init.user-data', cloudInitUserData);
     }
@@ -337,9 +361,7 @@ app.post('/v1/instances', async (c) => {
       hostIpv6: RUNNERD_PUBLIC_IPV6,
       privateIpv4: inspected.privateIpv4,
       sshPort: sshPortForInstance(instanceName),
-      metadata: {
-        incus_status: inspected.status,
-      },
+      metadata: { incus_status: inspected.status },
     }, 201);
   } catch (error) {
     return c.json({ error: error instanceof Error ? error.message : 'failed to create instance' }, 500);

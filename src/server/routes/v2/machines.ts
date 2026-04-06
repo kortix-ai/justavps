@@ -29,19 +29,14 @@ const MachineV2Schema = z.object({
   provisioning_stage_updated_at: z.string().nullable(),
   api_version: z.literal('v2'),
   region: z.string(),
-  plan: z.object({
-    id: z.string(),
-    label: z.string().nullable(),
-    vcpu: z.number().nullable(),
-    ram_gb: z.number().nullable(),
-    disk_gb: z.number().nullable(),
-    price_monthly: z.number().nullable(),
+  resources: z.object({
+    vcpu: z.number(),
+    ram_gb: z.number(),
+    disk_gb: z.number(),
   }),
   billing: z.object({
     mode: z.literal('flat_monthly'),
     price_monthly: z.number().nullable(),
-    compute_seconds: z.number().nullable(),
-    storage_gb: z.number().nullable(),
     current_period_end: z.string().nullable(),
   }),
   image: z.any().nullable(),
@@ -74,15 +69,17 @@ const MachineV2Schema = z.object({
 });
 
 const MachineCreateV2Schema = z.object({
-  plan: z.string().min(1),
-  region: z.string().min(1),
+  // Resources — the core of V2. No preset plans required.
+  vcpu: z.number().int().min(1).max(128).default(2),
+  ram_gb: z.number().int().min(1).max(512).default(4),
+  disk_gb: z.number().int().min(10).max(2000).default(80),
+  host_id: z.string().uuid().optional(),
+  region: z.string().min(1).optional().default('hel1'),
   name: z.string().min(1).max(64).optional(),
   image_id: z.string().optional().nullable(),
   env_vars: z.record(z.string(), z.string()).optional(),
   cloud_init_script: z.string().optional(),
   ssh_key_ids: z.array(z.string().uuid()).optional(),
-  billing_interval: z.enum(['monthly', 'yearly', '2year']).optional().default('monthly'),
-  billing_mode: z.enum(['flat_monthly', 'metered']).optional().default('flat_monthly'),
   enable_backups: z.boolean().optional().default(false),
 });
 

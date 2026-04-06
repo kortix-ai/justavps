@@ -72,8 +72,8 @@ describe('v2 machines API', () => {
       name: 'Agent Box',
       status: 'provisioning',
       region: 'hel1',
-      plan: { id: 'starter', label: 'Starter', vcpu: 2, ram_gb: 4, disk_gb: 80, price_monthly: 12 },
-      billing: { mode: 'flat_monthly', price_monthly: 12, compute_seconds: null, storage_gb: 80 },
+      resources: { vcpu: 2, ram_gb: 4, disk_gb: 80 },
+      billing: { mode: 'flat_monthly', price_monthly: 12, current_period_end: null },
       image: null,
       connectivity: { public_ip: null, private_ipv4: null, ssh_command: null, ssh_port: null, urls: null },
       capabilities: { can_start: false, can_stop: false, can_reboot: false, can_resize: true, can_snapshot: true, can_create_image: true },
@@ -87,11 +87,12 @@ describe('v2 machines API', () => {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        plan: 'starter',
+        vcpu: 2,
+        ram_gb: 4,
+        disk_gb: 80,
         region: 'hel1',
         name: 'Agent Box',
         image_id: null,
-        billing_mode: 'flat_monthly',
       }),
     }));
 
@@ -99,7 +100,7 @@ describe('v2 machines API', () => {
     expect(createMachineMock).toHaveBeenCalledWith(expect.objectContaining({
       accountId: '22222222-2222-2222-2222-222222222222',
       userId: '11111111-1111-1111-1111-111111111111',
-      input: expect.objectContaining({ plan: 'starter', region: 'hel1' }),
+      input: expect.objectContaining({ vcpu: 2, ram_gb: 4, disk_gb: 80, region: 'hel1' }),
     }));
   });
 

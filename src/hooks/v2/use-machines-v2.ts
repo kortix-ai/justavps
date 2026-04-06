@@ -11,7 +11,7 @@ type V2Machine = {
   provisioning_stage_updated_at: string | null;
   api_version: 'v2';
   region: string;
-  plan: { id: string; price_monthly: number | null };
+  resources: { vcpu: number; ram_gb: number; disk_gb: number };
   billing: { mode: string; price_monthly: number | null };
   image: { id: string } | null;
   connectivity: {
@@ -42,7 +42,7 @@ function mapV2Machine(machine: V2Machine): Machine {
     provider: "managed",
     api_version: machine.api_version,
     image_id: machine.image?.id ?? null,
-    server_type: machine.plan.id,
+    server_type: `${machine.resources.vcpu}v-${machine.resources.ram_gb}g-${machine.resources.disk_gb}d`,
     region: machine.region,
     ip: machine.connectivity.public_ip,
     provider_progress: machine.provider_progress,
@@ -106,12 +106,18 @@ export function useMachine(id: string) {
 
 interface CreateMachineInput {
   image_id?: string | null;
-  server_type: string;
+  server_type?: string;
+  plan?: string;
   region: string;
   name?: string;
   ssh_key_ids?: string[];
   billing_interval?: "monthly" | "yearly" | "2year";
   enable_backups?: boolean;
+  /** V2 custom resource sizing */
+  host_id?: string;
+  vcpu?: number;
+  ram_gb?: number;
+  disk_gb?: number;
 }
 
 /** Result of createMachine — either a Machine (provisioned) or a checkout redirect (needs payment) */
@@ -130,7 +136,7 @@ export function useCreateMachine() {
     mutationFn: async (input: CreateMachineInput): Promise<CreateMachineResult> => {
         try {
           const machine = await apiV2.post<V2Machine>("/machines", {
-            plan: input.server_type,
+            plan: input.plan || input.server_type || 'custom',
             region: input.region,
             name: input.name,
             image_id: input.image_id,
@@ -138,6 +144,10 @@ export function useCreateMachine() {
             billing_interval: input.billing_interval,
             billing_mode: 'flat_monthly',
             enable_backups: input.enable_backups,
+            host_id: input.host_id,
+            vcpu: input.vcpu,
+            ram_gb: input.ram_gb,
+            disk_gb: input.disk_gb,
           }).then(mapV2Machine);
           return { kind: "machine", machine };
         } catch (err) {
