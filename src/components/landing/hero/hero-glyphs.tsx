@@ -28,16 +28,16 @@ export function PowerGlyph() {
 
 export function JustavpsMark() {
   return (
-    <span className="relative inline-block text-foreground font-semibold italic">
+    <span className="relative inline-block text-foreground font-semibold">
       justavps
-      <span
+      {/* <span
         aria-hidden
         className="pointer-events-none absolute left-[0.05em] right-[0.05em] -bottom-[0.08em] h-[0.06em] rounded-full bg-gradient-to-r from-brand/0 via-brand to-brand/0"
         style={{
           boxShadow:
             "0 0 14px var(--brand)",
         }}
-      />
+      /> */}
     </span>
   );
 }
