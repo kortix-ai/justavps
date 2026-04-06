@@ -33,11 +33,11 @@ export function Hero({
         </div>
         <Reveal>
           <h1 className="text-5xl sm:text-6xl md:text-7xl tracking-[-0.045em] leading-[0.95] text-foreground/40">
-            <span className="bg-gradient-to-r from-foreground/20 via-foreground/70 to-foreground/20 text-transparent bg-clip-text">
+            <span className="text-foreground">
               Infrastructure for
             </span>
             <br />
-            <span className="bg-gradient-to-r from-foreground/20 via-foreground/70 to-foreground/20 text-transparent bg-clip-text">
+            <span className="text-foreground">
               AI agents <StrokeInfinityGlyph size={0.7} step={0.18} /> that
             </span>
             <br />
