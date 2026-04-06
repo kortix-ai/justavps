@@ -180,6 +180,19 @@ const watchdogRoute = createRoute({
               type: z.string(),
               details: z.array(z.string()),
             })),
+            baremetal: z.object({
+              checkedAt: z.string(),
+              hosts: z.array(z.object({
+                hostId: z.string(),
+                status: z.enum(['ok', 'error', 'skipped']),
+                instanceCount: z.number(),
+                imageCount: z.number(),
+                staleMachineIds: z.array(z.string()),
+                staleImageIds: z.array(z.string()),
+                orphanInstanceIds: z.array(z.string()),
+                error: z.string().optional(),
+              })),
+            }),
           }),
         },
       },
@@ -191,12 +204,15 @@ const watchdogRoute = createRoute({
 internalApp.openapi(watchdogRoute, async (c) => {
   try {
     const { runWatchdog } = await import('../../lib/machine-watchdog');
+    const { reconcileBaremetalFleet } = await import('../../lib/baremetal/reconcile');
     const alerts = await runWatchdog();
+    const baremetal = await reconcileBaremetalFleet();
 
     return c.json({
       checked: true,
       alerts: alerts.length,
       details: alerts.map((a) => ({ slug: a.slug, type: a.type, details: a.details })),
+      baremetal,
     });
   } catch (err) {
     console.error('[WATCHDOG] error:', err);

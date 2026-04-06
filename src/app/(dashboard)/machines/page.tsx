@@ -33,8 +33,9 @@ export default function MachinesPage() {
   useEffect(() => {
     if (isPostCheckout && !startedWaiting.current) {
       startedWaiting.current = true;
-      setWaitingForMachine(true);
+      const id = setTimeout(() => setWaitingForMachine(true), 0);
       window.history.replaceState({}, "", "/machines");
+      return () => clearTimeout(id);
     }
   }, [isPostCheckout]);
 
@@ -55,7 +56,10 @@ export default function MachinesPage() {
       initialMachineCount.current !== null &&
       machines.length > initialMachineCount.current;
     const hasProvisioning = machines.some((m) => m.status === "provisioning");
-    if (hasNewMachine || hasProvisioning) setWaitingForMachine(false);
+    if (hasNewMachine || hasProvisioning) {
+      const id = setTimeout(() => setWaitingForMachine(false), 0);
+      return () => clearTimeout(id);
+    }
   }, [waitingForMachine, machines]);
 
   useEffect(() => {

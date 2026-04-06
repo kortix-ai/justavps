@@ -38,11 +38,13 @@ export function MachineCard({ machine }: MachineCardProps) {
     statusConfig[machine.status as keyof typeof statusConfig] ||
     statusConfig.stopped;
   const specs = planSpecs(machine.server_type);
+  const machineHref = machine.api_version === 'v2' ? `/v2/machines/${machine.id}` : `/machines/${machine.id}`;
+  const versionLabel = machine.api_version === 'v2' ? 'V2' : 'V1';
 
   return (
     <div className="group rounded-xl border bg-card transition-all duration-200 hover:border-foreground/20 hover:shadow-md hover:shadow-black/[0.04] dark:hover:shadow-black/20">
       <Link
-        href={`/machines/${machine.id}`}
+        href={machineHref}
         className={cn(
           "block",
           machine.status === "error" && "border-red-500/20",
@@ -51,9 +53,14 @@ export function MachineCard({ machine }: MachineCardProps) {
         {/* Header */}
         <div className="flex items-start justify-between gap-3 px-4 pt-4 pb-3">
           <div className="min-w-0 flex-1">
-            <h3 className="text-sm font-semibold truncate leading-snug">
-              {machine.name || machine.slug}
-            </h3>
+            <div className="flex items-center gap-2 min-w-0">
+              <h3 className="text-sm font-semibold truncate leading-snug">
+                {machine.name || machine.slug}
+              </h3>
+              <Badge variant="outline" className="h-5 px-1.5 text-[10px] font-semibold tracking-wide shrink-0">
+                {versionLabel}
+              </Badge>
+            </div>
             <p className="text-[11px] text-muted-foreground font-mono truncate mt-0.5">
               {machine.slug}
             </p>

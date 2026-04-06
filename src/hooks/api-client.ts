@@ -1,4 +1,5 @@
-const API_BASE = "/api/v1";
+const API_BASE_V1 = "/api/v1";
+const API_BASE_V2 = "/api/v2";
 
 export class ApiError extends Error {
   /** Parsed JSON body from the error response (if available) */
@@ -47,7 +48,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
   throw err;
 }
 
-function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+function requestWithBase<T>(base: string, path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = { ...options.headers as Record<string, string> };
 
   // Only set Content-Type for requests with a body
@@ -55,20 +56,25 @@ function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers["Content-Type"] = "application/json";
   }
 
-  return fetch(`${API_BASE}${path}`, {
+  return fetch(`${base}${path}`, {
     ...options,
     credentials: "include",
     headers,
   }).then((res) => handleResponse<T>(res));
 }
 
-export const api = {
-  get: <T>(path: string) => request<T>(path),
-  post: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined }),
-  put: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: "PUT", body: body ? JSON.stringify(body) : undefined }),
-  patch: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }),
-  delete: <T = void>(path: string) => request<T>(path, { method: "DELETE" }),
-};
+function createApi(base: string) {
+  return {
+    get: <T>(path: string) => requestWithBase<T>(base, path),
+    post: <T>(path: string, body?: unknown) =>
+      requestWithBase<T>(base, path, { method: "POST", body: body ? JSON.stringify(body) : undefined }),
+    put: <T>(path: string, body?: unknown) =>
+      requestWithBase<T>(base, path, { method: "PUT", body: body ? JSON.stringify(body) : undefined }),
+    patch: <T>(path: string, body?: unknown) =>
+      requestWithBase<T>(base, path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }),
+    delete: <T = void>(path: string) => requestWithBase<T>(base, path, { method: "DELETE" }),
+  };
+}
+
+export const api = createApi(API_BASE_V1);
+export const apiV2 = createApi(API_BASE_V2);

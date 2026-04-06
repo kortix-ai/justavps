@@ -68,6 +68,11 @@ trap 'report_error "cloud-init failed at line $LINENO"' ERR
 echo "[justavps] Configuring machine ${opts.slug}..."
 ${stageCallback('cloud_init_running', 'Cloud-init started')}
 
+# ── Prerequisites for raw cloud images ───────────────────────────────────
+if ! command -v curl &>/dev/null; then
+  apt-get update -qq && apt-get install -y -qq curl ca-certificates >/dev/null 2>&1 || true
+fi
+
 # ── User account ──────────────────────────────────────────────────────────
 # Create the machine user before Docker exists. The docker group is appended
 # later after Docker is installed, otherwise useradd fails on raw Ubuntu.
@@ -94,10 +99,12 @@ chage -M -1 root 2>/dev/null || true
 chage -E -1 root 2>/dev/null || true
 passwd -l root 2>/dev/null || true
 
-sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
-sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
-sed -i 's/^#\\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
-sed -i 's/^#\\?KbdInteractiveAuthentication.*/KbdInteractiveAuthentication no/' /etc/ssh/sshd_config
+if [ -f /etc/ssh/sshd_config ]; then
+  sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config || true
+  sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config || true
+  sed -i 's/^#\\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config || true
+  sed -i 's/^#\\?KbdInteractiveAuthentication.*/KbdInteractiveAuthentication no/' /etc/ssh/sshd_config || true
+fi
 rm -f /etc/ssh/sshd_config.d/50-cloud-init.conf 2>/dev/null || true
 systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null || true
 

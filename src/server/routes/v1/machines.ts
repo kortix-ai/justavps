@@ -1168,7 +1168,7 @@ machinesApp.openapi(createImageFromMachineRoute, async (c) => {
   (async () => {
     try {
       const result = await lookup.provider.createImage(
-        machine.providerServerId,
+        machine.providerServerId!,
         `justavps-img-${name.replace(/[^a-z0-9-]/gi, '-').slice(0, 50)}`,
       );
       await db.update(images).set({
@@ -1248,7 +1248,7 @@ machinesApp.openapi(listBackupsRoute, async (c) => {
   const backupProviderError = requireBackupProvider(c, lookup.provider);
   if (backupProviderError) return backupProviderError as any;
 
-  const provider = lookup.provider;
+  const provider = lookup.provider as import('../../lib/providers').BackupCapableProvider;
   const backups = await provider.listBackups(machine.providerServerId);
 
   return c.json({ backups, backups_enabled: machine.backupsEnabled }, 200);
@@ -1295,7 +1295,7 @@ machinesApp.openapi(createBackupRoute, async (c) => {
   if (backupProviderError) return backupProviderError as any;
 
   const body = await c.req.json().catch(() => ({}));
-  const provider = lookup.provider;
+  const provider = lookup.provider as import('../../lib/providers').BackupCapableProvider;
   const result = await provider.createBackup(machine.providerServerId, body?.description);
 
   return c.json({ backup_id: result.id, status: 'creating' }, 202);
@@ -1337,8 +1337,8 @@ machinesApp.openapi(enableBackupsRoute, async (c) => {
   if (backupProviderError) return backupProviderError as any;
 
   // 1. Enable on provider
-  const provider = lookup.provider;
-  await provider.enableBackups(machine.providerServerId).catch((err) => {
+  const provider = lookup.provider as import('../../lib/providers').BackupCapableProvider;
+  await provider.enableBackups(machine.providerServerId).catch((err: unknown) => {
     console.error('[MACHINES] Provider backup enable failed, continuing with billing state update:', err);
   });
 
@@ -1396,8 +1396,8 @@ machinesApp.openapi(disableBackupsRoute, async (c) => {
   if (backupProviderError) return backupProviderError as any;
 
   // 1. Disable on provider
-  const provider = lookup.provider;
-  await provider.disableBackups(machine.providerServerId).catch((err) => {
+  const provider = lookup.provider as import('../../lib/providers').BackupCapableProvider;
+  await provider.disableBackups(machine.providerServerId).catch((err: unknown) => {
     console.error('[MACHINES] Provider backup disable failed, continuing with billing state update:', err);
   });
 
@@ -1458,10 +1458,10 @@ machinesApp.openapi(restoreBackupRoute, async (c) => {
   const backupProviderError = requireBackupProvider(c, lookup.provider);
   if (backupProviderError) return backupProviderError as any;
 
-  const provider = lookup.provider;
+  const provider = lookup.provider as import('../../lib/providers').BackupCapableProvider;
 
   const backups = await provider.listBackups(machine.providerServerId);
-  const backupExists = backups.some((b) => b.id === backupId);
+  const backupExists = backups.some((b: { id: string }) => b.id === backupId);
   if (!backupExists) return errorResponse(c, 404, 'Backup not found for this machine') as any;
 
   await provider.restoreBackup(machine.providerServerId, backupId);
@@ -1508,10 +1508,10 @@ machinesApp.openapi(deleteBackupRoute, async (c) => {
   const backupProviderError = requireBackupProvider(c, lookup.provider);
   if (backupProviderError) return backupProviderError as any;
 
-  const provider = lookup.provider;
+  const provider = lookup.provider as import('../../lib/providers').BackupCapableProvider;
 
   const backups = await provider.listBackups(machine.providerServerId);
-  const backupExists = backups.some((b) => b.id === backupId);
+  const backupExists = backups.some((b: { id: string }) => b.id === backupId);
   if (!backupExists) return errorResponse(c, 404, 'Backup not found for this machine') as any;
 
   await provider.deleteBackup(backupId);

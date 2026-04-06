@@ -7,6 +7,7 @@ import { Scalar } from '@scalar/hono-api-reference';
 import { v1 } from './routes/v1';
 import { v2 } from './routes/v2';
 import { enrichOpenAPISpec } from './lib/openapi-enrichment';
+import { filterOpenApiDocumentForPrefix, type OpenApiDoc } from './lib/openapi-versioning';
 import { config } from './lib/config';
 
 export const app = new OpenAPIHono().basePath('/api');
@@ -197,6 +198,25 @@ app.get('/docs/openapi.json', (c) => {
   return c.json(enriched);
 });
 
+app.get('/docs/openapi-v2.json', (c) => {
+  const rawSpec = app.getOpenAPI31Document(openAPIConfig);
+  const enriched = enrichOpenAPISpec(rawSpec);
+  const filtered = filterOpenApiDocumentForPrefix(enriched as OpenApiDoc, '/api/v2');
+  const info = (filtered.info as Record<string, unknown> | undefined) ?? {};
+  return c.json({
+    ...filtered,
+    info: {
+      ...info,
+      title: 'JustAVPS API V2',
+      version: '2.0.0',
+    },
+    servers: [
+      { url: '/api/v2', description: 'Current V2' },
+      { url: 'https://justavps.com/api/v2', description: 'Production V2' },
+    ],
+  });
+});
+
 app.get(
   '/docs',
   Scalar({
@@ -205,7 +225,24 @@ app.get(
         title: 'JustAVPS API',
         url: '/api/docs/openapi.json',
       },
+      {
+        title: 'JustAVPS API V2',
+        url: '/api/docs/openapi-v2.json',
+      },
     ],
+    theme: 'kepler',
+    hiddenClients: true,
+    defaultHttpClient: {
+      targetKey: 'shell',
+      clientKey: 'curl',
+    },
+  }),
+);
+
+app.get(
+  '/docs/v2',
+  Scalar({
+    url: '/api/docs/openapi-v2.json',
     theme: 'kepler',
     hiddenClients: true,
     defaultHttpClient: {

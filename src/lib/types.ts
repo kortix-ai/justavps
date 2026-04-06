@@ -18,6 +18,7 @@ export interface Machine {
   provisioning_stage: string | null;
   provisioning_stage_updated_at: string | null;
   provider: string;
+  api_version: 'v1' | 'v2';
   image_id: string | null;
   server_type: string;
   region: string;
@@ -61,6 +62,14 @@ export interface Machine {
     services: Record<string, boolean>;
     last_heartbeat_at: string | null;
   } | null;
+  capabilities?: {
+    can_start: boolean;
+    can_stop: boolean;
+    can_reboot: boolean;
+    can_resize: boolean;
+    can_snapshot: boolean;
+    can_create_image: boolean;
+  };
 }
 
 // ─── Image ──────────────────────────────────────────────────────────────────

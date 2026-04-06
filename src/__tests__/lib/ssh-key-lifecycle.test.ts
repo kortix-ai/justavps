@@ -18,6 +18,7 @@ function createMockProvider(overrides?: Partial<ComputeProvider>): ComputeProvid
   return {
     name: 'test',
     displayName: 'Test Provider',
+    capabilities: { backups: false, images: true, bareMetal: false },
     validateImage: vi.fn().mockResolvedValue(true),
     createImage: vi.fn().mockResolvedValue({ imageId: '1', diskSize: 20, architecture: 'x86' }),
     deleteImage: vi.fn().mockResolvedValue(undefined),

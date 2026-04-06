@@ -31,6 +31,10 @@ describe('BaremetalProvider', () => {
       }),
       createRunnerClient: () => ({
         createInstance: runnerCreate,
+        deleteInstance: vi.fn(),
+        startInstance: vi.fn(),
+        stopInstance: vi.fn(),
+        rebootInstance: vi.fn(),
       }),
     });
 
@@ -73,6 +77,10 @@ describe('BaremetalProvider', () => {
       selectHost: async () => null,
       createRunnerClient: () => ({
         createInstance: vi.fn(),
+        deleteInstance: vi.fn(),
+        startInstance: vi.fn(),
+        stopInstance: vi.fn(),
+        rebootInstance: vi.fn(),
       }),
     });
 
@@ -86,4 +94,5 @@ describe('BaremetalProvider', () => {
       userData: '#cloud-config\n{}',
     })).rejects.toThrow(/capacity|host/i);
   });
+
 });

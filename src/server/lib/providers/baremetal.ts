@@ -22,8 +22,10 @@ const DEFAULT_REGIONS: RegionInfo[] = [
 ];
 
 async function defaultSelectHost(input: { region: string; serverType: string }): Promise<BaremetalPlacementResult | null> {
+  const { reconcileBaremetalFleet } = await import('../baremetal/reconcile');
   const { db } = await import('../../db');
   const { baremetalHosts } = await import('../../db/schema');
+  await reconcileBaremetalFleet();
   const rows = await db.select().from(baremetalHosts);
   const candidates = rows.map((row) => ({
     id: row.id,
@@ -81,7 +83,8 @@ async function loadMachineHost(serverId: string): Promise<BaremetalHostCandidate
   const { db } = await import('../../db');
   const { machines } = await import('../../db/schema');
   const rows = await db.select().from(machines);
-  const machine = rows.find((row) => row.provider === 'baremetal' && row.providerServerId === serverId);
+  const orphanSlug = serverId.startsWith('justavps-') ? serverId.replace(/^justavps-/, '') : null;
+  const machine = rows.find((row) => row.provider === 'baremetal' && (row.providerServerId === serverId || (orphanSlug && row.slug === orphanSlug)));
   if (!machine) return null;
   const meta = (machine.providerMeta ?? {}) as Record<string, unknown>;
   const hostId = typeof meta.baremetal_host_id === 'string' ? meta.baremetal_host_id : null;
@@ -119,9 +122,41 @@ export class BaremetalProvider implements ComputeProvider {
     return { imageId: result.imageId, diskSize: 0, architecture: 'x86' };
   }
 
-  async deleteImage(_imageId: string): Promise<void> {
-    void _imageId;
-    return;
+  async deleteImage(imageId: string): Promise<void> {
+    const { db } = await import('../../db');
+    const { baremetalHosts } = await import('../../db/schema');
+    const rows = await db.select().from(baremetalHosts);
+    const activeHosts = rows
+      .filter((row) => row.status === 'active' && row.runnerBaseUrl && row.runnerToken)
+      .map((row) => ({
+        id: row.id,
+        region: row.region,
+        status: row.status as BaremetalHostCandidate['status'],
+        runnerBaseUrl: row.runnerBaseUrl,
+        publicIpv4: row.publicIpv4,
+        publicIpv6: row.publicIpv6,
+        runnerToken: row.runnerToken,
+        capacity: {
+          totalVcpu: row.totalVcpu ?? 0,
+          totalMemoryGb: row.totalMemoryGb ?? 0,
+          totalDiskGb: row.totalDiskGb ?? 0,
+          usedVcpu: row.usedVcpu ?? 0,
+          usedMemoryGb: row.usedMemoryGb ?? 0,
+          usedDiskGb: row.usedDiskGb ?? 0,
+        },
+      }));
+
+    for (const host of activeHosts) {
+      const runner = defaultRunnerClientFactory(host);
+      try {
+        await runner.deleteImage?.(imageId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+        if (!message.includes('not found') && !message.includes('404')) {
+          throw error;
+        }
+      }
+    }
   }
 
   async createServer(opts: CreateServerOpts): Promise<ServerResult> {

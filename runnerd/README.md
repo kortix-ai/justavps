@@ -25,7 +25,7 @@ pnpm runnerd:dev
 
 ## API
 
-- `GET /healthz`
+- `GET /healthz` — returns `503` if runnerd is up but local Incus is unhealthy or unreachable
 - `POST /v1/instances`
 - `POST /v1/instances/:id/start`
 - `POST /v1/instances/:id/stop`

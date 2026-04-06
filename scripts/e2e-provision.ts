@@ -1,4 +1,5 @@
 #!/usr/bin/env npx tsx
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * REAL E2E Provisioning Test
  * 

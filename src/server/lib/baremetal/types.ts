@@ -76,11 +76,45 @@ export interface RunnerCreateInstanceResult {
   metadata?: Record<string, unknown>;
 }
 
+export interface RunnerInstanceState {
+  instanceId: string;
+  status: string | null;
+  privateIpv4: string | null;
+  vcpu: number | null;
+  memoryGb: number | null;
+  diskGb: number | null;
+}
+
+export interface RunnerImageState {
+  imageId: string;
+  aliases: string[];
+  cached: boolean;
+}
+
+export interface RunnerHostState {
+  checkedAt: string;
+  runnerd: 'ok';
+  incus: {
+    status: 'ok' | 'error';
+    serverVersion: string | null;
+    instanceCount: number;
+    imageCount: number;
+  };
+  instances: RunnerInstanceState[];
+  images: RunnerImageState[];
+}
+
 export interface BaremetalRunnerClient {
   createInstance(input: RunnerCreateInstanceInput): Promise<RunnerCreateInstanceResult>;
   deleteInstance(instanceId: string): Promise<void>;
   startInstance(instanceId: string): Promise<void>;
   stopInstance(instanceId: string): Promise<void>;
   rebootInstance(instanceId: string): Promise<void>;
+  getState?(): Promise<RunnerHostState>;
+  listSnapshots?(instanceId: string): Promise<Array<{ id: string; name: string; createdAt: string; status: string }>>;
+  createSnapshot?(instanceId: string, name?: string): Promise<{ id: string; name: string; createdAt: string; status: string }>;
+  restoreSnapshot?(instanceId: string, snapshotId: string): Promise<void>;
+  deleteSnapshot?(instanceId: string, snapshotId: string): Promise<void>;
   publishImage?(instanceId: string, alias: string): Promise<{ imageId: string }>;
+  deleteImage?(imageId: string): Promise<void>;
 }

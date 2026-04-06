@@ -64,6 +64,7 @@ import {
 } from "@/hooks/use-account";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { detectUiVersionFromPath, pathForVersion, type UiVersion } from "@/lib/versioning";
 
 const navigation = [
   { name: "Machines", href: "/machines", icon: Server },
@@ -81,6 +82,11 @@ const adminNavigation = [
   { name: "Routing", href: "/admin/routing", icon: ShieldCheck },
 ];
 
+const versionSwitchItems: Array<{ label: string; version: UiVersion }> = [
+  { label: "V1", version: "v1" },
+  { label: "V2", version: "v2" },
+];
+
 export function AppSidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
@@ -95,6 +101,7 @@ export function AppSidebar() {
   const queryClient = useQueryClient();
   const [orgDialogOpen, setOrgDialogOpen] = useState(false);
   const [orgName, setOrgName] = useState("");
+  const uiVersion = detectUiVersionFromPath(pathname);
 
   const email = session?.user?.email || "user";
   const name = session?.user?.name || email.split("@")[0];
@@ -180,6 +187,29 @@ export function AppSidebar() {
         </SidebarHeader>
         <SidebarContent>
           <nav className="space-y-0.5 px-2 pt-2">
+            <div className="mb-3 px-2.5 group-data-[collapsible=icon]:px-0">
+              <div className="flex items-center justify-between gap-2 rounded-md border border-sidebar-border bg-sidebar-accent/30 p-1 text-xs group-data-[collapsible=icon]:justify-center">
+                {versionSwitchItems.map((item) => {
+                  const active = item.version === uiVersion;
+                  const target = pathForVersion(pathname || "/machines", item.version);
+                  return (
+                    <Link
+                      key={item.version}
+                      href={target}
+                      className={cn(
+                        "flex-1 rounded px-2 py-1 text-center transition-colors group-data-[collapsible=icon]:hidden",
+                        active ? "bg-sidebar-background text-sidebar-foreground font-medium shadow-sm" : "text-sidebar-foreground/60 hover:text-sidebar-foreground"
+                      )}
+                    >
+                      {item.label}
+                    </Link>
+                  );
+                })}
+                <span className="hidden text-[10px] font-semibold uppercase tracking-wide text-sidebar-foreground/60 group-data-[collapsible=icon]:block">
+                  {uiVersion}
+                </span>
+              </div>
+            </div>
             {allNavigation.map((item) => {
               if (item.name === "__admin_separator__") {
                 return (

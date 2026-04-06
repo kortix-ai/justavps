@@ -22,11 +22,11 @@ export const PROXY_DOMAIN = process.env.NEXT_PUBLIC_PROXY_DOMAIN || 'kortix.clou
  * Never expose raw provider region codes (e.g. hel1, nbg1) to users.
  */
 const REGION_DISPLAY: Record<string, { flag: string; label: string }> = {
-  hel1: { flag: "\u{1F1EA}\u{1F1FA}", label: "EU" },
-  fsn1: { flag: "\u{1F1EA}\u{1F1FA}", label: "EU" },
-  nbg1: { flag: "\u{1F1EA}\u{1F1FA}", label: "EU" },
-  hil:  { flag: "\u{1F1FA}\u{1F1F8}", label: "US" },
-  ash:  { flag: "\u{1F1FA}\u{1F1F8}", label: "US" },
+  hel1: { flag: "\u{1F1EB}\u{1F1EE}", label: "Helsinki, FI" },
+  fsn1: { flag: "\u{1F1E9}\u{1F1EA}", label: "Falkenstein, DE" },
+  nbg1: { flag: "\u{1F1E9}\u{1F1EA}", label: "Nuremberg, DE" },
+  hil:  { flag: "\u{1F1FA}\u{1F1F8}", label: "Hillsboro, US" },
+  ash:  { flag: "\u{1F1FA}\u{1F1F8}", label: "Ashburn, US" },
 };
 
 export function regionDisplay(regionId: string): { flag: string; label: string } {

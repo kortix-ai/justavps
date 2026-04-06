@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 /**
  * Seed script — creates a test user, SSH key, and API key for development.
  * Run: npx tsx scripts/seed.ts

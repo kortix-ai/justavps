@@ -950,7 +950,7 @@ That is the sane v2 path.
 
 ## Live verification status (current implementation)
 
-The current implementation was verified locally end to end as far as the account permissions allowed.
+The implementation is now verified against a **real Hetzner dedicated host**.
 
 ## Completed live checks
 
@@ -962,39 +962,42 @@ The current implementation was verified locally end to end as far as the account
 - Hetzner Robot product listing works through the app
 - a bootstrap SSH key was created and added to Robot
 - procurement requests can be created through the app
+- a real Hetzner AX41 dedicated host was ordered and synced through the control plane
+- the host was bootstrapped over SSH
+- Incus was initialized on the host
+- runnerd was deployed as a systemd service and registered in JustAVPS
+- a real Incus VM was created, started, stopped, rebooted, snapshotted, imaged, and deleted on dedicated hardware
 
-## Live ordering result
+## Live host
 
-The order payload is valid.
+- host id: `ed822eae-59ef-4601-8782-a17cc85196ab`
+- server number: `2921540`
+- public IPv4: `135.181.129.188`
+- runnerd: `http://135.181.129.188:7779`
 
-This was verified using Hetzner Robot `test=true` ordering for:
+## Proven live API behavior
 
-- `AX41-NVMe`
-- `EX44`
+- `/api/v2/catalog/*` returns public product-facing data only
+- `/api/v2/admin/fleet/*` controls procurement and host registration
+- `/api/v2/machines` can place new bare-metal-backed Incus VMs without exposing substrate choice to the user
+- `/api/v2/images` supports image creation and deletion
+- `/api/v2/snapshots` supports list/create/restore/delete on bare-metal-backed machines
+- `/api/v2/billing/*` serves flat-monthly + future metered comparison surfaces
 
-with:
+## Important caveat
 
-- location `FSN1`
-- distribution `Ubuntu 24.04 LTS base`
-- bootstrap SSH key attached
-- `primary_ipv4` addon
+The current live host was validated with Incus `dir` storage for speed of bring-up.
 
-## Current blocker
+That proves:
 
-Real dedicated ordering is currently blocked by the Hetzner account returning:
+- procurement
+- bootstrap
+- runner registration
+- VM lifecycle
+- image/snapshot flows
 
-- `412 PRECONDITION_FAILED`
-- message: *Please try to order the server in the robot web interface for more details on the error.*
+But the production target remains:
 
-This means the remaining blocker is **account-side / Hetzner-side**, not request-shape correctness.
+- **ZFS-first host bootstrap**
 
-## Practical implication
-
-Once the Hetzner Robot account allows real server ordering, the next steps are:
-
-1. place real procurement order through `/api/v2/admin/fleet/...`
-2. sync transaction until server is ready
-3. bootstrap the host over SSH using the stored bootstrap key
-4. install ZFS + Incus + runnerd
-5. register host in JustAVPS
-6. begin scheduling Incus VMs onto that host
+before broader rollout.

@@ -2,6 +2,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "./api-client";
 import type { Machine, CheckoutRequired } from "@/lib/types";
 
+function markV1Machine(machine: Machine): Machine {
+  return { ...machine, api_version: 'v1' };
+}
+
 export const machineKeys = {
   all: ["machines"] as const,
   detail: (id: string) => ["machines", id] as const,
@@ -10,7 +14,7 @@ export const machineKeys = {
 export function useMachines(options?: { refetchInterval?: number | false }) {
   return useQuery({
     queryKey: machineKeys.all,
-    queryFn: () => api.get<{ machines: Machine[] }>("/machines").then((d) => d.machines),
+    queryFn: () => api.get<{ machines: Machine[] }>("/machines").then((d) => d.machines.map(markV1Machine)),
     refetchInterval: (query) => {
       // Explicit override from caller (e.g. post-checkout waiting)
       if (options?.refetchInterval !== undefined) return options.refetchInterval;
@@ -25,7 +29,7 @@ export function useMachines(options?: { refetchInterval?: number | false }) {
 export function useMachine(id: string) {
   return useQuery({
     queryKey: machineKeys.detail(id),
-    queryFn: () => api.get<Machine>(`/machines/${id}`),
+    queryFn: () => api.get<Machine>(`/machines/${id}`).then(markV1Machine),
     refetchInterval: (query) => {
       const status = query.state.data?.status;
       if (status === "provisioning") return 5_000;

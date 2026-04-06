@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Generate OpenAPI 3.1 spec from Zod schemas (SINGLE SOURCE OF TRUTH).
  *

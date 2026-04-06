@@ -28,6 +28,15 @@ describe('resolveMachineCallbackConfig', () => {
     });
   });
 
+  it('allows explicit private MACHINE_CALLBACK_URL for local e2e testing', async () => {
+    vi.stubEnv('MACHINE_CALLBACK_URL', 'http://10.189.108.1:4102');
+    const { resolveMachineCallbackConfig } = await loadLifecycle();
+    expect(resolveMachineCallbackConfig('http://localhost:4100/api/v1/machines')).toEqual({
+      url: 'http://10.189.108.1:4102',
+      callbackExpected: true,
+    });
+  });
+
   it('marks loopback-only configs as callbackExpected=false', async () => {
     vi.stubEnv('MACHINE_CALLBACK_URL', '');
     vi.stubEnv('PLATFORM_URL', 'http://localhost:4100');

@@ -98,6 +98,7 @@ describe('cloud-init', () => {
       expect(script).toContain('ChallengeResponseAuthentication no');
       expect(script).toContain('KbdInteractiveAuthentication no');
       expect(script).toContain('rm -f /etc/ssh/sshd_config.d/50-cloud-init.conf');
+      expect(script).toContain('if [ -f /etc/ssh/sshd_config ]');
     });
 
     it('should inject machine token and callback URL', () => {
@@ -150,6 +151,7 @@ describe('cloud-init', () => {
       // Either fresh download or background update for snapshot-based installs
       expect(script).toContain('Downloading daemon');
       expect(script).toContain('background-updating');
+      expect(script).toContain('apt-get install -y -qq curl ca-certificates');
     });
 
     it('should use production R2 path by default (no daemonChannel)', () => {

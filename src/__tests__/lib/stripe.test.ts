@@ -7,9 +7,11 @@
  * 4. Price update (resize)
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import 'dotenv/config';
 import Stripe from 'stripe';
+
+vi.setConfig({ testTimeout: 20000 });
 
 const STRIPE_KEY = process.env.STRIPE_SECRET_KEY || '';
 

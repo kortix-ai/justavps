@@ -1,5 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { api } from "./api-client";
+import { api, apiV2 } from "./api-client";
 import type {
   AccountUsage,
   AccountLimits,
@@ -17,6 +17,8 @@ export const accountKeys = {
   profile: ["account", "profile"] as const,
   usage: ["account", "usage"] as const,
   billing: ["account", "billing"] as const,
+  billingV2: ["account", "billing-v2"] as const,
+  billingCompareV2: (plan: string, hoursPerDay: number) => ["account", "billing-v2-compare", plan, hoursPerDay] as const,
   limits: ["account", "limits"] as const,
   me: ["account", "me"] as const,
   memberships: ["account", "memberships"] as const,
@@ -82,6 +84,31 @@ export function useBillingPortal() {
   return useQuery({
     queryKey: accountKeys.billing,
     queryFn: () => api.get<BillingPortal>("/account/billing"),
+  });
+}
+
+export function useBillingOverviewV2() {
+  return useQuery({
+    queryKey: accountKeys.billingV2,
+    queryFn: () => apiV2.get<{
+      modes: Array<{ id: string; available: boolean; default: boolean; description: string }>;
+      current_period: { machines: number; estimated_cost: number };
+      usage: { compute_seconds: number; storage_gb_seconds: number };
+      plans: Array<{ id: string; price_monthly: number }>;
+    }>("/billing/overview"),
+  });
+}
+
+export function useBillingComparisonV2(plan: string, hoursPerDay: number) {
+  return useQuery({
+    queryKey: accountKeys.billingCompareV2(plan, hoursPerDay),
+    queryFn: () => apiV2.get<{
+      plan: string;
+      monthly_price: number;
+      hours_per_day: number;
+      competitors: { e2b_monthly_equivalent: number; daytona_monthly_equivalent: number };
+    }>(`/billing/compare?plan=${plan}&hours_per_day=${hoursPerDay}`),
+    enabled: !!plan,
   });
 }
 

@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from '@hono/zod-openapi';
 import { CreateMachineSchema } from '@/lib/schemas';
 import { stripeClient, type BillingInterval } from '@/server/lib/stripe';
-import { getProvider } from '@/server/lib/providers';
 import { config } from '@/server/lib/config';
 import { backupSurcharge } from '@/lib/hetzner-pricing';
+import { resolvePlanForDisplay } from '@/lib/plan-catalog';
 
-const GuestCheckoutSchema = CreateMachineSchema.pick({
-  provider: true,
-  server_type: true,
-  region: true,
-  billing_interval: true,
-  enable_backups: true,
+const GuestCheckoutSchema = z.object({
+  plan: CreateMachineSchema.shape.server_type.optional(),
+  server_type: CreateMachineSchema.shape.server_type.optional(),
+  region: CreateMachineSchema.shape.region,
+  billing_interval: CreateMachineSchema.shape.billing_interval.optional(),
+  enable_backups: CreateMachineSchema.shape.enable_backups.optional(),
+}).refine((value) => Boolean(value.plan || value.server_type), {
+  message: 'Plan is required',
 });
 
 export async function POST(req: NextRequest) {
@@ -27,12 +30,11 @@ export async function POST(req: NextRequest) {
     }
 
     const input = parsed.data;
-    const provider = getProvider(input.provider);
-    const serverTypes = await provider.listServerTypes(input.region);
-    const selected = serverTypes.find((serverType) => serverType.name === input.server_type);
+    const selectedPlan = (input.plan ?? input.server_type) as string;
+    const selected = resolvePlanForDisplay(selectedPlan);
 
     if (!selected) {
-      return NextResponse.json({ error: true, message: `Server type ${input.server_type} is not available in ${input.region}` }, { status: 400 });
+      return NextResponse.json({ error: true, message: `Plan ${selectedPlan} is not available in ${input.region}` }, { status: 400 });
     }
 
     const billingInterval = (input.billing_interval ?? 'monthly') as BillingInterval;
@@ -41,16 +43,16 @@ export async function POST(req: NextRequest) {
     const totalMonthly = wantBackups ? basePrice + backupSurcharge(basePrice) : basePrice;
     const { url } = await stripeClient.createCheckoutSession({
       machineConfig: {
-        provider: input.provider,
-        server_type: input.server_type,
+        provider: 'cloud',
+        server_type: selectedPlan,
         region: input.region,
         billing_interval: billingInterval,
         enable_backups: wantBackups,
         specs: {
-          vcpus: selected.cores,
+          vcpus: selected.vcpu,
           ramGb: selected.memory,
           diskGb: selected.disk,
-          cpuType: selected.cpuType,
+          cpuType: 'shared',
         },
       },
       priceMonthlyUsd: totalMonthly,

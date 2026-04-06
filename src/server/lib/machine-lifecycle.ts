@@ -54,8 +54,11 @@ function isPublicCallbackOrigin(origin: string): boolean {
 }
 
 export function resolveMachineCallbackConfig(requestUrl?: string): { url: string; callbackExpected: boolean } {
+  if (config.MACHINE_CALLBACK_URL) {
+    return { url: config.MACHINE_CALLBACK_URL, callbackExpected: true };
+  }
+
   const candidates = [
-    config.MACHINE_CALLBACK_URL,
     requestUrl ? (() => {
       try {
         return new URL(requestUrl).origin;
@@ -368,8 +371,11 @@ export async function cleanupMachineResources(
     return;
   }
 
-  if (machine.providerServerId) {
-    await provider.deleteServer(machine.providerServerId);
+  const providerServerId = machine.providerServerId
+    ?? (machine.provider === 'baremetal' ? `justavps-${machine.slug}` : null);
+
+  if (providerServerId) {
+    await provider.deleteServer(providerServerId);
   }
 
   if (config.isCloudflareConfigured()) {

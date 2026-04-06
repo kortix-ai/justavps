@@ -1,0 +1,46 @@
+{
+  "recommendedCommand": "/autowork-team",
+  "branch": "feat/incus-v2-provider",
+  "goal": "Finish JustAVPS V2 as a substrate-agnostic public API/FE over a Hetzner dedicated + Incus VM fleet",
+  "workstreams": [
+    {
+      "name": "api-domain",
+      "scope": [
+        "Design and implement /api/v2/machines, /images, /snapshots, /billing",
+        "Keep public V2 API substrate-agnostic",
+        "Move machine lifecycle logic out of V1 cloud-shaped assumptions"
+      ]
+    },
+    {
+      "name": "fleet-runner",
+      "scope": [
+        "Harden runnerd create/start/stop/reboot/publish/delete",
+        "Implement production ZFS-first host bootstrap",
+        "Add host heartbeat/capacity sync and drain controls"
+      ]
+    },
+    {
+      "name": "frontend-admin",
+      "scope": [
+        "Build V2 machine creation and detail FE",
+        "Build admin fleet dashboard and procurement views",
+        "Keep V1 intact during migration"
+      ]
+    },
+    {
+      "name": "billing-metering",
+      "scope": [
+        "Preserve flat monthly flow",
+        "Design metered storage/compute accumulation",
+        "Implement cap-at-monthly groundwork and pricing explanation UI"
+      ]
+    }
+  ],
+  "mustPass": [
+    "Real host procurement and registration remains working",
+    "Real runnerd-created VM lifecycle works on dedicated hardware",
+    "Customer V2 APIs do not leak internal provider/substrate concepts",
+    "FE lint passes",
+    "Targeted API and runner tests pass"
+  ]
+}

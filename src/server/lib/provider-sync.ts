@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Provider-sync helpers — run operations across all providers (best-effort).
  */

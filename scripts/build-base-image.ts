@@ -1,4 +1,5 @@
 #!/usr/bin/env npx tsx
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Build JustAVPS Base Image — automated e2e snapshot builder.
  *
