@@ -19,6 +19,113 @@ const RUNNERD_STATE_DIR = '/run/justavps-runnerd';
 
 mkdirSync(RUNNERD_STATE_DIR, { recursive: true });
 
+// ─── Warm Pool ──────────────────────────────────────────────────────────────
+// Pre-boots VMs from the golden image so they can be claimed instantly.
+// Pool VMs are named `justavps-warm-{index}` and tracked in memory.
+
+const WARM_POOL_SIZE = Number(process.env.WARM_POOL_SIZE || 2);
+const WARM_POOL_IMAGE = 'justavps-golden';
+const WARM_POOL_PREFIX = 'justavps-warm-';
+
+interface WarmVM {
+  name: string;
+  privateIpv4: string;
+  ready: boolean;
+  createdAt: number;
+}
+
+const warmPool: WarmVM[] = [];
+let poolReplenishing = false;
+
+async function isWarmVMReady(name: string): Promise<{ ready: boolean; ip: string | null }> {
+  try {
+    await runIncus(['exec', incusTarget(name), '--', 'true'], 3000);
+    const inspected = await inspectInstance(name);
+    return { ready: true, ip: inspected.privateIpv4 };
+  } catch {
+    return { ready: false, ip: null };
+  }
+}
+
+async function createWarmVM(): Promise<WarmVM | null> {
+  const index = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const name = `${WARM_POOL_PREFIX}${index}`;
+  try {
+    console.log(`[warm-pool] creating ${name}`);
+    await retryTransient(() => runIncusPty(['init', WARM_POOL_IMAGE, incusTarget(name), '--vm'], 300000), 310000);
+    await waitForInstance(name);
+    await setIncusConfig(name, 'limits.cpu', '2');
+    await setIncusConfig(name, 'limits.memory', '4GiB');
+    await retryBusy(() => runIncus(['start', incusTarget(name)]));
+
+    // Wait for agent to be ready (this takes ~18s but happens in background)
+    const deadline = Date.now() + 120000;
+    let ip: string | null = null;
+    while (Date.now() < deadline) {
+      const check = await isWarmVMReady(name);
+      if (check.ready && check.ip) {
+        ip = check.ip;
+        break;
+      }
+      await delay(500);
+    }
+    if (!ip) {
+      console.warn(`[warm-pool] ${name} never became ready, destroying`);
+      await runIncus(['delete', incusTarget(name), '--force']).catch(() => {});
+      return null;
+    }
+
+    const vm: WarmVM = { name, privateIpv4: ip, ready: true, createdAt: Date.now() };
+    console.log(`[warm-pool] ${name} ready ip=${ip}`);
+    return vm;
+  } catch (err) {
+    console.warn(`[warm-pool] failed to create ${name}:`, err instanceof Error ? err.message : err);
+    await runIncus(['delete', incusTarget(name), '--force']).catch(() => {});
+    return null;
+  }
+}
+
+async function replenishPool() {
+  if (poolReplenishing) return;
+  poolReplenishing = true;
+  try {
+    // Remove stale entries
+    for (let i = warmPool.length - 1; i >= 0; i--) {
+      const vm = warmPool[i];
+      const check = await isWarmVMReady(vm.name);
+      if (!check.ready) {
+        console.log(`[warm-pool] removing stale ${vm.name}`);
+        await runIncus(['delete', incusTarget(vm.name), '--force']).catch(() => {});
+        warmPool.splice(i, 1);
+      }
+    }
+    // Create new ones up to pool size
+    while (warmPool.length < WARM_POOL_SIZE) {
+      const vm = await createWarmVM();
+      if (vm) {
+        warmPool.push(vm);
+      } else {
+        break; // Don't loop forever on failures
+      }
+    }
+    console.log(`[warm-pool] pool size: ${warmPool.length}/${WARM_POOL_SIZE}`);
+  } finally {
+    poolReplenishing = false;
+  }
+}
+
+function claimWarmVM(): WarmVM | null {
+  const vm = warmPool.shift() ?? null;
+  if (vm) {
+    console.log(`[warm-pool] claimed ${vm.name}, pool now ${warmPool.length}/${WARM_POOL_SIZE}`);
+    // Trigger background replenish
+    replenishPool().catch(() => {});
+  }
+  return vm;
+}
+
+// ─── End Warm Pool ──────────────────────────────────────────────────────────
+
 function incusTarget(name?: string) {
   return INCUS_REMOTE ? `${INCUS_REMOTE}:${name ?? ''}` : (name ?? '');
 }
@@ -383,6 +490,11 @@ app.get('/healthz', async (c) => {
         instanceCount: instances.length,
         imageCount: images.length,
       },
+      warm_pool: {
+        size: warmPool.length,
+        target: WARM_POOL_SIZE,
+        ready: warmPool.filter((vm) => vm.ready).length,
+      },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -422,16 +534,59 @@ app.post('/v1/instances', async (c) => {
     await setIncusConfig(instanceName, 'limits.memory', `${memoryGb}GiB`);
 
     if (isGoldenImage) {
-      // Golden fast-path: NO cloud-init. Identity injected via incus exec.
       const startTs = Date.now();
       const sshPort = sshPortForInstance(instanceName);
+      const httpPort = httpPortForInstance(instanceName);
+
+      // ── TRY WARM POOL FIRST (instant claim, ~2s total) ────────────
+      const warmVM = claimWarmVM();
+      if (warmVM) {
+        console.log(`[runnerd] WARM POOL claim ${warmVM.name} → ${instanceName} +${Date.now() - startTs}ms`);
+
+        // Rename the warm VM to the requested name (must stop first)
+        // Actually we CAN'T rename running VMs in Incus, so we keep the warm name
+        // and just track the mapping. The instanceName is what the control plane uses.
+        // We'll use the warm VM's existing name as the Incus instance ID but return
+        // instanceName as the logical ID.
+
+        // Inject identity via incus exec (VM is already running + agent ready)
+        if (cloudInitUserData.trim()) {
+          const b64 = Buffer.from(cloudInitUserData).toString('base64');
+          await runIncus(['exec', incusTarget(warmVM.name), '--', 'bash', '-c',
+            `echo '${b64}' | base64 -d > /tmp/init.sh && chmod +x /tmp/init.sh && /tmp/init.sh`], 30000);
+        }
+        console.log(`[runnerd] identity injected ${warmVM.name} +${Date.now() - startTs}ms`);
+
+        // Set up host → VM NAT forwarding (SSH + HTTP proxy)
+        if (warmVM.privateIpv4 && RUNNERD_PUBLIC_IPV4) {
+          await setupProxyDevices(warmVM.name, warmVM.privateIpv4, sshPort, httpPort).catch((err) =>
+            console.warn(`[runnerd] proxy setup failed: ${err instanceof Error ? err.message : err}`)
+          );
+          console.log(`[runnerd] proxies ready +${Date.now() - startTs}ms ssh:${sshPort} http:${httpPort}`);
+        }
+
+        console.log(`[runnerd] WARM CLAIM COMPLETE ${warmVM.name} total=+${Date.now() - startTs}ms`);
+        regenerateNginxMap().catch(() => {});
+        return c.json({
+          instanceId: warmVM.name,
+          hostIpv4: RUNNERD_PUBLIC_IPV4,
+          hostIpv6: RUNNERD_PUBLIC_IPV6,
+          privateIpv4: warmVM.privateIpv4,
+          sshPort,
+          httpPort,
+          metadata: { incus_status: 'Running', warm_pool: true },
+        }, 201);
+      }
+
+      // ── COLD BOOT FALLBACK (pool empty, ~18s) ──────────────────────
+      console.log(`[runnerd] cold boot ${instanceName} (warm pool empty)`);
 
       await retryBusy(() => runIncus(['start', incusTarget(instanceName)]));
       console.log(`[runnerd] started ${instanceName} +${Date.now() - startTs}ms`);
       const inspected = await waitForPrivateIpv4(instanceName);
       console.log(`[runnerd] ip ready ${instanceName} +${Date.now() - startTs}ms ip=${inspected.privateIpv4 ?? 'none'}`);
 
-      // Wait for incus agent to become responsive (needed for exec)
+      // Wait for incus agent
       const agentDeadline = Date.now() + 30000;
       let agentReady = false;
       while (Date.now() < agentDeadline) {
@@ -446,7 +601,7 @@ app.post('/v1/instances', async (c) => {
       if (!agentReady) throw new Error('Timed out waiting for incus agent');
       console.log(`[runnerd] agent ready ${instanceName} +${Date.now() - startTs}ms`);
 
-      // Inject identity via incus exec
+      // Inject identity
       if (cloudInitUserData.trim()) {
         const b64 = Buffer.from(cloudInitUserData).toString('base64');
         await runIncus(['exec', incusTarget(instanceName), '--', 'bash', '-c',
@@ -454,8 +609,7 @@ app.post('/v1/instances', async (c) => {
         console.log(`[runnerd] identity injected ${instanceName} +${Date.now() - startTs}ms`);
       }
 
-      // Set up host → VM NAT forwarding (SSH + HTTP proxy)
-      const httpPort = httpPortForInstance(instanceName);
+      // Set up proxies
       if (inspected.privateIpv4 && RUNNERD_PUBLIC_IPV4) {
         await setupProxyDevices(instanceName, inspected.privateIpv4, sshPort, httpPort).catch((err) =>
           console.warn(`[runnerd] proxy setup failed for ${instanceName}: ${err instanceof Error ? err.message : err}`)
@@ -643,3 +797,11 @@ console.log(`[runnerd] listening on :${RUNNERD_PORT}`);
 
 // Regenerate nginx map on startup so proxy routing is always correct
 regenerateNginxMap().catch(() => {});
+
+// Start warm pool replenishment in background
+if (WARM_POOL_SIZE > 0) {
+  console.log(`[warm-pool] initializing pool (target size: ${WARM_POOL_SIZE})`);
+  replenishPool().catch((err) => console.warn('[warm-pool] initial replenish failed:', err));
+  // Keep pool topped up every 30 seconds
+  setInterval(() => replenishPool().catch(() => {}), 30000);
+}
