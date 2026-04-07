@@ -23,7 +23,7 @@ describe('cloudflareClient', () => {
   });
 
   describe('addMachineDNS', () => {
-    it('should only clean up legacy machine DNS', async () => {
+    it('should create unproxied origin DNS record for SSH access', async () => {
       mockFetch.mockImplementation(async (_url: string, opts?: { method?: string }) => {
         const method = opts?.method || 'GET';
         if (method === 'GET') return { ok: true, json: async () => ({ result: [] }) };
@@ -36,8 +36,17 @@ describe('cloudflareClient', () => {
         ipv6: '2a01:4f8:c17:e4c4::1',
       });
 
+      // Should create DNS records (A + AAAA) for origin-test-slug.<domain>
       const postCalls = (mockFetch.mock.calls as MockCall[]).filter((c) => c[1]?.method === 'POST');
-      expect(postCalls.length).toBe(0);
+      expect(postCalls.length).toBeGreaterThan(0);
+      // Verify records are unproxied
+      for (const call of postCalls) {
+        const body = JSON.parse(call[1]?.body as string);
+        if (body.type === 'A' || body.type === 'AAAA') {
+          expect(body.proxied).toBe(false);
+          expect(body.name).toContain('origin-test-slug');
+        }
+      }
     });
   });
 

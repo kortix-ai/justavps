@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, apiV2, ApiError } from "@/hooks/api-client";
 import type { Machine, CheckoutRequired } from "@/lib/types";
 
-type V2Machine = {
+export type V2Machine = {
   id: string;
   slug: string;
   name: string;
@@ -15,11 +15,14 @@ type V2Machine = {
   billing: { mode: string; price_monthly: number | null };
   image: { id: string } | null;
   connectivity: {
-    public_ip: string | null;
-    private_ipv4: string | null;
-    ssh_command: string | null;
+    ssh_host: string | null;
     ssh_port: number | null;
-    urls: { proxy: string; terminal: string; port_template: string } | null;
+    ssh_command: string | null;
+    ssh_setup_command: string | null;
+    ssh_config_block: string | null;
+    ssh_private_key: string | null;
+    ssh_public_key: string | null;
+    urls: { proxy: string; terminal: string; port_template: string };
   };
   health: Machine["health"];
   capabilities?: NonNullable<Machine["capabilities"]>;
@@ -32,6 +35,7 @@ type V2Machine = {
 };
 
 function mapV2Machine(machine: V2Machine): Machine {
+  const c = machine.connectivity;
   return {
     id: machine.id,
     slug: machine.slug,
@@ -44,7 +48,10 @@ function mapV2Machine(machine: V2Machine): Machine {
     image_id: machine.image?.id ?? null,
     server_type: `${machine.resources.vcpu}v-${machine.resources.ram_gb}g-${machine.resources.disk_gb}d`,
     region: machine.region,
-    ip: machine.connectivity.public_ip,
+    ip: null, // Never expose host IP via legacy field
+    vcpu: machine.resources.vcpu,
+    ram_gb: machine.resources.ram_gb,
+    disk_gb: machine.resources.disk_gb,
     provider_progress: machine.provider_progress,
     provider_status: machine.provider_status,
     callback_expected: machine.callback_expected,
@@ -54,15 +61,26 @@ function mapV2Machine(machine: V2Machine): Machine {
     created_at: machine.created_at,
     ready_at: machine.ready_at,
     daemon_version: null,
-    urls: machine.connectivity.urls,
-    ssh: machine.connectivity.ssh_command,
-    ssh_key: null,
-    connect: machine.connectivity.urls ? {
-      ssh_command: machine.connectivity.ssh_command,
-      setup_command: null,
-      vscode_url: machine.connectivity.urls.proxy,
-      cursor_ssh: machine.connectivity.ssh_command,
-    } : null,
+    urls: c.urls,
+    ssh: c.ssh_command,
+    ssh_host: c.ssh_host,
+    ssh_port: c.ssh_port,
+    ssh_setup_command: c.ssh_setup_command,
+    ssh_config_block: c.ssh_config_block,
+    ssh_key: c.ssh_private_key
+      ? {
+          private_key: c.ssh_private_key,
+          public_key: c.ssh_public_key ?? '',
+          setup_command: c.ssh_setup_command,
+          key_path: `~/.ssh/justavps_${machine.slug}`,
+        }
+      : null,
+    connect: {
+      ssh_command: c.ssh_command,
+      setup_command: c.ssh_setup_command,
+      vscode_url: c.urls.proxy,
+      cursor_ssh: c.ssh_command,
+    },
     source: 'user',
     kortix_sandbox_id: null,
     subscription: null,

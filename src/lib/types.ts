@@ -23,6 +23,10 @@ export interface Machine {
   server_type: string;
   region: string;
   ip: string | null;
+  /** V2 actual allocated resources */
+  vcpu?: number;
+  ram_gb?: number;
+  disk_gb?: number;
   provider_progress: number | null;
   provider_status: string | null;
   callback_expected: boolean | null;
@@ -34,6 +38,14 @@ export interface Machine {
   daemon_version: string | null;
   urls: { proxy: string; terminal: string; port_template: string } | null;
   ssh: string | null;
+  /** V2: SSH host (gateway IP for the proxy NAT) */
+  ssh_host?: string | null;
+  /** V2: SSH port forwarded by Incus proxy device */
+  ssh_port?: number | null;
+  /** V2: One-liner that writes the key and connects */
+  ssh_setup_command?: string | null;
+  /** V2: Block to append to ~/.ssh/config */
+  ssh_config_block?: string | null;
   ssh_key: {
     private_key: string | null;
     public_key: string | null;

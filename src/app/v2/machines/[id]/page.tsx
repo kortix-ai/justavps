@@ -2,6 +2,10 @@
 
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
+import dynamic from "next/dynamic";
+import { toast } from "sonner";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -16,8 +20,6 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { toast } from "sonner";
-import dynamic from "next/dynamic";
 import { ProxyTokenManager } from "@/components/dashboard/proxy-token-manager";
 import {
   useMachine,
@@ -31,7 +33,6 @@ import {
   useRestoreBackup,
   useDeleteBackup,
 } from "@/hooks/v2/use-machines-v2";
-import { useMachineSSE } from "@/hooks/v2/use-machine-sse-v2";
 import { useCreateImage } from "@/hooks/v2/use-images-v2";
 import { useConfirm } from "@/hooks/use-confirm";
 import type { Machine } from "@/lib/types";
@@ -40,7 +41,6 @@ import {
   RotateCw,
   Copy,
   Check,
-  ArrowUp,
   Cpu,
   MemoryStick,
   HardDrive,
@@ -65,10 +65,10 @@ import {
   CalendarX2,
   Trash2,
   RotateCcw,
+  Eye,
+  EyeOff,
 } from "lucide-react";
-import { RescaleDialog } from "@/components/dashboard/rescale-dialog";
-import Link from "next/link";
-import { timeAgo, cn, regionDisplay, planName, planSpecs, PROXY_DOMAIN } from "@/lib/utils";
+import { timeAgo, cn, regionDisplay, PROXY_DOMAIN } from "@/lib/utils";
 
 const Terminal = dynamic(() => import("@/components/dashboard/terminal"), {
   ssr: false,
@@ -77,6 +77,9 @@ const Terminal = dynamic(() => import("@/components/dashboard/terminal"), {
   ),
 });
 
+/* ═══════════════════════════════════════════════════════════════════════
+   STATUS MAP
+   ═══════════════════════════════════════════════════════════════════════ */
 const statusMap: Record<
   string,
   { label: string; dotClass: string; badgeClass: string }
@@ -105,7 +108,9 @@ const statusMap: Record<
   },
 };
 
-/* ─── Shared copy logic ──────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════
+   COPY HELPERS
+   ═══════════════════════════════════════════════════════════════════════ */
 function useCopy(text: string, label?: string) {
   const [copied, setCopied] = useState(false);
   const copy = (e?: React.MouseEvent) => {
@@ -118,24 +123,6 @@ function useCopy(text: string, label?: string) {
   return { copied, copy };
 }
 
-/* ─── Shared hover copy overlay (top-right badge) ────────────────────── */
-function CopyOverlay({ copied }: { copied: boolean }) {
-  return (
-    <div
-      className={cn(
-        "absolute top-2 right-2 flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md pointer-events-none transition-all",
-        copied
-          ? "bg-emerald-500/20 text-emerald-400 opacity-100"
-          : "bg-zinc-800 text-zinc-400 opacity-0 group-hover:opacity-100",
-      )}
-    >
-      {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
-      {copied ? "Copied" : "Copy"}
-    </div>
-  );
-}
-
-/* ─── Standard click-to-copy code block ─────────────────────────────── */
 function CodeBlock({
   text,
   label,
@@ -150,72 +137,50 @@ function CodeBlock({
     <div className="relative group cursor-pointer min-w-0 w-full" onClick={copy}>
       <pre
         className={cn(
-          "p-3 rounded-lg text-xs font-mono border overflow-x-auto transition-colors leading-relaxed max-w-full",
+          "p-3 rounded-lg text-xs font-mono border overflow-x-auto transition-colors leading-relaxed max-w-full whitespace-pre-wrap break-all",
           "bg-zinc-950 border-zinc-800 hover:border-zinc-700",
           variant === "green" ? "text-green-400" : "text-zinc-300",
         )}
       >
         {text}
       </pre>
-      <CopyOverlay copied={copied} />
-    </div>
-  );
-}
-
-/* ─── Masked secret block — same hover copy, key never readable ──────── */
-function SecretCodeBlock({ text, label }: { text: string; label?: string }) {
-  const { copied, copy } = useCopy(text, label);
-
-  // Replace the private key value with bullets — only first 6 chars shown.
-  // setup_command: mkdir ... && echo 'KEY' > path && chmod ...
-  const masked = text.replace(
-    /(echo\s+')([^']{6})[^']*('[^']*)/,
-    "$1$2••••••$3",
-  );
-
-  return (
-    <div className="relative group cursor-pointer min-w-0 w-full" onClick={copy}>
       <div
         className={cn(
-          "rounded-lg border overflow-hidden transition-colors",
-          "bg-zinc-950 border-zinc-800 hover:border-zinc-700",
+          "absolute top-2 right-2 flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md pointer-events-none transition-all",
+          copied
+            ? "bg-emerald-500/20 text-emerald-400 opacity-100"
+            : "bg-zinc-800 text-zinc-400 opacity-0 group-hover:opacity-100",
         )}
       >
-        {/* Single truncated line — never wraps, key stays hidden */}
-        <p className="px-3 py-2.5 text-[11px] font-mono text-green-400 truncate leading-relaxed">
-          {masked}
-        </p>
-        {/* Footer hint */}
-        <div className="flex items-center gap-1.5 px-3 py-1.5 border-t border-zinc-800 bg-zinc-900/50">
-          <KeyRound className="size-2.5 text-zinc-500 shrink-0" />
-          <span className="text-[10px] text-zinc-500">Private key hidden</span>
-        </div>
+        {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+        {copied ? "Copied" : "Copy"}
       </div>
-      <CopyOverlay copied={copied} />
     </div>
   );
 }
 
-/* ─── Inline copy button (for row-level copy actions) ───────────────── */
-function CopyButton({ text, label }: { text: string; label?: string }) {
-  const { copied, copy } = useCopy(text, label);
-  return (
-    <button
-      onClick={copy}
-      className={cn(
-        "shrink-0 flex items-center justify-center gap-1.5 text-xs font-medium w-20 py-1.5 rounded-lg border transition-all",
-        copied
-          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-          : "border-border bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground",
-      )}
-    >
-      {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
-      {copied ? "Copied!" : "Copy"}
-    </button>
-  );
+/* ═══════════════════════════════════════════════════════════════════════
+   PROVISIONING PROGRESS — single source of truth
+   ═══════════════════════════════════════════════════════════════════════ */
+const STAGE_PROGRESS: Record<string, { pct: number; label: string }> = {
+  server_creating: { pct: 15, label: "Creating server" },
+  server_created: { pct: 60, label: "VM running, waiting for daemon" },
+  cloud_init_running: { pct: 70, label: "Injecting machine identity" },
+  cloud_init_done: { pct: 85, label: "Identity injected" },
+  services_starting: { pct: 92, label: "Starting services" },
+  services_ready: { pct: 100, label: "Ready" },
+};
+
+function provisioningInfo(machine: Machine): { pct: number; label: string } {
+  if (machine.status === "ready") return { pct: 100, label: "Ready" };
+  if (machine.status === "error") return { pct: 0, label: "Failed" };
+  const stage = machine.provisioning_stage || "";
+  return STAGE_PROGRESS[stage] || { pct: 5, label: "Starting…" };
 }
 
-/* ─── Health stat row ───────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════
+   HEALTH ROW
+   ═══════════════════════════════════════════════════════════════════════ */
 function HealthRow({
   icon: Icon,
   label,
@@ -260,7 +225,9 @@ function HealthRow({
   );
 }
 
-/* ─── Backups Panel ─────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════
+   BACKUPS PANEL
+   ═══════════════════════════════════════════════════════════════════════ */
 function BackupsPanel({ machineId, machine }: { machineId: string; machine: { price_monthly: number | null } }) {
   const { data, isLoading } = useBackups(machineId);
   const createBackup = useCreateBackup();
@@ -428,7 +395,9 @@ function BackupsPanel({ machineId, machine }: { machineId: string; machine: { pr
   );
 }
 
-/* ─── Port Forwarding (inline, no wrapper card) ─────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════
+   PORT FORWARD CARD
+   ═══════════════════════════════════════════════════════════════════════ */
 function PortForwardCard({ slug, portTemplate }: { slug: string; portTemplate?: string | null }) {
   const [port, setPort] = useState("");
   const template = portTemplate && portTemplate.includes('{port}')
@@ -472,69 +441,137 @@ function PortForwardCard({ slug, portTemplate }: { slug: string; portTemplate?: 
   );
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   SSH CONNECT PANEL
+   ═══════════════════════════════════════════════════════════════════════ */
+function SshConnectPanel({ machine }: { machine: Machine }) {
+  const [showKey, setShowKey] = useState(false);
+  const sshHost = machine.ssh_host;
+  const sshPort = machine.ssh_port;
+  const sshCommand = machine.connect?.ssh_command ?? machine.ssh ?? null;
+  const setupCommand = machine.ssh_setup_command ?? machine.ssh_key?.setup_command ?? null;
+  const sshConfigBlock = machine.ssh_config_block ?? null;
+  const privateKey = machine.ssh_key?.private_key ?? null;
 
-function provisioningHeadline(machine: Machine) {
-  if (machine.provisioning_stage === "resizing") return "Scaling in progress";
-  if (machine.provisioning_stage === "server_created") return "Waiting for first heartbeat";
-  if (machine.provisioning_stage === "cloud_init_running") return "Installing runtime services";
-  if (machine.provisioning_stage === "cloud_init_done" || machine.provisioning_stage === "services_starting") return "Finishing setup";
-  return "Boot progress";
-}
-
-function provisioningSubcopy(machine: Machine) {
-  if (machine.provisioning_stage === "resizing") {
-    return "Usually under 90 seconds.";
+  if (!sshHost || !sshPort) {
+    return (
+      <div className="rounded-xl border border-dashed p-6 text-center">
+        <KeyRound className="mx-auto size-8 text-muted-foreground/30 mb-2" />
+        <p className="text-sm text-muted-foreground">SSH not available yet</p>
+        <p className="text-[11px] text-muted-foreground/60 mt-1">
+          The host port-forward will appear once provisioning completes.
+        </p>
+      </div>
+    );
   }
-  if (machine.provider_status === "success" && machine.callback_expected === false) {
-    return "The VM booted, but this environment is still syncing control-plane state.";
-  }
-  if (machine.provider_status === "success") {
-    return "The VM booted. Waiting for the first successful agent sync before tools appear.";
-  }
-  return "Usually 1-3 minutes.";
-}
 
-function provisioningProgress(machine: Machine) {
-  const stageProgress: Record<string, number> = {
-    server_creating: 10,
-    server_created: 35,
-    cloud_init_running: 60,
-    cloud_init_done: 78,
-    services_starting: 90,
-    services_ready: 95,
-    resizing: 55,
-  };
+  return (
+    <div className="space-y-3">
+      {/* Endpoint summary */}
+      <div className="rounded-xl border bg-card overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b">
+          <Globe className="size-3.5 text-muted-foreground" />
+          <span className="text-sm font-medium">SSH endpoint</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x">
+          <div className="px-4 py-3">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Host</p>
+            <p className="text-sm font-mono">{sshHost}</p>
+          </div>
+          <div className="px-4 py-3">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Port</p>
+            <p className="text-sm font-mono">{sshPort}</p>
+          </div>
+          <div className="px-4 py-3">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">User</p>
+            <p className="text-sm font-mono">root</p>
+          </div>
+        </div>
+      </div>
 
-  const stageValue = machine.provisioning_stage ? stageProgress[machine.provisioning_stage] ?? null : null;
-  const providerValue = typeof machine.provider_progress === "number" && machine.provider_progress > 1
-    ? Math.max(0, Math.min(100, machine.provider_progress))
-    : null;
+      {/* One-line connect (private key inline) */}
+      {setupCommand && (
+        <div className="rounded-xl border bg-card overflow-hidden">
+          <div className="flex items-center gap-2.5 px-4 py-2.5 border-b bg-muted/30">
+            <span className="size-5 rounded-full bg-foreground text-background text-[10px] font-bold flex items-center justify-center shrink-0">1</span>
+            <span className="text-sm font-medium">Connect now</span>
+            <Badge variant="outline" className="ml-auto h-4 px-1.5 text-[10px] border-amber-500/30 text-amber-600 dark:text-amber-400 gap-1">
+              <KeyRound className="size-2.5" />
+              Contains private key
+            </Badge>
+          </div>
+          <div className="p-4 space-y-2.5">
+            <p className="text-xs text-muted-foreground">
+              Paste this in your terminal — it saves your key to <code className="text-foreground font-mono">~/.ssh/justavps_{machine.slug}</code> and opens the SSH session immediately.
+            </p>
+            <CodeBlock text={setupCommand} label="Setup command" variant="green" />
+          </div>
+        </div>
+      )}
 
-  if (typeof stageValue === "number" && typeof providerValue === "number") return Math.max(stageValue, providerValue);
-  return stageValue ?? providerValue;
-}
+      {/* Reconnect later */}
+      {sshCommand && (
+        <div className="rounded-xl border bg-card overflow-hidden">
+          <div className="flex items-center gap-2.5 px-4 py-2.5 border-b bg-muted/30">
+            <span className="size-5 rounded-full bg-foreground text-background text-[10px] font-bold flex items-center justify-center shrink-0">2</span>
+            <span className="text-sm font-medium">Reconnect later</span>
+          </div>
+          <div className="p-4 space-y-2.5">
+            <p className="text-xs text-muted-foreground">
+              Once the key is saved, reconnect any time:
+            </p>
+            <CodeBlock text={sshCommand} label="SSH command" />
+          </div>
+        </div>
+      )}
 
-function isIpv6Address(value: string | null | undefined) {
-  return !!value && value.includes(":");
-}
+      {/* Add to ~/.ssh/config (Cursor/VS Code Remote-SSH) */}
+      {sshConfigBlock && (
+        <div className="rounded-xl border bg-card overflow-hidden">
+          <div className="flex items-center gap-2.5 px-4 py-2.5 border-b bg-muted/30">
+            <span className="size-5 rounded-full bg-foreground text-background text-[10px] font-bold flex items-center justify-center shrink-0">3</span>
+            <Monitor className="size-3.5 text-muted-foreground" />
+            <span className="text-sm font-medium">Cursor / VS Code Remote-SSH</span>
+            <Badge className="ml-auto text-[10px] font-normal bg-primary/10 text-primary border-primary/20 h-4 px-1.5">
+              Recommended
+            </Badge>
+          </div>
+          <div className="p-4 space-y-2.5">
+            <p className="text-xs text-muted-foreground">Append this block to <code className="text-foreground font-mono">~/.ssh/config</code>:</p>
+            <CodeBlock text={sshConfigBlock} label="SSH config" />
+            <p className="text-xs text-muted-foreground">
+              Then{" "}
+              <kbd className="bg-muted px-1.5 py-0.5 rounded text-[10px] border font-mono">Cmd+Shift+P</kbd>
+              {" → "}Remote-SSH: Connect to Host{" → "}
+              <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-[11px]">{machine.slug}</code>
+            </p>
+          </div>
+        </div>
+      )}
 
-function machineOriginHost(machine: Machine) {
-  return `origin-${machine.slug}.${PROXY_DOMAIN}`;
-}
-
-function machineSshHost(machine: Machine) {
-  return machine.ip ?? machineOriginHost(machine);
-}
-
-function buildSshSetupCommand(machine: Machine, sshKeyPath: string) {
-  if (!machine.ssh_key?.private_key) return null;
-  const target = machineSshHost(machine);
-  return `mkdir -p ~/.ssh && echo '${machine.ssh_key.private_key}' > ${sshKeyPath} && chmod 600 ${sshKeyPath} && ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${target}`;
-}
-
-function buildSshConfig(machine: Machine, sshKeyPath: string) {
-  const target = machineSshHost(machine);
-  return `grep -q "Host ${machine.slug}" ~/.ssh/config 2>/dev/null || cat >> ~/.ssh/config << 'EOF'\n\nHost ${machine.slug}\n  HostName ${target}\n  User root\n  IdentityFile ${sshKeyPath}\n  StrictHostKeyChecking no\nEOF`;
+      {/* Raw private key (collapsed by default) */}
+      {privateKey && (
+        <div className="rounded-xl border bg-card overflow-hidden">
+          <button
+            onClick={() => setShowKey((v) => !v)}
+            className="w-full flex items-center gap-2.5 px-4 py-2.5 border-b bg-muted/30 hover:bg-muted/50 transition-colors text-left"
+          >
+            <KeyRound className="size-3.5 text-muted-foreground" />
+            <span className="text-sm font-medium">Raw private key</span>
+            <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+              {showKey ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
+              {showKey ? "Hide" : "Reveal"}
+            </span>
+          </button>
+          {showKey && (
+            <div className="p-4">
+              <CodeBlock text={privateKey} label="Private key" />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -545,63 +582,15 @@ export default function MachineDetailPage() {
   const router = useRouter();
   const machineId = params.id as string;
   const [createImageOpen, setCreateImageOpen] = useState(false);
-  const [rescaleOpen, setRescaleOpen] = useState(false);
   const [imageName, setImageName] = useState("");
   const [confirmDelete, ConfirmDeleteDialog] = useConfirm();
   const { data: machine, isLoading, error } = useMachine(machineId);
-  useMachineSSE(machineId, machine?.status);
   const deleteMachine = useDeleteMachine();
   const rebootMachine = useRebootMachine();
   const stopMachine = useStopMachine();
   const startMachine = useStartMachine();
-
   const reactivateMachine = useReactivateMachine();
   const createImage = useCreateImage();
-  const isDevMode = process.env.NEXT_PUBLIC_DEV_MODE === "true";
-
-
-  const handleReboot = () => {
-    rebootMachine.mutate(machineId, {
-      onSuccess: () => toast.success("Reboot initiated"),
-      onError: (err) => toast.error(err.message),
-    });
-  };
-
-  const handleStop = () => {
-    stopMachine.mutate(machineId, {
-      onSuccess: () => toast.success("Machine stopped"),
-      onError: (err) => toast.error(err.message),
-    });
-  };
-
-  const handleStart = () => {
-    startMachine.mutate(machineId, {
-      onSuccess: () => toast.success("Machine starting…"),
-      onError: (err) => toast.error(err.message),
-    });
-  };
-
-  const handleCreateImage = () => {
-    if (!imageName.trim()) return;
-    createImage.mutate(
-      { machine_id: machineId, name: imageName.trim() },
-      {
-        onSuccess: () => {
-          toast.success("Image creation started");
-          setCreateImageOpen(false);
-          setImageName("");
-        },
-        onError: (err) => toast.error(err.message),
-      },
-    );
-  };
-
-  const sshKeyPath = `~/.ssh/justavps_${machine?.slug}`;
-
-  const sshTarget = machine ? machineOriginHost(machine) : null;
-  const setupCommand = machine ? buildSshSetupCommand(machine, sshKeyPath) : null;
-  const sshConfigCommand = machine ? buildSshConfig(machine, sshKeyPath) : null;
-  const ipv6OnlySsh = !!machine?.ip && isIpv6Address(machine.ip);
 
   /* ── Loading ───────────────────────────────────────────────────────── */
   if (isLoading)
@@ -640,37 +629,67 @@ export default function MachineDetailPage() {
 
   const statusInfo = statusMap[machine.status] || statusMap.provisioning;
   const isReady = machine.status === "ready";
-  const canResize = machine.capabilities?.can_resize ?? isReady;
   const canCreateSnapshot = machine.capabilities?.can_create_image ?? isReady;
-  const isResizing =
-    machine.status === "provisioning" && machine.provisioning_stage === "resizing";
   const uptime = machine.ready_at ? timeAgo(machine.ready_at) : null;
-  const versionLabel = machine.api_version === "v2" ? "V2" : "V1";
-  const provisioningPct = provisioningProgress(machine);
+  const provisioning = provisioningInfo(machine);
 
+  // V2 resources from the API
+  const vcpu = machine.vcpu ?? 0;
+  const ramGb = machine.ram_gb ?? 0;
+  const diskGb = machine.disk_gb ?? 0;
+  const resourceLabel = `${vcpu} vCPU · ${ramGb} GB RAM · ${diskGb} GB SSD`;
 
   /* Health values — daemon sends 0–1 fractions, normalise to 0–100 here */
-  const specs     = planSpecs(machine.server_type);
-  const cpuPct    = machine.health ? Math.round(machine.health.cpu    * 100) : 0;
-  const memPct    = machine.health ? Math.round(machine.health.memory * 100) : 0;
-  const diskPct   = machine.health ? Math.round(machine.health.disk   * 100) : 0;
-
-  /* Absolute usage values derived from plan specs */
-  const memUsedGb  = specs ? ((memPct  / 100) * specs.memory).toFixed(1) : null;
-  const diskUsedGb = specs ? ((diskPct / 100) * specs.disk  ).toFixed(0) : null;
-
-  const cpuColor  = cpuPct  > 80 ? "text-red-500" : cpuPct  > 60 ? "text-yellow-500" : "text-foreground";
-  const memColor  = memPct  > 80 ? "text-red-500" : memPct  > 60 ? "text-yellow-500" : "text-foreground";
+  const cpuPct = machine.health ? Math.round(machine.health.cpu * 100) : 0;
+  const memPct = machine.health ? Math.round(machine.health.memory * 100) : 0;
+  const diskPct = machine.health ? Math.round(machine.health.disk * 100) : 0;
+  const memUsedGb = ramGb ? ((memPct / 100) * ramGb).toFixed(1) : null;
+  const diskUsedGb = diskGb ? ((diskPct / 100) * diskGb).toFixed(0) : null;
+  const cpuColor = cpuPct > 80 ? "text-red-500" : cpuPct > 60 ? "text-yellow-500" : "text-foreground";
+  const memColor = memPct > 80 ? "text-red-500" : memPct > 60 ? "text-yellow-500" : "text-foreground";
   const diskColor = diskPct > 80 ? "text-red-500" : diskPct > 60 ? "text-yellow-500" : "text-foreground";
+
+  const handleReboot = () => {
+    rebootMachine.mutate(machineId, {
+      onSuccess: () => toast.success("Reboot initiated"),
+      onError: (err) => toast.error(err.message),
+    });
+  };
+
+  const handleStop = () => {
+    stopMachine.mutate(machineId, {
+      onSuccess: () => toast.success("Machine stopped"),
+      onError: (err) => toast.error(err.message),
+    });
+  };
+
+  const handleStart = () => {
+    startMachine.mutate(machineId, {
+      onSuccess: () => toast.success("Machine starting…"),
+      onError: (err) => toast.error(err.message),
+    });
+  };
+
+  const handleCreateImage = () => {
+    if (!imageName.trim()) return;
+    createImage.mutate(
+      { machine_id: machineId, name: imageName.trim() },
+      {
+        onSuccess: () => {
+          toast.success("Image creation started");
+          setCreateImageOpen(false);
+          setImageName("");
+        },
+        onError: (err) => toast.error(err.message),
+      },
+    );
+  };
 
   return (
     <div className="max-w-5xl mx-auto pb-20 space-y-5 min-w-0 w-full">
 
-      {/* ════════════════════════════════════════════════════════════════
-          HEADER
-          ════════════════════════════════════════════════════════════════ */}
+      {/* ═══ HEADER ═══════════════════════════════════════════════════════ */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        {/* Left: back + title */}
         <div className="flex items-start gap-3 min-w-0">
           <Link
             href="/v2/machines"
@@ -685,22 +704,16 @@ export default function MachineDetailPage() {
               </h1>
               <Badge
                 variant="outline"
-                className={cn(
-                  "gap-1.5 text-[11px] font-medium h-5 px-2 shrink-0",
-                  statusInfo.badgeClass,
-                )}
+                className={cn("gap-1.5 text-[11px] font-medium h-5 px-2 shrink-0", statusInfo.badgeClass)}
               >
                 <span className={cn("size-1.5 rounded-full", statusInfo.dotClass)} />
                 {statusInfo.label}
               </Badge>
               <Badge variant="outline" className="h-5 px-1.5 text-[10px] font-semibold tracking-wide shrink-0">
-                {versionLabel}
+                V2
               </Badge>
               {machine.subscription?.cancel_at_period_end && (
-                <Badge
-                  variant="outline"
-                  className="gap-1 text-[11px] font-medium h-5 px-2 shrink-0 bg-destructive/10 text-destructive border-destructive/20"
-                >
+                <Badge variant="outline" className="gap-1 text-[11px] font-medium h-5 px-2 shrink-0 bg-destructive/10 text-destructive border-destructive/20">
                   <CalendarX2 className="size-2.5" />
                   Cancelling
                 </Badge>
@@ -709,15 +722,9 @@ export default function MachineDetailPage() {
             <p className="text-xs text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
               <span className="font-mono">{machine.slug}</span>
               <span className="opacity-30">·</span>
-              <span className="font-mono">{planName(machine.server_type)}</span>
+              <span className="font-mono">{resourceLabel}</span>
               <span className="opacity-30">·</span>
               <span>{regionDisplay(machine.region).label}</span>
-              {machine.ip && (
-                <>
-                  <span className="opacity-30">·</span>
-                  <span className="font-mono">{machine.ip}</span>
-                </>
-              )}
               {uptime && (
                 <>
                   <span className="opacity-30">·</span>
@@ -733,71 +740,20 @@ export default function MachineDetailPage() {
 
         {/* Right: actions */}
         <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
-          {isResizing && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 text-xs gap-1.5 text-yellow-600 dark:text-yellow-400 border-yellow-500/30 cursor-default"
-              disabled
-            >
-              <Loader2 className="size-3.5 animate-spin" />
-              Scaling…
-            </Button>
-          )}
           {isReady && (
             <>
-              {canResize && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs gap-1.5"
-                  onClick={() => setRescaleOpen(true)}
-                >
-                  <ArrowUp className="size-3.5" />
-                  Scale Up
-                </Button>
-              )}
               {canCreateSnapshot && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs gap-1.5"
-                  onClick={() => setCreateImageOpen(true)}
-                >
+                <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={() => setCreateImageOpen(true)}>
                   <Camera className="size-3.5" />
                   Snapshot
                 </Button>
               )}
-            </>
-          )}
-          {isReady && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 text-xs gap-1.5"
-                onClick={handleReboot}
-                disabled={rebootMachine.isPending}
-              >
-                {rebootMachine.isPending ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <RotateCw className="size-3.5" />
-                )}
+              <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={handleReboot} disabled={rebootMachine.isPending}>
+                {rebootMachine.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCw className="size-3.5" />}
                 Reboot
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 text-xs gap-1.5"
-                onClick={handleStop}
-                disabled={stopMachine.isPending}
-              >
-                {stopMachine.isPending ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <PowerOff className="size-3.5" />
-                )}
+              <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={handleStop} disabled={stopMachine.isPending}>
+                {stopMachine.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <PowerOff className="size-3.5" />}
                 Stop
               </Button>
             </>
@@ -810,16 +766,11 @@ export default function MachineDetailPage() {
               onClick={handleStart}
               disabled={startMachine.isPending}
             >
-              {startMachine.isPending ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Power className="size-3.5" />
-              )}
+              {startMachine.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Power className="size-3.5" />}
               Start
             </Button>
-           )}
-          {/* Cancel / Reactivate subscription */}
-          {machine.subscription?.cancel_at_period_end ? (
+          )}
+          {machine.subscription?.cancel_at_period_end && (
             <Button
               variant="outline"
               size="sm"
@@ -832,60 +783,46 @@ export default function MachineDetailPage() {
               }}
               disabled={reactivateMachine.isPending}
             >
-              {reactivateMachine.isPending ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Power className="size-3.5" />
-              )}
+              {reactivateMachine.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Power className="size-3.5" />}
               Reactivate
             </Button>
-          ) : null}
-          {isDevMode && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 text-xs gap-1.5 text-red-600 hover:text-red-600 hover:bg-red-500/10 border-red-500/30"
-              onClick={async () => {
-                const ok = await confirmDelete({
-                  title: "Delete Machine",
-                  description: "This will permanently destroy the server, remove DNS records, and cancel any active subscription. This cannot be undone.",
-                  confirmLabel: "Delete Machine",
-                  variant: "destructive",
-                });
-                if (!ok) return;
-                deleteMachine.mutate(machineId, {
-                  onSuccess: () => {
-                    toast.success("Machine deleted");
-                    router.push("/v2/machines");
-                  },
-                  onError: (err) => toast.error(err.message),
-                });
-              }}
-              disabled={deleteMachine.isPending}
-            >
-              {deleteMachine.isPending ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Trash2 className="size-3.5" />
-              )}
-              Delete
-            </Button>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs gap-1.5 text-red-600 hover:text-red-600 hover:bg-red-500/10 border-red-500/30"
+            onClick={async () => {
+              const ok = await confirmDelete({
+                title: "Delete Machine",
+                description: "This will permanently destroy the VM and cancel any active subscription. This cannot be undone.",
+                confirmLabel: "Delete Machine",
+                variant: "destructive",
+              });
+              if (!ok) return;
+              deleteMachine.mutate(machineId, {
+                onSuccess: () => {
+                  toast.success("Machine deleted");
+                  router.push("/v2/machines");
+                },
+                onError: (err) => toast.error(err.message),
+              });
+            }}
+            disabled={deleteMachine.isPending}
+          >
+            {deleteMachine.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+            Delete
+          </Button>
         </div>
       </div>
 
-      {/* ════════════════════════════════════════════════════════════════
-          CANCELLATION BANNER
-          ════════════════════════════════════════════════════════════════ */}
+      {/* ═══ CANCELLATION BANNER ════════════════════════════════════════ */}
       {machine.subscription?.cancel_at_period_end && (
         <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4">
           <div className="rounded-lg bg-destructive/10 p-1.5 shrink-0 mt-0.5">
             <CalendarX2 className="size-4 text-destructive" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-destructive">
-              Subscription cancelled
-            </p>
+            <p className="text-sm font-medium text-destructive">Subscription cancelled</p>
             <p className="text-xs text-muted-foreground mt-0.5">
               This machine will be permanently deleted on{" "}
               <span className="font-medium text-foreground">
@@ -897,32 +834,11 @@ export default function MachineDetailPage() {
               </span>
               .
             </p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-2 h-7 text-xs gap-1.5"
-              onClick={() => {
-                reactivateMachine.mutate(machineId, {
-                  onSuccess: () => toast.success("Subscription reactivated"),
-                  onError: (err) => toast.error(err.message),
-                });
-              }}
-              disabled={reactivateMachine.isPending}
-            >
-              {reactivateMachine.isPending ? (
-                <Loader2 className="size-3 animate-spin" />
-              ) : (
-                <Power className="size-3" />
-              )}
-              Reactivate Subscription
-            </Button>
           </div>
         </div>
       )}
 
-      {/* ════════════════════════════════════════════════════════════════
-          PROVISIONING BANNER
-          ════════════════════════════════════════════════════════════════ */}
+      {/* ═══ PROVISIONING BANNER ════════════════════════════════════════ */}
       {machine.status === "provisioning" && (
         <div className="rounded-xl border bg-card p-5">
           <div className="flex items-start gap-3">
@@ -932,24 +848,22 @@ export default function MachineDetailPage() {
             <div className="flex-1 min-w-0 space-y-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold">{provisioningHeadline(machine)}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{provisioningSubcopy(machine)}</p>
+                  <p className="text-sm font-semibold">{provisioning.label}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    First boot takes about 60–90 seconds.
+                  </p>
                 </div>
-                {typeof provisioningPct === "number" && machine.provisioning_stage !== "resizing" && (
-                  <span className="font-mono text-sm font-semibold tabular-nums text-foreground">
-                    {provisioningPct}%
-                  </span>
-                )}
+                <span className="font-mono text-sm font-semibold tabular-nums text-foreground">
+                  {provisioning.pct}%
+                </span>
               </div>
-              {typeof provisioningPct === "number" && machine.provisioning_stage !== "resizing" && (
-                <Progress value={provisioningPct} className="h-1.5" />
-              )}
-
+              <Progress value={provisioning.pct} className="h-1.5" />
             </div>
           </div>
         </div>
       )}
 
+      {/* ═══ ERROR BANNER ════════════════════════════════════════════════ */}
       {machine.status === "error" && (
         <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
           <div className="flex items-start gap-3">
@@ -958,29 +872,17 @@ export default function MachineDetailPage() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-red-600 dark:text-red-400">
-                {machine.provisioning_stage === "timeout"
-                  ? machine.callback_expected === false
-                    ? "Boot finished, but sync timed out"
-                    : "Boot timed out"
-                  : machine.provisioning_stage === "cloud_init_error"
-                    ? "Setup failed"
-                    : "Machine error"}
+                Provisioning failed
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {machine.provisioning_stage === "timeout"
-                  ? machine.callback_expected === false
-                    ? "The server may already be up, but this local environment could not finish syncing state."
-                    : "The machine did not finish booting in time."
-                  : "Something interrupted setup before the machine became ready."}
+                Something interrupted setup before the machine became ready. Try deleting it and creating a new one.
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* ════════════════════════════════════════════════════════════════
-          TABS
-          ════════════════════════════════════════════════════════════════ */}
+      {/* ═══ TABS (only if ready) ════════════════════════════════════════ */}
       {isReady ? (
         <Tabs defaultValue="connect" className="space-y-4">
           <TabsList className="h-9 p-1 w-full sm:w-auto overflow-x-auto">
@@ -1010,133 +912,26 @@ export default function MachineDetailPage() {
             </TabsTrigger>
           </TabsList>
 
-           {/* ── CONNECT ────────────────────────────────────────────────── */}
-           <TabsContent value="connect" className="mt-0 space-y-3 min-w-0">
-
-            {/* AI Agent shortcut — top of page, primary CTA */}
-            <div className="rounded-xl border bg-card overflow-hidden">
-              <div className="flex items-start gap-3 p-4">
-                <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
-                  <Code2 className="size-4 text-primary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium mb-0.5">Let your AI agent do it</p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    Copy this prompt and paste it into{" "}
-                    <span className="text-foreground font-medium">Claude Code, Cursor, Codex, OpenCode</span>
-                    {" "}— whatever you use. It contains your private key so the agent can set everything up automatically.
-                    Or do it manually below.
-                  </p>
-                </div>
-                <CopyButton
-                  text={`Set up SSH access to my remote VPS and connect via Remote-SSH.\n\n1. Save the SSH key:\n${setupCommand ?? "# run step 1 first"}\n\n2. Add to ~/.ssh/config:\nHost ${machine.slug}\n  HostName ${sshTarget}\n  User root\n  IdentityFile ${sshKeyPath}\n  StrictHostKeyChecking no\n\n3. Connect via Remote-SSH to host "${machine.slug}"`}
-                  label="AI agent prompt"
-                />
-              </div>
-            </div>
-
-            {/* Divider */}
-            <div className="flex items-center gap-3">
-              <div className="h-px flex-1 bg-border" />
-              <span className="text-[11px] text-muted-foreground uppercase tracking-wider">or manually</span>
-              <div className="h-px flex-1 bg-border" />
-            </div>
-
-            {/* Step 1 — Save SSH key */}
-            <div className="rounded-xl border bg-card overflow-hidden">
-              <div className="flex items-center gap-2.5 px-4 py-2.5 border-b bg-muted/30">
-                <span className="size-5 rounded-full bg-foreground text-background text-[10px] font-bold flex items-center justify-center shrink-0 leading-none">1</span>
-                <span className="text-sm font-medium">Save SSH key &amp; connect</span>
-                <div className="ml-auto flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400">
-                  <KeyRound className="size-3" />
-                  <span>Contains private key</span>
-                </div>
-              </div>
-              <div className="p-4 space-y-2.5 min-w-0">
-                <p className="text-xs text-muted-foreground">
-                  Run once in your terminal — saves your key and opens an SSH session immediately.
-                </p>
-                {setupCommand ? (
-                  <SecretCodeBlock
-                    text={setupCommand}
-                    label="Setup command"
-                  />
-                ) : (
-                  <p className="text-xs text-muted-foreground italic">Not available yet.</p>
-                )}
-                <p className="text-xs text-muted-foreground">Reconnect later:</p>
-                <CodeBlock text={`ssh -i ${sshKeyPath} root@${sshTarget}`} label="SSH command" />
-                {ipv6OnlySsh && (
-                  <p className="text-xs text-muted-foreground">
-                    If direct SSH fails with <span className="font-mono">No route to host</span>, your current network likely has no IPv6 path. Use the Terminal tab or switch to a network with IPv6.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Step 2 — Editor methods */}
-            <div className="rounded-xl border bg-card overflow-hidden">
-              <div className="flex items-center gap-2.5 px-4 py-2.5 border-b bg-muted/30">
-                <span className="size-5 rounded-full bg-foreground text-background text-[10px] font-bold flex items-center justify-center shrink-0 leading-none">2</span>
-                <span className="text-sm font-medium">Open in your editor</span>
-              </div>
-              <div className="divide-y divide-border/60">
-
-                {/* Cursor / VS Code */}
-                <div className="p-4 space-y-2.5 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <Monitor className="size-3.5 text-muted-foreground" />
-                    <span className="text-sm font-medium">Cursor / VS Code</span>
-                    <Badge className="text-[10px] font-normal bg-primary/10 text-primary border-primary/20 h-4 px-1.5">
-                      Recommended
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground">Add host to SSH config (run once):</p>
-                  <CodeBlock
-                    text={sshConfigCommand ?? "# not available yet"}
-                    label="SSH config"
-                    variant="green"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Then press{" "}
-                    <kbd className="bg-muted px-1.5 py-0.5 rounded text-[10px] border font-mono">Cmd+Shift+P</kbd>
-                    {" → "}Remote-SSH: Connect to Host{" → "}
-                    <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-[11px] break-all">{machine.slug}</code>
-                  </p>
-                </div>
-
-                {/* Plain SSH */}
-                <div className="p-4 space-y-2.5 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <TerminalIcon className="size-3.5 text-muted-foreground" />
-                    <span className="text-sm font-medium">Terminal / Plain SSH</span>
-                  </div>
-                  <CodeBlock
-                    text={`ssh -i ${sshKeyPath} root@${sshTarget}`}
-                    label="SSH command"
-                  />
-                </div>
-
-              </div>
-            </div>
+          {/* ── CONNECT ───────────────────────────────────────────────── */}
+          <TabsContent value="connect" className="mt-0 min-w-0">
+            <SshConnectPanel machine={machine} />
           </TabsContent>
 
-          {/* ── TERMINAL ───────────────────────────────────────────────── */}
+          {/* ── TERMINAL ──────────────────────────────────────────────── */}
           <TabsContent value="terminal" className="mt-0">
             <Terminal
               machineSlug={machine.slug}
               machineStatus={machine.status}
-              machineIp={machine.ip}
+              machineIp={null}
               terminalUrl={machine.urls?.terminal ?? null}
             />
           </TabsContent>
 
-          {/* ── PROXY ──────────────────────────────────────────────────── */}
+          {/* ── PROXY ─────────────────────────────────────────────────── */}
           <TabsContent value="proxy" className="mt-0">
             {(() => {
               const proxyUrl = machine.urls?.proxy ?? `https://${machine.slug}.${PROXY_DOMAIN}`;
               const portTemplate = machine.urls?.port_template ?? `https://{port}--${machine.slug}.${PROXY_DOMAIN}`;
-
               return (
                 <div className="rounded-xl border bg-card overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-3 border-b">
@@ -1154,12 +949,10 @@ export default function MachineDetailPage() {
                     </a>
                   </div>
                   <div className="p-4 space-y-4">
-                    {/* Root URL */}
                     <div className="space-y-1.5">
                       <p className="text-xs text-muted-foreground">Root URL — port 80 by default</p>
                       <CodeBlock text={proxyUrl} label="URL" />
                     </div>
-                    {/* Divider */}
                     <div className="flex items-center gap-3">
                       <div className="h-px flex-1 bg-border/60" />
                       <span className="text-[11px] text-muted-foreground flex items-center gap-1">
@@ -1167,10 +960,7 @@ export default function MachineDetailPage() {
                       </span>
                       <div className="h-px flex-1 bg-border/60" />
                     </div>
-                    {/* Port forward */}
                     <PortForwardCard slug={machine.slug} portTemplate={portTemplate} />
-
-                    {/* Divider */}
                     <div className="flex items-center gap-3">
                       <div className="h-px flex-1 bg-border/60" />
                       <span className="text-[11px] text-muted-foreground flex items-center gap-1">
@@ -1178,7 +968,6 @@ export default function MachineDetailPage() {
                       </span>
                       <div className="h-px flex-1 bg-border/60" />
                     </div>
-
                     <ProxyTokenManager machineId={machine.id} machineSlug={machine.slug} compact />
                   </div>
                 </div>
@@ -1200,55 +989,31 @@ export default function MachineDetailPage() {
                     </div>
                   </div>
                   <div className="space-y-3">
-                    <HealthRow icon={Cpu} label="CPU" subtitle={specs ? `${specs.vcpu} vCPU` : undefined} value={`${cpuPct}%`} progress={cpuPct} colorClass={cpuColor} />
-                    <HealthRow icon={MemoryStick} label="Memory" subtitle={specs ? `of ${specs.memory} GB` : undefined} value={memUsedGb ? `${memUsedGb} GB` : `${memPct}%`} progress={memPct} colorClass={memColor} />
-                    <HealthRow icon={HardDrive} label="Disk" subtitle={specs ? `of ${specs.disk} GB` : undefined} value={diskUsedGb ? `${diskUsedGb} GB` : `${diskPct}%`} progress={diskPct} colorClass={diskColor} />
+                    <HealthRow icon={Cpu} label="CPU" subtitle={vcpu ? `${vcpu} vCPU` : undefined} value={`${cpuPct}%`} progress={cpuPct} colorClass={cpuColor} />
+                    <HealthRow icon={MemoryStick} label="Memory" subtitle={ramGb ? `of ${ramGb} GB` : undefined} value={memUsedGb ? `${memUsedGb} GB` : `${memPct}%`} progress={memPct} colorClass={memColor} />
+                    <HealthRow icon={HardDrive} label="Disk" subtitle={diskGb ? `of ${diskGb} GB` : undefined} value={diskUsedGb ? `${diskUsedGb} GB` : `${diskPct}%`} progress={diskPct} colorClass={diskColor} />
                   </div>
                   <div className="pt-2 border-t space-y-2">
                     <div className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2 text-muted-foreground"><Server className="size-3.5" /><span>Plan</span></div>
-                      <span className="font-medium">{planName(machine.server_type)}</span>
+                      <div className="flex items-center gap-2 text-muted-foreground"><Server className="size-3.5" /><span>Resources</span></div>
+                      <span className="font-medium">{resourceLabel}</span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-2 text-muted-foreground"><MapPin className="size-3.5" /><span>Region</span></div>
                       <span className="font-medium">{regionDisplay(machine.region).label}</span>
                     </div>
-                    {machine.ip && (
-                      <div className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-2 text-muted-foreground"><Globe className="size-3.5" /><span>IP</span></div>
-                        <span className="font-mono font-medium">{machine.ip}</span>
-                      </div>
-                    )}
-                    {machine.daemon_version && (
-                      <div className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-2 text-muted-foreground"><Code2 className="size-3.5" /><span>Daemon</span></div>
-                        <span className="font-mono text-xs text-muted-foreground">{machine.daemon_version}</span>
-                      </div>
-                    )}
                   </div>
                 </>
               ) : (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2 text-muted-foreground"><Server className="size-3.5" /><span>Plan</span></div>
-                    <span className="font-medium">{planName(machine.server_type)}</span>
+                    <div className="flex items-center gap-2 text-muted-foreground"><Server className="size-3.5" /><span>Resources</span></div>
+                    <span className="font-medium">{resourceLabel}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <div className="flex items-center gap-2 text-muted-foreground"><MapPin className="size-3.5" /><span>Region</span></div>
                     <span className="font-medium">{regionDisplay(machine.region).label}</span>
                   </div>
-                  {machine.ip && (
-                    <div className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2 text-muted-foreground"><Globe className="size-3.5" /><span>IP</span></div>
-                      <span className="font-mono font-medium">{machine.ip}</span>
-                    </div>
-                  )}
-                  {machine.daemon_version && (
-                    <div className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2 text-muted-foreground"><Code2 className="size-3.5" /><span>Daemon</span></div>
-                      <span className="font-mono text-xs text-muted-foreground">{machine.daemon_version}</span>
-                    </div>
-                  )}
                   <div className="flex items-center justify-between text-sm">
                     <div className="flex items-center gap-2 text-muted-foreground"><DollarSign className="size-3.5" /><span>Cost</span></div>
                     <span className="font-medium">${machine.price_monthly ?? 0}/mo</span>
@@ -1259,14 +1024,13 @@ export default function MachineDetailPage() {
             </div>
           </TabsContent>
 
-          {/* ── BACKUPS ────────────────────────────────────────────────── */}
+          {/* ── BACKUPS ───────────────────────────────────────────────── */}
           <TabsContent value="backups" className="mt-0">
             <BackupsPanel machineId={machine.id} machine={machine} />
           </TabsContent>
 
-          {/* ── API ────────────────────────────────────────────────────── */}
+          {/* ── API ───────────────────────────────────────────────────── */}
           <TabsContent value="api" className="mt-0 space-y-3">
-            {/* Machine ID */}
             <div className="rounded-xl border bg-card overflow-hidden">
               <div className="flex items-center gap-2 px-4 py-3 border-b">
                 <Server className="size-3.5 text-muted-foreground" />
@@ -1276,13 +1040,8 @@ export default function MachineDetailPage() {
                 <CodeBlock text={machine.id} label="Machine ID" />
               </div>
             </div>
-
-            {/* Links */}
             <div className="rounded-xl border bg-card divide-y">
-              <Link
-                href="/keys"
-                className="flex items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors group"
-              >
+              <Link href="/keys" className="flex items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors group">
                 <div className="flex items-center gap-3">
                   <div className="size-7 rounded-md bg-muted flex items-center justify-center shrink-0">
                     <KeyRound className="size-3.5 text-muted-foreground" />
@@ -1294,25 +1053,7 @@ export default function MachineDetailPage() {
                 </div>
                 <ExternalLink className="size-3.5 text-muted-foreground/50 group-hover:text-muted-foreground transition-colors shrink-0" />
               </Link>
-              <Link
-                href={`/v2/machines/${machine.id}`}
-                className="flex items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors group"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="size-7 rounded-md bg-muted flex items-center justify-center shrink-0">
-                    <Share2 className="size-3.5 text-muted-foreground" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">Create Proxy Token</p>
-                    <p className="text-xs text-muted-foreground">Share this machine with a short-lived proxy link in the Proxy tab</p>
-                  </div>
-                </div>
-                <ExternalLink className="size-3.5 text-muted-foreground/50 group-hover:text-muted-foreground transition-colors shrink-0" />
-              </Link>
-              <Link
-                href="/api/docs/v2"
-                className="flex items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors group"
-              >
+              <Link href="/api/docs/v2" className="flex items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors group">
                 <div className="flex items-center gap-3">
                   <div className="size-7 rounded-md bg-muted flex items-center justify-center shrink-0">
                     <Code2 className="size-3.5 text-muted-foreground" />
@@ -1326,32 +1067,23 @@ export default function MachineDetailPage() {
               </Link>
             </div>
           </TabsContent>
-
         </Tabs>
       ) : (
-        /* ── NOT READY ─────────────────────────────────────────────────── */
+        /* ── NOT READY (provisioning) ───────────────────────────────────── */
         <div className="rounded-xl border border-dashed">
           <div className="flex flex-col items-center justify-center py-16 text-center px-4">
             <div className="rounded-2xl bg-muted p-4 mb-4">
               <Loader2 className="size-8 text-muted-foreground/40 animate-spin" strokeWidth={1.5} />
             </div>
-            <h3 className="text-sm font-medium mb-1">
-              {machine.provider_status === "success" ? "Waiting for the first sync" : "Setting up your machine"}
-            </h3>
+            <h3 className="text-sm font-medium mb-1">{provisioning.label}</h3>
             <p className="text-xs text-muted-foreground max-w-xs">
-              {machine.provider_status === "success"
-                ? "The VM is up, but terminal, SSH, and tools will appear after the next successful heartbeat."
-                : "Terminal, SSH, and tools appear once the machine is fully ready."}
+              Terminal, SSH, and tools appear once the machine becomes ready. First boot takes about 60–90 seconds.
             </p>
           </div>
         </div>
       )}
 
       <ConfirmDeleteDialog />
-
-      {machine && (
-        <RescaleDialog open={rescaleOpen} onOpenChange={setRescaleOpen} machine={machine} />
-      )}
 
       <Dialog open={createImageOpen} onOpenChange={setCreateImageOpen}>
         <DialogContent className="sm:max-w-md">
@@ -1377,17 +1109,14 @@ export default function MachineDetailPage() {
             <Button variant="outline" onClick={() => setCreateImageOpen(false)}>
               Cancel
             </Button>
-            <Button
-              onClick={handleCreateImage}
-              disabled={createImage.isPending || !imageName.trim()}
-            >
+            <Button onClick={handleCreateImage} disabled={createImage.isPending || !imageName.trim()}>
               {createImage.isPending ? (
                 <>
                   <Loader2 className="size-4 animate-spin" />
                   Creating…
                 </>
               ) : (
-                "Create Snapshot"
+                "Create Image"
               )}
             </Button>
           </DialogFooter>

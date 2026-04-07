@@ -46,15 +46,26 @@ export interface V2MachineView {
   };
   image: ReturnType<typeof serializeImageRow> | null;
   connectivity: {
-    public_ip: string | null;
-    private_ipv4: string | null;
-    ssh_command: string | null;
+    /** SSH host (always the proxy domain, never the raw host IP) */
+    ssh_host: string | null;
+    /** SSH port (NAT-forwarded by Incus proxy device on host) */
     ssh_port: number | null;
+    /** Ready-to-paste SSH command */
+    ssh_command: string | null;
+    /** One-liner: write key to ~/.ssh, fix perms, ssh in immediately */
+    ssh_setup_command: string | null;
+    /** Block to append to ~/.ssh/config */
+    ssh_config_block: string | null;
+    /** Plain-text SSH private key (PEM format). Only returned to the machine owner. */
+    ssh_private_key: string | null;
+    /** Public key (optional, useful for clients adding extra keys) */
+    ssh_public_key: string | null;
+    /** Public proxy URLs */
     urls: {
       proxy: string;
       terminal: string;
       port_template: string;
-    } | null;
+    };
   };
   capabilities: {
     can_start: boolean;
@@ -154,27 +165,28 @@ function readSshAccess(machine: MachineRow) {
     : typeof meta.ssh_port === 'string' && meta.ssh_port.trim()
       ? Number(meta.ssh_port)
       : null;
-  const sshHost = machine.ip || (typeof meta.public_ipv4 === 'string' ? meta.public_ipv4 : null);
-  const sshKeyPath = `~/.ssh/justavps_${machine.slug}`;
-
-  if (machine.sshPrivateKey) {
-    try {
-      decryptSecret(machine.sshPrivateKey);
-    } catch {
-      // ignore key decrypt failures for listing
-    }
-  }
-
-  const sshCommand = sshHost
-    ? `ssh -i ${sshKeyPath}${sshPort ? ` -p ${sshPort}` : ''} -o StrictHostKeyChecking=no root@${sshHost}`
-    : null;
-
+  // SSH hostname: prefer the pretty origin DNS record over the raw host IP.
+  // The DNS record is created unproxied on machine create, and points directly
+  // at the baremetal host where Incus NAT forwards the per-machine port to vm:22.
+  const hostIp = typeof meta.public_ipv4 === 'string' ? meta.public_ipv4 : null;
+  const originHost = `origin-${machine.slug}.${config.PROXY_DOMAIN}`;
   return {
-    publicIp: sshHost,
+    sshHost: hostIp ? originHost : null,
+    sshHostFallbackIp: hostIp,
     privateIpv4: typeof meta.private_ipv4 === 'string' ? meta.private_ipv4 : null,
     sshPort,
-    sshCommand,
   };
+}
+
+function decryptSshPrivateKey(machine: MachineRow): string | null {
+  if (!machine.sshPrivateKey) return null;
+  // V2 stores plaintext PEM; V1 stores encrypted. Handle both.
+  if (machine.sshPrivateKey.startsWith('-----BEGIN')) return machine.sshPrivateKey;
+  try {
+    return decryptSecret(machine.sshPrivateKey);
+  } catch {
+    return null;
+  }
 }
 
 export async function serializeMachineV2(machine: MachineRow, sub?: SubscriptionRow | null): Promise<V2MachineView> {
@@ -190,10 +202,25 @@ export async function serializeMachineV2(machine: MachineRow, sub?: Subscription
   const providerStatus = typeof meta.create_status === 'string' ? meta.create_status : null;
   const callbackExpected = typeof meta.callback_expected === 'boolean' ? meta.callback_expected : null;
   const callbackUrl = typeof meta.callback_url === 'string' ? meta.callback_url : null;
-  const publicIp = ssh.publicIp ?? (typeof meta.public_ipv4 === 'string' ? meta.public_ipv4 : null);
-  const privateIpv4 = ssh.privateIpv4 ?? (typeof meta.private_ipv4 === 'string' ? meta.private_ipv4 : null);
-  const sshPort = ssh.sshPort ?? (typeof meta.ssh_port === 'number' ? meta.ssh_port : null);
-  const sshCommand = publicIp ? `ssh -i ~/.ssh/justavps_${machine.slug}${sshPort ? ` -p ${sshPort}` : ''} -o StrictHostKeyChecking=no root@${publicIp}` : ssh.sshCommand;
+  const sshPort = ssh.sshPort;
+  const sshHost = ssh.sshHost;
+  const sshKeyPath = `~/.ssh/justavps_${machine.slug}`;
+  const sshPrivateKey = decryptSshPrivateKey(machine);
+
+  // Build the user-facing SSH command (port-forwarded via Incus proxy NAT on host)
+  const sshCommand = sshHost && sshPort
+    ? `ssh -i ${sshKeyPath} -p ${sshPort} -o StrictHostKeyChecking=no root@${sshHost}`
+    : null;
+
+  // One-liner that writes the key to disk and connects immediately
+  const sshSetupCommand = sshPrivateKey && sshHost && sshPort
+    ? `mkdir -p ~/.ssh && cat > ${sshKeyPath} << 'JUSTAVPSKEY'\n${sshPrivateKey.trim()}\nJUSTAVPSKEY\nchmod 600 ${sshKeyPath} && ssh -i ${sshKeyPath} -p ${sshPort} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${sshHost}`
+    : null;
+
+  // Block to append to ~/.ssh/config for editor integration
+  const sshConfigBlock = sshHost && sshPort
+    ? `Host ${machine.slug}\n  HostName ${sshHost}\n  Port ${sshPort}\n  User root\n  IdentityFile ${sshKeyPath}\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null`
+    : null;
 
   // Resources: from machine columns, fallback to provider_meta for legacy rows
   const vcpu = machine.vcpu ?? (typeof meta.vcpu === 'number' ? meta.vcpu : 2);
@@ -217,15 +244,33 @@ export async function serializeMachineV2(machine: MachineRow, sub?: Subscription
     },
     image,
     connectivity: {
-      public_ip: publicIp,
-      private_ipv4: privateIpv4,
-      ssh_command: sshCommand,
+      ssh_host: sshHost,
       ssh_port: sshPort,
-      urls: publicIp ? {
-        proxy: `https://${machine.slug}.${proxyDomain}`,
-        terminal: `https://${machine.slug}.${proxyDomain}/_terminal`,
-        port_template: `https://{port}--${machine.slug}.${proxyDomain}`,
-      } : null,
+      ssh_command: sshCommand,
+      ssh_setup_command: sshSetupCommand,
+      ssh_config_block: sshConfigBlock,
+      ssh_private_key: sshPrivateKey,
+      ssh_public_key: machine.sshPublicKey || null,
+      urls: (() => {
+        // V2 baremetal: use the direct origin hostname + http NAT port
+        const httpPort = typeof meta.http_port === 'number' ? meta.http_port : null;
+        const originHost = ssh.sshHostFallbackIp
+          ? `origin-${machine.slug}.${proxyDomain}`
+          : null;
+        if (originHost && httpPort) {
+          return {
+            proxy: `http://${originHost}:${httpPort}`,
+            terminal: `http://${originHost}:${httpPort}/_terminal`,
+            port_template: `http://${originHost}:${httpPort}/_port/{port}`,
+          };
+        }
+        // Fallback: Cloudflare-proxied URLs (needs Worker to forward correctly)
+        return {
+          proxy: `https://${machine.slug}.${proxyDomain}`,
+          terminal: `https://${machine.slug}.${proxyDomain}/_terminal`,
+          port_template: `https://{port}--${machine.slug}.${proxyDomain}`,
+        };
+      })(),
     },
     capabilities: {
       can_start: machine.status === 'stopped',
@@ -272,225 +317,271 @@ export async function getMachineV2(input: { accountId: string; machineId: string
 export async function createMachineV2(input: { accountId: string; userId: string; isAdmin: boolean; requestUrl?: string; input: V2CreateMachineInput }): Promise<V2CreateMachineResult> {
   const data = input.input;
   const { computeMonthlyPrice } = await import('@/lib/v2-pricing');
+  const tStart = Date.now();
+  const ms = () => Date.now() - tStart;
 
+  // ── 1. Quota check (single DB query) ─────────────────────────────────────
   const machineLimit = await checkMachineLimit(input.accountId, input.userId, input.isAdmin);
   if (!machineLimit.allowed) {
     throw new Error(`Machine limit reached (${machineLimit.current}/${machineLimit.max})`);
   }
+  console.log(`[v2-create] +${ms()}ms quota ok`);
 
   const reqVcpu = data.vcpu;
   const reqRam = data.ram_gb;
   const reqDisk = data.disk_gb;
   const region = data.region ?? 'hel1';
 
-  // ── Find and validate the target host ────────────────────────────────────
-  let targetHostId = data.host_id;
-  if (!targetHostId) {
-    const hostRows = await db.select().from(baremetalHosts);
-    const eligible = hostRows
-      .filter((h) => h.status === 'active' && h.region === region && h.runnerBaseUrl)
-      .filter((h) => {
-        const fv = (h.totalVcpu ?? 0) - (h.usedVcpu ?? 0);
-        const fm = (h.totalMemoryGb ?? 0) - (h.usedMemoryGb ?? 0);
-        const fd = (h.totalDiskGb ?? 0) - (h.usedDiskGb ?? 0);
-        return fv >= reqVcpu && fm >= reqRam && fd >= reqDisk;
-      });
-    if (!eligible.length) throw new Error(`No host with enough capacity (need ${reqVcpu} vCPU, ${reqRam} GB RAM, ${reqDisk} GB disk)`);
-    targetHostId = eligible[0].id;
+  // ── 2. Pick host (single DB query) ───────────────────────────────────────
+  const hostRows = await db.select().from(baremetalHosts);
+  const host = data.host_id
+    ? hostRows.find((h) => h.id === data.host_id)
+    : hostRows
+        .filter((h) => h.status === 'active' && h.region === region && h.runnerBaseUrl)
+        .find((h) => {
+          const fv = (h.totalVcpu ?? 0) - (h.usedVcpu ?? 0);
+          const fm = (h.totalMemoryGb ?? 0) - (h.usedMemoryGb ?? 0);
+          const fd = (h.totalDiskGb ?? 0) - (h.usedDiskGb ?? 0);
+          return fv >= reqVcpu && fm >= reqRam && fd >= reqDisk;
+        });
+  if (!host || host.status !== 'active') {
+    throw new Error(`No host with enough capacity (need ${reqVcpu} vCPU, ${reqRam} GB RAM, ${reqDisk} GB disk)`);
   }
-
-  const [host] = await db.select().from(baremetalHosts).where(eq(baremetalHosts.id, targetHostId));
-  if (!host || host.status !== 'active') throw new Error('Selected host is not available');
   const freeV = (host.totalVcpu ?? 0) - (host.usedVcpu ?? 0);
   const freeR = (host.totalMemoryGb ?? 0) - (host.usedMemoryGb ?? 0);
   const freeD = (host.totalDiskGb ?? 0) - (host.usedDiskGb ?? 0);
-  if (reqVcpu > freeV) throw new Error(`Not enough CPU (requested ${reqVcpu}, available ${freeV})`);
-  if (reqRam > freeR) throw new Error(`Not enough RAM (requested ${reqRam} GB, available ${freeR} GB)`);
-  if (reqDisk > freeD) throw new Error(`Not enough disk (requested ${reqDisk} GB, available ${freeD} GB)`);
-
-  // ── Resolve image ────────────────────────────────────────────────────────
-  const providerName = 'baremetal';
-  const provider = getProvider(providerName);
-
-  // V2 default: golden image with all deps pre-installed
-  // Falls back to raw Ubuntu cloud image if golden isn't built yet
-  let resolvedImage = 'justavps-golden';
-  let machineImageId: string | null = null;
-  if (data.image_id) {
-    const [img] = await db.select().from(images).where(eq(images.id, data.image_id));
-    if (!img || (img.accountId !== input.accountId && !img.isTemplate)) throw new Error('Image not found');
-    const resolved = resolveRequestedProviderImage({ explicitImage: img });
-    if (!resolved.ok) throw new Error(resolved.message);
-    resolvedImage = resolved.selection.providerImage;
-    machineImageId = resolved.selection.machineImageId;
+  if (reqVcpu > freeV || reqRam > freeR || reqDisk > freeD) {
+    throw new Error(`Not enough capacity on host (need ${reqVcpu}/${reqRam}GB/${reqDisk}GB, have ${freeV}/${freeR}GB/${freeD}GB)`);
   }
+  console.log(`[v2-create] +${ms()}ms host picked`);
 
-  // ── Pricing ──────────────────────────────────────────────────────────────
+  // ── 3. Pricing (pure compute) ────────────────────────────────────────────
   const priceMonthly = computeMonthlyPrice(reqVcpu, reqRam, reqDisk);
   const specs = { vcpus: reqVcpu, ramGb: reqRam, diskGb: reqDisk, cpuType: 'dedicated' as const };
   const wantBackups = data.enable_backups === true;
   const monthlyPrice = wantBackups ? priceMonthly + backupSurcharge(priceMonthly) : priceMonthly;
 
-  // ── Stripe (skip for now if admin, minimal for users) ────────────────────
-  let stripeSubId: string | null = null;
-  let stripeSubItemId: string | null = null;
-  if (stripeClient.isConfigured()) {
-    const [[user], [account]] = await Promise.all([
-      db.select().from(users).where(eq(users.id, input.userId)),
-      db.select().from(accounts).where(eq(accounts.id, input.accountId)),
-    ]);
-    if (!user || !account) throw new Error('Account context not found');
-    const customerId = await stripeClient.getOrCreateCustomer(input.accountId, account.billingEmail || user.email, account.stripeCustomerId);
-    if (!account.stripeCustomerId) {
-      await db.update(accounts).set({ stripeCustomerId: customerId }).where(eq(accounts.id, input.accountId));
-    }
-    if (input.isAdmin) {
-      const result = await stripeClient.createAdminMachineSubscription(customerId, '', `pending-${Date.now()}`, monthlyPrice, 'custom', specs, 'monthly');
-      stripeSubId = result.subscriptionId;
-      stripeSubItemId = result.subscriptionItemId;
-    } else {
-      const hasPM = await stripeClient.hasPaymentMethod(customerId);
-      if (hasPM) {
-        try {
-          const result = await stripeClient.createMachineSubscription(customerId, '', `pending-${Date.now()}`, monthlyPrice, 'custom', specs, 'monthly');
-          stripeSubId = result.subscriptionId;
-          stripeSubItemId = result.subscriptionItemId;
-        } catch { /* fallback to checkout below */ }
-      }
-      if (!stripeSubId) {
-        const { url } = await stripeClient.createCheckoutSession({
-          customerId, userId: input.userId, accountId: input.accountId,
-          machineConfig: { provider: providerName, server_type: 'custom', region, name: data.name, image_id: data.image_id ?? machineImageId, specs, enable_backups: wantBackups },
-          priceMonthlyUsd: monthlyPrice, billingInterval: 'monthly',
-          successUrl: `${config.APP_URL}/v2/machines`, cancelUrl: `${config.APP_URL}/v2/machines`,
-        });
-        return { kind: 'checkout', requires_checkout: true, checkout_url: url, message: 'Payment required.' };
-      }
-    }
-  }
-
-  // ── Create machine ───────────────────────────────────────────────────────
+  // ── 4. Generate slug + machineToken (sync, fast) ─────────────────────────
   const { slug, machineToken } = await generateMachineIdentity();
-  const autoKey = await autoGenerateAndSaveSSHKey(input.userId, input.accountId, slug);
-  const extraSSHKeys = data.ssh_key_ids?.length ? await resolveSSHKeyPublicKeys(input.accountId, data.ssh_key_ids) : [];
-  const providerKeyId = await uploadSSHKeyToProvider(provider, slug, autoKey.publicKey);
+  console.log(`[v2-create] +${ms()}ms identity generated slug=${slug}`);
+
+  // ── 5. Create DB row immediately ─────────────────────────────────────────
   const callbackConfig = resolveMachineCallbackConfig(input.requestUrl);
-  // V2 uses minimal cloud-init (identity injection only) — heavy deps are in golden image
-  const { buildCloudInitV2 } = await import('../cloud-init-v2');
-  const userdata = buildCloudInitV2({
+  const machine = await createMachineRecord({
+    ownerId: input.userId,
+    accountId: input.accountId,
     slug,
-    sshPublicKey: autoKey.publicKey,
+    name: data.name || `machine-${slug}`,
+    provider: 'baremetal',
+    imageId: null,
+    serverType: 'custom',
+    region,
+    ip: null,
+    providerServerId: null,
     machineToken,
-    platformCallbackUrl: callbackConfig.url,
-    proxyDomain: config.PROXY_DOMAIN,
-    envVars: data.env_vars,
-    extraSSHKeys,
-    cloudInitScript: data.cloud_init_script,
+    sshPublicKey: null,
+    sshPrivateKey: null,
+    priceMonthly: monthlyPrice,
+    backupsEnabled: wantBackups,
   });
 
-  try {
-    const machine = await createMachineRecord({
-      ownerId: input.userId,
-      accountId: input.accountId,
-      slug,
-      name: data.name || `machine-${slug}`,
-      provider: providerName,
-      imageId: machineImageId,
-      serverType: 'custom',
-      region,
-      ip: null,
-      providerServerId: null,
-      machineToken,
-      sshPublicKey: autoKey.publicKey,
-      sshPrivateKey: autoKey.privateKey,
-      priceMonthly: monthlyPrice,
-      backupsEnabled: wantBackups,
-    });
+  // Persist allocated resources + initial provider meta in one update
+  const providerMeta: Record<string, unknown> = {
+    callback_expected: callbackConfig.callbackExpected,
+    callback_url: callbackConfig.url,
+    create_status: 'running',
+    create_progress: 0,
+    baremetal_host_id: host.id,
+    runner_base_url: host.runnerBaseUrl,
+    public_ipv4: host.publicIpv4 ?? null,
+    public_ipv6: host.publicIpv6 ?? null,
+    vcpu: reqVcpu,
+    ram_gb: reqRam,
+    disk_gb: reqDisk,
+  };
+  await db.update(machines).set({
+    vcpu: reqVcpu,
+    ramGb: reqRam,
+    diskGb: reqDisk,
+    providerMeta,
+  }).where(eq(machines.id, machine.id));
+  (machine as Record<string, unknown>).vcpu = reqVcpu;
+  (machine as Record<string, unknown>).ramGb = reqRam;
+  (machine as Record<string, unknown>).diskGb = reqDisk;
+  (machine as Record<string, unknown>).providerMeta = providerMeta;
+  console.log(`[v2-create] +${ms()}ms db row created`);
 
-    // Persist allocated resources and update local reference for serialization
-    await db.update(machines).set({ vcpu: reqVcpu, ramGb: reqRam, diskGb: reqDisk }).where(eq(machines.id, machine.id));
-    (machine as Record<string, unknown>).vcpu = reqVcpu;
-    (machine as Record<string, unknown>).ramGb = reqRam;
-    (machine as Record<string, unknown>).diskGb = reqDisk;
+  // ── 6. Background: Stripe + SSH gen + provisioning + Cloudflare DNS ─────
+  // EVERYTHING below this line happens AFTER the API returns
+  after(async () => {
+    const tBg = Date.now();
+    const bgMs = () => Date.now() - tBg;
+    let stripeSubId: string | null = null;
+    let stripeSubItemId: string | null = null;
+    const provider = getProvider('baremetal');
 
-    if (stripeSubId) {
-      await stripeClient.linkSubscriptionToMachine(stripeSubId, machine.id, slug).catch(() => {});
-      await db.insert(subscriptions).values({
-        machineId: machine.id, ownerId: input.userId, accountId: input.accountId,
-        stripeSubscriptionId: stripeSubId, stripeSubscriptionItemId: stripeSubItemId, status: 'active',
-      });
-    }
-
-    const providerMeta: Record<string, unknown> = {
-      callback_expected: callbackConfig.callbackExpected,
-      callback_url: callbackConfig.url,
-      create_status: 'running',
-      create_progress: 0,
-      baremetal_host_id: host.id,
-      runner_base_url: host.runnerBaseUrl,
-      public_ipv4: host.publicIpv4 ?? null,
-      public_ipv6: host.publicIpv6 ?? null,
-      vcpu: reqVcpu,
-      ram_gb: reqRam,
-      disk_gb: reqDisk,
-    };
-
-    await db.update(machines).set({ providerMeta }).where(eq(machines.id, machine.id));
-    await eventBus.emitStageChange(machine.id, input.accountId, 'server_creating', 'Creating server...');
-
-    after(async () => {
-      try {
-        const server = await provider.createServer({
-          name: `justavps-${slug}`,
-          image: resolvedImage,
-          serverType: 'custom',
-          region,
-          userData: userdata,
-          sshKeyIds: [providerKeyId],
-          enableBackups: wantBackups,
-          labels: { justavps: 'true', slug, owner: input.userId.slice(0, 63) },
-          vcpu: reqVcpu,
-          memoryGb: reqRam,
-          diskGb: reqDisk,
-        });
-        provider.deleteSSHKey(providerKeyId).catch(() => {});
-
-        await db.update(machines).set({
-          ip: server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp,
-          providerServerId: server.serverId,
-          providerMeta: {
-            ...providerMeta,
-            create_action_id: server.createActionId ?? null,
-            create_status: 'running',
-            create_progress: 1,
-            public_ipv4: server.publicIpv4 ?? null,
-            public_ipv6: server.publicIpv6 ?? null,
-            ...(server.metadata ?? {}),
-          },
-        }).where(eq(machines.id, machine.id));
-
-        await eventBus.emitStageChange(machine.id, input.accountId, 'server_created', `Server created (${server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp})`);
-
-        if (config.isCloudflareConfigured()) {
-          await setupProxyDNS(machine.id, slug, { ipv4: server.publicIpv4, ipv6: server.publicIpv6 }, input.accountId, 'custom');
-        }
-      } catch (error) {
-        await provider.deleteServer(`justavps-${slug}`).catch(() => {});
-        if (stripeSubId) await stripeClient.cancelMachineSubscription(stripeSubId).catch(() => {});
-        const [current] = await db.select({ providerMeta: machines.providerMeta }).from(machines).where(eq(machines.id, machine.id)).limit(1);
-        await db.update(machines).set({
-          status: 'error',
-          providerMeta: { ...((current?.providerMeta ?? {}) as Record<string, unknown>), error: error instanceof Error ? error.message : String(error) },
-        }).where(eq(machines.id, machine.id));
-        await eventBus.emitStatusChange(machine.id, input.accountId, 'error', `Provisioning failed: ${error instanceof Error ? error.message : String(error)}`);
+    try {
+      // Resolve image (small DB query if user-provided image)
+      let resolvedImage = 'justavps-golden';
+      let machineImageId: string | null = null;
+      if (data.image_id) {
+        const [img] = await db.select().from(images).where(eq(images.id, data.image_id));
+        if (!img || (img.accountId !== input.accountId && !img.isTemplate)) throw new Error('Image not found');
+        const resolved = resolveRequestedProviderImage({ explicitImage: img });
+        if (!resolved.ok) throw new Error(resolved.message);
+        resolvedImage = resolved.selection.providerImage;
+        machineImageId = resolved.selection.machineImageId;
+        await db.update(machines).set({ imageId: machineImageId }).where(eq(machines.id, machine.id));
       }
-    });
 
-    return { kind: 'machine', machine: await serializeMachineV2(machine) };
-  } catch (error) {
-    if (stripeSubId) await stripeClient.cancelMachineSubscription(stripeSubId).catch(() => {});
-    throw error;
-  }
+      // SSH key generation (~2s)
+      const autoKey = await autoGenerateAndSaveSSHKey(input.userId, input.accountId, slug);
+      console.log(`[v2-bg ${slug}] +${bgMs()}ms ssh key generated`);
+
+      // Update machine row with SSH keys
+      await db.update(machines).set({
+        sshPublicKey: autoKey.publicKey,
+        sshPrivateKey: autoKey.privateKey,
+      }).where(eq(machines.id, machine.id));
+
+      const extraSSHKeys = data.ssh_key_ids?.length
+        ? await resolveSSHKeyPublicKeys(input.accountId, data.ssh_key_ids)
+        : [];
+
+      // Build cloud-init payload (pure compute)
+      const { buildCloudInitV2 } = await import('../cloud-init-v2');
+      const userdata = buildCloudInitV2({
+        slug,
+        sshPublicKey: autoKey.publicKey,
+        machineToken,
+        platformCallbackUrl: callbackConfig.url,
+        proxyDomain: config.PROXY_DOMAIN,
+        envVars: data.env_vars,
+        extraSSHKeys,
+        cloudInitScript: data.cloud_init_script,
+      });
+
+      // Stripe in parallel with provisioning (don't block VM boot on Stripe)
+      const stripePromise = (async () => {
+        if (!stripeClient.isConfigured()) return;
+        try {
+          const [[user], [account]] = await Promise.all([
+            db.select().from(users).where(eq(users.id, input.userId)),
+            db.select().from(accounts).where(eq(accounts.id, input.accountId)),
+          ]);
+          if (!user || !account) return;
+          const customerId = await stripeClient.getOrCreateCustomer(
+            input.accountId,
+            account.billingEmail || user.email,
+            account.stripeCustomerId,
+          );
+          if (!account.stripeCustomerId) {
+            await db.update(accounts).set({ stripeCustomerId: customerId }).where(eq(accounts.id, input.accountId));
+          }
+          if (input.isAdmin) {
+            const result = await stripeClient.createAdminMachineSubscription(
+              customerId, '', `pending-${Date.now()}`, monthlyPrice, 'custom', specs, 'monthly',
+            );
+            stripeSubId = result.subscriptionId;
+            stripeSubItemId = result.subscriptionItemId;
+          } else {
+            const hasPM = await stripeClient.hasPaymentMethod(customerId);
+            if (hasPM) {
+              const result = await stripeClient.createMachineSubscription(
+                customerId, '', `pending-${Date.now()}`, monthlyPrice, 'custom', specs, 'monthly',
+              );
+              stripeSubId = result.subscriptionId;
+              stripeSubItemId = result.subscriptionItemId;
+            }
+          }
+        } catch (err) {
+          console.warn(`[v2-bg ${slug}] stripe error:`, err);
+        }
+      })();
+
+      // Provisioning runs in parallel with Stripe
+      await eventBus.emitStageChange(machine.id, input.accountId, 'server_creating', 'Creating server...');
+
+      // Provider SSH key upload + create server
+      const providerKeyId = await uploadSSHKeyToProvider(provider, slug, autoKey.publicKey);
+      console.log(`[v2-bg ${slug}] +${bgMs()}ms provider key uploaded`);
+
+      const server = await provider.createServer({
+        name: `justavps-${slug}`,
+        image: resolvedImage,
+        serverType: 'custom',
+        region,
+        userData: userdata,
+        sshKeyIds: [providerKeyId],
+        enableBackups: wantBackups,
+        labels: { justavps: 'true', slug, owner: input.userId.slice(0, 63) },
+        vcpu: reqVcpu,
+        memoryGb: reqRam,
+        diskGb: reqDisk,
+      });
+      console.log(`[v2-bg ${slug}] +${bgMs()}ms runnerd returned`);
+      provider.deleteSSHKey(providerKeyId).catch(() => {});
+
+      await db.update(machines).set({
+        ip: server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp,
+        providerServerId: server.serverId,
+        providerMeta: {
+          ...providerMeta,
+          create_action_id: server.createActionId ?? null,
+          create_status: 'running',
+          create_progress: 1,
+          public_ipv4: server.publicIpv4 ?? null,
+          public_ipv6: server.publicIpv6 ?? null,
+          ...(server.metadata ?? {}),
+        },
+      }).where(eq(machines.id, machine.id));
+
+      await eventBus.emitStageChange(machine.id, input.accountId, 'server_created', `Server created`);
+
+      // Wait for Stripe in parallel (already started above)
+      await stripePromise;
+      if (stripeSubId) {
+        await stripeClient.linkSubscriptionToMachine(stripeSubId, machine.id, slug).catch(() => {});
+        await db.insert(subscriptions).values({
+          machineId: machine.id,
+          ownerId: input.userId,
+          accountId: input.accountId,
+          stripeSubscriptionId: stripeSubId,
+          stripeSubscriptionItemId: stripeSubItemId,
+          status: 'active',
+        });
+      }
+
+      // Cloudflare DNS (best effort, non-blocking for ready)
+      if (config.isCloudflareConfigured()) {
+        setupProxyDNS(
+          machine.id,
+          slug,
+          { ipv4: server.publicIpv4, ipv6: server.publicIpv6 },
+          input.accountId,
+          'custom',
+        ).catch((err) => console.warn(`[v2-bg ${slug}] dns setup error:`, err));
+      }
+
+      console.log(`[v2-bg ${slug}] +${bgMs()}ms TOTAL background work done`);
+    } catch (error) {
+      console.error(`[v2-bg ${slug}] error:`, error);
+      await provider.deleteServer(`justavps-${slug}`).catch(() => {});
+      if (stripeSubId) await stripeClient.cancelMachineSubscription(stripeSubId).catch(() => {});
+      const [current] = await db.select({ providerMeta: machines.providerMeta }).from(machines).where(eq(machines.id, machine.id)).limit(1);
+      await db.update(machines).set({
+        status: 'error',
+        providerMeta: {
+          ...((current?.providerMeta ?? {}) as Record<string, unknown>),
+          error: error instanceof Error ? error.message : String(error),
+        },
+      }).where(eq(machines.id, machine.id));
+      await eventBus.emitStatusChange(machine.id, input.accountId, 'error', `Provisioning failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
+
+  console.log(`[v2-create] +${ms()}ms returning to client`);
+  return { kind: 'machine', machine: await serializeMachineV2(machine) };
 }
 
 export async function startMachineV2(input: { accountId: string; machineId: string }) {

@@ -9,6 +9,7 @@ import { Slider } from "@/components/ui/slider";
 import { useAvailableHosts, type HostCapacity } from "@/hooks/v2/use-hosts-v2";
 import { useCreateMachine } from "@/hooks/v2/use-machines-v2";
 import { useAccountLimits } from "@/hooks/use-account";
+import { computePriceBreakdown } from "@/lib/v2-pricing";
 import { toast } from "sonner";
 import {
   X,
@@ -205,6 +206,12 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
     effectiveHostId && clampedVcpu >= MIN_VCPU && clampedRam >= MIN_RAM_GB && clampedDisk >= MIN_DISK_GB && !machineLimitReached,
   );
 
+  /* ─── Live price breakdown ─── */
+  const price = useMemo(
+    () => computePriceBreakdown(clampedVcpu, clampedRam, clampedDisk),
+    [clampedVcpu, clampedRam, clampedDisk],
+  );
+
   /* ─── Effects ─── */
   useEffect(() => {
     document.body.style.overflow = open ? "hidden" : "";
@@ -264,7 +271,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
               <div>
                 <h2 className="text-lg font-semibold tracking-tight">Deploy a machine</h2>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  Select a host and configure resources. Your machine deploys in about 90 seconds.
+                  Select a host and configure the resources you need.
                 </p>
               </div>
               <button
@@ -398,19 +405,33 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
           </div>
 
           {/* ─── FOOTER ─── */}
-          <div className="shrink-0 border-t border-border px-6 py-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-[10px] text-muted-foreground space-x-2">
-                <span>Ready in ~90s</span>
-                <span>·</span>
-                <span>Cancel anytime</span>
-              </div>
-              {selectedHost && (
-                <div className="text-[10px] text-muted-foreground tabular-nums">
-                  {clampedVcpu} vCPU · {clampedRam} GB RAM · {clampedDisk} GB SSD
+          <div className="shrink-0 border-t border-border px-6 py-4 space-y-3">
+            {/* Live price breakdown */}
+            {selectedHost && (
+              <div className="rounded-xl border bg-muted/20 px-4 py-3 space-y-2">
+                <div className="flex items-baseline justify-between">
+                  <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                    Price
+                  </div>
+                  <div className="text-[10px] text-muted-foreground tabular-nums">
+                    {clampedVcpu} vCPU · {clampedRam} GB RAM · {clampedDisk} GB SSD
+                  </div>
                 </div>
-              )}
-            </div>
+                <div className="flex items-baseline justify-between">
+                  <div className="flex items-baseline gap-1">
+                    <span className="font-mono text-2xl font-semibold tabular-nums">
+                      ${price.monthly}
+                    </span>
+                    <span className="text-xs text-muted-foreground">/mo</span>
+                  </div>
+                  <div className="flex flex-col items-end text-[10px] text-muted-foreground tabular-nums leading-tight">
+                    <span>${price.hourly.toFixed(4)}/hr</span>
+                    <span>${price.per_minute.toFixed(6)}/min</span>
+                    <span>${price.per_second.toFixed(8)}/sec</span>
+                  </div>
+                </div>
+              </div>
+            )}
             <Button
               className="w-full h-10"
               disabled={!canCreate || isPending || !isLoggedIn}
@@ -428,6 +449,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                 </>
               )}
             </Button>
+            <p className="text-[10px] text-center text-muted-foreground">Cancel anytime. Billed per-second of uptime.</p>
           </div>
         </div>
       </div>

@@ -189,8 +189,11 @@ function buildMachineRoutingKVData(input: {
 }
 
 /**
- * Register machine in Cloudflare KV for Worker auth/routing.
- * - Writes machine:{slug} to KV for Worker auth
+ * Register machine in Cloudflare:
+ * - Writes machine:{slug} to KV for Worker auth/routing (HTTP proxy)
+ * - Creates unproxied A record at `origin-{slug}.<PROXY_DOMAIN>` so SSH can
+ *   reach the baremetal host via a pretty hostname instead of the raw IP.
+ *   The host's Incus proxy device NATs the per-machine SSH port to the VM.
  */
 export async function setupProxyDNS(
   machineId: string,
@@ -204,6 +207,7 @@ export async function setupProxyDNS(
   const primaryIp = addresses.ipv4 ?? addresses.ipv6;
   if (!primaryIp) return;
 
+  // 1. KV entry for HTTP routing via Worker
   await cloudflareClient.writeKVMachine(slug, buildMachineRoutingKVData({
     machineId,
     slug,
@@ -213,6 +217,11 @@ export async function setupProxyDNS(
     serverType,
   })).catch((err: unknown) => {
     console.warn(`[CF KV] Failed to write machine:${slug}:`, err);
+  });
+
+  // 2. Unproxied DNS record for SSH access (origin-<slug>.<domain>)
+  await cloudflareClient.addMachineDNS(slug, addresses).catch((err: unknown) => {
+    console.warn(`[CF DNS] Failed to create origin record for ${slug}:`, err);
   });
 }
 
@@ -301,8 +310,8 @@ interface CreateMachineInput {
   ip: string | null;
   providerServerId: string | null;
   machineToken: string;
-  sshPublicKey: string;
-  sshPrivateKey: string;
+  sshPublicKey: string | null;
+  sshPrivateKey: string | null;
   priceMonthly: number | null;
   backupsEnabled?: boolean;
 }
@@ -310,10 +319,11 @@ interface CreateMachineInput {
 export async function createMachineRecord(input: CreateMachineInput) {
   const [machine] = await db.insert(machines).values({
     ...input,
+    sshPublicKey: input.sshPublicKey ?? '',
     backupsEnabled: input.backupsEnabled ?? true,
     // Encrypt secrets at rest — decrypted on read via decryptSecret()
     machineToken: encryptSecret(input.machineToken),
-    sshPrivateKey: encryptSecret(input.sshPrivateKey),
+    sshPrivateKey: input.sshPrivateKey ? encryptSecret(input.sshPrivateKey) : '',
     codeServerPassword: '',
   }).returning();
   return machine;

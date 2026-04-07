@@ -181,12 +181,22 @@ export const cloudflareClient = {
   },
 
   /**
-   * Per-machine DNS should not exist in the broker architecture.
-   * This method now acts as cleanup-only idempotent reconciliation.
+   * Per-machine DNS: in the broker architecture, HTTP traffic is handled by
+   * the wildcard Cloudflare Worker route. But SSH requires a DIRECT (unproxied)
+   * A record per machine so users never see the raw host IP.
+   *
+   * Creates an unproxied A/AAAA record at `origin-<slug>.<PROXY_DOMAIN>` that
+   * points directly to the baremetal host. SSH NAT is handled by the Incus
+   * proxy device on the host side.
    */
   async addMachineDNS(slug: string, addresses: { ipv4?: string | null; ipv6?: string | null }): Promise<void> {
-    void addresses;
-    await this.removeMachineDNS(slug);
+    const { CLOUDFLARE_ZONE_ID: zid, PROXY_DOMAIN: domain } = config;
+    if (!zid) return;
+    if (!addresses.ipv4 && !addresses.ipv6) return;
+
+    const { originHostname } = machineHostnames(slug, domain);
+    // Unproxied so SSH bypasses Cloudflare's HTTP-only proxy layer
+    await this.ensureDNSRecord(originHostname, addresses, false);
   },
 
   /**

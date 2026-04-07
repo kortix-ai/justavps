@@ -1,15 +1,27 @@
 #!/usr/bin/env bash
-# Build the JustAVPS golden VM image on a baremetal host.
+# Build the JustAVPS golden VM image — dev-ready out of the box.
 #
-# This creates a temporary VM, installs all heavy dependencies (Docker, daemon,
-# sandbox-agent, opencode, fail2ban, etc.), cleans machine-specific state, then
-# publishes it as a local Incus image.
+# What's included:
+# - Node.js 22 LTS + npm + bun + typescript + ts-node
+# - Python 3.12 + pip + venv + uv
+# - Docker CE
+# - Common dev tools (git, curl, wget, jq, htop, tmux, vim, ripgrep, etc.)
+# - openssh-server (pre-configured, host keys pre-generated)
+# - justavps-daemon (Go binary — proxy, terminal, port detection, heartbeat)
 #
-# After this, new VMs clone from this image in ~2-5 seconds instead of running
-# a full cloud-init install (~60-90 seconds).
+# What's NOT included (users install what they need):
+# - AI SDKs (openai, anthropic, langchain — pip install as needed)
+# - Heavy ML packages (pytorch, tensorflow, etc.)
+# - GUI/desktop (chromium, vnc, xfce)
+# - Language servers
 #
-# Usage: ssh root@HOST < scripts/build-golden-image.sh
-#   or:  ssh root@HOST "bash -s" < scripts/build-golden-image.sh
+# Boot-time optimizations:
+# - Cloud-init disabled (identity injection via incus exec)
+# - SSH host keys pre-generated
+# - GRUB timeout 0, quiet boot, mitigations=off
+# - Unnecessary systemd services disabled/masked
+# - Netplan pre-configured for DHCP
+# - systemd default timeouts reduced
 
 set -euo pipefail
 
@@ -23,16 +35,16 @@ echo "[golden] Starting golden image build..."
 # Clean up any previous build
 incus delete "$BUILD_VM" --force 2>/dev/null || true
 
-# Create build VM from stock Ubuntu
+# Create build VM
 echo "[golden] Creating build VM..."
 incus init images:ubuntu/noble/cloud "$BUILD_VM" --vm
 incus config set "$BUILD_VM" limits.cpu 4
 incus config set "$BUILD_VM" limits.memory 4GiB
 incus start "$BUILD_VM"
 
-# Wait for cloud-init to finish on stock image
+# Wait for cloud-init
 echo "[golden] Waiting for VM to boot..."
-for i in $(seq 1 120); do
+for i in $(seq 1 180); do
   if incus exec "$BUILD_VM" -- cloud-init status 2>/dev/null | grep -q "done"; then
     break
   fi
@@ -40,71 +52,78 @@ for i in $(seq 1 120); do
 done
 echo "[golden] VM booted."
 
-# Install everything heavy inside the VM
-echo "[golden] Installing packages..."
+# ─── Install everything ──────────────────────────────────────────────────────
 incus exec "$BUILD_VM" -- bash -c '
+set -e
 export DEBIAN_FRONTEND=noninteractive
 
-echo "[golden] Updating packages..."
+echo "[golden] === Phase 1: System packages ==="
 apt-get update -qq
-apt-get upgrade -y -qq
 
-echo "[golden] Installing base packages..."
-apt-get install -y -qq \
-  curl ca-certificates wget git jq unzip htop tmux \
-  ufw fail2ban openssh-server \
+apt-get install -y -qq --no-install-recommends \
+  curl ca-certificates wget gnupg lsb-release \
+  openssh-server \
+  git git-lfs \
+  jq htop tmux vim nano less \
+  ripgrep fd-find tree unzip zip \
+  build-essential gcc g++ make cmake \
+  sudo \
   >/dev/null 2>&1
 
-echo "[golden] Installing Docker..."
-curl -fsSL https://get.docker.com | sh
+echo "[golden] === Phase 2: Python 3 ==="
+apt-get install -y -qq --no-install-recommends \
+  python3 python3-pip python3-venv python3-dev \
+  >/dev/null 2>&1
+
+# Install uv (fast Python package manager)
+curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh 2>/dev/null
+
+# Symlink python → python3
+ln -sf /usr/bin/python3 /usr/bin/python 2>/dev/null || true
+
+echo "[golden] === Phase 3: Node.js 22 LTS ==="
+# Install Node.js 22 via NodeSource
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null 2>&1
+apt-get install -y -qq nodejs >/dev/null 2>&1
+
+# Install bun
+curl -fsSL https://bun.sh/install | bash >/dev/null 2>&1
+ln -sf /root/.bun/bin/bun /usr/local/bin/bun 2>/dev/null || true
+
+# Global npm packages
+npm install -g --no-audit --no-fund \
+  typescript ts-node pnpm \
+  >/dev/null 2>&1
+
+echo "[golden] === Phase 4: Docker CE ==="
+curl -fsSL https://get.docker.com | sh >/dev/null 2>&1
 systemctl enable docker
 
-echo "[golden] Creating user account..."
-id -u user &>/dev/null || useradd -m -s /bin/bash -G sudo,docker user
-echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/user
-
-echo "[golden] Downloading justavps-daemon..."
+echo "[golden] === Phase 5: JustAVPS daemon ==="
 curl -fsSL -o /usr/local/bin/justavps-daemon "'"$DAEMON_URL"'"
 chmod +x /usr/local/bin/justavps-daemon
 
-echo "[golden] Installing sandbox-agent..."
-curl -fsSL https://releases.rivet.dev/sandbox-agent/0.3.x/install.sh | sh || true
-sandbox-agent install-agent --all 2>/dev/null || true
+echo "[golden] === Phase 6: User setup ==="
+# Create user account
+id -u user &>/dev/null || useradd -m -s /bin/bash -G sudo,docker user
+echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/user
+chmod 440 /etc/sudoers.d/user
 
-echo "[golden] Installing opencode..."
-su - user -c "curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path" || true
+# Also add root to docker group
+usermod -aG docker root 2>/dev/null || true
 
-echo "[golden] Configuring SSH hardening..."
+echo "[golden] === Phase 7: SSH hardening ==="
 sed -i "s/^#\?PasswordAuthentication.*/PasswordAuthentication no/" /etc/ssh/sshd_config
 sed -i "s/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/" /etc/ssh/sshd_config
 sed -i "s/^#\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/" /etc/ssh/sshd_config
+echo "UseDNS no" >> /etc/ssh/sshd_config
+echo "GSSAPIAuthentication no" >> /etc/ssh/sshd_config
 
-echo "[golden] Configuring UFW defaults..."
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow 22/tcp
-ufw allow 80/tcp
-ufw --force enable
+# Pre-generate SSH host keys (skip cloud-init regen on every boot)
+ssh-keygen -A 2>/dev/null || true
 
-echo "[golden] Configuring fail2ban..."
-cat > /etc/fail2ban/jail.local << EOF
-[DEFAULT]
-bantime = 3600
-findtime = 600
-maxretry = 5
-backend = systemd
-
-[sshd]
-enabled = true
-port = 22
-filter = sshd
-logpath = /var/log/auth.log
-EOF
-systemctl enable fail2ban
-
-echo "[golden] Writing systemd services..."
-
-cat > /etc/systemd/system/justavps-daemon.service << EOF
+echo "[golden] === Phase 8: Daemon systemd unit ==="
+cat > /etc/systemd/system/justavps-daemon.service << "DAEONSVC"
 [Unit]
 Description=JustAVPS Daemon
 After=network-online.target
@@ -119,140 +138,158 @@ StartLimitIntervalSec=0
 
 [Install]
 WantedBy=multi-user.target
-EOF
+DAEONSVC
 
-cat > /etc/systemd/system/sandbox-agent.service << EOF
-[Unit]
-Description=Sandbox Agent
-After=network.target
-
-[Service]
-Type=simple
-User=user
-ExecStart=/usr/local/bin/sandbox-agent server --no-token --host 127.0.0.1 --port 2468
-Restart=always
-RestartSec=3
-Environment=HOME=/home/user
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-cat > /etc/systemd/system/opencode-web.service << EOF
-[Unit]
-Description=OpenCode Web UI
-After=network.target
-
-[Service]
-Type=simple
-User=user
-Environment=HOME=/home/user
-Environment=PATH=/home/user/.opencode/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-WorkingDirectory=/home/user
-ExecStart=/home/user/.opencode/bin/opencode serve --port 3456
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Docker ingress guard
-cat > /usr/local/bin/justavps-docker-guard.sh << "GUARDEOF"
-#!/bin/bash
-set -euo pipefail
-command -v iptables >/dev/null 2>&1 || exit 0
-iptables -N JUSTAVPS-DOCKER-GUARD 2>/dev/null || true
-iptables -F JUSTAVPS-DOCKER-GUARD
-iptables -A JUSTAVPS-DOCKER-GUARD -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
-iptables -A JUSTAVPS-DOCKER-GUARD -i docker0 -j RETURN
-iptables -A JUSTAVPS-DOCKER-GUARD -i br+ -j RETURN
-iptables -A JUSTAVPS-DOCKER-GUARD -o docker0 -j DROP
-iptables -A JUSTAVPS-DOCKER-GUARD -o br+ -j DROP
-iptables -A JUSTAVPS-DOCKER-GUARD -j RETURN
-iptables -C DOCKER-USER -j JUSTAVPS-DOCKER-GUARD 2>/dev/null || iptables -I DOCKER-USER 1 -j JUSTAVPS-DOCKER-GUARD
-GUARDEOF
-chmod +x /usr/local/bin/justavps-docker-guard.sh
-
-cat > /etc/systemd/system/justavps-docker-guard.service << EOF
-[Unit]
-Description=JustAVPS Docker ingress guard
-After=network-online.target docker.service
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/justavps-docker-guard.sh
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Enable services (they will start on next boot when config exists)
-systemctl daemon-reload
-systemctl enable justavps-daemon sandbox-agent opencode-web justavps-docker-guard
-
-# Pre-create config directory
 mkdir -p /etc/justavps
+systemctl daemon-reload
+systemctl enable justavps-daemon
 
-echo "[golden] Cleaning machine-specific state..."
-# Clean cloud-init instance data (NOT --logs which removes service files)
-# Just remove the instance marker so cloud-init runs fresh on next boot
-rm -rf /var/lib/cloud/instance /var/lib/cloud/data /var/lib/cloud/sem
-rm -rf /var/log/cloud-init*.log
-rm -f /etc/machine-id
-: > /etc/machine-id
-rm -f /var/lib/dbus/machine-id
-truncate -s0 /etc/hostname
-rm -f /etc/justavps/config.json /etc/justavps/env
-rm -rf /root/.ssh/authorized_keys /home/user/.ssh/authorized_keys
-rm -rf /tmp/* /var/tmp/*
-# Stop services (they restart on clone via cloud-init user-data)
-# IMPORTANT: do NOT disable or mask — cloud-init user-data will enable+start them
-systemctl stop justavps-daemon 2>/dev/null || true
-systemctl stop sandbox-agent 2>/dev/null || true
-systemctl stop opencode-web 2>/dev/null || true
-# Ensure they stay enabled and NOT masked
-systemctl unmask justavps-daemon sandbox-agent opencode-web 2>/dev/null || true
-systemctl enable justavps-daemon sandbox-agent opencode-web 2>/dev/null || true
-# Ensure DHCP is configured for the network interface
+echo "[golden] === Phase 9: Boot speed optimizations ==="
+
+# Disable cloud-init SSH key regeneration
+mkdir -p /etc/cloud/cloud.cfg.d
+cat > /etc/cloud/cloud.cfg.d/99-fast-boot.cfg << "CLOUDCFGEOF"
+ssh_deletekeys: false
+ssh_genkeytypes: []
+datasource_list: [NoCloud]
+cloud_init_modules:
+  - migrator
+  - seed_random
+  - bootcmd
+  - write_files
+  - growpart
+  - resizefs
+  - set_hostname
+  - update_hostname
+cloud_config_modules:
+  - runcmd
+  - locale
+  - ntp
+cloud_final_modules:
+  - scripts_user
+  - final_message
+CLOUDCFGEOF
+
+# Disable unnecessary systemd services
+systemctl disable \
+  apt-daily.timer \
+  apt-daily-upgrade.timer \
+  motd-news.timer \
+  fwupd-refresh.timer \
+  e2scrub_all.timer \
+  man-db.timer \
+  update-notifier-download.timer \
+  update-notifier-motd.timer \
+  dpkg-db-backup.timer \
+  systemd-networkd-wait-online.service \
+  networkd-wait-online.service \
+  multipathd.service \
+  multipathd.socket \
+  ModemManager.service \
+  unattended-upgrades.service \
+  apport.service \
+  2>/dev/null || true
+
+systemctl mask \
+  systemd-networkd-wait-online.service \
+  networkd-wait-online.service \
+  apt-daily.service \
+  apt-daily-upgrade.service \
+  2>/dev/null || true
+
+# Pre-configure DHCP
 mkdir -p /etc/netplan
-cat > /etc/netplan/50-dhcp.yaml << NETPLANEOF
+rm -f /etc/netplan/*.yaml
+cat > /etc/netplan/01-dhcp.yaml << "NETPLANEOF"
 network:
   version: 2
   ethernets:
     enp5s0:
       dhcp4: true
-    eth0:
-      dhcp4: true
+      dhcp4-overrides:
+        send-hostname: false
+        use-hostname: false
+      dhcp-identifier: mac
 NETPLANEOF
-apt-get clean
-journalctl --rotate && journalctl --vacuum-time=1s 2>/dev/null || true
+chmod 600 /etc/netplan/01-dhcp.yaml
 
+# Optimize GRUB
+sed -i "s/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=0/" /etc/default/grub
+sed -i "s/^GRUB_TIMEOUT_STYLE=.*/GRUB_TIMEOUT_STYLE=hidden/" /etc/default/grub
+grep -q "GRUB_RECORDFAIL_TIMEOUT" /etc/default/grub && \
+  sed -i "s/^GRUB_RECORDFAIL_TIMEOUT=.*/GRUB_RECORDFAIL_TIMEOUT=0/" /etc/default/grub || \
+  echo "GRUB_RECORDFAIL_TIMEOUT=0" >> /etc/default/grub
+sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"console=ttyS0 noresume nomodeset mitigations=off systemd.show_status=false quiet\"|" /etc/default/grub
+update-grub 2>/dev/null || true
+
+# Reduce systemd timeouts
+mkdir -p /etc/systemd/system.conf.d
+cat > /etc/systemd/system.conf.d/fast-boot.conf << "SDCONFEOF"
+[Manager]
+DefaultTimeoutStartSec=10s
+DefaultTimeoutStopSec=5s
+DefaultDeviceTimeoutSec=10s
+SDCONFEOF
+
+echo "[golden] === Phase 10: Clean machine identity ==="
+# Remove cloud-init instance data
+rm -rf /var/lib/cloud/instance /var/lib/cloud/data /var/lib/cloud/sem
+rm -rf /var/log/cloud-init*.log
+rm -f /var/lib/dbus/machine-id
+: > /etc/machine-id
+truncate -s0 /etc/hostname
+rm -f /etc/justavps/config.json /etc/justavps/env
+rm -f /root/.ssh/authorized_keys /home/user/.ssh/authorized_keys 2>/dev/null || true
+rm -rf /tmp/* /var/tmp/*
+
+# Stop services (they start fresh on clone)
+systemctl stop justavps-daemon docker 2>/dev/null || true
+
+# Cleanup
+apt-get clean
+rm -rf /var/cache/apt/archives/*.deb /var/lib/apt/lists/*
+journalctl --rotate 2>/dev/null || true
+journalctl --vacuum-time=1s 2>/dev/null || true
+fstrim -av 2>/dev/null || true
+
+echo ""
+echo "====================================="
+echo " Versions:"
+echo "   Python:     $(python3 --version 2>&1)"
+echo "   Node:       $(node --version 2>&1)"
+echo "   npm:        $(npm --version 2>&1)"
+echo "   bun:        $(bun --version 2>&1)"
+echo "   pnpm:       $(pnpm --version 2>&1)"
+echo "   Docker:     $(docker --version 2>&1)"
+echo "   git:        $(git --version 2>&1)"
+echo "   uv:         $(uv --version 2>&1)"
+echo "   Daemon:     $(justavps-daemon --version 2>&1 || echo present)"
+echo "====================================="
 echo "[golden] Build VM prepared."
 '
 
-# Stop and publish
 echo "[golden] Stopping build VM..."
 incus stop "$BUILD_VM" --force
 
-echo "[golden] Publishing golden image (this may take a minute)..."
+echo "[golden] Publishing golden image..."
 incus image delete "$IMAGE_ALIAS" 2>/dev/null || true
 incus publish "$BUILD_VM" --alias "$IMAGE_ALIAS" --reuse
 
 echo "[golden] Cleaning up build VM..."
 incus delete "$BUILD_VM" --force
 
-# Warm the image volume so first clone is fast
-echo "[golden] Warming image volume..."
-incus init "$IMAGE_ALIAS" golden-warm-test --vm 2>/dev/null || true
+# Warm the image volume on ZFS
+echo "[golden] Warming image on zfs-pool..."
+incus init "$IMAGE_ALIAS" golden-warm-test --vm --storage zfs-pool 2>/dev/null || true
 incus delete golden-warm-test --force 2>/dev/null || true
 
-IMAGE_FINGERPRINT=$(incus image info "$IMAGE_ALIAS" | grep "Fingerprint:" | awk '{print $2}')
+IMAGE_SIZE=$(incus image list "$IMAGE_ALIAS" --format csv | awk -F, '{print $7}')
 echo ""
 echo "========================================"
-echo " Golden image built successfully!"
+echo " JustAVPS Golden Image Built!"
 echo " Alias: $IMAGE_ALIAS"
-echo " Fingerprint: $IMAGE_FINGERPRINT"
-echo " New VMs will clone from this image."
+echo " Size:  $IMAGE_SIZE"
+echo " Includes: Python 3, Node 22, Docker,"
+echo "   bun, pnpm, typescript, git, tmux,"
+echo "   vim, htop, ripgrep, uv, daemon"
 echo "========================================"

@@ -41,15 +41,18 @@ const MachineV2Schema = z.object({
   }),
   image: z.any().nullable(),
   connectivity: z.object({
-    public_ip: z.string().nullable(),
-    private_ipv4: z.string().nullable(),
-    ssh_command: z.string().nullable(),
+    ssh_host: z.string().nullable(),
     ssh_port: z.number().nullable(),
+    ssh_command: z.string().nullable(),
+    ssh_setup_command: z.string().nullable(),
+    ssh_config_block: z.string().nullable(),
+    ssh_private_key: z.string().nullable(),
+    ssh_public_key: z.string().nullable(),
     urls: z.object({
       proxy: z.string(),
       terminal: z.string(),
       port_template: z.string(),
-    }).nullable(),
+    }),
   }),
   capabilities: z.object({
     can_start: z.boolean(),

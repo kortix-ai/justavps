@@ -24,6 +24,34 @@ export function computeMonthlyPrice(vcpu: number, ramGb: number, diskGb: number)
   );
 }
 
+/**
+ * Full price breakdown for a given resource configuration.
+ * Returns per-interval rates useful for live UI display.
+ *
+ * We use a 30-day month → 720 hours → 43,200 minutes → 2,592,000 seconds.
+ */
+export function computePriceBreakdown(vcpu: number, ramGb: number, diskGb: number) {
+  const rawMonthly =
+    vcpu * RESOURCE_RATES.vcpu_monthly +
+    ramGb * RESOURCE_RATES.ram_gb_monthly +
+    diskGb * RESOURCE_RATES.disk_gb_monthly;
+  const monthly = Math.ceil(rawMonthly);
+  const hoursPerMonth = 30 * 24;
+  const minutesPerMonth = hoursPerMonth * 60;
+  const secondsPerMonth = minutesPerMonth * 60;
+  return {
+    monthly,
+    hourly: rawMonthly / hoursPerMonth,
+    per_minute: rawMonthly / minutesPerMonth,
+    per_second: rawMonthly / secondsPerMonth,
+    breakdown: {
+      vcpu: vcpu * RESOURCE_RATES.vcpu_monthly,
+      ram: ramGb * RESOURCE_RATES.ram_gb_monthly,
+      disk: diskGb * RESOURCE_RATES.disk_gb_monthly,
+    },
+  };
+}
+
 // ─── UI-only recommendations ────────────────────────────────────────────────
 // These are NOT backend entities. They only pre-fill the frontend sliders.
 

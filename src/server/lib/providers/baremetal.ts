@@ -233,6 +233,7 @@ export class BaremetalProvider implements ComputeProvider {
         baremetal_host_id: hostCandidate.id,
         private_ipv4: result.privateIpv4,
         ssh_port: result.sshPort,
+        http_port: result.httpPort ?? null,
         runner_base_url: hostCandidate.runnerBaseUrl,
         ...(result.metadata ?? {}),
       },

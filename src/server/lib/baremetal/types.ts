@@ -73,6 +73,7 @@ export interface RunnerCreateInstanceResult {
   hostIpv6?: string | null;
   privateIpv4: string | null;
   sshPort: number | null;
+  httpPort?: number | null;
   metadata?: Record<string, unknown>;
 }
 
