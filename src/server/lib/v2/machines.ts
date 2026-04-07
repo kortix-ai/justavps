@@ -536,7 +536,20 @@ export async function createMachineV2(input: { accountId: string; userId: string
         },
       }).where(eq(machines.id, machine.id));
 
-      await eventBus.emitStageChange(machine.id, input.accountId, 'server_created', `Server created`);
+      // For warm pool claims, the VM is already running with identity injected
+      // Mark it ready immediately — don't wait for daemon heartbeat
+      const isWarmClaim = server.metadata?.warm_pool === true;
+      if (isWarmClaim) {
+        await db.update(machines).set({
+          status: 'ready',
+          readyAt: new Date(),
+          provisioningStage: 'services_ready',
+        }).where(eq(machines.id, machine.id));
+        await eventBus.emitStatusChange(machine.id, input.accountId, 'ready', 'Machine ready (warm pool)');
+        console.log(`[v2-bg ${slug}] WARM POOL → marked ready immediately`);
+      } else {
+        await eventBus.emitStageChange(machine.id, input.accountId, 'server_created', `Server created`);
+      }
 
       // Wait for Stripe in parallel (already started above)
       await stripePromise;

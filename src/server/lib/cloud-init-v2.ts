@@ -112,14 +112,12 @@ systemctl enable --now opencode-web 2>/dev/null || true
 # ── 4. UFW broker rules ──────────────────────────────────────────────────
 ${brokerUfwRules}
 
-# ── 5. Network callbacks (best-effort, daemon handles the real readiness) ─
-${stageCallback('cloud_init_done', 'Machine identity injected')}
-
-${cloudInitScriptBase64 ? `# ── Custom user script ──────────────────────────────────────────────────
-echo '${cloudInitScriptBase64}' | base64 -d > /tmp/justavps-custom.sh
+# ── 5. UFW / custom script ────────────────────────────────────────────────
+${cloudInitScriptBase64 ? `echo '${cloudInitScriptBase64}' | base64 -d > /tmp/justavps-custom.sh
 chmod +x /tmp/justavps-custom.sh
 /bin/bash /tmp/justavps-custom.sh || true` : ''}
 
-${stageCallback('cloud_init_done', 'Machine identity injected')}
+# ── 6. Stage callback (best-effort, control plane marks ready on runnerd return) ─
+${stageCallback('services_ready', 'Services started')}
 `;
 }

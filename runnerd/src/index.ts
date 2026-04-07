@@ -524,46 +524,34 @@ app.post('/v1/instances', async (c) => {
   try {
     const isGoldenImage = image === 'justavps-golden' || image.startsWith('justavps-golden');
     console.log(`[runnerd] create ${instanceName} from ${image}${isGoldenImage ? ' (golden fast-path)' : ''}`);
-    const resolvedImage = await resolveVmImageReference(image);
-    await retryTransient(() => runIncusPty(['delete', incusTarget(instanceName), '--force'], 20000).catch(() => ({ stdout: '', stderr: '' })), 20000);
-    await retryTransient(() => runIncusPty(['init', resolvedImage, incusTarget(instanceName), '--vm'], 300000), 310000);
-    await waitForInstance(instanceName);
-    console.log(`[runnerd] init complete ${instanceName}`);
-    await ensureRootDiskSize(instanceName, diskGb);
-    await setIncusConfig(instanceName, 'limits.cpu', String(vcpu));
-    await setIncusConfig(instanceName, 'limits.memory', `${memoryGb}GiB`);
 
+    // ── WARM POOL: check BEFORE cold init to avoid wasting 2s on incus init ──
     if (isGoldenImage) {
       const startTs = Date.now();
       const sshPort = sshPortForInstance(instanceName);
       const httpPort = httpPortForInstance(instanceName);
-
-      // ── TRY WARM POOL FIRST (instant claim, ~2s total) ────────────
       const warmVM = claimWarmVM();
       if (warmVM) {
         console.log(`[runnerd] WARM POOL claim ${warmVM.name} → ${instanceName} +${Date.now() - startTs}ms`);
 
-        // Rename the warm VM to the requested name (must stop first)
-        // Actually we CAN'T rename running VMs in Incus, so we keep the warm name
-        // and just track the mapping. The instanceName is what the control plane uses.
-        // We'll use the warm VM's existing name as the Incus instance ID but return
-        // instanceName as the logical ID.
-
-        // Inject identity via incus exec (VM is already running + agent ready)
-        if (cloudInitUserData.trim()) {
+        // Run identity injection AND proxy device setup IN PARALLEL
+        const identityPromise = (async () => {
+          if (!cloudInitUserData.trim()) return;
           const b64 = Buffer.from(cloudInitUserData).toString('base64');
           await runIncus(['exec', incusTarget(warmVM.name), '--', 'bash', '-c',
             `echo '${b64}' | base64 -d > /tmp/init.sh && chmod +x /tmp/init.sh && /tmp/init.sh`], 30000);
-        }
-        console.log(`[runnerd] identity injected ${warmVM.name} +${Date.now() - startTs}ms`);
+          console.log(`[runnerd] identity injected +${Date.now() - startTs}ms`);
+        })();
 
-        // Set up host → VM NAT forwarding (SSH + HTTP proxy)
-        if (warmVM.privateIpv4 && RUNNERD_PUBLIC_IPV4) {
-          await setupProxyDevices(warmVM.name, warmVM.privateIpv4, sshPort, httpPort).catch((err) =>
-            console.warn(`[runnerd] proxy setup failed: ${err instanceof Error ? err.message : err}`)
-          );
+        const proxyPromise = (async () => {
+          if (!warmVM.privateIpv4 || !RUNNERD_PUBLIC_IPV4) return;
+          await setupProxyDevices(warmVM.name, warmVM.privateIpv4, sshPort, httpPort);
           console.log(`[runnerd] proxies ready +${Date.now() - startTs}ms ssh:${sshPort} http:${httpPort}`);
-        }
+        })().catch((err) =>
+          console.warn(`[runnerd] proxy setup failed: ${err instanceof Error ? err.message : err}`)
+        );
+
+        await Promise.all([identityPromise, proxyPromise]);
 
         console.log(`[runnerd] WARM CLAIM COMPLETE ${warmVM.name} total=+${Date.now() - startTs}ms`);
         regenerateNginxMap().catch(() => {});
@@ -580,6 +568,16 @@ app.post('/v1/instances', async (c) => {
 
       // ── COLD BOOT FALLBACK (pool empty, ~18s) ──────────────────────
       console.log(`[runnerd] cold boot ${instanceName} (warm pool empty)`);
+
+      // Need to create the VM since we skipped init above
+      const resolvedImage = await resolveVmImageReference(image);
+      await retryTransient(() => runIncusPty(['delete', incusTarget(instanceName), '--force'], 20000).catch(() => ({ stdout: '', stderr: '' })), 20000);
+      await retryTransient(() => runIncusPty(['init', resolvedImage, incusTarget(instanceName), '--vm'], 300000), 310000);
+      await waitForInstance(instanceName);
+      await ensureRootDiskSize(instanceName, diskGb);
+      await setIncusConfig(instanceName, 'limits.cpu', String(vcpu));
+      await setIncusConfig(instanceName, 'limits.memory', `${memoryGb}GiB`);
+      console.log(`[runnerd] cold init complete ${instanceName} +${Date.now() - startTs}ms`);
 
       await retryBusy(() => runIncus(['start', incusTarget(instanceName)]));
       console.log(`[runnerd] started ${instanceName} +${Date.now() - startTs}ms`);
@@ -630,7 +628,14 @@ app.post('/v1/instances', async (c) => {
       }, 201);
     }
 
-    // Standard cloud-init path (raw images)
+    // Standard cloud-init path (raw images — non-golden)
+    const resolvedImageStd = await resolveVmImageReference(image);
+    await retryTransient(() => runIncusPty(['delete', incusTarget(instanceName), '--force'], 20000).catch(() => ({ stdout: '', stderr: '' })), 20000);
+    await retryTransient(() => runIncusPty(['init', resolvedImageStd, incusTarget(instanceName), '--vm'], 300000), 310000);
+    await waitForInstance(instanceName);
+    await ensureRootDiskSize(instanceName, diskGb);
+    await setIncusConfig(instanceName, 'limits.cpu', String(vcpu));
+    await setIncusConfig(instanceName, 'limits.memory', `${memoryGb}GiB`);
     if (cloudInitUserData.trim()) {
       await setIncusConfig(instanceName, 'cloud-init.user-data', cloudInitUserData);
     }
