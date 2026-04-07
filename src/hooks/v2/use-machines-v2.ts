@@ -103,7 +103,7 @@ export function useMachines(options?: { refetchInterval?: number | false }) {
       if (options?.refetchInterval !== undefined) return options.refetchInterval;
       // Auto-poll when any machine is provisioning so the list updates live
       const machines = query.state.data;
-      if (machines?.some((m) => m.status === "provisioning")) return 5_000;
+      if (machines?.some((m) => m.status === "provisioning")) return 500;
       return false;
     },
   });
@@ -115,7 +115,7 @@ export function useMachine(id: string) {
     queryFn: () => apiV2.get<V2Machine>(`/machines/${id}`).then(mapV2Machine),
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      if (status === "provisioning") return 5_000;
+      if (status === "provisioning") return 250;
       if (status === "ready") return 10_000;
       return false;
     },

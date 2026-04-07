@@ -19,25 +19,44 @@ const RUNNERD_STATE_DIR = '/run/justavps-runnerd';
 
 mkdirSync(RUNNERD_STATE_DIR, { recursive: true });
 
-// ─── Warm Pool ──────────────────────────────────────────────────────────────
-// Pre-boots VMs from the golden image so they can be claimed instantly.
-// Pool VMs are named `justavps-warm-{index}` and tracked in memory.
+// ─── Bucketed warm pools ───────────────────────────────────────────────────
+// We maintain running reserve VMs keyed by vCPU count.
+// Memory is hotplugged upward on claim; CPU cannot be hotplugged reliably, so bucket by CPU.
 
-const WARM_POOL_SIZE = Number(process.env.WARM_POOL_SIZE || 2);
-const WARM_POOL_IMAGE = 'justavps-golden';
-const WARM_POOL_PREFIX = 'justavps-warm-';
+const DEFAULT_CPU_BUCKETS = (process.env.POOL_CPU_BUCKETS || '1,2,4,8')
+  .split(',')
+  .map((s) => Number(s.trim()))
+  .filter((n) => Number.isFinite(n) && n > 0);
+const trackedCpuBuckets = new Set<number>(DEFAULT_CPU_BUCKETS);
 
-interface WarmVM {
+const WARM_POOL_PER_CPU = Number(process.env.WARM_POOL_PER_CPU || 1);
+const POOL_IMAGE = 'justavps-golden';
+const WARM_POOL_PREFIX = 'justavps-warm-cpu';
+const BASE_POOL_MEMORY_GIB = 1;     // memory hotplugged upward on claim
+const BASE_POOL_DISK_GIB = 10;      // filesystem expanded upward on claim
+
+interface PoolVM {
   name: string;
+  cpu: number;
   privateIpv4: string;
-  ready: boolean;
   createdAt: number;
 }
 
-const warmPool: WarmVM[] = [];
+const warmPools = new Map<number, PoolVM[]>();
 let poolReplenishing = false;
 
-async function isWarmVMReady(name: string): Promise<{ ready: boolean; ip: string | null }> {
+function getWarmBucket(cpu: number) {
+  const arr = warmPools.get(cpu) ?? [];
+  if (!warmPools.has(cpu)) warmPools.set(cpu, arr);
+  return arr;
+}
+
+function poolVmName(prefix: string, cpu: number) {
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  return `${prefix}${cpu}-${id}`;
+}
+
+async function isVmAgentReady(name: string): Promise<{ ready: boolean; ip: string | null }> {
   try {
     await runIncus(['exec', incusTarget(name), '--', 'true'], 3000);
     const inspected = await inspectInstance(name);
@@ -47,90 +66,90 @@ async function isWarmVMReady(name: string): Promise<{ ready: boolean; ip: string
   }
 }
 
-async function createWarmVM(): Promise<WarmVM | null> {
-  const index = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  const name = `${WARM_POOL_PREFIX}${index}`;
+async function prepareBaseVm(name: string, cpu: number): Promise<{ ip: string } | null> {
   try {
-    console.log(`[warm-pool] creating ${name}`);
-    await retryTransient(() => runIncusPty(['init', WARM_POOL_IMAGE, incusTarget(name), '--vm'], 300000), 310000);
+    await retryTransient(() => runIncusPty(['init', POOL_IMAGE, incusTarget(name), '--vm'], 300000), 310000);
     await waitForInstance(name);
-    await setIncusConfig(name, 'limits.cpu', '2');
-    await setIncusConfig(name, 'limits.memory', '4GiB');
+    await setIncusConfig(name, 'limits.cpu', String(cpu));
+    await setIncusConfig(name, 'limits.memory', `${BASE_POOL_MEMORY_GIB}GiB`);
+    await ensureRootDiskSize(name, BASE_POOL_DISK_GIB);
     await retryBusy(() => runIncus(['start', incusTarget(name)]));
 
-    // Wait for agent to be ready (this takes ~18s but happens in background)
     const deadline = Date.now() + 120000;
     let ip: string | null = null;
     while (Date.now() < deadline) {
-      const check = await isWarmVMReady(name);
+      const check = await isVmAgentReady(name);
       if (check.ready && check.ip) {
         ip = check.ip;
         break;
       }
       await delay(500);
     }
-    if (!ip) {
-      console.warn(`[warm-pool] ${name} never became ready, destroying`);
-      await runIncus(['delete', incusTarget(name), '--force']).catch(() => {});
-      return null;
-    }
+    if (!ip) throw new Error('agent never became ready');
 
-    // Pre-configure eth0 with static IP so claim doesn't need to (saves ~2s on claim)
-    try {
-      await runIncus(['config', 'device', 'add', incusTarget(name), 'eth0', 'nic',
-        'nictype=bridged', 'parent=incusbr0', `ipv4.address=${ip}`], 10000);
-    } catch { /* may already exist */ }
+    // Pre-pin eth0 with the discovered IP so claim path avoids the 2s NIC reconfiguration penalty.
+    await runIncus([
+      'config', 'device', 'add', incusTarget(name), 'eth0', 'nic',
+      'nictype=bridged', 'parent=incusbr0', `ipv4.address=${ip}`,
+    ], 10000).catch(() => {});
 
-    const vm: WarmVM = { name, privateIpv4: ip, ready: true, createdAt: Date.now() };
-    console.log(`[warm-pool] ${name} ready ip=${ip} (eth0 pre-pinned)`);
-    return vm;
+    return { ip };
   } catch (err) {
-    console.warn(`[warm-pool] failed to create ${name}:`, err instanceof Error ? err.message : err);
+    console.warn(`[pool] failed to prepare ${name}:`, err instanceof Error ? err.message : err);
     await runIncus(['delete', incusTarget(name), '--force']).catch(() => {});
     return null;
   }
 }
 
-async function replenishPool() {
+async function createWarmVM(cpu: number): Promise<PoolVM | null> {
+  const name = poolVmName(WARM_POOL_PREFIX, cpu);
+  console.log(`[warm-pool] creating ${name}`);
+  const prepared = await prepareBaseVm(name, cpu);
+  if (!prepared) return null;
+  const vm: PoolVM = { name, cpu, privateIpv4: prepared.ip, createdAt: Date.now() };
+  console.log(`[warm-pool] ${name} ready ip=${prepared.ip} (cpu=${cpu})`);
+  return vm;
+}
+
+function claimWarmVM(cpu: number): PoolVM | null {
+  const bucket = getWarmBucket(cpu);
+  const vm = bucket.shift() ?? null;
+  if (vm) {
+    console.log(`[warm-pool] claimed ${vm.name} (cpu=${cpu}), bucket now ${bucket.length}/${WARM_POOL_PER_CPU}`);
+    replenishPools().catch(() => {});
+  }
+  return vm;
+}
+
+async function prunePrefix(prefix: string) {
+  const { stdout } = await execFileAsync('incus', ['list', '--format', 'csv', '-c', 'n'], { timeout: 15000, maxBuffer: 1024 * 1024 });
+  const names = stdout.split('\n').map((s) => s.trim()).filter(Boolean).filter((n) => n.startsWith(prefix));
+  for (const name of names) {
+    await runIncus(['delete', incusTarget(name), '--force']).catch(() => {});
+  }
+}
+
+async function replenishPools() {
   if (poolReplenishing) return;
   poolReplenishing = true;
   try {
-    // Remove stale entries
-    for (let i = warmPool.length - 1; i >= 0; i--) {
-      const vm = warmPool[i];
-      const check = await isWarmVMReady(vm.name);
-      if (!check.ready) {
-        console.log(`[warm-pool] removing stale ${vm.name}`);
-        await runIncus(['delete', incusTarget(vm.name), '--force']).catch(() => {});
-        warmPool.splice(i, 1);
+    // Buckets are exact per requested CPU; no lying about resources.
+    for (const cpu of trackedCpuBuckets) {
+      const warm = getWarmBucket(cpu);
+      while (warm.length < WARM_POOL_PER_CPU) {
+        const vm = await createWarmVM(cpu);
+        if (!vm) break;
+        warm.push(vm);
       }
     }
-    // Create new ones up to pool size
-    while (warmPool.length < WARM_POOL_SIZE) {
-      const vm = await createWarmVM();
-      if (vm) {
-        warmPool.push(vm);
-      } else {
-        break; // Don't loop forever on failures
-      }
-    }
-    console.log(`[warm-pool] pool size: ${warmPool.length}/${WARM_POOL_SIZE}`);
+    const warmReady = [...warmPools.values()].reduce((sum, arr) => sum + arr.length, 0);
+    console.log(`[pool] warm=${warmReady} buckets=${[...trackedCpuBuckets].join(',')}`);
   } finally {
     poolReplenishing = false;
   }
 }
 
-function claimWarmVM(): WarmVM | null {
-  const vm = warmPool.shift() ?? null;
-  if (vm) {
-    console.log(`[warm-pool] claimed ${vm.name}, pool now ${warmPool.length}/${WARM_POOL_SIZE}`);
-    // Trigger background replenish
-    replenishPool().catch(() => {});
-  }
-  return vm;
-}
-
-// ─── End Warm Pool ──────────────────────────────────────────────────────────
+// ─── End pool system ───────────────────────────────────────────────────────
 
 function incusTarget(name?: string) {
   return INCUS_REMOTE ? `${INCUS_REMOTE}:${name ?? ''}` : (name ?? '');
@@ -264,7 +283,28 @@ async function setIncusConfig(instanceName: string, key: string, value: string) 
 }
 
 async function ensureRootDiskSize(instanceName: string, sizeGiB: number) {
-  await retryBusy(() => runIncus(['config', 'device', 'override', incusTarget(instanceName), 'root', `size=${sizeGiB}GiB`]));
+  try {
+    // If a root override device already exists, update it in place.
+    await retryBusy(() => runIncus(['config', 'device', 'set', incusTarget(instanceName), 'root', 'size', `${sizeGiB}GiB`]));
+  } catch {
+    // Otherwise create an override off the profile root device.
+    await retryBusy(() => runIncus(['config', 'device', 'override', incusTarget(instanceName), 'root', `size=${sizeGiB}GiB`]));
+  }
+}
+
+async function growGuestFilesystem(instanceName: string) {
+  await runIncus([
+    'exec', incusTarget(instanceName), '--', 'bash', '-lc',
+    'growpart /dev/sda 2 >/dev/null 2>&1 || true; resize2fs /dev/sda2 >/dev/null 2>&1 || true',
+  ], 30000);
+}
+
+async function applyClaimResources(instanceName: string, memoryGb: number, diskGb: number) {
+  // RAM hotplug works on running VMs; don't block waiting for guest visibility.
+  await setIncusConfig(instanceName, 'limits.memory', `${memoryGb}GiB`);
+  // Disk device resize + in-guest filesystem expansion.
+  await ensureRootDiskSize(instanceName, diskGb);
+  await growGuestFilesystem(instanceName).catch(() => {});
 }
 
 function requireAuth(c: Context) {
@@ -497,9 +537,9 @@ app.get('/healthz', async (c) => {
         imageCount: images.length,
       },
       warm_pool: {
-        size: warmPool.length,
-        target: WARM_POOL_SIZE,
-        ready: warmPool.filter((vm) => vm.ready).length,
+        size: [...warmPools.values()].reduce((sum, arr) => sum + arr.length, 0),
+        target: trackedCpuBuckets.size * WARM_POOL_PER_CPU,
+        ready: [...warmPools.values()].reduce((sum, arr) => sum + arr.length, 0),
       },
     });
   } catch (error) {
@@ -536,7 +576,8 @@ app.post('/v1/instances', async (c) => {
       const startTs = Date.now();
       const sshPort = sshPortForInstance(instanceName);
       const httpPort = httpPortForInstance(instanceName);
-      const warmVM = claimWarmVM();
+      trackedCpuBuckets.add(vcpu);
+      const warmVM = claimWarmVM(vcpu);
       if (warmVM) {
         console.log(`[runnerd] WARM POOL claim ${warmVM.name} → ${instanceName} +${Date.now() - startTs}ms`);
 
@@ -547,6 +588,8 @@ app.post('/v1/instances', async (c) => {
             `echo '${b64}' | base64 -d > /tmp/init.sh && chmod +x /tmp/init.sh && /tmp/init.sh`], 15000);
           console.log(`[runnerd] identity injected +${Date.now() - startTs}ms`);
         }
+
+        await applyClaimResources(warmVM.name, memoryGb, diskGb);
 
         // eth0 already pre-pinned in warm pool. Add SSH + HTTP proxy devices (sequential, ~60ms total)
         if (warmVM.privateIpv4 && RUNNERD_PUBLIC_IPV4) {
@@ -811,10 +854,13 @@ console.log(`[runnerd] listening on :${RUNNERD_PORT}`);
 // Regenerate nginx map on startup so proxy routing is always correct
 regenerateNginxMap().catch(() => {});
 
-// Start warm pool replenishment in background
-if (WARM_POOL_SIZE > 0) {
-  console.log(`[warm-pool] initializing pool (target size: ${WARM_POOL_SIZE})`);
-  replenishPool().catch((err) => console.warn('[warm-pool] initial replenish failed:', err));
-  // Keep pool topped up every 30 seconds
-  setInterval(() => replenishPool().catch(() => {}), 30000);
-}
+// On startup, wipe any old reserve VMs and rebuild pools cleanly.
+// These are internal pool artifacts only — safe to recreate.
+Promise.resolve()
+  .then(() => prunePrefix('justavps-warm-'))
+  .catch(() => {})
+  .finally(() => {
+    console.log(`[pool] initializing warm pools for CPU buckets: ${[...trackedCpuBuckets].join(',')}`);
+    replenishPools().catch((err) => console.warn('[pool] initial replenish failed:', err));
+    setInterval(() => replenishPools().catch(() => {}), 30000);
+  });
