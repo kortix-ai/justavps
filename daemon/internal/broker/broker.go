@@ -160,6 +160,7 @@ func (b *Broker) handleProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Broker) handleHTTPProxy(w http.ResponseWriter, r *http.Request, verified verifiedRequest) {
+	log.Printf("[BROKER] HTTP %s slug=%s host=%s target=%s:%d path=%s", r.Method, verified.MachineSlug, verified.OriginalHost, verified.TargetIP, verified.TargetPort, verified.TargetPath)
 	targetURL := fmt.Sprintf("http://%s:80%s", verified.TargetIP, verified.TargetPath)
 
 	headers := stripHopByHopHeaders(r.Header)
@@ -172,6 +173,7 @@ func (b *Broker) handleHTTPProxy(w http.ResponseWriter, r *http.Request, verifie
 	headers.Del(HeaderRequestTS)
 	headers.Del(HeaderRequestNonce)
 	headers.Del(HeaderSignature)
+	headers.Set("Host", verified.OriginalHost)
 	headers.Set("X-Forwarded-Host", verified.OriginalHost)
 	headers.Set("X-Forwarded-Proto", "https")
 
@@ -200,6 +202,7 @@ func (b *Broker) handleHTTPProxy(w http.ResponseWriter, r *http.Request, verifie
 }
 
 func (b *Broker) handleWebSocketProxy(w http.ResponseWriter, r *http.Request, verified verifiedRequest) {
+	log.Printf("[BROKER] WS slug=%s host=%s target=%s:%d path=%s", verified.MachineSlug, verified.OriginalHost, verified.TargetIP, verified.TargetPort, verified.TargetPath)
 	pathURL, err := url.Parse(verified.TargetPath)
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid websocket target path", err)
@@ -213,6 +216,7 @@ func (b *Broker) handleWebSocketProxy(w http.ResponseWriter, r *http.Request, ve
 	}
 
 	upstreamHeaders := http.Header{}
+	upstreamHeaders.Set("Host", verified.OriginalHost)
 	upstreamHeaders.Set("X-Forwarded-Host", verified.OriginalHost)
 	upstreamHeaders.Set("X-Forwarded-Proto", "https")
 	if realIP := r.Header.Get("CF-Connecting-IP"); realIP != "" {

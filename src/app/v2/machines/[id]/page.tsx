@@ -475,7 +475,7 @@ function SshConnectPanel({ machine }: { machine: Machine }) {
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x">
           <div className="px-4 py-3">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Host</p>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">SSH gateway</p>
             <p className="text-sm font-mono">{sshHost}</p>
           </div>
           <div className="px-4 py-3">

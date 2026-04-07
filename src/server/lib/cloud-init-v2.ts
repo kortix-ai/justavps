@@ -87,7 +87,7 @@ systemd-machine-id-setup 2>/dev/null || true
 echo "${opts.slug}" > /etc/hostname
 hostname "${opts.slug}" 2>/dev/null || true
 
-# ── 2. Ensure daemon service file (always write, never trust golden image state) ──
+# ── 2. Ensure daemon + default landing service files exist ──
 cat > /etc/systemd/system/justavps-daemon.service << 'DAEONSVC'
 [Unit]
 Description=JustAVPS Daemon
@@ -102,10 +102,65 @@ RestartSec=2
 WantedBy=multi-user.target
 DAEONSVC
 
+mkdir -p /opt/justavps-welcome
+cat > /opt/justavps-welcome/index.html << 'WELCOMEHTML'
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>JustAVPS — ${opts.slug}</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #09090b; color: #fafafa; }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 48px 24px; }
+    .card { border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.03); border-radius: 20px; padding: 24px; }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    p { margin: 0 0 14px; color: #a1a1aa; line-height: 1.55; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    pre { background: #18181b; color: #d4d4d8; padding: 14px; border-radius: 12px; overflow: auto; border: 1px solid rgba(255,255,255,.08); }
+    .muted { font-size: 13px; color: #71717a; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>JustAVPS — ${opts.slug}</h1>
+      <p>Your machine is online. The daemon is reachable and the default proxy is working.</p>
+      <p>Run a web service inside the machine and access it via a port URL. Example:</p>
+      <pre>python3 -m http.server 3000
+
+Then open:
+https://3000--${opts.slug}.${opts.proxyDomain}</pre>
+      <p>You can also use the built-in terminal and SSH connect flow from the dashboard.</p>
+      <p class="muted">This page is served by the default landing app on port 3456 so the root proxy URL always has a valid upstream.</p>
+    </div>
+  </div>
+</body>
+</html>
+WELCOMEHTML
+
+cat > /etc/systemd/system/justavps-welcome.service << 'WELCOMESVC'
+[Unit]
+Description=JustAVPS Welcome App
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/justavps-welcome
+ExecStart=/usr/bin/python3 -m http.server 3456 --bind 127.0.0.1 --directory /opt/justavps-welcome
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+WELCOMESVC
+
 # ── 3. Start services ────────────────────────────────────────────────────
-systemctl unmask justavps-daemon sandbox-agent opencode-web 2>/dev/null || true
+systemctl unmask justavps-daemon justavps-welcome sandbox-agent opencode-web 2>/dev/null || true
 systemctl daemon-reload
 systemctl enable --now justavps-daemon 2>/dev/null || true
+systemctl enable --now justavps-welcome 2>/dev/null || true
 systemctl enable --now sandbox-agent 2>/dev/null || true
 systemctl enable --now opencode-web 2>/dev/null || true
 

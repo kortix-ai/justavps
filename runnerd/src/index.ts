@@ -17,10 +17,39 @@ const RUNNERD_PUBLIC_IPV4 = (process.env.RUNNERD_PUBLIC_IPV4 || '').trim() || nu
 const RUNNERD_PUBLIC_IPV6 = (process.env.RUNNERD_PUBLIC_IPV6 || '').trim() || null;
 const RUNNERD_STATE_DIR = '/run/justavps-runnerd';
 
+const FAST_VM_RAW_QEMU_CONF = [
+  '[device "qemu_gpu"]',
+  '[device "qemu_keyboard"]',
+  '[device "qemu_tablet"]',
+  '[device "qemu_usb"]',
+  '[device "qemu_spice-usb1"]',
+  '[device "qemu_spice-usb2"]',
+  '[device "qemu_spice-usb3"]',
+  '[device "qemu_spice-usb-chardev1"]',
+  '[device "qemu_spice-usb-chardev2"]',
+  '[device "qemu_spice-usb-chardev3"]',
+  '[device "qemu_spice-audio"]',
+  '[device "qemu_spice-audiodev"]',
+  '[device "qemu_spice"]',
+  '[device "qemu_spice-chardev"]',
+  '[device "qemu_spicedir"]',
+  '[device "qemu_spicedir-chardev"]',
+  '[device "qemu_pcie5"]',
+  '[device "qemu_pcie6"]',
+  '[device "qemu_pcie7"]',
+  '[device "qemu_pcie8"]',
+  '[device "qemu_pcie9"]',
+  '[device "qemu_pcie10"]',
+  '[device "qemu_pcie11"]',
+  '[device "qemu_pcie12"]',
+].join('\n');
+
 mkdirSync(RUNNERD_STATE_DIR, { recursive: true });
 
 // ─── Bucketed warm pools ───────────────────────────────────────────────────
-// We maintain running reserve VMs keyed by vCPU count.
+// We maintain running reserve VMs keyed by exact vCPU count.
+// This is the only fast-path reserve in the live runtime. When empty, we fall
+// back to a full cold boot.
 // Memory is hotplugged upward on claim; CPU cannot be hotplugged reliably, so bucket by CPU.
 
 const DEFAULT_CPU_BUCKETS = (process.env.POOL_CPU_BUCKETS || '1,2,4,8')
@@ -70,6 +99,7 @@ async function prepareBaseVm(name: string, cpu: number): Promise<{ ip: string } 
   try {
     await retryTransient(() => runIncusPty(['init', POOL_IMAGE, incusTarget(name), '--vm'], 300000), 310000);
     await waitForInstance(name);
+    await applyVmBootTuning(name);
     await setIncusConfig(name, 'limits.cpu', String(cpu));
     await setIncusConfig(name, 'limits.memory', `${BASE_POOL_MEMORY_GIB}GiB`);
     await ensureRootDiskSize(name, BASE_POOL_DISK_GIB);
@@ -90,7 +120,7 @@ async function prepareBaseVm(name: string, cpu: number): Promise<{ ip: string } 
     // Pre-pin eth0 with the discovered IP so claim path avoids the 2s NIC reconfiguration penalty.
     await runIncus([
       'config', 'device', 'add', incusTarget(name), 'eth0', 'nic',
-      'nictype=bridged', 'parent=incusbr0', `ipv4.address=${ip}`,
+      'name=eth0', 'nictype=bridged', 'parent=incusbr0', `ipv4.address=${ip}`,
     ], 10000).catch(() => {});
 
     return { ip };
@@ -282,6 +312,13 @@ async function setIncusConfig(instanceName: string, key: string, value: string) 
   await retryBusy(() => runIncus(['config', 'set', incusTarget(instanceName), key, value]));
 }
 
+async function applyVmBootTuning(instanceName: string) {
+  // Proven manual savings: ~1s from disabling secure boot + ~1.5s from stripping GUI/spice/unused PCIe devices.
+  await setIncusConfig(instanceName, 'security.secureboot', 'false').catch(() => {});
+  await setIncusConfig(instanceName, 'security.agent.metrics', 'false').catch(() => {});
+  await setIncusConfig(instanceName, 'raw.qemu.conf', FAST_VM_RAW_QEMU_CONF).catch(() => {});
+}
+
 async function ensureRootDiskSize(instanceName: string, sizeGiB: number) {
   try {
     // If a root override device already exists, update it in place.
@@ -297,6 +334,19 @@ async function growGuestFilesystem(instanceName: string) {
     'exec', incusTarget(instanceName), '--', 'bash', '-lc',
     'growpart /dev/sda 2 >/dev/null 2>&1 || true; resize2fs /dev/sda2 >/dev/null 2>&1 || true',
   ], 30000);
+}
+
+async function waitForHostTcp(ip: string, port: number, timeoutMs = 30000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    try {
+      await execFileAsync('nc', ['-z', '-w', '1', ip, String(port)], { timeout: 2000 });
+      return;
+    } catch {
+      await delay(100);
+    }
+  }
+  throw new Error(`Timed out waiting for TCP ${ip}:${port}`);
 }
 
 async function applyClaimResources(instanceName: string, memoryGb: number, diskGb: number) {
@@ -356,7 +406,7 @@ async function setupProxyDevices(instanceName: string, vmIp: string, sshPort: nu
   // Pin eth0 to the DHCP-assigned IP so NAT proxy has a stable target
   await runIncus([
     'config', 'device', 'add', incusTarget(instanceName), 'eth0', 'nic',
-    'nictype=bridged', 'parent=incusbr0', `ipv4.address=${vmIp}`,
+    'name=eth0', 'nictype=bridged', 'parent=incusbr0', `ipv4.address=${vmIp}`,
   ], 10000);
 
   // SSH NAT: host:sshPort → vm:22
@@ -620,11 +670,12 @@ app.post('/v1/instances', async (c) => {
       // ── COLD BOOT FALLBACK (pool empty, ~18s) ──────────────────────
       console.log(`[runnerd] cold boot ${instanceName} (warm pool empty)`);
 
-      // Need to create the VM since we skipped init above
+      // Last resort: full cold boot from image alias.
       const resolvedImage = await resolveVmImageReference(image);
       await retryTransient(() => runIncusPty(['delete', incusTarget(instanceName), '--force'], 20000).catch(() => ({ stdout: '', stderr: '' })), 20000);
       await retryTransient(() => runIncusPty(['init', resolvedImage, incusTarget(instanceName), '--vm'], 300000), 310000);
       await waitForInstance(instanceName);
+      await applyVmBootTuning(instanceName);
       await ensureRootDiskSize(instanceName, diskGb);
       await setIncusConfig(instanceName, 'limits.cpu', String(vcpu));
       await setIncusConfig(instanceName, 'limits.memory', `${memoryGb}GiB`);
@@ -684,6 +735,7 @@ app.post('/v1/instances', async (c) => {
     await retryTransient(() => runIncusPty(['delete', incusTarget(instanceName), '--force'], 20000).catch(() => ({ stdout: '', stderr: '' })), 20000);
     await retryTransient(() => runIncusPty(['init', resolvedImageStd, incusTarget(instanceName), '--vm'], 300000), 310000);
     await waitForInstance(instanceName);
+    await applyVmBootTuning(instanceName);
     await ensureRootDiskSize(instanceName, diskGb);
     await setIncusConfig(instanceName, 'limits.cpu', String(vcpu));
     await setIncusConfig(instanceName, 'limits.memory', `${memoryGb}GiB`);

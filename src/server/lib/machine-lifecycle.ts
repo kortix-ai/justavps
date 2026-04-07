@@ -201,10 +201,11 @@ export async function setupProxyDNS(
   addresses: { ipv4?: string | null; ipv6?: string | null },
   accountId: string,
   serverType: string,
+  options?: { routingIp?: string | null },
 ) {
   if (!config.isCloudflareConfigured()) return;
 
-  const primaryIp = addresses.ipv4 ?? addresses.ipv6;
+  const primaryIp = options?.routingIp ?? addresses.ipv4 ?? addresses.ipv6;
   if (!primaryIp) return;
 
   // 1. KV entry for HTTP routing via Worker

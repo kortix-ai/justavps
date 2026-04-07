@@ -165,13 +165,15 @@ function readSshAccess(machine: MachineRow) {
     : typeof meta.ssh_port === 'string' && meta.ssh_port.trim()
       ? Number(meta.ssh_port)
       : null;
-  // SSH hostname: prefer the pretty origin DNS record over the raw host IP.
-  // The DNS record is created unproxied on machine create, and points directly
-  // at the baremetal host where Incus NAT forwards the per-machine port to vm:22.
+  // SSH should use the actual bare-metal host gateway IP. This is the only
+  // consistently reliable path for VM NAT forwarding. The pretty origin-* DNS
+  // hostname may exist, but DNS/proxy precedence can still make it unreliable.
+  // We keep SSH honest: connect to the gateway host and forwarded port.
   const hostIp = typeof meta.public_ipv4 === 'string' ? meta.public_ipv4 : null;
   const originHost = `origin-${machine.slug}.${config.PROXY_DOMAIN}`;
   return {
-    sshHost: hostIp ? originHost : null,
+    sshHost: hostIp,
+    sshOriginHost: hostIp ? originHost : null,
     sshHostFallbackIp: hostIp,
     privateIpv4: typeof meta.private_ipv4 === 'string' ? meta.private_ipv4 : null,
     sshPort,
@@ -251,26 +253,13 @@ export async function serializeMachineV2(machine: MachineRow, sub?: Subscription
       ssh_config_block: sshConfigBlock,
       ssh_private_key: sshPrivateKey,
       ssh_public_key: machine.sshPublicKey || null,
-      urls: (() => {
-        // V2 baremetal: use the direct origin hostname + http NAT port
-        const httpPort = typeof meta.http_port === 'number' ? meta.http_port : null;
-        const originHost = ssh.sshHostFallbackIp
-          ? `origin-${machine.slug}.${proxyDomain}`
-          : null;
-        if (originHost && httpPort) {
-          return {
-            proxy: `http://${originHost}:${httpPort}`,
-            terminal: `http://${originHost}:${httpPort}/_terminal`,
-            port_template: `http://${originHost}:${httpPort}/_port/{port}`,
-          };
-        }
-        // Fallback: Cloudflare-proxied URLs (needs Worker to forward correctly)
-        return {
-          proxy: `https://${machine.slug}.${proxyDomain}`,
-          terminal: `https://${machine.slug}.${proxyDomain}/_terminal`,
-          port_template: `https://{port}--${machine.slug}.${proxyDomain}`,
-        };
-      })(),
+      urls: {
+        // Public-facing proxy URLs should always use the clean worker-style hostname.
+        // The host IP + NAT port stays an internal transport detail.
+        proxy: `https://${machine.slug}.${proxyDomain}`,
+        terminal: `https://${machine.slug}.${proxyDomain}/_terminal`,
+        port_template: `https://{port}--${machine.slug}.${proxyDomain}`,
+      },
     },
     capabilities: {
       can_start: machine.status === 'stopped',
@@ -573,6 +562,7 @@ export async function createMachineV2(input: { accountId: string; userId: string
           { ipv4: server.publicIpv4, ipv6: server.publicIpv6 },
           input.accountId,
           'custom',
+          { routingIp: typeof server.metadata?.private_ipv4 === 'string' ? server.metadata.private_ipv4 : null },
         ).catch((err) => console.warn(`[v2-bg ${slug}] dns setup error:`, err));
       }
 
