@@ -75,8 +75,14 @@ async function createWarmVM(): Promise<WarmVM | null> {
       return null;
     }
 
+    // Pre-configure eth0 with static IP so claim doesn't need to (saves ~2s on claim)
+    try {
+      await runIncus(['config', 'device', 'add', incusTarget(name), 'eth0', 'nic',
+        'nictype=bridged', 'parent=incusbr0', `ipv4.address=${ip}`], 10000);
+    } catch { /* may already exist */ }
+
     const vm: WarmVM = { name, privateIpv4: ip, ready: true, createdAt: Date.now() };
-    console.log(`[warm-pool] ${name} ready ip=${ip}`);
+    console.log(`[warm-pool] ${name} ready ip=${ip} (eth0 pre-pinned)`);
     return vm;
   } catch (err) {
     console.warn(`[warm-pool] failed to create ${name}:`, err instanceof Error ? err.message : err);
@@ -534,24 +540,26 @@ app.post('/v1/instances', async (c) => {
       if (warmVM) {
         console.log(`[runnerd] WARM POOL claim ${warmVM.name} → ${instanceName} +${Date.now() - startTs}ms`);
 
-        // Run identity injection AND proxy device setup IN PARALLEL
-        const identityPromise = (async () => {
-          if (!cloudInitUserData.trim()) return;
+        // Identity injection: single exec, minimal (config + keys + daemon restart in bg)
+        if (cloudInitUserData.trim()) {
           const b64 = Buffer.from(cloudInitUserData).toString('base64');
           await runIncus(['exec', incusTarget(warmVM.name), '--', 'bash', '-c',
-            `echo '${b64}' | base64 -d > /tmp/init.sh && chmod +x /tmp/init.sh && /tmp/init.sh`], 30000);
+            `echo '${b64}' | base64 -d > /tmp/init.sh && chmod +x /tmp/init.sh && /tmp/init.sh`], 15000);
           console.log(`[runnerd] identity injected +${Date.now() - startTs}ms`);
-        })();
+        }
 
-        const proxyPromise = (async () => {
-          if (!warmVM.privateIpv4 || !RUNNERD_PUBLIC_IPV4) return;
-          await setupProxyDevices(warmVM.name, warmVM.privateIpv4, sshPort, httpPort);
-          console.log(`[runnerd] proxies ready +${Date.now() - startTs}ms ssh:${sshPort} http:${httpPort}`);
-        })().catch((err) =>
-          console.warn(`[runnerd] proxy setup failed: ${err instanceof Error ? err.message : err}`)
-        );
-
-        await Promise.all([identityPromise, proxyPromise]);
+        // eth0 already pre-pinned in warm pool. Add SSH + HTTP proxy devices (sequential, ~60ms total)
+        if (warmVM.privateIpv4 && RUNNERD_PUBLIC_IPV4) {
+          try {
+            await runIncus(['config', 'device', 'add', incusTarget(warmVM.name), 'ssh', 'proxy',
+              'nat=true', `listen=tcp:${RUNNERD_PUBLIC_IPV4}:${sshPort}`, `connect=tcp:${warmVM.privateIpv4}:22`], 10000);
+            await runIncus(['config', 'device', 'add', incusTarget(warmVM.name), 'http', 'proxy',
+              'nat=true', `listen=tcp:${RUNNERD_PUBLIC_IPV4}:${httpPort}`, `connect=tcp:${warmVM.privateIpv4}:80`], 10000);
+            console.log(`[runnerd] proxies ready +${Date.now() - startTs}ms ssh:${sshPort} http:${httpPort}`);
+          } catch (err) {
+            console.warn(`[runnerd] proxy setup failed: ${err instanceof Error ? err.message : err}`);
+          }
+        }
 
         console.log(`[runnerd] WARM CLAIM COMPLETE ${warmVM.name} total=+${Date.now() - startTs}ms`);
         regenerateNginxMap().catch(() => {});
