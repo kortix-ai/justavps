@@ -71,6 +71,23 @@ export function buildTargetPath(url: URL, port: number, rewrittenPath?: string):
   return `/_port/${port}${path === '/' ? '' : path}${search}`;
 }
 
+function normalizeUpstreamHost(hostname: string, slug: string, port: number): string {
+  const lowerHostname = hostname.toLowerCase();
+  if (port === 80) return lowerHostname;
+
+  const dashedPrefix = `${port}--${slug}.`;
+  if (lowerHostname.startsWith(dashedPrefix)) {
+    return `${slug}.${lowerHostname.slice(dashedPrefix.length)}`;
+  }
+
+  const dottedPrefix = `${port}.${slug}.`;
+  if (lowerHostname.startsWith(dottedPrefix)) {
+    return `${slug}.${lowerHostname.slice(dottedPrefix.length)}`;
+  }
+
+  return lowerHostname;
+}
+
 async function createBrokerHeaders(
   request: Request,
   machineInfo: MachineInfo,
@@ -83,8 +100,9 @@ async function createBrokerHeaders(
   const headers = stripHopByHopHeaders(new Headers(request.headers));
   const timestamp = String(Math.floor(Date.now() / 1000));
   const nonce = crypto.randomUUID().replaceAll('-', '');
-  const originalHost = url.hostname;
+  const originalHost = normalizeUpstreamHost(url.hostname, slug, port);
   const targetIP = machineInfo.ip;
+  const upstreamPort = machineInfo.origin_port ?? 80;
   const machineId = machineInfo.machine_id || `slug:${slug}`;
 
   const canonical = [
@@ -93,14 +111,14 @@ async function createBrokerHeaders(
     machineId,
     slug,
     targetIP,
-    String(port),
+    String(upstreamPort),
     originalHost,
     targetPath,
   ].join('\n');
   const signature = await signBrokerPayload(env.BROKER_SHARED_SECRET, canonical);
 
   headers.set('X-Kortix-Target-IP', targetIP);
-  headers.set('X-Kortix-Target-Port', String(port));
+  headers.set('X-Kortix-Target-Port', String(upstreamPort));
   headers.set('X-Kortix-Target-Path', targetPath);
   headers.set('X-Kortix-Machine-Id', machineId);
   headers.set('X-Kortix-Machine-Slug', slug);

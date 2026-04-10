@@ -145,6 +145,7 @@ describe('Worker integration — broker proxy', () => {
 
       const fetchCall = (globalThis.fetch as any).mock.calls[0];
       expect(fetchCall[1].headers.get('X-Kortix-Target-Path')).toBe('/_port/3000/app');
+      expect(fetchCall[1].headers.get('X-Kortix-Original-Host')).toBe('abc123.kortix.cloud');
     });
 
     it('should proxy PORT--SLUG format through daemon port proxy', async () => {
@@ -169,6 +170,7 @@ describe('Worker integration — broker proxy', () => {
 
       const fetchCall = (globalThis.fetch as any).mock.calls[0];
       expect(fetchCall[1].headers.get('X-Kortix-Target-Path')).toBe('/_port/3456');
+      expect(fetchCall[1].headers.get('X-Kortix-Original-Host')).toBe('abc123.kortix.cloud');
     });
 
     it('should sign broker headers with original host information', async () => {

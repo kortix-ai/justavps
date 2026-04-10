@@ -747,13 +747,24 @@ app.post('/v1/instances', async (c) => {
     const inspected = await waitForPrivateIpv4(instanceName);
     await waitForCloudInit(instanceName);
     console.log(`[runnerd] inspected ${instanceName} privateIpv4=${inspected.privateIpv4 ?? 'none'} status=${inspected.status ?? 'unknown'}`);
+
+    const sshPort = sshPortForInstance(instanceName);
+    const httpPort = httpPortForInstance(instanceName);
+    if (inspected.privateIpv4 && RUNNERD_PUBLIC_IPV4) {
+      await setupProxyDevices(instanceName, inspected.privateIpv4, sshPort, httpPort).catch((err) =>
+        console.warn(`[runnerd] proxy setup failed for ${instanceName}: ${err instanceof Error ? err.message : err}`)
+      );
+      console.log(`[runnerd] proxies ready ${instanceName} ssh:${sshPort} http:${httpPort}`);
+    }
+
     regenerateNginxMap().catch(() => {});
     return c.json({
       instanceId: instanceName,
       hostIpv4: RUNNERD_PUBLIC_IPV4,
       hostIpv6: RUNNERD_PUBLIC_IPV6,
       privateIpv4: inspected.privateIpv4,
-      sshPort: sshPortForInstance(instanceName),
+      sshPort,
+      httpPort,
       metadata: { incus_status: inspected.status },
     }, 201);
   } catch (error) {

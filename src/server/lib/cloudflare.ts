@@ -84,6 +84,7 @@ export interface MachineRoutingKVRecord {
   machine_id: string;
   account_id: string;
   ip: string;
+  origin_port?: number;
   origin_hostname?: string;
   status: string;
   server_type: string;

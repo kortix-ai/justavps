@@ -10,14 +10,17 @@ const fakeV2Machine = {
   provisioning_stage_updated_at: null,
   api_version: 'v2',
   region: 'hel1',
-  plan: { id: 'starter', label: 'Starter', vcpu: 2, ram_gb: 4, disk_gb: 80, price_monthly: 12 },
-  billing: { mode: 'flat_monthly', price_monthly: 12, compute_seconds: null, storage_gb: 80, current_period_end: null },
+  resources: { vcpu: 2, ram_gb: 4, disk_gb: 80 },
+  billing: { mode: 'flat_monthly', price_monthly: 12, current_period_end: null },
   image: null,
   connectivity: {
-    public_ip: '135.181.129.188',
-    private_ipv4: '10.0.0.5',
-    ssh_command: 'ssh root@135.181.129.188',
+    ssh_host: '135.181.129.188',
     ssh_port: 22222,
+    ssh_command: 'ssh -i ~/.ssh/justavps_machine-v2-1 -p 22222 -o StrictHostKeyChecking=no root@135.181.129.188',
+    ssh_setup_command: 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo setup',
+    ssh_config_block: 'Host machine-v2-1\n  HostName 135.181.129.188\n  Port 22222\n  User root',
+    ssh_private_key: null,
+    ssh_public_key: null,
     urls: { proxy: 'https://demo.example.com', terminal: 'https://demo.example.com/_terminal', port_template: 'https://{port}--demo.example.com' },
   },
   capabilities: { can_start: false, can_stop: true, can_reboot: true, can_resize: false, can_snapshot: true, can_create_image: true },
@@ -92,9 +95,10 @@ test.describe('V2 flow wiring', () => {
     });
 
     await page.goto('/v2/machines/machine-v2-provisioning');
-    await expect(page.locator('text=Waiting for first heartbeat')).toBeVisible();
-    await expect(page.locator('text=The VM booted. Waiting for the first successful agent sync before tools appear.')).toBeVisible();
-    await expect(page.locator('text=35%')).toBeVisible();
+    await expect(page.getByText('VM running, waiting for daemon').first()).toBeVisible();
+    await expect(page.getByText('First boot takes about 60–90 seconds.').first()).toBeVisible();
+    await expect(page.locator('text=60%')).toBeVisible();
+    await expect(page.locator('text=Terminal, SSH, and tools appear once the machine becomes ready.')).toBeVisible();
     await expect(page.locator('text=Terminal, SSH, and tools appear in a few seconds.')).toHaveCount(0);
     await expect(page.locator('a[href="/api/docs/v2"]')).toBeVisible();
     await expect(page.locator('h1').locator('..').getByText('V2', { exact: true })).toBeVisible();

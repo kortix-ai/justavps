@@ -176,6 +176,7 @@ function buildMachineRoutingKVData(input: {
   slug: string;
   accountId: string;
   ip: string;
+  originPort?: number | null;
   status: string;
   serverType: string;
 }): MachineRoutingKVRecord {
@@ -183,6 +184,7 @@ function buildMachineRoutingKVData(input: {
     machine_id: input.machineId,
     account_id: input.accountId,
     ip: input.ip,
+    origin_port: input.originPort ?? undefined,
     status: input.status,
     server_type: input.serverType,
   };
@@ -201,7 +203,7 @@ export async function setupProxyDNS(
   addresses: { ipv4?: string | null; ipv6?: string | null },
   accountId: string,
   serverType: string,
-  options?: { routingIp?: string | null },
+  options?: { routingIp?: string | null; routingPort?: number | null },
 ) {
   if (!config.isCloudflareConfigured()) return;
 
@@ -214,6 +216,7 @@ export async function setupProxyDNS(
     slug,
     accountId,
     ip: primaryIp,
+    originPort: options?.routingPort,
     status: 'provisioning',
     serverType,
   })).catch((err: unknown) => {

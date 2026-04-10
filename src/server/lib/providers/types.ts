@@ -29,6 +29,7 @@ export interface CreateServerOpts {
   labels: Record<string, string>;
   enableBackups?: boolean;
   // V2 custom resource sizing (baremetal only)
+  hostId?: string;
   vcpu?: number;
   memoryGb?: number;
   diskGb?: number;

@@ -27,6 +27,7 @@ export interface MachineInfo {
   machine_id?: string;
   account_id: string;
   ip: string;
+  origin_port?: number;
   origin_hostname?: string; // DNS-only hostname: origin.slug.kortix.cloud
   status: string;
   server_type: string;

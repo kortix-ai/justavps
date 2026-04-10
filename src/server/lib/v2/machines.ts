@@ -10,6 +10,7 @@ import { stripeClient } from '../stripe';
 import { eventBus } from '../event-bus';
 import {
   autoGenerateAndSaveSSHKey,
+  buildMachineUserData,
   cleanupMachineResources,
   createMachineRecord,
   generateMachineIdentity,
@@ -418,7 +419,7 @@ export async function createMachineV2(input: { accountId: string; userId: string
         if (!img || (img.accountId !== input.accountId && !img.isTemplate)) throw new Error('Image not found');
         const resolved = resolveRequestedProviderImage({ explicitImage: img });
         if (!resolved.ok) throw new Error(resolved.message);
-        resolvedImage = resolved.selection.providerImage;
+        resolvedImage = normalizeResolvedImageForProvider(provider.name, resolved.selection.providerImage);
         machineImageId = resolved.selection.machineImageId;
         await db.update(machines).set({ imageId: machineImageId }).where(eq(machines.id, machine.id));
       }
@@ -437,18 +438,30 @@ export async function createMachineV2(input: { accountId: string; userId: string
         ? await resolveSSHKeyPublicKeys(input.accountId, data.ssh_key_ids)
         : [];
 
-      // Build cloud-init payload (pure compute)
-      const { buildCloudInitV2 } = await import('../cloud-init-v2');
-      const userdata = buildCloudInitV2({
-        slug,
-        sshPublicKey: autoKey.publicKey,
-        machineToken,
-        platformCallbackUrl: callbackConfig.url,
-        proxyDomain: config.PROXY_DOMAIN,
-        envVars: data.env_vars,
-        extraSSHKeys,
-        cloudInitScript: data.cloud_init_script,
-      });
+      const isGoldenImage = resolvedImage === 'justavps-golden' || resolvedImage.startsWith('justavps-golden');
+
+      // Golden image → minimal fast-path identity injection.
+      // Non-golden/raw image → full cloud-init that installs and starts required services.
+      const userdata = isGoldenImage
+        ? (await import('../cloud-init-v2')).buildCloudInitV2({
+            slug,
+            sshPublicKey: autoKey.publicKey,
+            machineToken,
+            platformCallbackUrl: callbackConfig.url,
+            proxyDomain: config.PROXY_DOMAIN,
+            envVars: data.env_vars,
+            extraSSHKeys,
+            cloudInitScript: data.cloud_init_script,
+          })
+        : buildMachineUserData(
+            slug,
+            autoKey.publicKey,
+            machineToken,
+            callbackConfig.url,
+            data.env_vars,
+            extraSSHKeys,
+            data.cloud_init_script,
+          );
 
       // Stripe in parallel with provisioning (don't block VM boot on Stripe)
       const stripePromise = (async () => {
@@ -504,6 +517,7 @@ export async function createMachineV2(input: { accountId: string; userId: string
         sshKeyIds: [providerKeyId],
         enableBackups: wantBackups,
         labels: { justavps: 'true', slug, owner: input.userId.slice(0, 63) },
+        hostId: host.id,
         vcpu: reqVcpu,
         memoryGb: reqRam,
         diskGb: reqDisk,
@@ -562,7 +576,7 @@ export async function createMachineV2(input: { accountId: string; userId: string
           { ipv4: server.publicIpv4, ipv6: server.publicIpv6 },
           input.accountId,
           'custom',
-          { routingIp: typeof server.metadata?.private_ipv4 === 'string' ? server.metadata.private_ipv4 : null },
+          { routingPort: typeof server.metadata?.http_port === 'number' ? server.metadata.http_port : null },
         ).catch((err) => console.warn(`[v2-bg ${slug}] dns setup error:`, err));
       }
 

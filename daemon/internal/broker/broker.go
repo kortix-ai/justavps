@@ -161,7 +161,7 @@ func (b *Broker) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 func (b *Broker) handleHTTPProxy(w http.ResponseWriter, r *http.Request, verified verifiedRequest) {
 	log.Printf("[BROKER] HTTP %s slug=%s host=%s target=%s:%d path=%s", r.Method, verified.MachineSlug, verified.OriginalHost, verified.TargetIP, verified.TargetPort, verified.TargetPath)
-	targetURL := fmt.Sprintf("http://%s:80%s", verified.TargetIP, verified.TargetPath)
+	targetURL := fmt.Sprintf("http://%s:%d%s", verified.TargetIP, verified.TargetPort, verified.TargetPath)
 
 	headers := stripHopByHopHeaders(r.Header)
 	headers.Del(HeaderTargetIP)
@@ -210,7 +210,7 @@ func (b *Broker) handleWebSocketProxy(w http.ResponseWriter, r *http.Request, ve
 	}
 	upstreamURL := url.URL{
 		Scheme:   "ws",
-		Host:     net.JoinHostPort(verified.TargetIP, "80"),
+		Host:     net.JoinHostPort(verified.TargetIP, strconv.Itoa(verified.TargetPort)),
 		Path:     pathURL.Path,
 		RawQuery: pathURL.RawQuery,
 	}

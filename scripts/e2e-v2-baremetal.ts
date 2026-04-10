@@ -16,6 +16,8 @@ import { generateApiKey, hashPassword } from '../src/server/lib/crypto';
 const BASE_URL = process.env.BASE_URL || 'http://localhost:4100';
 const API_BASE = `${BASE_URL}/api/v2`;
 const MACHINE_CALLBACK_URL = process.env.MACHINE_CALLBACK_URL || '';
+const TARGET_HOST_ID = process.env.E2E_BAREMETAL_HOST_ID || undefined;
+const TARGET_IMAGE_ID = process.env.E2E_IMAGE_ID || undefined;
 
 type MachineView = {
   id: string;
@@ -211,6 +213,8 @@ async function main() {
   console.log('=== JustAVPS V2 baremetal E2E ===');
   console.log(`BASE_URL=${BASE_URL}`);
   console.log(`MACHINE_CALLBACK_URL=${MACHINE_CALLBACK_URL}`);
+  console.log(`E2E_BAREMETAL_HOST_ID=${TARGET_HOST_ID ?? '(auto)'}`);
+  console.log(`E2E_IMAGE_ID=${TARGET_IMAGE_ID ?? '(default)'}`);
 
   if (!MACHINE_CALLBACK_URL || /dev\.justavps\.com/.test(MACHINE_CALLBACK_URL)) {
     throw new Error(`MACHINE_CALLBACK_URL is not ready for local callback validation: ${MACHINE_CALLBACK_URL || '(empty)'}`);
@@ -229,6 +233,8 @@ async function main() {
       name: `e2e-v2-${Date.now()}`,
       billing_mode: 'flat_monthly',
       billing_interval: 'monthly',
+      ...(TARGET_HOST_ID ? { host_id: TARGET_HOST_ID } : {}),
+      ...(TARGET_IMAGE_ID ? { image_id: TARGET_IMAGE_ID } : {}),
     }),
   });
 
@@ -358,11 +364,12 @@ process.on('uncaughtException', async (error) => {
 });
 
 main()
+  .then(async () => {
+    await cleanup();
+    process.exit(0);
+  })
   .catch(async (error) => {
     console.error(error);
     await cleanup();
     process.exit(1);
-  })
-  .finally(async () => {
-    await cleanup();
   });

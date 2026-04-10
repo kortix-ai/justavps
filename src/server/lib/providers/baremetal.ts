@@ -173,25 +173,39 @@ export class BaremetalProvider implements ComputeProvider {
       memoryGb = opts.memoryGb!;
       diskGb = opts.diskGb!;
 
-      // Host was pre-selected and validated upstream — just load it
-      const { db } = await import('../../db');
-      const { baremetalHosts } = await import('../../db/schema');
-      const rows = await db.select().from(baremetalHosts);
-      const active = rows
-        .filter((r) => r.status === 'active' && r.region === opts.region && r.runnerBaseUrl)
-        .map((r) => ({
-          id: r.id, region: r.region, status: r.status as BaremetalHostCandidate['status'],
-          runnerBaseUrl: r.runnerBaseUrl, publicIpv4: r.publicIpv4, publicIpv6: r.publicIpv6, runnerToken: r.runnerToken,
-          capacity: { totalVcpu: r.totalVcpu ?? 0, totalMemoryGb: r.totalMemoryGb ?? 0, totalDiskGb: r.totalDiskGb ?? 0, usedVcpu: r.usedVcpu ?? 0, usedMemoryGb: r.usedMemoryGb ?? 0, usedDiskGb: r.usedDiskGb ?? 0 },
-        }));
-      const eligible = active.filter((h) => {
-        const fv = h.capacity.totalVcpu - h.capacity.usedVcpu;
-        const fm = h.capacity.totalMemoryGb - h.capacity.usedMemoryGb;
-        const fd = h.capacity.totalDiskGb - h.capacity.usedDiskGb;
-        return fv >= vcpu && fm >= memoryGb && fd >= diskGb;
-      });
-      if (!eligible.length) throw new Error(`No host with enough capacity for ${vcpu} vCPU, ${memoryGb} GB RAM, ${diskGb} GB disk`);
-      hostCandidate = eligible[0];
+      if (opts.hostId) {
+        const specific = await loadHostById(opts.hostId);
+        if (!specific || specific.status !== 'active' || !specific.runnerBaseUrl) {
+          throw new Error(`Requested host ${opts.hostId} is not active or not registered`);
+        }
+        const fv = specific.capacity.totalVcpu - specific.capacity.usedVcpu;
+        const fm = specific.capacity.totalMemoryGb - specific.capacity.usedMemoryGb;
+        const fd = specific.capacity.totalDiskGb - specific.capacity.usedDiskGb;
+        if (fv < vcpu || fm < memoryGb || fd < diskGb) {
+          throw new Error(`Requested host ${opts.hostId} lacks capacity for ${vcpu} vCPU, ${memoryGb} GB RAM, ${diskGb} GB disk`);
+        }
+        hostCandidate = specific;
+      } else {
+        // Host was pre-selected and validated upstream — just load an eligible active host
+        const { db } = await import('../../db');
+        const { baremetalHosts } = await import('../../db/schema');
+        const rows = await db.select().from(baremetalHosts);
+        const active = rows
+          .filter((r) => r.status === 'active' && r.region === opts.region && r.runnerBaseUrl)
+          .map((r) => ({
+            id: r.id, region: r.region, status: r.status as BaremetalHostCandidate['status'],
+            runnerBaseUrl: r.runnerBaseUrl, publicIpv4: r.publicIpv4, publicIpv6: r.publicIpv6, runnerToken: r.runnerToken,
+            capacity: { totalVcpu: r.totalVcpu ?? 0, totalMemoryGb: r.totalMemoryGb ?? 0, totalDiskGb: r.totalDiskGb ?? 0, usedVcpu: r.usedVcpu ?? 0, usedMemoryGb: r.usedMemoryGb ?? 0, usedDiskGb: r.usedDiskGb ?? 0 },
+          }));
+        const eligible = active.filter((h) => {
+          const fv = h.capacity.totalVcpu - h.capacity.usedVcpu;
+          const fm = h.capacity.totalMemoryGb - h.capacity.usedMemoryGb;
+          const fd = h.capacity.totalDiskGb - h.capacity.usedDiskGb;
+          return fv >= vcpu && fm >= memoryGb && fd >= diskGb;
+        });
+        if (!eligible.length) throw new Error(`No host with enough capacity for ${vcpu} vCPU, ${memoryGb} GB RAM, ${diskGb} GB disk`);
+        hostCandidate = eligible[0];
+      }
     } else {
       // V1 fallback: plan-based placement
       const selectHost = this.deps.selectHost ?? defaultSelectHost;

@@ -133,13 +133,11 @@ internalApp.openapi(heartbeatRoute, async (c) => {
 
     if (shouldMarkReady && config.isCloudflareConfigured() && machine.ip) {
       const providerMeta = (machine.providerMeta ?? {}) as Record<string, unknown>;
-      const routingIp = machine.provider === 'baremetal' && typeof providerMeta.private_ipv4 === 'string'
-        ? providerMeta.private_ipv4
-        : machine.ip;
       cloudflareClient.writeKVMachine(slug, {
         machine_id: machine.id,
         account_id: machine.accountId ?? machine.ownerId,
-        ip: routingIp,
+        ip: machine.ip,
+        origin_port: typeof providerMeta.http_port === 'number' ? providerMeta.http_port : undefined,
         status: 'ready',
         server_type: machine.serverType,
       }).catch(() => {});

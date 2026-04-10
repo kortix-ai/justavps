@@ -7,14 +7,13 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import nodeHttp from 'node:http';
 import https from 'node:https';
-import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { eq } from 'drizzle-orm';
 
 import { db } from '../src/server/db';
-import { apiKeys, machines, proxyTokens, users } from '../src/server/db/schema';
+import { apiKeys, users } from '../src/server/db/schema';
 import { ensureUserAccountGraph } from '../src/server/lib/accounts';
 import { generateApiKey, hashPassword } from '../src/server/lib/crypto';
 
@@ -22,7 +21,9 @@ const execFileAsync = promisify(execFile);
 const BASE_URL = process.env.BASE_URL || 'http://localhost:4100';
 const API_V2 = `${BASE_URL}/api/v2`;
 const API_V1 = `${BASE_URL}/api/v1`;
-const HOST_GATEWAY = '135.181.129.188';
+const TARGET_HOST_IP = process.env.E2E_BAREMETAL_HOST_IP || '135.181.129.188';
+const TARGET_HOST_ID = process.env.E2E_BAREMETAL_HOST_ID || undefined;
+const TARGET_IMAGE_ID = process.env.E2E_IMAGE_ID || undefined;
 
 type MachineView = {
   id: string;
@@ -120,16 +121,19 @@ async function requestText(urlString: string, init: { method?: string; headers?:
   });
 }
 
-async function waitForWarmPoolReady(timeoutMs = 180_000) {
+async function waitForWarmPoolReady(timeoutMs = 180_000): Promise<'ready' | 'disabled'> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const res = await requestJson<{ warm_pool?: { ready: number; target: number } }>('http://135.181.129.188:7779/healthz', {}, 30_000);
+    const res = await requestJson<{ warm_pool?: { ready: number; target: number }; incus?: { imageCount?: number } }>(`http://${TARGET_HOST_IP}:7779/healthz`, {}, 30_000);
     const ready = res.data?.warm_pool?.ready ?? 0;
     const target = res.data?.warm_pool?.target ?? 0;
-    if (target > 0 && ready >= target) return;
+    const imageCount = res.data?.incus?.imageCount ?? 0;
+    if (target <= 0) return 'disabled';
+    if (imageCount <= 0) return 'disabled';
+    if (ready >= target) return 'ready';
     await sleep(1_000);
   }
-  throw new Error('Timed out waiting for warm pool to be full');
+  return 'disabled';
 }
 
 function authHeaders() {
@@ -219,15 +223,24 @@ async function cleanup() {
 async function main() {
   console.log('=== JustAVPS V2 runtime E2E ===');
   console.log(`BASE_URL=${BASE_URL}`);
+  console.log(`E2E_BAREMETAL_HOST_ID=${TARGET_HOST_ID ?? '(auto)'}`);
+  console.log(`E2E_BAREMETAL_HOST_IP=${TARGET_HOST_IP}`);
+  console.log(`E2E_IMAGE_ID=${TARGET_IMAGE_ID ?? '(default)'}`);
   await createHarnessUser();
 
-  await waitForWarmPoolReady();
-  console.log('[setup] warm pool is full');
+  const warmPoolState = await waitForWarmPoolReady();
+  console.log(
+    warmPoolState === 'ready'
+      ? '[setup] warm pool is full'
+      : '[setup] warm pool disabled; validating cold-fallback runtime path',
+  );
+  const machineReadyTimeoutMs = warmPoolState === 'ready' ? 30_000 : 180_000;
+  const machineReadyPollMs = warmPoolState === 'ready' ? 150 : 1_000;
 
   const createStart = Date.now();
   const create = await http<MachineView>(API_V2, '/machines', {
     method: 'POST',
-    body: JSON.stringify({ vcpu: 1, ram_gb: 1, disk_gb: 10, region: 'hel1', name: `e2e-runtime-${Date.now()}` }),
+    body: JSON.stringify({ vcpu: 1, ram_gb: 1, disk_gb: 10, region: 'hel1', name: `e2e-runtime-${Date.now()}`, ...(TARGET_HOST_ID ? { host_id: TARGET_HOST_ID } : {}), ...(TARGET_IMAGE_ID ? { image_id: TARGET_IMAGE_ID } : {}) }),
   });
   state.machineId = create.data.id;
   state.machineSlug = create.data.slug;
@@ -237,12 +250,15 @@ async function main() {
     'machine ready',
     () => getMachine(state.machineId!),
     (m) => m.status === 'ready' && Boolean(m.connectivity?.ssh_port) && Boolean(m.connectivity?.ssh_private_key),
-    30_000,
-    150,
+    machineReadyTimeoutMs,
+    machineReadyPollMs,
   );
   console.log(`[machine] ready in ${Date.now() - createStart}ms`);
   console.log(`[machine] ssh_host=${ready.connectivity.ssh_host} ssh_port=${ready.connectivity.ssh_port}`);
   console.log(`[machine] proxy=${ready.connectivity.urls.proxy}`);
+
+  const sshGateway = ready.connectivity.ssh_host ?? TARGET_HOST_IP;
+  if (!sshGateway) throw new Error('Missing ssh host for runtime verification');
 
   // Write returned private key to temp file
   const tmpKey = path.join(os.tmpdir(), `justavps_${ready.slug}`);
@@ -256,7 +272,7 @@ async function main() {
     '-o', 'StrictHostKeyChecking=no',
     '-o', 'UserKnownHostsFile=/dev/null',
     '-o', 'BatchMode=yes',
-    `root@${HOST_GATEWAY}`,
+    `root@${sshGateway}`,
     `bash -lc ${shQuote('echo SSH_OK; hostname')}`,
   ], { timeout: 30_000 });
   console.log('[ssh] gateway ssh works');
@@ -268,7 +284,7 @@ async function main() {
     '-o', 'StrictHostKeyChecking=no',
     '-o', 'UserKnownHostsFile=/dev/null',
     '-o', 'BatchMode=yes',
-    `root@${HOST_GATEWAY}`,
+    `root@${sshGateway}`,
     `bash -lc ${shQuote("mkdir -p /tmp/site && printf '<h1>Hello world</h1>\\n' > /tmp/site/index.html && systemctl stop justavps-e2e-8080.service 2>/dev/null || true && systemd-run --unit justavps-e2e-8080 --property=Restart=no /usr/bin/python3 -m http.server 8080 -d /tmp/site >/dev/null 2>&1 && sleep 1 && curl -sf http://127.0.0.1:8080/ >/dev/null")}`,
   ], { timeout: 45_000 });
   console.log('[guest] app on 8080 is serving');

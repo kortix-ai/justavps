@@ -29,6 +29,7 @@ IMAGE_ALIAS="justavps-golden"
 BUILD_VM="golden-builder"
 DAEMON_CHANNEL="${DAEMON_CHANNEL:-dev}"
 DAEMON_URL="https://pub-caf7762051b942d5a801397d750a0dc3.r2.dev/daemon/${DAEMON_CHANNEL}/latest/justavps-daemon-linux-amd64"
+HOST_DAEMON_BIN="${HOST_DAEMON_BIN:-}"
 
 echo "[golden] Starting golden image build..."
 
@@ -51,6 +52,14 @@ for i in $(seq 1 180); do
   sleep 1
 done
 echo "[golden] VM booted."
+
+USE_HOST_DAEMON=0
+if [[ -n "$HOST_DAEMON_BIN" && -f "$HOST_DAEMON_BIN" ]]; then
+  echo "[golden] Injecting daemon binary from host path: $HOST_DAEMON_BIN"
+  incus file push "$HOST_DAEMON_BIN" "$BUILD_VM/usr/local/bin/justavps-daemon"
+  incus exec "$BUILD_VM" -- chmod +x /usr/local/bin/justavps-daemon
+  USE_HOST_DAEMON=1
+fi
 
 # ─── Install everything ──────────────────────────────────────────────────────
 incus exec "$BUILD_VM" -- bash -c '
@@ -100,8 +109,14 @@ curl -fsSL https://get.docker.com | sh >/dev/null 2>&1
 systemctl enable docker
 
 echo "[golden] === Phase 5: JustAVPS daemon ==="
-curl -fsSL -o /usr/local/bin/justavps-daemon "'"$DAEMON_URL"'"
-chmod +x /usr/local/bin/justavps-daemon
+if [ "'"$USE_HOST_DAEMON"'" = "1" ] && [ -s /usr/local/bin/justavps-daemon ]; then
+  echo "[golden] Using injected daemon binary"
+else
+  curl --retry 5 --retry-delay 2 --retry-all-errors -fsSL -o /usr/local/bin/justavps-daemon "'"$DAEMON_URL"'"
+  chmod +x /usr/local/bin/justavps-daemon
+fi
+
+test -s /usr/local/bin/justavps-daemon
 
 echo "[golden] === Phase 6: User setup ==="
 # Create user account
@@ -204,7 +219,9 @@ cat > /etc/netplan/01-dhcp.yaml << "NETPLANEOF"
 network:
   version: 2
   ethernets:
-    enp5s0:
+    uplink:
+      match:
+        name: "e*"
       dhcp4: true
       dhcp4-overrides:
         send-hostname: false
@@ -213,14 +230,10 @@ network:
 NETPLANEOF
 chmod 600 /etc/netplan/01-dhcp.yaml
 
-# Optimize GRUB
-sed -i "s/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=0/" /etc/default/grub
-sed -i "s/^GRUB_TIMEOUT_STYLE=.*/GRUB_TIMEOUT_STYLE=hidden/" /etc/default/grub
-grep -q "GRUB_RECORDFAIL_TIMEOUT" /etc/default/grub && \
-  sed -i "s/^GRUB_RECORDFAIL_TIMEOUT=.*/GRUB_RECORDFAIL_TIMEOUT=0/" /etc/default/grub || \
-  echo "GRUB_RECORDFAIL_TIMEOUT=0" >> /etc/default/grub
-sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"console=ttyS0 noresume nomodeset mitigations=off systemd.show_status=false quiet\"|" /etc/default/grub
-update-grub 2>/dev/null || true
+# NOTE: Leave GRUB defaults intact.
+# Aggressive GRUB tuning caused published Incus images on new hosts to boot into a raw
+# `grub>` prompt instead of Linux, which breaks the golden-image fast path entirely.
+# Bootability matters more than the tiny boot-time savings here.
 
 # Reduce systemd timeouts
 mkdir -p /etc/systemd/system.conf.d

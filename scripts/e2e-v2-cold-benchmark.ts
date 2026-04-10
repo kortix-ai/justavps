@@ -17,8 +17,11 @@ import { generateApiKey, hashPassword } from '../src/server/lib/crypto';
 const execFileAsync = promisify(execFile);
 const BASE_URL = process.env.BASE_URL || 'http://localhost:4100';
 const API_V2 = `${BASE_URL}/api/v2`;
-const RUNNER_HOST = 'root@135.181.129.188';
-const SSH_KEY = `${process.env.HOME}/.ssh/justavps_host`;
+const TARGET_HOST_IP = process.env.E2E_BAREMETAL_HOST_IP || '135.181.129.188';
+const TARGET_HOST_ID = process.env.E2E_BAREMETAL_HOST_ID || undefined;
+const TARGET_IMAGE_ID = process.env.E2E_IMAGE_ID || undefined;
+const RUNNER_HOST = `root@${TARGET_HOST_IP}`;
+const SSH_KEY = process.env.E2E_BAREMETAL_SSH_KEY || `${process.env.HOME}/.ssh/justavps_host`;
 
 const state: {
   email: string;
@@ -38,6 +41,11 @@ const state: {
   apiKeyId: null,
   machineId: null,
   warmPoolPerCpuBefore: null,
+};
+
+type MachinePollView = {
+  status: string;
+  provisioning_stage: string | null;
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -128,6 +136,10 @@ async function cleanup() {
 async function main() {
   console.log('=== JustAVPS V2 cold benchmark ===');
   console.log(`BASE_URL=${BASE_URL}`);
+  console.log(`E2E_BAREMETAL_HOST_ID=${TARGET_HOST_ID ?? '(auto)'}`);
+  console.log(`E2E_BAREMETAL_HOST_IP=${TARGET_HOST_IP}`);
+  console.log(`E2E_BAREMETAL_SSH_KEY=${SSH_KEY}`);
+  console.log(`E2E_IMAGE_ID=${TARGET_IMAGE_ID ?? '(default)'}`);
   await createHarnessUser();
 
   const { stdout: envOut } = await sshHost("bash -lc \"grep '^WARM_POOL_PER_CPU=' /etc/justavps-runnerd.env | cut -d= -f2 || true\"");
@@ -141,14 +153,14 @@ async function main() {
   const createStart = Date.now();
   const create = await http<{ id: string; slug: string; status: string }>('/machines', {
     method: 'POST',
-    body: JSON.stringify({ vcpu: 2, ram_gb: 4, disk_gb: 40, region: 'hel1', name: `e2e-cold-${Date.now()}` }),
+    body: JSON.stringify({ vcpu: 2, ram_gb: 4, disk_gb: 40, region: 'hel1', name: `e2e-cold-${Date.now()}`, ...(TARGET_HOST_ID ? { host_id: TARGET_HOST_ID } : {}), ...(TARGET_IMAGE_ID ? { image_id: TARGET_IMAGE_ID } : {}) }),
   });
   state.machineId = create.data.id;
   console.log(`[machine] create accepted id=${state.machineId} slug=${create.data.slug} in ${Date.now() - createStart}ms`);
 
   let last = '';
   for (;;) {
-    const { data } = await http<any>(`/machines/${state.machineId}`);
+    const { data } = await http<MachinePollView>(`/machines/${state.machineId}`);
     const line = `${data.status} | ${data.provisioning_stage ?? ''}`;
     if (line !== last) {
       console.log(`[machine] +${Date.now() - createStart}ms ${line}`);

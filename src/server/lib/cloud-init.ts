@@ -82,6 +82,10 @@ chown -R user:user /home/user
 echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/user
 
 # ── SSH keys ──────────────────────────────────────────────────────────────
+if ! command -v sshd &>/dev/null; then
+  apt-get update -qq && apt-get install -y -qq openssh-server >/dev/null 2>&1 || report_error "openssh-server install failed"
+fi
+
 mkdir -p /root/.ssh
 echo '${opts.sshPublicKey}' >> /root/.ssh/authorized_keys
 chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys
@@ -106,6 +110,8 @@ if [ -f /etc/ssh/sshd_config ]; then
   sed -i 's/^#\\?KbdInteractiveAuthentication.*/KbdInteractiveAuthentication no/' /etc/ssh/sshd_config || true
 fi
 rm -f /etc/ssh/sshd_config.d/50-cloud-init.conf 2>/dev/null || true
+systemctl enable ssh 2>/dev/null || systemctl enable sshd 2>/dev/null || true
+systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
 systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null || true
 
 # ── Platform config ───────────────────────────────────────────────────────
