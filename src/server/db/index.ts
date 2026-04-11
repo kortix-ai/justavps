@@ -34,7 +34,6 @@ export function getDb() {
       max: Number(process.env.DB_MAX_CONNECTIONS || 5),
       idle_timeout: Number(process.env.DB_IDLE_TIMEOUT_SECONDS || 20),
       max_lifetime: Number(process.env.DB_MAX_LIFETIME_SECONDS || 60 * 30),
-      application_name: process.env.DB_APPLICATION_NAME || 'justavps-api',
     });
     globalThis.__justavpsSql = sql;
     _db = drizzlePostgres(sql, { schema });

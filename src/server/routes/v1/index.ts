@@ -4,6 +4,7 @@
  */
 
 import { OpenAPIHono } from '@hono/zod-openapi';
+import { config } from '../../lib/config';
 import { machinesApp } from './machines';
 import { imagesApp } from './images';
 import { sshKeysApp } from './ssh-keys';
@@ -23,7 +24,10 @@ import { adminMachinesApp } from './admin-machines';
 
 export const v1 = new OpenAPIHono();
 
-v1.route('/machines', proxyApp); // ⚠️ DEPRECATED — direct platform proxy, scheduled for deletion. Use CF Worker instead.
+if (config.LEGACY_PLATFORM_PROXY_ENABLED) {
+  console.warn('[V1] LEGACY_PLATFORM_PROXY_ENABLED=true — direct platform proxy route remains mounted under /api/v1/machines/:machineId/proxy/:port/*');
+  v1.route('/machines', proxyApp); // ⚠️ DEPRECATED — direct platform proxy, scheduled for deletion. Use CF Worker instead.
+}
 v1.route('/machines', machinesApp);
 v1.route('/images', imagesApp);
 v1.route('/ssh-keys', sshKeysApp);

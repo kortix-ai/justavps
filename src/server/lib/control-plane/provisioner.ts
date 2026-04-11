@@ -1,7 +1,5 @@
 import {
   enqueueControlPlaneJob,
-  ensureControlPlaneJobWorker,
-  kickControlPlaneJobWorker,
   processDueControlPlaneJobs,
   registerControlPlaneJobHandler,
   type ControlPlaneJobHandler,
@@ -30,11 +28,13 @@ export function registerMachineCreateJobHandler(handler: ControlPlaneJobHandler)
 }
 
 export function ensureProvisionerServiceWorker() {
-  ensureControlPlaneJobWorker({ jobTypes: [MACHINE_CREATE_JOB_TYPE] });
+  // Background loops are owned by the explicit control-plane runtime.
 }
 
 export function kickProvisionerServiceWorker(limit = 1) {
-  kickControlPlaneJobWorker({ jobTypes: [MACHINE_CREATE_JOB_TYPE], limit });
+  void runProvisionerServicePass({ limit }).catch((error) => {
+    console.error('[CONTROL-PLANE-PROVISIONER] kick failed:', error);
+  });
 }
 
 export async function runProvisionerServicePass(options?: {

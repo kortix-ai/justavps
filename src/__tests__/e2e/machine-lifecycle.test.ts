@@ -37,6 +37,9 @@ import { writeFileSync } from 'fs';
 
 const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:4100/api';
 const HETZNER_TOKEN = process.env.HETZNER_API_KEY || '';
+const PROXY_DOMAIN = process.env.PROXY_DOMAIN || process.env.NEXT_PUBLIC_PROXY_DOMAIN || 'kortix.cloud';
+const SESSION_EMAIL = process.env.E2E_SESSION_EMAIL || 'fleet-admin-browser@test.local';
+const SESSION_PASSWORD = process.env.E2E_SESSION_PASSWORD || 'TestPass123!';
 const SKIP_REASON = !process.env.PLATFORM_E2E
   ? 'Set PLATFORM_E2E=1 to run infrastructure tests (creates real Hetzner VPS)'
   : '';
@@ -64,7 +67,7 @@ function headers() {
 }
 
 async function apiGet(path: string) {
-  const res = await fetch(`${BASE_URL}${path}`, { headers: headers() });
+  const res = await retryFetch(`${BASE_URL}${path}`, { headers: headers() });
   return { status: res.status, data: await res.json().catch(() => null) };
 }
 
@@ -108,7 +111,7 @@ function savePrivateKey(slug: string, privateKey: string): string {
 
 function machineProxyUrl(slug: string, path = '/', port?: number): string {
   const prefix = port ? `${port}--` : '';
-  return `https://${prefix}${slug}.kortix.cloud${path}`;
+  return `https://${prefix}${slug}.${PROXY_DOMAIN}${path}`;
 }
 
 function proxyGetForSlug(slug: string, path: string, opts?: { auth?: boolean; accept?: string; port?: number }): string {
@@ -178,6 +181,19 @@ async function waitForCloudInitDone(ip: string, keyPath: string, label: string) 
   throw new Error(`${label} cloud-init did not complete in time`);
 }
 
+async function retryFetch(url: string, init?: RequestInit, attempts = 3) {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await fetch(url, init);
+    } catch (error) {
+      lastError = error;
+      await sleep(1_000);
+    }
+  }
+  throw lastError;
+}
+
 /** curl to CF Worker proxy (slug.kortix.cloud) with optional auth + path */
 function proxyGet(path: string, opts?: { auth?: boolean; accept?: string; port?: number }): string {
   return proxyGetForSlug(machineSlug, path, opts);
@@ -197,15 +213,31 @@ async function createSessionBackedApiKey() {
   const csrfData = await csrfRes.json() as { csrfToken: string };
   const cookies = csrfRes.headers.getSetCookie?.() || [];
 
-  const loginRes = await fetch(`${baseUrl}/api/auth/callback/credentials`, {
+  let loginRes = await fetch(`${baseUrl}/api/auth/callback/credentials`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
       'Cookie': cookies.join('; '),
     },
-    body: `email=e2e-prod@justavps.com&password=testpassword123&csrfToken=${csrfData.csrfToken}`,
+    body: `email=${encodeURIComponent(SESSION_EMAIL)}&password=${encodeURIComponent(SESSION_PASSWORD)}&csrfToken=${csrfData.csrfToken}`,
     redirect: 'manual',
   });
+  if (loginRes.status >= 400) {
+    await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: SESSION_EMAIL, password: SESSION_PASSWORD, name: 'E2E Session User' }),
+    }).catch(() => {});
+    loginRes = await fetch(`${baseUrl}/api/auth/callback/credentials`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Cookie': cookies.join('; '),
+      },
+      body: `email=${encodeURIComponent(SESSION_EMAIL)}&password=${encodeURIComponent(SESSION_PASSWORD)}&csrfToken=${csrfData.csrfToken}`,
+      redirect: 'manual',
+    });
+  }
 
   const sessionCookies = loginRes.headers.getSetCookie?.() || [];
   sessionCookieHeader = [...cookies, ...sessionCookies].join('; ');
@@ -234,11 +266,12 @@ beforeAll(async () => {
   if (SKIP_REASON) return;
   API_KEY = process.env.E2E_API_KEY || '';
   if (!API_KEY) {
-    API_KEY = 'sk_live_0b3f3fdcfc4ffa293cb94e2ca3c1a8fa3b6d99ab3b45f0b0c8a9de48d30e008a';
+    console.warn('[E2E] No E2E_API_KEY provided — creating one via session login');
+    await createSessionBackedApiKey();
   }
   let { status } = await apiGet('/v1/machines');
   if (status === 401) {
-    console.warn('[E2E] Default API key invalid — creating one via session login');
+    console.warn('[E2E] Provided API key invalid for API — creating one via session login');
     await createSessionBackedApiKey();
     status = (await apiGet('/v1/machines')).status;
   }
@@ -397,23 +430,29 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
   //  PHASE 2: DNS RECORDS (Cloudflare API verification)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  it('3. Cloudflare has proxied A record for slug.kortix.cloud', async () => {
+  it('3. Cloudflare routes slug hostname (explicit record or wildcard worker route)', async () => {
     const cfApiKey = process.env.CLOUDFLARE_GLOBAL_API_KEY;
     const cfEmail = process.env.CLOUDFLARE_EMAIL;
     const cfZoneId = process.env.CLOUDFLARE_ZONE_ID;
     if (!cfApiKey || !cfZoneId) { console.log('[E2E] No CF creds — skip'); return; }
 
-    const hostname = `${machineSlug}.kortix.cloud`;
+    const hostname = `${machineSlug}.${PROXY_DOMAIN}`;
     const res = await fetch(
       `https://api.cloudflare.com/client/v4/zones/${cfZoneId}/dns_records?name=${hostname}&type=A`,
       { headers: { 'X-Auth-Key': cfApiKey, 'X-Auth-Email': cfEmail || '' } },
     );
     const data = await res.json() as { result: Array<{ type: string; content: string; proxied: boolean }> };
 
-    expect(data.result.length).toBeGreaterThan(0);
-    expect(data.result[0].content).toBe(machineIp);
-    expect(data.result[0].proxied).toBe(true);
-    console.log(`[E2E] CF A record: ${hostname} → ${data.result[0].content} (proxied)`);
+    if (data.result.length > 0) {
+      expect(data.result[0].content).toBe(machineIp);
+      expect(data.result[0].proxied).toBe(true);
+      console.log(`[E2E] CF A record: ${hostname} → ${data.result[0].content} (proxied)`);
+      return;
+    }
+
+    const { status } = parseCurl(proxyGetForSlug(machineSlug, '/', { accept: 'text/html' }));
+    console.log(`[E2E] CF wildcard route fallback: ${hostname} → ${status}`);
+    expect(['302', '401', '200']).toContain(status);
   });
 
   it('4. Cloudflare has DNS-only origin record for origin-slug.kortix.cloud', async () => {
@@ -422,7 +461,7 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
     const cfZoneId = process.env.CLOUDFLARE_ZONE_ID;
     if (!cfApiKey || !cfZoneId) { console.log('[E2E] No CF creds — skip'); return; }
 
-    const origin = `origin-${machineSlug}.kortix.cloud`;
+    const origin = `origin-${machineSlug}.${PROXY_DOMAIN}`;
     const res = await fetch(
       `https://api.cloudflare.com/client/v4/zones/${cfZoneId}/dns_records?name=${origin}&type=A`,
       { headers: { 'X-Auth-Key': cfApiKey, 'X-Auth-Email': cfEmail || '' } },
@@ -468,7 +507,7 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
     const rootAging = ssh('chage -l root 2>/dev/null || true');
 
     expect(rootStatus).toBeTruthy();
-    expect(rootStatus).toContain(' root ');
+    expect(rootStatus?.startsWith('root ')).toBe(true);
     expect(rootStatus).toContain(' L ');
     expect(rootAging).toBeTruthy();
     expect(rootAging).not.toContain('must be changed');
@@ -484,7 +523,7 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
   it('7. justavps-daemon handles port 80 and Caddy stays disabled', () => {
     if (!sshKeyPath) return;
     expect(ssh('systemctl is-active justavps-daemon')).toBe('active');
-    expect(Number(ssh('ss -tlnp | grep 0.0.0.0:80 | wc -l'))).toBeGreaterThan(0);
+    expect(ssh('curl -sf http://127.0.0.1/ >/dev/null && echo ok || echo fail')).toBe('ok');
     expect(ssh('systemctl is-active caddy 2>/dev/null || true')).not.toBe('active');
   });
 
@@ -517,7 +556,7 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
     expect(result).not.toBe('active');
   });
 
-  it('12. platform config has no proxy_domain or proxy_auth_secret', () => {
+  it('12. platform config includes proxy domain but not proxy auth secret', () => {
     if (!sshKeyPath) return;
     const config = ssh('cat /etc/justavps/config.json');
     expect(config).toBeTruthy();
@@ -525,7 +564,7 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
     expect(parsed.slug).toBe(machineSlug);
     expect(parsed.machine_token).toBeTruthy();
     expect(parsed.callback_url).toBeTruthy();
-    expect(parsed.proxy_domain).toBeUndefined();
+    expect(parsed.proxy_domain).toBe(PROXY_DOMAIN);
     expect(parsed.proxy_auth_secret).toBeUndefined();
   });
 
@@ -562,7 +601,7 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
       if (status === '302' || status === '401') break;
       await sleep(PROXY_POLL_INTERVAL);
     }
-    console.log(`[E2E] Unauth browser: ${machineSlug}.kortix.cloud → ${status}`);
+    console.log(`[E2E] Unauth browser: ${machineSlug}.${PROXY_DOMAIN} → ${status}`);
     expect(['302', '401']).toContain(status);
   });
 
@@ -584,7 +623,7 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
     let result = '';
     try {
       result = execSync(
-        `curl -sk -w "\\n%{http_code}" -H "Authorization: Bearer sk_live_wrong_key" "https://${machineSlug}.kortix.cloud/"`,
+        `curl -sk -w "\\n%{http_code}" -H "Authorization: Bearer sk_live_wrong_key" "https://${machineSlug}.${PROXY_DOMAIN}/"`,
         { encoding: 'utf8', timeout: 15_000 },
       ).trim();
     } catch {}
@@ -606,7 +645,7 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
       if (status === '200' || status === '302') break;
       await sleep(PROXY_POLL_INTERVAL);
     }
-    console.log(`[E2E] Auth proxy (default port 80): ${machineSlug}.kortix.cloud → ${status}`);
+    console.log(`[E2E] Auth proxy (default port 80): ${machineSlug}.${PROXY_DOMAIN} → ${status}`);
     expect(['200', '302']).toContain(status);
   });
 
@@ -618,26 +657,42 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
     const baseUrl = BASE_URL.replace('/api', '');
 
     // Get CSRF token
-    const csrfRes = await fetch(`${baseUrl}/api/auth/csrf`);
+    const csrfRes = await retryFetch(`${baseUrl}/api/auth/csrf`);
     const csrfData = await csrfRes.json() as { csrfToken: string };
     const cookies = csrfRes.headers.getSetCookie?.() || [];
 
     // Login
-    const loginRes = await fetch(`${baseUrl}/api/auth/callback/credentials`, {
+    let loginRes = await retryFetch(`${baseUrl}/api/auth/callback/credentials`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         'Cookie': cookies.join('; '),
       },
-      body: `email=e2e-prod@justavps.com&password=testpassword123&csrfToken=${csrfData.csrfToken}`,
+      body: `email=${encodeURIComponent(SESSION_EMAIL)}&password=${encodeURIComponent(SESSION_PASSWORD)}&csrfToken=${csrfData.csrfToken}`,
       redirect: 'manual',
     });
+    if (loginRes.status >= 400) {
+      await fetch(`${baseUrl}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: SESSION_EMAIL, password: SESSION_PASSWORD, name: 'E2E Session User' }),
+      }).catch(() => {});
+      loginRes = await retryFetch(`${baseUrl}/api/auth/callback/credentials`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Cookie': cookies.join('; '),
+        },
+        body: `email=${encodeURIComponent(SESSION_EMAIL)}&password=${encodeURIComponent(SESSION_PASSWORD)}&csrfToken=${csrfData.csrfToken}`,
+        redirect: 'manual',
+      });
+    }
     const sessionCookies = loginRes.headers.getSetCookie?.() || [];
     const allCookies = [...cookies, ...sessionCookies].join('; ');
 
     // Hit proxy-auth with session
-    const proxyAuthRes = await fetch(
-      `${baseUrl}/api/proxy-auth?redirect=https://${machineSlug}.kortix.cloud/`,
+    const proxyAuthRes = await retryFetch(
+      `${baseUrl}/api/proxy-auth?redirect=https://${machineSlug}.${PROXY_DOMAIN}/`,
       { headers: { 'Cookie': allCookies }, redirect: 'manual' },
     );
 
@@ -645,12 +700,9 @@ describe.skipIf(!!SKIP_REASON)('Machine Lifecycle E2E', { timeout: 15 * 60 * 100
     // Must be a redirect (302 or 307), NOT 500
     expect([302, 307]).toContain(proxyAuthRes.status);
     const location = proxyAuthRes.headers.get('location') || '';
-    expect(location).toContain(`${machineSlug}.kortix.cloud`);
-    // Check the proxy cookie was set
-    const setCookies = proxyAuthRes.headers.getSetCookie?.() || [];
-    const proxyCookie = setCookies.find(c => c.includes('__justavps_proxy'));
-    expect(proxyCookie).toBeTruthy();
-    console.log(`[E2E] proxy-auth: cookie set ✓, redirect to ${location.slice(0, 50)}`);
+    expect(location).toContain(`${machineSlug}.${PROXY_DOMAIN}`);
+    expect(location).toContain('__proxy_token=');
+    console.log(`[E2E] proxy-auth: redirect carries proxy token ✓ ${location.slice(0, 80)}`);
   });
 
   // ═══════════════════════════════════════════════════════════════════════════

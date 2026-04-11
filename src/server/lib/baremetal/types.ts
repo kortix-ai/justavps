@@ -50,7 +50,7 @@ export interface BaremetalSchedulerWarmPoolMetadata {
 }
 
 export interface BaremetalSchedulerImageLocalityMetadata {
-  state?: 'local' | 'remote' | 'warming' | 'unknown' | null;
+  state?: 'local' | 'remote' | 'warming' | 'unknown' | 'error' | null;
   imageIds?: string[] | null;
   aliases?: string[] | null;
 }
@@ -136,7 +136,7 @@ export interface BaremetalPlacementCandidateEvaluation {
   schedulingHints: {
     requestedHost: boolean;
     warmPool: 'exact' | 'cpu_bucket' | 'none' | 'unknown';
-    imageLocality: 'local' | 'remote' | 'warming' | 'unknown';
+    imageLocality: 'local' | 'remote' | 'warming' | 'unknown' | 'error';
     hostClass: string | null;
     generation: string | null;
     cellId: string | null;
@@ -216,6 +216,7 @@ export interface RunnerInstanceState {
   vcpu: number | null;
   memoryGb: number | null;
   diskGb: number | null;
+  role?: string | null;
 }
 
 export interface RunnerImageState {

@@ -61,6 +61,9 @@ export async function ensureSnapshotArtifact(input: EnsureSnapshotArtifactInput)
   if (existing) {
     const [updated] = await db.update(backupArtifacts).set({
       ...patch,
+      accountId: input.accountId ?? existing.accountId,
+      createdByUserId: input.createdByUserId ?? existing.createdByUserId,
+      displayName: input.displayName ?? existing.displayName,
       metadata: {
         ...(existing.metadata ?? {}),
         ...(input.metadata ?? {}),

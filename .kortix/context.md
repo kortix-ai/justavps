@@ -50,6 +50,66 @@ Created: 2026-03-15T22:58:20.398Z
 
 - 2026-04-11: `src/server/db/index.ts` now uses a process-global postgres.js/drizzle singleton with explicit pool sizing (`DB_MAX_CONNECTIONS`, `DB_IDLE_TIMEOUT_SECONDS`, `DB_MAX_LIFETIME_SECONDS`). This was needed because local `next dev` hot-reload/module churn was exhausting the benchmark Postgres connection limit during repeated real E2E runs.
 
+- 2026-04-11: Added a dedicated control-plane runtime/worker shape. `src/server/lib/control-plane/runtime.ts` now starts periodic provisioner / routing repair / watchdog / fleet auditor loops with a process-global startup guard, `src/server/app.ts` starts it by default, and `scripts/control-plane-worker.ts` plus `pnpm control-plane:worker` allow running those loops in a separate worker process. `CONTROL_PLANE_RUNTIME_DISABLED=true` can now be used on web-only replicas.
+
+- 2026-04-11: V2 admin fleet now exposes `GET /api/v2/admin/fleet/control-plane/services` so operators can inspect control-plane lease/checkpoint state, and the V2 Fleet UI now shows control-plane service status cards (provisioner, routing repair, watchdog, fleet auditor).
+
+- 2026-04-11: Telemetry retention is now an explicit background control-plane responsibility: `runTelemetryRetentionServicePass()` prunes expired `machine_telemetry_rollups`, the control-plane runtime runs it on an interval, and the `telemetry:retention` service lease/checkpoint now appears in the V2 fleet control-plane services view.
+
+- 2026-04-11: Webhook deliveries and terminal control-plane jobs now have explicit retention pruning via the `webhook_dispatcher` service pass, and deleted-machine `machine_port_allocations` are pruned by the fleet auditor pass. This closed a real leak: live verification showed 6 explicit port allocations still attached to deleted machines until fleet auditor pruning was added.
+
+- 2026-04-11: API key deletion now removes the Worker-auth KV record for that key (`apikey:<sha256>`). Previously delete only removed the DB row and logged a message, leaving the Cloudflare KV entry orphaned. This is now verified live: create key → KV 200, delete key → KV 404.
+
+- 2026-04-11: Added `auth_cache:api_keys` as a first-class control-plane service that re-syncs stored API key SHA-256 records into Cloudflare KV. This closes the Worker-auth drift gap where KV loss could break valid API keys even if the DB remained correct. After a runtime restart the service now records successful completions in `/api/health`, `/api/readyz`, and `/api/v2/admin/fleet/control-plane/services`.
+
+- 2026-04-11: Control-plane service state is now more operator-friendly: service profiles (`critical`, `mode`, `description`) are exposed via `GET /api/v2/admin/fleet/control-plane/services`, `/api/readyz` ignores event-driven services like `allocator` but treats critical periodic services as readiness-gating, and a leased service only stays "fresh" while its lease is still current and recently started.
+
+- 2026-04-11: `POST /api/v2/admin/fleet/control-plane/run` now supports selective execution via `{ services: [...] }`, so operators can force just one class of work (for example only `auth_cache`) instead of always running the full maintenance pass.
+
+- 2026-04-11: Added `POST /api/v2/admin/fleet/control-plane/reset-lease` so operators can clear a wedged control-plane service lease (for example `auth_cache:api_keys`) without direct DB access. This is now covered by route tests and works live.
+
+- 2026-04-11: The deprecated direct platform proxy path under `/api/v1/machines/:machineId/proxy/:port/*` is now feature-flagged with `LEGACY_PLATFORM_PROXY_ENABLED`, and the default is now **off**. The Worker path is the default production path; only flip the legacy flag on as a temporary rollback if an older caller still depends on the direct platform proxy.
+
+- 2026-04-11: `/api/health` now reports database status plus a control-plane service summary, and `/api/readyz` returns `503` when the DB is unavailable or critical control-plane services are stale. These routes are now covered by tests and are intended for real deployment monitoring, not just local smoke checks.
+
+- 2026-04-11: `machines` now has an explicit `baremetal_host_id` column (with index) in addition to the legacy providerMeta field. Create-time placement now writes it directly, reconcile backfills it for live machines, and host-affinity lookups in fleet/snapshot/provider code now prefer the explicit column before falling back to providerMeta. This is the first step away from JSON-only host affinity lookups.
+
+- 2026-04-11: The old `GET /api/v1/internal/watchdog` control-plane trigger no longer exists. Control-plane maintenance now lives under `POST /api/v2/admin/fleet/control-plane/run`, while true machine callbacks stay in `v1/internal` (`/heartbeat`, `/stage`, etc.). This keeps V1/V2 boundaries cleaner: V1 internal = machine agent contract, V2 admin fleet = operator control-plane surface.
+
+- 2026-04-11: Added `cell_capacity_snapshots` plus `recordCellCapacitySnapshots()` and wired it into the fleet auditor loop. `GET /api/v2/admin/fleet/cell-capacity-snapshots` now returns recent cell history, and the V2 Fleet UI shows recent snapshot rows so reserve/sellable trends are visible instead of only current point-in-time state.
+
+- 2026-04-11: Vitest config now loads `.env` / `.env.local` directly and promotes `TEST_DATABASE_URL` into `DATABASE_URL` for test runs when needed, so DB-backed integration suites no longer require manual command-line env injection just to participate in normal regression runs.
+
+- 2026-04-11: Webhook delivery is now modeled as its own control-plane service (`webhook_dispatcher:webhook_deliver`) instead of only generic job-worker kicks, and allocator now records explicit checkpoint/metadata into `control_plane_service_states` so rejected/successful placement attempts are visible in admin fleet service-state inspection.
+
+- 2026-04-11: The control-plane operator trigger moved fully out of `v1/internal`; `GET /api/v1/internal/watchdog` is gone and the operator surface is now `POST /api/v2/admin/fleet/control-plane/run`. `GET /api/v2/admin/fleet/control-plane/services` and `GET /api/v2/admin/fleet/cell-capacity-snapshots` are live and verified.
+
+- 2026-04-11: Warm-pool claims no longer attempt to rename reserve VMs. Reserve VMs are now marked with `user.justavps.role=warm_pool_reserve`, claimed VMs flip that role to `machine`, and reconcile/orphan classification now separates warm reserves from true orphan instances using explicit role-aware reporting. This avoided rename-related create stalls and restored real host-1/host-2 warm-path runtime E2E.
+
+- 2026-04-11: Cell capacity history is now persisted in `cell_capacity_snapshots` on each fleet auditor pass (5-minute windowed snapshots with 30-day retention pruning). Operators can inspect the history via `GET /api/v2/admin/fleet/cell-capacity-snapshots`, and the V2 Fleet UI now shows recent snapshot rows.
+
+- 2026-04-11: Capacity-blocked create requests now return `409` with structured `details.placement_decision` explaining why no host was schedulable (for example reserve-budget pressure). This was verified live by temporarily setting an oversized cell reserve policy and observing the conflict response.
+
+- 2026-04-11: The legacy full infrastructure E2E (`src/__tests__/e2e/machine-lifecycle.test.ts`) was brought back in line with the current platform contract and now passes end-to-end against the live stack. Fixes included: V1 create falling back off stale default template images, legacy E2E loading `.env/.env.local`, proxy-domain expectations updated to use `PROXY_DOMAIN`, `proxy-auth` verified via redirect token flow instead of impossible cross-domain cookie assumptions, and the suite now uses the real session-backed API key path for Worker auth.
+
+- 2026-04-11: `pnpm exec tsc --noEmit -p tsconfig.json` is clean again after a compile-debt pass across the new control-plane/cell/fleet code. The worst remaining drift had been around DB `execute()` result typing, cell identity vs full cell state, nullable fleet UI IDs, and test harness mock shapes.
+
+- 2026-04-11: `/api/health` is now richer (database status + control-plane service summary), and `/api/readyz` is now a true readiness endpoint: it returns `503` if the DB is unavailable or critical control-plane services are stale beyond the readiness freshness window. Both are now covered by route tests.
+
+- 2026-04-11: Smaller API surfaces are being brought back under real compile-time checking instead of blanket suppression. `v2/catalog`, `v2/images`, `v2/billing`, `v2/snapshots`, `v2/machine-status-stream`, and `v1/server-types` now compile without `@ts-nocheck` while preserving the mixed success/error Hono handler behavior via narrow local casts.
+
+- 2026-04-11: `v2/machines` and `v2/admin-fleet` are now also compile-clean without blanket `@ts-nocheck`. The remaining pattern on these route files is narrow local handler casting for mixed success/error Hono responses, but the files themselves now participate in full `tsc --noEmit` again.
+
+- 2026-04-11: There are now no remaining `@ts-nocheck` or route-level `@ts-expect-error` markers under `src/server/routes/`. Route surfaces that still need mixed success/error typing use explicit local handler casts instead of blanket suppression, and the full app compile still passes.
+
+- 2026-04-11: Real pinned runtime E2E now passes again on both HEL1 hosts after the latest control-plane/runnerd changes:
+  - host 2 (`65.109.65.169`) passed warm-path runtime E2E with slug `nwrer7qx`
+  - host 1 (`135.181.129.188`) passed warm-path runtime E2E with slug `pvx7uexx`
+
+- 2026-04-11: After the warm-pool role conversion and control-plane route cleanup, real pinned runtime E2E passed again on both hosts with fresh slugs:
+  - host 2 (`65.109.65.169`) passed with slug `0jef3muf`
+  - host 1 (`135.181.129.188`) passed with slug `r4e5cm2o`
+
 - 2026-04-10: Phase 1 Batch C added a production-readiness backup/restore baseline and host drain workflows. `backup_artifacts` now records snapshot-derived DR artifacts, `restore_executions` records restore drill history, V2 snapshot create/restore paths persist those records, and bare-metal placement now rejects hosts unless they are runner-registered, `status=active`, and `maintenance_state=in_service`. Admin fleet APIs/UI now expose maintenance state plus drain blockers and allow operators to request drain / mark maintenance / return hosts to service.
 
 - 2026-04-10: Admin/Phase 1 durability verification added real DB-backed integration coverage for webhook jobs, machine-create reservations, reservation expiry/reconcile cleanup, backup restore drills, and maintenance-state placement enforcement. Verification exposed two postgres.js/raw-SQL bugs: durable job claiming and reservation expiry failed when raw `Date` objects were interpolated into SQL; both were fixed by binding ISO timestamp strings with explicit `::timestamp` casts. Local verification also required `pnpm run db:push` first because the benchmark Postgres schema was behind the repo migrations.

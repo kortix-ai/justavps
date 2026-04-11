@@ -3,8 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const selectMock = vi.fn();
 const updateMock = vi.fn();
 const transactionMock = vi.fn();
-const ensureWorkerMock = vi.fn();
-const kickWorkerMock = vi.fn();
+const runWebhookDispatcherServicePassMock = vi.fn();
 const registerHandlerMock = vi.fn();
 const enqueueControlPlaneJobMock = vi.fn();
 
@@ -17,16 +16,19 @@ vi.mock('@/server/db', () => ({
 }));
 
 vi.mock('@/server/lib/control-plane-jobs', () => ({
-  ensureControlPlaneJobWorker: ensureWorkerMock,
   enqueueControlPlaneJob: enqueueControlPlaneJobMock,
-  kickControlPlaneJobWorker: kickWorkerMock,
   registerControlPlaneJobHandler: registerHandlerMock,
+}));
+
+vi.mock('@/server/lib/control-plane/webhook-dispatcher', () => ({
+  runWebhookDispatcherServicePass: runWebhookDispatcherServicePassMock,
 }));
 
 describe('webhook delivery queue', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.resetModules();
+    runWebhookDispatcherServicePassMock.mockResolvedValue({ acquired: true, processed: 0 });
   });
 
   it('enqueues persisted webhook deliveries and matching control-plane jobs', async () => {
@@ -89,7 +91,7 @@ describe('webhook delivery queue', () => {
       idempotencyKey: 'webhook_delivery:delivery-1',
       payload: { deliveryId: 'delivery-1' },
     });
-    expect(kickWorkerMock).toHaveBeenCalledWith({ jobTypes: ['webhook_deliver'], limit: 1 });
+    expect(runWebhookDispatcherServicePassMock).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

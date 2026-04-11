@@ -15,6 +15,7 @@ import { config } from './config';
 
 const CF_API = 'https://api.cloudflare.com/client/v4';
 const MAX_CF_RETRIES = 5;
+const CF_KV_TIMEOUT_MS = 15_000;
 
 function sha256Hex(input: string): string {
   return createHash('sha256').update(input).digest('hex');
@@ -42,6 +43,7 @@ async function writeKV(key: string, value: string, ttlSeconds?: number): Promise
         'Content-Type': 'text/plain',
       },
       body: value,
+      signal: AbortSignal.timeout(CF_KV_TIMEOUT_MS),
     });
 
     if (res.ok) return;
@@ -70,6 +72,7 @@ async function deleteKV(key: string): Promise<void> {
       'X-Auth-Key': config.CLOUDFLARE_API_KEY,
       'X-Auth-Email': config.CLOUDFLARE_EMAIL,
     },
+    signal: AbortSignal.timeout(CF_KV_TIMEOUT_MS),
   }).catch(() => {});
 }
 
@@ -80,6 +83,25 @@ export interface ApiKeyKVExtra {
   machineIds: string[] | null;
   permissions: string[];
   expiresAt: string | null;
+}
+
+export async function syncApiKeyHashToKV(
+  keySha256: string,
+  accountId: string,
+  name: string,
+  extra?: ApiKeyKVExtra,
+): Promise<void> {
+  const value = JSON.stringify({
+    account_id: accountId,
+    name,
+    scope: extra?.scope ?? 'account',
+    machine_ids: extra?.machineIds ?? null,
+    permissions: extra?.permissions ?? ['*'],
+    expires_at: extra?.expiresAt ?? null,
+  });
+
+  await writeKV(`apikey:${keySha256}`, value);
+  console.log(`[PROXY-KV] Synced API key hash to KV: apikey:${keySha256.slice(0, 12)}...`);
 }
 
 /**
@@ -93,17 +115,7 @@ export async function syncApiKeyToKV(
   extra?: ApiKeyKVExtra,
 ): Promise<void> {
   const hash = sha256Hex(rawKey);
-  const value = JSON.stringify({
-    account_id: accountId,
-    name,
-    scope: extra?.scope ?? 'account',
-    machine_ids: extra?.machineIds ?? null,
-    permissions: extra?.permissions ?? ['*'],
-    expires_at: extra?.expiresAt ?? null,
-  });
-
-  await writeKV(`apikey:${hash}`, value);
-  console.log(`[PROXY-KV] Synced API key hash to KV: apikey:${hash.slice(0, 12)}...`);
+  await syncApiKeyHashToKV(hash, accountId, name, extra);
 }
 
 /**
@@ -111,9 +123,8 @@ export async function syncApiKeyToKV(
  * Called when an API key is deleted.
  */
 export async function deleteApiKeyFromKV(keyPrefix: string): Promise<void> {
-  // Best-effort: we can't easily delete by prefix from KV without listing.
-  // The entry will be orphaned but harmless (key is deleted from DB, can't be re-used).
-  console.log(`[PROXY-KV] API key with prefix ${keyPrefix} deleted from DB (KV entry orphaned — harmless)`);
+  await deleteKV(`apikey:${keyPrefix}`);
+  console.log(`[PROXY-KV] Deleted API key from KV: apikey:${keyPrefix.slice(0, 12)}...`);
 }
 
 // ─── Proxy Token Sync ───────────────────────────────────────────────────────

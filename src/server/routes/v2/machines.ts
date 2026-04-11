@@ -1,5 +1,4 @@
-/* eslint-disable @typescript-eslint/ban-ts-comment */
-// @ts-nocheck
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 import {
@@ -86,7 +85,6 @@ const MachineCreateV2Schema = z.object({
   enable_backups: z.boolean().optional().default(false),
 });
 
-// @ts-expect-error mixed success/error response typing
 machinesV2App.openapi(createRoute({
   method: 'get',
   path: '/',
@@ -96,16 +94,15 @@ machinesV2App.openapi(createRoute({
   responses: {
     200: { description: 'Machine list', content: { 'application/json': { schema: z.object({ machines: z.array(MachineV2Schema) }) } } },
   },
-}), async (c) => {
+}), (async (c: any) => {
   try {
     const machines = await listMachinesV2({ accountId: c.get('accountId') });
     return c.json({ machines });
   } catch (err) {
     return handleRouteError(c, err, 'MACHINES-V2') as Response;
   }
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 machinesV2App.openapi(createRoute({
   method: 'post',
   path: '/',
@@ -116,8 +113,9 @@ machinesV2App.openapi(createRoute({
   responses: {
     202: { description: 'Machine provisioning started', content: { 'application/json': { schema: MachineV2Schema } } },
     402: { description: 'Checkout required', content: { 'application/json': { schema: z.object({ requires_checkout: z.literal(true), checkout_url: z.string(), message: z.string() }) } } },
+    409: { description: 'Insufficient schedulable capacity', content: { 'application/json': { schema: z.object({ error: z.literal(true), message: z.string(), status: z.literal(409), details: z.object({ placement_decision: z.object({ outcome: z.string(), summary: z.string(), explanation: z.array(z.string()) }) }).optional() }) } } },
   },
-}), async (c) => {
+}), (async (c: any) => {
   try {
     const result = await createMachineV2({
       accountId: c.get('accountId'),
@@ -131,9 +129,8 @@ machinesV2App.openapi(createRoute({
   } catch (err) {
     return handleRouteError(c, err, 'MACHINES-V2') as Response;
   }
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 machinesV2App.openapi(createRoute({
   method: 'get',
   path: '/{id}',
@@ -142,17 +139,16 @@ machinesV2App.openapi(createRoute({
   summary: 'Get machine',
   request: { params: z.object({ id: z.string().uuid() }) },
   responses: { 200: { description: 'Machine', content: { 'application/json': { schema: MachineV2Schema } } } },
-}), async (c) => {
+}), (async (c: any) => {
   try {
     return c.json(await getMachineV2({ accountId: c.get('accountId'), machineId: c.req.valid('param').id }));
   } catch (err) {
     return handleRouteError(c, err, 'MACHINES-V2') as Response;
   }
-});
+}) as any);
 
 for (const action of ['start', 'stop', 'reboot'] as const) {
   const fn = action === 'start' ? startMachineV2 : action === 'stop' ? stopMachineV2 : rebootMachineV2;
-  // @ts-expect-error mixed success/error response typing
   machinesV2App.openapi(createRoute({
     method: 'post',
     path: `/{id}/${action}`,
@@ -161,16 +157,15 @@ for (const action of ['start', 'stop', 'reboot'] as const) {
     summary: `${action} machine`,
     request: { params: z.object({ id: z.string().uuid() }) },
     responses: { 200: { description: `${action} ok`, content: { 'application/json': { schema: z.object({ ok: z.boolean() }) } } } },
-  }), async (c) => {
+  }), (async (c: any) => {
     try {
       return c.json(await fn({ accountId: c.get('accountId'), machineId: c.req.valid('param').id }));
     } catch (err) {
       return handleRouteError(c, err, 'MACHINES-V2') as Response;
     }
-  });
+  }) as any);
 }
 
-// @ts-expect-error mixed success/error response typing
 machinesV2App.openapi(createRoute({
   method: 'delete',
   path: '/{id}',
@@ -179,15 +174,14 @@ machinesV2App.openapi(createRoute({
   summary: 'Delete machine',
   request: { params: z.object({ id: z.string().uuid() }) },
   responses: { 200: { description: 'Deleted', content: { 'application/json': { schema: z.object({ ok: z.boolean() }) } } } },
-}), async (c) => {
+}), (async (c: any) => {
   try {
     return c.json(await deleteMachineV2({ accountId: c.get('accountId'), machineId: c.req.valid('param').id }));
   } catch (err) {
     return handleRouteError(c, err, 'MACHINES-V2') as Response;
   }
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 machinesV2App.openapi(createRoute({
   method: 'post',
   path: '/{id}/cancel',
@@ -196,15 +190,14 @@ machinesV2App.openapi(createRoute({
   summary: 'Cancel machine subscription',
   request: { params: z.object({ id: z.string().uuid() }) },
   responses: { 200: { description: 'Cancellation scheduled', content: { 'application/json': { schema: z.object({ action: z.literal('cancel'), status: z.string() }) } } } },
-}), async (c) => {
+}), (async (c: any) => {
   try {
     return c.json(await cancelMachineV2({ accountId: c.get('accountId'), machineId: c.req.valid('param').id }));
   } catch (err) {
     return handleRouteError(c, err, 'MACHINES-V2') as Response;
   }
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 machinesV2App.openapi(createRoute({
   method: 'post',
   path: '/{id}/reactivate',
@@ -213,10 +206,10 @@ machinesV2App.openapi(createRoute({
   summary: 'Reactivate machine subscription',
   request: { params: z.object({ id: z.string().uuid() }) },
   responses: { 200: { description: 'Subscription reactivated', content: { 'application/json': { schema: z.object({ action: z.literal('reactivate'), status: z.string() }) } } } },
-}), async (c) => {
+}), (async (c: any) => {
   try {
     return c.json(await reactivateMachineV2({ accountId: c.get('accountId'), machineId: c.req.valid('param').id }));
   } catch (err) {
     return handleRouteError(c, err, 'MACHINES-V2') as Response;
   }
-});
+}) as any);

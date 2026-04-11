@@ -19,7 +19,7 @@ describe('baremetal reconciliation', () => {
       host: { id: 'host-1' } as never,
       runnerState: {
         checkedAt: new Date().toISOString(),
-        runnerd: 'ok',
+        runnerd: 'ok' as const,
         incus: { status: 'ok', serverVersion: '6.0', instanceCount: 2, imageCount: 1 },
         instances: [
           { instanceId: 'justavps-a', status: 'Running', privateIpv4: '10.0.0.2', vcpu: 2, memoryGb: 4, diskGb: 40 },
@@ -107,7 +107,7 @@ describe('baremetal reconciliation', () => {
       expireReservations: async () => {},
       fetchRunnerState: async () => ({
         checkedAt: checkedAt.toISOString(),
-        runnerd: 'ok',
+        runnerd: 'ok' as const,
         incus: { status: 'ok', serverVersion: '6.0', instanceCount: 0, imageCount: 1 },
         instances: [],
         images: [{ imageId: 'fingerprint-1', aliases: ['ubuntu-24.04'], cached: true }],
@@ -134,10 +134,10 @@ describe('baremetal reconciliation', () => {
       staleMachineIds: ['machine-stale'],
       staleImageIds: ['image-stale'],
     })]);
-    expect(machineUpdates).toEqual([expect.objectContaining({
+    expect(machineUpdates).toEqual(expect.arrayContaining([expect.objectContaining({
       machineId: 'machine-stale',
       status: 'deleted',
-    })]);
+    })]));
     expect(imageUpdates).toEqual([expect.objectContaining({
       imageId: 'image-stale',
       status: 'deleted',
@@ -208,8 +208,8 @@ describe('baremetal reconciliation', () => {
     ];
     const fetchRunnerState = vi.fn(async () => ({
       checkedAt: checkedAt.toISOString(),
-      runnerd: 'ok',
-      incus: { status: 'ok', serverVersion: '6.0', instanceCount: 0, imageCount: 0 },
+      runnerd: 'ok' as const,
+      incus: { status: 'ok' as const, serverVersion: '6.0', instanceCount: 0, imageCount: 0 },
       instances: [],
       images: [],
     }));
@@ -271,7 +271,7 @@ describe('baremetal reconciliation', () => {
       expireReservations: async () => {},
       fetchRunnerState: async () => ({
         checkedAt: new Date().toISOString(),
-        runnerd: 'ok',
+        runnerd: 'ok' as const,
         incus: { status: 'ok', serverVersion: '6.0', instanceCount: 1, imageCount: 0 },
         instances: [{ instanceId: 'justavps-live', status: 'Running', privateIpv4: '10.0.0.2', vcpu: 2, memoryGb: 4, diskGb: 40 }],
         images: [],
@@ -284,5 +284,59 @@ describe('baremetal reconciliation', () => {
     });
 
     expect(syncMachinePortAllocations).toHaveBeenCalledWith(expect.objectContaining({ id: 'machine-1' }));
+  });
+
+  it('backfills explicit baremetal host id for machines that still only have providerMeta host affinity', async () => {
+    const machineUpdates: Array<Record<string, unknown>> = [];
+    await reconcileBaremetalFleet({
+      loadHosts: async () => [{
+        id: 'host-1',
+        status: 'active',
+        hostClass: 'general-small',
+        generation: 'gen1',
+        region: 'hel1',
+        cellId: 'cell-1',
+        maintenanceState: 'in_service',
+        runnerBaseUrl: 'http://runner',
+        runnerToken: 'token',
+        lastHeartbeatAt: null,
+        usedVcpu: 0,
+        usedMemoryGb: 0,
+        usedDiskGb: 0,
+        metadata: {},
+        updatedAt: new Date(),
+      }] as never[],
+      loadMachines: async () => [{
+        id: 'machine-stopped',
+        provider: 'baremetal',
+        slug: 'stopped',
+        status: 'stopped',
+        deletedAt: null,
+        providerServerId: 'justavps-stopped',
+        baremetalHostId: null,
+        providerMeta: { baremetal_host_id: 'host-1' },
+      }] as never[],
+      loadImages: async () => [],
+      loadReservations: async () => [],
+      expireReservations: async () => {},
+      fetchRunnerState: async () => ({
+        checkedAt: new Date().toISOString(),
+        runnerd: 'ok' as const,
+        incus: { status: 'ok', serverVersion: '6.0', instanceCount: 0, imageCount: 0 },
+        instances: [],
+        images: [],
+      }),
+      updateHost: async () => {},
+      updateMachine: async (machineId, patch) => {
+        machineUpdates.push({ machineId, ...patch });
+      },
+      updateImage: async () => {},
+      updateReservation: async () => {},
+      syncMachinePortAllocations: async () => {},
+    });
+
+    expect(machineUpdates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ machineId: 'machine-stopped', baremetalHostId: 'host-1' }),
+    ]));
   });
 });

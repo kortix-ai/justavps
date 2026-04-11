@@ -7,20 +7,28 @@
 
 import { defineConfig } from 'vitest/config';
 import path from 'path';
+import { config as dotenvConfig } from 'dotenv';
 
-export default defineConfig({
-  test: {
-    environment: 'node',
-    globals: true,
-    include: ['src/__tests__/e2e/**/*.test.ts'],
-    testTimeout: 10 * 60 * 1000, // 10 min per test
-    hookTimeout: 10 * 60 * 1000,
-    fileParallelism: false,
-    sequence: { concurrent: false },
-  },
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
+export default defineConfig(() => {
+  dotenvConfig();
+  dotenvConfig({ path: '.env.local', override: true });
+  const env = process.env as Record<string, string>;
+  return {
+    test: {
+      environment: 'node',
+      globals: true,
+      setupFiles: ['./src/__tests__/e2e/setup.ts'],
+      include: ['src/__tests__/e2e/**/*.test.ts'],
+      testTimeout: 10 * 60 * 1000, // 10 min per test
+      hookTimeout: 10 * 60 * 1000,
+      fileParallelism: false,
+      sequence: { concurrent: false },
+      env,
     },
-  },
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, './src'),
+      },
+    },
+  };
 });

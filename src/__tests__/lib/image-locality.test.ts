@@ -99,7 +99,7 @@ describe('image locality helpers', () => {
           where: async () => [],
         }),
       }),
-    } as SyncImageLocalityExecutor;
+    } as unknown as SyncImageLocalityExecutor;
 
     await syncHostImageAvailabilityFromRunnerState({
       hostId: 'host-1',

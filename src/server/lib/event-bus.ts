@@ -7,7 +7,7 @@
  * independently. No in-memory pub/sub.
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { db } from '../db';
 import { machines, machineEvents } from '../db/schema';
 import { recordMachineTelemetry } from './machine-telemetry';
@@ -16,6 +16,7 @@ import { deliverWebhooks } from './webhook-delivery';
 export type MachineLifecycleEventType = 'stage_changed' | 'status_changed';
 export type MachineTelemetryEventType = 'heartbeat';
 export type MachineEventType = MachineLifecycleEventType | MachineTelemetryEventType;
+const MACHINE_EVENT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 export interface MachineEvent {
   machineId: string;
@@ -146,3 +147,34 @@ class MachineEventBus {
 }
 
 export const eventBus = new MachineEventBus();
+
+export async function pruneExpiredMachineEvents(input?: {
+  now?: Date;
+  limit?: number;
+  executor?: Pick<typeof db, 'execute'>;
+}) {
+  const executor = input?.executor ?? db;
+  const now = input?.now ?? new Date();
+  const limit = input?.limit ?? 1000;
+  const cutoff = new Date(now.getTime() - MACHINE_EVENT_RETENTION_MS).toISOString();
+
+  const result = await executor.execute(sql<{ id: string }>`
+    with expired as (
+      select ${machineEvents.id}
+      from ${machineEvents}
+      where ${machineEvents.createdAt} < ${cutoff}::timestamp
+      order by ${machineEvents.createdAt} asc
+      limit ${limit}
+    )
+    delete from ${machineEvents}
+    using expired
+    where ${machineEvents.id} = expired.id
+    returning ${machineEvents.id}
+  `);
+
+  if (Array.isArray(result)) return result.length;
+  if (result && typeof result === 'object' && 'rows' in result && Array.isArray((result as { rows?: unknown }).rows)) {
+    return (result as { rows: Array<{ id: string }> }).rows.length;
+  }
+  return 0;
+}

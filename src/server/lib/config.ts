@@ -43,6 +43,7 @@ export const config = {
   BROKER_SHARED_SECRET: (process.env.BROKER_SHARED_SECRET || '').trim(),
   APP_URL: (process.env.NEXT_PUBLIC_APP_URL || 'https://justavps.com').trim(),
   API_URL: (process.env.NEXT_PUBLIC_API_URL || 'https://justavps.com/api').trim(),
+  LEGACY_PLATFORM_PROXY_ENABLED: (process.env.LEGACY_PLATFORM_PROXY_ENABLED || 'false').trim().toLowerCase() === 'true',
   // Public callback URL embedded into new machines for /api/v1/internal/* callbacks.
   // Must be reachable from the public Internet; localhost will not work for remote VPSes.
   MACHINE_CALLBACK_URL: (process.env.MACHINE_CALLBACK_URL || '').trim(),
@@ -54,6 +55,7 @@ export const config = {
   // Machines with a different daemon_version will be told to update on their next heartbeat.
   DAEMON_DESIRED_VERSION: (process.env.DAEMON_DESIRED_VERSION || '').trim(),
   DAEMON_DOWNLOAD_URL: (process.env.DAEMON_DOWNLOAD_URL || '').trim(),
+  CONTROL_PLANE_RUNTIME_DISABLED: (process.env.CONTROL_PLANE_RUNTIME_DISABLED || 'false').trim().toLowerCase() === 'true',
 
   // Encryption
   // AES-256-GCM key for encrypting secrets at rest (SSH private keys, machine tokens).

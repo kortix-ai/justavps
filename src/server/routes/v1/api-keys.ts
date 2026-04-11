@@ -167,7 +167,9 @@ apiKeysApp.openapi(deleteAPIKeyRoute, async (c) => {
   const [key] = await db.select().from(apiKeys).where(and(eq(apiKeys.id, id), eq(apiKeys.accountId, accountId)));
   if (!key) return c.json({ error: true, message: 'API key not found', status: 404 }, 404);
 
-  await deleteApiKeyFromKV(key.keyPrefix).catch(() => {});
+  if (key.keySha256) {
+    await deleteApiKeyFromKV(key.keySha256).catch(() => {});
+  }
 
   await db.delete(apiKeys).where(eq(apiKeys.id, id));
   return c.body(null, 204);

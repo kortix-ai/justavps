@@ -163,11 +163,13 @@ function inferProviderServerId(machine: MachineRow) {
 async function ensureBaremetalHostBinding(machine: MachineRow) {
   if (machine.provider !== 'baremetal') return machine;
   const meta = providerMeta(machine);
-  if (typeof meta.baremetal_host_id === 'string' && typeof meta.runner_base_url === 'string') return machine;
+  if ((machine.baremetalHostId || typeof meta.baremetal_host_id === 'string') && typeof meta.runner_base_url === 'string') return machine;
 
   const { baremetalHosts } = await import('../../db/schema');
-  const [host] = await db.select().from(baremetalHosts)
-    .where(and(eq(baremetalHosts.region, machine.region), eq(baremetalHosts.status, 'active')));
+  const [host] = machine.baremetalHostId
+    ? await db.select().from(baremetalHosts).where(eq(baremetalHosts.id, machine.baremetalHostId))
+    : await db.select().from(baremetalHosts)
+        .where(and(eq(baremetalHosts.region, machine.region), eq(baremetalHosts.status, 'active')));
   if (!host || !host.runnerBaseUrl) return machine;
 
   const nextMeta = {
@@ -180,8 +182,8 @@ async function ensureBaremetalHostBinding(machine: MachineRow) {
     public_ipv4: meta.public_ipv4 ?? host.publicIpv4 ?? null,
   };
 
-  const [updated] = await db.update(machines).set({ providerMeta: nextMeta }).where(eq(machines.id, machine.id)).returning();
-  return updated ?? machine;
+  const [updated] = await db.update(machines).set({ baremetalHostId: host.id, providerMeta: nextMeta }).where(eq(machines.id, machine.id)).returning();
+  return updated ?? { ...machine, baremetalHostId: host.id, providerMeta: nextMeta };
 }
 
 async function resolveImageSummary(imageId: string | null): Promise<ReturnType<typeof serializeImageRow> | null> {
@@ -656,7 +658,7 @@ export async function handleMachineCreateJob(machineId: string, payload: Machine
 }
 
 registerMachineCreateJobHandler({
-  handle: (job) => handleMachineCreateJob(job.subjectId, job.payload as MachineCreateJobPayload, job.attempt, job.maxAttempts),
+  handle: (job) => handleMachineCreateJob(job.subjectId, job.payload as unknown as MachineCreateJobPayload, job.attempt, job.maxAttempts),
 });
 ensureProvisionerServiceWorker();
 
@@ -747,12 +749,13 @@ export async function createMachineV2(input: { accountId: string; userId: string
     };
 
     const [updatedMachine] = await tx.update(machines).set({
+      baremetalHostId: lease.host.id,
       vcpu: reqVcpu,
       ramGb: reqRam,
       diskGb: reqDisk,
       providerMeta,
     }).where(eq(machines.id, machine.id)).returning();
-    machine = updatedMachine ?? { ...machine, vcpu: reqVcpu, ramGb: reqRam, diskGb: reqDisk, providerMeta };
+    machine = updatedMachine ?? { ...machine, baremetalHostId: lease.host.id, vcpu: reqVcpu, ramGb: reqRam, diskGb: reqDisk, providerMeta };
 
     await enqueueMachineCreateJob({
       jobType: MACHINE_CREATE_JOB_TYPE,

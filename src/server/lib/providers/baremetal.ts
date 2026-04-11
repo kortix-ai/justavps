@@ -46,7 +46,7 @@ async function defaultSelectHost(input: { region: string; serverType: string }):
         metadata: row.metadata,
         cell: row.cellId ? cellsById.get(row.cellId) ?? null : null,
         admission: row.cellId ? admissionsByCellId.get(row.cellId) ?? null : null,
-      }) ?? deriveBaremetalCellIdentity(row),
+      }),
       maintenanceState: row.maintenanceState,
       runnerBaseUrl: row.runnerBaseUrl,
       publicIpv4: row.publicIpv4,
@@ -99,7 +99,7 @@ async function loadHostById(hostId: string): Promise<BaremetalHostCandidate | nu
       metadata: row.metadata,
       cell: row.cellId ? cellsById.get(row.cellId) ?? null : null,
       admission: row.cellId ? admissionsByCellId.get(row.cellId) ?? null : null,
-    }) ?? deriveBaremetalCellIdentity(row),
+    }),
     maintenanceState: row.maintenanceState,
     runnerBaseUrl: row.runnerBaseUrl,
     publicIpv4: row.publicIpv4,
@@ -125,7 +125,7 @@ async function loadMachineHost(serverId: string): Promise<BaremetalHostCandidate
   const machine = rows.find((row) => row.provider === 'baremetal' && (row.providerServerId === serverId || (orphanSlug && row.slug === orphanSlug)));
   if (!machine) return null;
   const meta = (machine.providerMeta ?? {}) as Record<string, unknown>;
-  const hostId = typeof meta.baremetal_host_id === 'string' ? meta.baremetal_host_id : null;
+  const hostId = machine.baremetalHostId ?? (typeof meta.baremetal_host_id === 'string' ? meta.baremetal_host_id : null);
   if (!hostId) return null;
   return loadHostById(hostId);
 }
@@ -187,7 +187,7 @@ export class BaremetalProvider implements ComputeProvider {
           metadata: row.metadata,
           cell: row.cellId ? cellsById.get(row.cellId) ?? null : null,
           admission: row.cellId ? admissionsByCellId.get(row.cellId) ?? null : null,
-        }) ?? deriveBaremetalCellIdentity(row),
+        }),
         runnerBaseUrl: row.runnerBaseUrl,
         publicIpv4: row.publicIpv4,
         publicIpv6: row.publicIpv6,

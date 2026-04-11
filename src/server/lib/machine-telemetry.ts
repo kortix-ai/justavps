@@ -2,6 +2,14 @@ import { sql } from 'drizzle-orm';
 
 import { db } from '@/server/db';
 import { machineTelemetryRollups } from '@/server/db/schema';
+
+function rowsFromExecute<T extends Record<string, unknown>>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[];
+  if (result && typeof result === 'object' && 'rows' in result && Array.isArray((result as { rows?: unknown }).rows)) {
+    return (result as { rows: T[] }).rows;
+  }
+  return [];
+}
 import type { MachineEvent } from '@/server/lib/event-bus';
 
 export const MACHINE_TELEMETRY_BUCKET_RESOLUTION_SEC = 60;
@@ -102,4 +110,31 @@ export async function recordMachineTelemetry(event: MachineEvent) {
         updatedAt: record.updatedAt,
       },
     });
+}
+
+export async function pruneExpiredMachineTelemetryRollups(input?: {
+  now?: Date;
+  limit?: number;
+}) {
+  const now = input?.now ?? new Date();
+  const limit = input?.limit ?? 500;
+  const nowSql = now.toISOString();
+
+  const result = await db.execute(sql<{ id: string }>`
+    with expired as (
+      select ${machineTelemetryRollups.id}
+      from ${machineTelemetryRollups}
+      where ${machineTelemetryRollups.retentionUntil} <= ${nowSql}::timestamp
+      order by ${machineTelemetryRollups.retentionUntil} asc
+      limit ${limit}
+    )
+    delete from ${machineTelemetryRollups}
+    using expired
+    where ${machineTelemetryRollups.id} = expired.id
+    returning ${machineTelemetryRollups.id}
+  `);
+
+  const deletedRows = rowsFromExecute<{ id: string }>(result);
+
+  return deletedRows.length;
 }

@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
-// @ts-nocheck
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 import { createSnapshotV2, deleteSnapshotV2, listSnapshotsV2, restoreSnapshotV2 } from '../../lib/v2/snapshots';
@@ -72,7 +71,6 @@ const SnapshotInventorySchema = z.object({
   }),
 });
 
-// @ts-expect-error mixed success/error response typing
 snapshotsV2App.openapi(createRoute({
   method: 'get',
   path: '/{machineId}',
@@ -80,15 +78,14 @@ snapshotsV2App.openapi(createRoute({
   summary: 'List machine snapshots',
   request: { params: z.object({ machineId: z.string().uuid() }) },
   responses: { 200: { description: 'Snapshots', content: { 'application/json': { schema: SnapshotInventorySchema } } } },
-}), async (c) => {
+}), (async (c: any) => {
   try {
     return c.json(await listSnapshotsV2({ accountId: c.get('accountId'), machineId: c.req.valid('param').machineId }));
   } catch (err) {
     return handleRouteError(c, err, 'SNAPSHOTS-V2') as Response;
   }
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 snapshotsV2App.openapi(createRoute({
   method: 'post',
   path: '/{machineId}',
@@ -99,16 +96,15 @@ snapshotsV2App.openapi(createRoute({
     body: { required: false, content: { 'application/json': { schema: z.object({ name: z.string().optional() }) } } },
   },
   responses: { 202: { description: 'Snapshot started', content: { 'application/json': { schema: SnapshotSchema } } } },
-}), async (c) => {
+}), (async (c: any) => {
   try {
     const body = await c.req.json().catch(() => ({}));
     return c.json(await createSnapshotV2({ accountId: c.get('accountId'), machineId: c.req.valid('param').machineId, name: body.name, requestedByUserId: c.get('userId') }), 202);
   } catch (err) {
     return handleRouteError(c, err, 'SNAPSHOTS-V2') as Response;
   }
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 snapshotsV2App.openapi(createRoute({
   method: 'post',
   path: '/{machineId}/{snapshotId}/restore',
@@ -116,16 +112,15 @@ snapshotsV2App.openapi(createRoute({
   summary: 'Restore machine snapshot',
   request: { params: z.object({ machineId: z.string().uuid(), snapshotId: z.string() }) },
   responses: { 200: { description: 'Restored', content: { 'application/json': { schema: z.object({ ok: z.boolean(), restore_execution_id: z.string().uuid() }) } } } },
-}), async (c) => {
+}), (async (c: any) => {
   try {
     const { machineId, snapshotId } = c.req.valid('param');
     return c.json(await restoreSnapshotV2({ accountId: c.get('accountId'), machineId, snapshotId, requestedByUserId: c.get('userId') }));
   } catch (err) {
     return handleRouteError(c, err, 'SNAPSHOTS-V2') as Response;
   }
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 snapshotsV2App.openapi(createRoute({
   method: 'delete',
   path: '/{machineId}/{snapshotId}',
@@ -133,11 +128,11 @@ snapshotsV2App.openapi(createRoute({
   summary: 'Delete machine snapshot',
   request: { params: z.object({ machineId: z.string().uuid(), snapshotId: z.string() }) },
   responses: { 200: { description: 'Deleted', content: { 'application/json': { schema: z.object({ ok: z.boolean() }) } } } },
-}), async (c) => {
+}), (async (c: any) => {
   try {
     const { machineId, snapshotId } = c.req.valid('param');
     return c.json(await deleteSnapshotV2({ accountId: c.get('accountId'), machineId, snapshotId }));
   } catch (err) {
     return handleRouteError(c, err, 'SNAPSHOTS-V2') as Response;
   }
-});
+}) as any);

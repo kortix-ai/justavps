@@ -73,6 +73,13 @@ const updateReturningMock = vi.fn();
 const insertReturningMock = vi.fn();
 const deleteInstanceMock = vi.fn();
 const reconcileBaremetalHostMock = vi.fn(async () => ({ hostId: hostRow.id, status: 'ok' }));
+const runProvisionerServicePassMock = vi.fn(async () => ({ acquired: true, processed: 0, leaseOwner: 'p', scope: 'provisioner:machine_create' }));
+const runWebhookDispatcherServicePassMock = vi.fn(async () => ({ acquired: true, processed: 0, leaseOwner: 'w', scope: 'webhook_dispatcher:webhook_deliver' }));
+const runAuthCacheServicePassMock = vi.fn(async () => ({ acquired: true, synced: 0, leaseOwner: 'ac', scope: 'auth_cache:api_keys' }));
+const runRoutingRepairServicePassMock = vi.fn(async () => ({ acquired: true, repaired: 0, leaseOwner: 'r', scope: 'routing:repair' }));
+const runTelemetryRetentionServicePassMock = vi.fn(async () => ({ acquired: true, pruned: 0, leaseOwner: 't', scope: 'telemetry:retention' }));
+const runWatchdogServicePassMock = vi.fn(async () => ({ acquired: true, alerts: 0, alertSummaries: [], leaseOwner: 'wd', scope: 'watchdog:global' }));
+const runFleetAuditorServicePassMock = vi.fn(async () => ({ acquired: true, hostsChecked: 1, snapshotsRecorded: 1, snapshotsPruned: 0, checkedAt: '2026-04-11T00:00:00.000Z', leaseOwner: 'fa', scope: 'fleet_auditor:baremetal' }));
 
 vi.mock('@/server/lib/api-guard', () => ({
   apiGuard: async (c: any, next: any) => {
@@ -105,6 +112,34 @@ vi.mock('@/server/lib/baremetal/reconcile', () => ({
   reconcileBaremetalHost: reconcileBaremetalHostMock,
 }));
 
+vi.mock('@/server/lib/control-plane/provisioner', () => ({
+  runProvisionerServicePass: runProvisionerServicePassMock,
+}));
+
+vi.mock('@/server/lib/control-plane/webhook-dispatcher', () => ({
+  runWebhookDispatcherServicePass: runWebhookDispatcherServicePassMock,
+}));
+
+vi.mock('@/server/lib/control-plane/auth-cache', () => ({
+  runAuthCacheServicePass: runAuthCacheServicePassMock,
+}));
+
+vi.mock('@/server/lib/control-plane/routing', () => ({
+  runRoutingRepairServicePass: runRoutingRepairServicePassMock,
+}));
+
+vi.mock('@/server/lib/control-plane/telemetry', () => ({
+  runTelemetryRetentionServicePass: runTelemetryRetentionServicePassMock,
+}));
+
+vi.mock('@/server/lib/control-plane/watchdog', () => ({
+  runWatchdogServicePass: runWatchdogServicePassMock,
+}));
+
+vi.mock('@/server/lib/control-plane/fleet-auditor', () => ({
+  runFleetAuditorServicePass: runFleetAuditorServicePassMock,
+}));
+
 vi.mock('@/server/db', () => ({
   db: {
     select: vi.fn(() => ({ from: selectFromMock })),
@@ -122,6 +157,13 @@ describe('admin baremetal host bootstrap routes', () => {
     insertReturningMock.mockReset();
     deleteInstanceMock.mockReset();
     reconcileBaremetalHostMock.mockClear();
+    runProvisionerServicePassMock.mockClear();
+    runWebhookDispatcherServicePassMock.mockClear();
+    runAuthCacheServicePassMock.mockClear();
+    runRoutingRepairServicePassMock.mockClear();
+    runTelemetryRetentionServicePassMock.mockClear();
+    runWatchdogServicePassMock.mockClear();
+    runFleetAuditorServicePassMock.mockClear();
     process.env.HETZNER_ROBOT_USER = 'robot-user';
     process.env.HETZNER_ROBOT_PASSWORD = 'robot-pass';
   });
@@ -311,6 +353,149 @@ describe('admin baremetal host bootstrap routes', () => {
       procurement_purpose: 'reserve_replenishment',
       minimum_hosts: 1,
     });
+  });
+
+  it('lists control-plane service state', async () => {
+    selectDirectMock.mockReturnValueOnce([{
+      id: 'service-1',
+      service: 'provisioner',
+      scope: 'machine_create',
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      lastStartedAt: new Date('2026-04-11T02:00:00.000Z'),
+      lastCompletedAt: new Date('2026-04-11T02:00:05.000Z'),
+      checkpoint: { last_processed_count: 2 },
+      metadata: { last_job_type: 'machine_create' },
+      createdAt: new Date('2026-04-11T01:59:00.000Z'),
+      updatedAt: new Date('2026-04-11T02:00:05.000Z'),
+    }]);
+
+    const { adminFleetV2App } = await import('@/server/routes/v2/admin-fleet');
+    const res = await adminFleetV2App.request(new Request('http://localhost/control-plane/services'));
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.services[0]).toMatchObject({
+      service: 'provisioner',
+      scope: 'machine_create',
+      lease_owner: null,
+      checkpoint: { last_processed_count: 2 },
+    });
+  });
+
+  it('lists recent cell capacity snapshots', async () => {
+    selectDirectMock.mockReturnValueOnce([{
+      id: 'snap-1',
+      cellId: 'cell-1',
+      cellSlug: 'hel1--general-small--gen1',
+      region: 'hel1',
+      hostClass: 'general-small',
+      generation: 'gen1',
+      admissionState: 'open',
+      sellabilityState: 'sellable',
+      hostCount: 2,
+      activeHostCount: 2,
+      constrainedHostCount: 0,
+      totalVcpu: 24,
+      totalMemoryGb: 124,
+      totalDiskGb: 895,
+      usedVcpu: 10,
+      usedMemoryGb: 12,
+      usedDiskGb: 200,
+      reservedVcpu: 0,
+      reservedMemoryGb: 0,
+      reservedDiskGb: 0,
+      reserveBudgetVcpu: 4,
+      reserveBudgetMemoryGb: 8,
+      reserveBudgetDiskGb: 80,
+      availableVcpu: 14,
+      availableMemoryGb: 112,
+      availableDiskGb: 695,
+      sellableVcpu: 10,
+      sellableMemoryGb: 104,
+      sellableDiskGb: 615,
+      utilizationScore: 2597,
+      snapshotWindowStart: new Date('2026-04-11T05:00:00.000Z'),
+      createdAt: new Date('2026-04-11T05:00:05.000Z'),
+    }]);
+
+    const { adminFleetV2App } = await import('@/server/routes/v2/admin-fleet');
+    const res = await adminFleetV2App.request(new Request('http://localhost/cell-capacity-snapshots?limit=1'));
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.snapshots[0]).toMatchObject({
+      cell_slug: 'hel1--general-small--gen1',
+      total_vcpu: 24,
+      reserve_budget_vcpu: 4,
+      utilization_score_basis_points: 2597,
+    });
+  });
+
+  it('runs the V2 control-plane maintenance surface', async () => {
+    const { adminFleetV2App } = await import('@/server/routes/v2/admin-fleet');
+    const res = await adminFleetV2App.request(new Request('http://localhost/control-plane/run', { method: 'POST' }));
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(runProvisionerServicePassMock).toHaveBeenCalledTimes(1);
+    expect(runWebhookDispatcherServicePassMock).toHaveBeenCalledTimes(1);
+    expect(runAuthCacheServicePassMock).toHaveBeenCalledTimes(1);
+    expect(runRoutingRepairServicePassMock).toHaveBeenCalledTimes(1);
+    expect(runTelemetryRetentionServicePassMock).toHaveBeenCalledTimes(1);
+    expect(runWatchdogServicePassMock).toHaveBeenCalledTimes(1);
+    expect(runFleetAuditorServicePassMock).toHaveBeenCalledTimes(1);
+    expect(data).toMatchObject({
+      checked: true,
+      alerts: 0,
+      auth_cache: { synced: 0 },
+      fleet_auditor: { hostsChecked: 1, snapshotsRecorded: 1 },
+    });
+  });
+
+  it('can run a selective control-plane maintenance pass', async () => {
+    const { adminFleetV2App } = await import('@/server/routes/v2/admin-fleet');
+    const res = await adminFleetV2App.request(new Request('http://localhost/control-plane/run', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ services: ['auth_cache'] }),
+    }));
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(runAuthCacheServicePassMock).toHaveBeenCalledTimes(1);
+    expect(runProvisionerServicePassMock).not.toHaveBeenCalled();
+    expect(data.auth_cache).toMatchObject({ synced: 0 });
+    expect(data.provisioner).toMatchObject({ acquired: false });
+  });
+
+  it('can clear a control-plane service lease manually', async () => {
+    updateReturningMock.mockResolvedValueOnce([]);
+
+    const { adminFleetV2App } = await import('@/server/routes/v2/admin-fleet');
+    const res = await adminFleetV2App.request(new Request('http://localhost/control-plane/reset-lease', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ service: 'auth_cache', scope: 'api_keys' }),
+    }));
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data).toMatchObject({ ok: true });
+  });
+
+  it('returns a config audit summary', async () => {
+    const { adminFleetV2App } = await import('@/server/routes/v2/admin-fleet');
+    const res = await adminFleetV2App.request(new Request('http://localhost/config-audit'));
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data).toMatchObject({
+      status: expect.stringMatching(/ok|warning|degraded/),
+      counts: expect.objectContaining({ ok: expect.any(Number), warning: expect.any(Number), error: expect.any(Number) }),
+    });
+    expect(Array.isArray(data.checks)).toBe(true);
+    expect(data.checks.some((check: { key: string }) => check.key === 'database_url')).toBe(true);
   });
 
   it('cleans up non-warm orphan instances and preserves warm reserves', async () => {

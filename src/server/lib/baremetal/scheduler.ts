@@ -1,6 +1,6 @@
 import { marketForRegion, resolvePlanForDisplay } from '@/lib/plan-catalog';
 
-import { buildBaremetalCellCapacitySnapshots, deriveBaremetalCellIdentity, projectBaremetalCellUtilization } from './cells';
+import { buildBaremetalCellCapacitySnapshots, buildBaremetalCellState, projectBaremetalCellUtilization } from './cells';
 import type { ReservationUsageSummary } from './reservations';
 import { hostHasAvailableCapacity, hostProjectedUtilizationScore, projectHostUsage } from './reservations';
 import { hostAcceptsPlacement, hostPlacementBlockReason } from './host-maintenance';
@@ -185,7 +185,22 @@ function candidateExplanation(args: {
   const { host, request, policy, reservations, cellSnapshots } = args;
   const reasons: string[] = [];
   const metadata = normalizeSchedulerMetadata(host);
-  const cell = host.cell ?? deriveBaremetalCellIdentity(host);
+  const hostCell = host.cell;
+  const cell = host.cell ?? buildBaremetalCellState({
+    region: host.region,
+    hostClass: host.hostClass,
+    generation: host.generation,
+    cellId: host.cellId,
+    metadata: host.metadata,
+    cell: hostCell ? {
+      id: hostCell.id ?? undefined,
+      slug: hostCell.slug,
+      name: hostCell.name,
+      region: hostCell.region,
+      hostClass: hostCell.hostClass,
+      generation: hostCell.generation,
+    } : null,
+  });
   const cellSnapshot = cell ? cellSnapshots.find((snapshot) => snapshot.cell.slug === cell.slug) ?? null : null;
   const cellProjectedUtilization = projectBaremetalCellUtilization(cellSnapshot, request.resources);
   const requestedHost = request.requestedHostId === host.id;

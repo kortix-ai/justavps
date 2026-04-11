@@ -132,6 +132,7 @@ export const machines = pgTable('machines', {
   imageId: uuid('image_id'), // nullable, no FK
   serverType: text('server_type').notNull(), // V1: plan id; V2: 'custom'
   region: text('region').notNull(),
+  baremetalHostId: uuid('baremetal_host_id').references(() => baremetalHosts.id, { onDelete: 'set null' }),
   vcpu: integer('vcpu'),        // V2: actual allocated vCPU count
   ramGb: integer('ram_gb'),     // V2: actual allocated RAM in GB
   diskGb: integer('disk_gb'),   // V2: actual allocated disk in GB
@@ -196,6 +197,7 @@ export const machines = pgTable('machines', {
   accountDeletedCreatedIdx: index('machines_account_deleted_created_idx').on(table.accountId, table.deletedAt, table.createdAt.desc()),
   statusDeletedIdx: index('machines_status_deleted_idx').on(table.status, table.deletedAt),
   providerRegionStatusDeletedIdx: index('machines_provider_region_status_deleted_idx').on(table.provider, table.region, table.status, table.deletedAt),
+  baremetalHostStatusDeletedIdx: index('machines_baremetal_host_status_deleted_idx').on(table.baremetalHostId, table.status, table.deletedAt),
   providerServerIdIdx: index('machines_provider_server_id_idx').on(table.providerServerId),
   lastHeartbeatAtIdx: index('machines_last_heartbeat_at_idx').on(table.lastHeartbeatAt),
 }));
@@ -436,6 +438,45 @@ export const controlPlaneServiceStates = pgTable('control_plane_service_states',
   serviceScopeUidx: uniqueIndex('control_plane_service_states_service_scope_uidx').on(table.service, table.scope),
   serviceLeaseIdx: index('control_plane_service_states_service_lease_idx').on(table.service, table.leaseExpiresAt),
   completedAtIdx: index('control_plane_service_states_completed_at_idx').on(table.lastCompletedAt, table.updatedAt),
+}));
+
+export const cellCapacitySnapshots = pgTable('cell_capacity_snapshots', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  cellId: uuid('cell_id').references(() => cells.id, { onDelete: 'set null' }),
+  cellSlug: text('cell_slug').notNull(),
+  region: text('region').notNull(),
+  hostClass: text('host_class').notNull(),
+  generation: text('generation').notNull(),
+  admissionState: cellAdmissionStateEnum('admission_state').notNull(),
+  sellabilityState: cellSellabilityStateEnum('sellability_state').notNull(),
+  hostCount: integer('host_count').notNull(),
+  activeHostCount: integer('active_host_count').notNull(),
+  constrainedHostCount: integer('constrained_host_count').notNull(),
+  totalVcpu: integer('total_vcpu').notNull(),
+  totalMemoryGb: integer('total_memory_gb').notNull(),
+  totalDiskGb: integer('total_disk_gb').notNull(),
+  usedVcpu: integer('used_vcpu').notNull(),
+  usedMemoryGb: integer('used_memory_gb').notNull(),
+  usedDiskGb: integer('used_disk_gb').notNull(),
+  reservedVcpu: integer('reserved_vcpu').notNull(),
+  reservedMemoryGb: integer('reserved_memory_gb').notNull(),
+  reservedDiskGb: integer('reserved_disk_gb').notNull(),
+  reserveBudgetVcpu: integer('reserve_budget_vcpu').notNull(),
+  reserveBudgetMemoryGb: integer('reserve_budget_memory_gb').notNull(),
+  reserveBudgetDiskGb: integer('reserve_budget_disk_gb').notNull(),
+  availableVcpu: integer('available_vcpu').notNull(),
+  availableMemoryGb: integer('available_memory_gb').notNull(),
+  availableDiskGb: integer('available_disk_gb').notNull(),
+  sellableVcpu: integer('sellable_vcpu').notNull(),
+  sellableMemoryGb: integer('sellable_memory_gb').notNull(),
+  sellableDiskGb: integer('sellable_disk_gb').notNull(),
+  utilizationScore: integer('utilization_score_basis_points').notNull(),
+  snapshotWindowStart: timestamp('snapshot_window_start').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  cellWindowUidx: uniqueIndex('cell_capacity_snapshots_cell_window_uidx').on(table.cellSlug, table.snapshotWindowStart),
+  cellObservedIdx: index('cell_capacity_snapshots_cell_observed_idx').on(table.cellId, table.snapshotWindowStart.desc()),
+  observedIdx: index('cell_capacity_snapshots_observed_idx').on(table.snapshotWindowStart.desc(), table.region, table.hostClass),
 }));
 
 export const baremetalProcurements = pgTable('baremetal_procurements', {

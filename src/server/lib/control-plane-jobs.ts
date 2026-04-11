@@ -42,6 +42,15 @@ export interface ControlPlaneJobHandler {
 const DEFAULT_CLAIM_LIMIT = 10;
 const DEFAULT_LEASE_MS = 30_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
+const CONTROL_PLANE_JOB_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+function rowsFromExecute<T extends Record<string, unknown>>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[];
+  if (result && typeof result === 'object' && 'rows' in result && Array.isArray((result as { rows?: unknown }).rows)) {
+    return (result as { rows: T[] }).rows;
+  }
+  return [];
+}
 
 const jobHandlers = new Map<ControlPlaneJobType, ControlPlaneJobHandler>();
 
@@ -151,11 +160,7 @@ export async function claimDueControlPlaneJobs(options?: {
     returning ${controlPlaneJobs.id}
   `);
 
-  const claimedRows = Array.isArray(result)
-    ? result
-    : Array.isArray(result.rows)
-      ? result.rows
-      : [];
+  const claimedRows = rowsFromExecute<{ id: string }>(result);
   const claimedIds = claimedRows.map((row) => row.id);
   if (claimedIds.length === 0) return [];
 
@@ -288,13 +293,16 @@ export function kickControlPlaneJobWorker(options?: {
   if (drainInFlight) return;
 
   options?.jobTypes?.forEach((jobType) => workerJobTypes.add(jobType));
-  drainInFlight = processDueControlPlaneJobs(options)
+  drainInFlight = (async () => {
+    await processDueControlPlaneJobs(options);
+  })()
     .catch((error) => {
       console.error('[CONTROL-PLANE-JOBS] Failed to process due jobs:', error);
     })
     .finally(() => {
       drainInFlight = null;
     });
+  return;
 }
 
 export function ensureControlPlaneJobWorker(options?: {
@@ -337,4 +345,32 @@ export function resetControlPlaneJobWorkerForTests() {
   drainInFlight = null;
   workerJobTypes.clear();
   jobHandlers.clear();
+}
+
+export async function pruneTerminalControlPlaneJobs(input?: {
+  now?: Date;
+  limit?: number;
+}) {
+  const now = input?.now ?? new Date();
+  const limit = input?.limit ?? 1000;
+  const cutoff = new Date(now.getTime() - CONTROL_PLANE_JOB_RETENTION_MS).toISOString();
+
+  const result = await db.execute(sql<{ id: string }>`
+    with expired as (
+      select ${controlPlaneJobs.id}
+      from ${controlPlaneJobs}
+      where ${controlPlaneJobs.status} in ('succeeded', 'dead_lettered', 'cancelled')
+        and coalesce(${controlPlaneJobs.completedAt}, ${controlPlaneJobs.updatedAt}) < ${cutoff}::timestamp
+      order by coalesce(${controlPlaneJobs.completedAt}, ${controlPlaneJobs.updatedAt}) asc
+      limit ${limit}
+    )
+    delete from ${controlPlaneJobs}
+    using expired
+    where ${controlPlaneJobs.id} = expired.id
+    returning ${controlPlaneJobs.id}
+  `);
+
+  const deletedRows = rowsFromExecute<{ id: string }>(result);
+
+  return deletedRows.length;
 }

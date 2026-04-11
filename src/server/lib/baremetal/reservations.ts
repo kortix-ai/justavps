@@ -35,6 +35,22 @@ export interface LeaseHostCapacityResult {
   decision: BaremetalPlacementDecision;
 }
 
+export class BaremetalPlacementUnavailableError extends Error {
+  readonly statusCode = 409;
+  readonly details: Record<string, unknown>;
+  constructor(message: string, public readonly decision?: BaremetalPlacementDecision) {
+    super(message);
+    this.name = 'BaremetalPlacementUnavailableError';
+    this.details = decision ? {
+      placement_decision: {
+        outcome: decision.outcome,
+        summary: decision.summary,
+        explanation: decision.explanation,
+      },
+    } : {};
+  }
+}
+
 type CapacityTrackedHost = Pick<BaremetalHost, 'usedVcpu' | 'usedMemoryGb' | 'usedDiskGb' | 'totalVcpu' | 'totalMemoryGb' | 'totalDiskGb'>;
 
 type ReservationDbExecutor = Pick<typeof db, 'select' | 'insert' | 'update' | 'execute'>;
@@ -155,7 +171,7 @@ export async function leaseHostCapacity(input: {
       metadata: host.metadata,
       cell: host.cellId ? cellsById.get(host.cellId) ?? null : null,
       admission: host.cellId ? admissionsByCellId.get(host.cellId) ?? null : null,
-    }) ?? deriveBaremetalCellIdentity(host);
+    });
     return {
       host,
       reservation: existing,
@@ -209,6 +225,8 @@ export async function leaseHostCapacity(input: {
             cellSlug: cell?.slug ?? null,
             maintenanceState: host.maintenanceState,
             schedulable: hostAcceptsPlacement(host),
+            admissionState: cell?.admission.state ?? 'open',
+            sellabilityState: cell?.admission.sellability ?? 'sellable',
           },
         }],
       },
@@ -238,7 +256,7 @@ export async function leaseHostCapacity(input: {
          metadata: host.metadata,
          cell: host.cellId ? cellsById.get(host.cellId) ?? null : null,
          admission: host.cellId ? admissionsByCellId.get(host.cellId) ?? null : null,
-       }) ?? deriveBaremetalCellIdentity(host),
+        }),
        maintenanceState: host.maintenanceState,
        runnerBaseUrl: host.runnerBaseUrl,
       publicIpv4: host.publicIpv4,
@@ -280,7 +298,7 @@ export async function leaseHostCapacity(input: {
     .filter((candidate): candidate is { host: BaremetalHost; reservations: ReservationUsageSummary } => Boolean(candidate));
 
   if (candidateOrder.length === 0) {
-    throw new Error(decision.summary);
+    throw new BaremetalPlacementUnavailableError(decision.summary, decision);
   }
 
   const expiresAt = input.expiresAt ?? new Date(Date.now() + DEFAULT_RESERVATION_TTL_MS);
@@ -327,7 +345,7 @@ export async function leaseHostCapacity(input: {
     };
   }
 
-  throw new Error(`Scheduler found no leaseable host after locking candidates. ${decision.summary}`);
+  throw new BaremetalPlacementUnavailableError(`Scheduler found no leaseable host after locking candidates. ${decision.summary}`, decision);
 }
 
 export async function commitHostCapacityReservation(input: {

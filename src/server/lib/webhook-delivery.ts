@@ -3,15 +3,13 @@ import { createHmac } from 'crypto';
 import { and, eq, sql } from 'drizzle-orm';
 
 import { db } from '../db';
-import { controlPlaneJobs, webhookDeliveries, webhooks } from '../db/schema';
+import { controlPlaneJobs, webhookDeliveries, webhooks, type ControlPlaneJobRow } from '../db/schema';
 import {
-  ensureControlPlaneJobWorker,
   enqueueControlPlaneJob,
-  kickControlPlaneJobWorker,
   registerControlPlaneJobHandler,
   type ControlPlaneJobHandlerResult,
-  type ControlPlaneJobRow,
 } from './control-plane-jobs';
+import { runWebhookDispatcherServicePass } from './control-plane/webhook-dispatcher';
 import type { MachineEvent } from './event-bus';
 
 const DELIVERY_TIMEOUT_MS = 10_000;
@@ -19,6 +17,19 @@ const MAX_RETRIES = 3;
 const RETRY_DELAYS_MS = [10_000, 60_000, 300_000];
 const WEBHOOK_PAYLOAD_VERSION = 1;
 const WEBHOOK_DELIVER_JOB_TYPE = 'webhook_deliver' as const;
+const WEBHOOK_DELIVERY_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
+
+function isTestEnvironment() {
+  return process.env.NODE_ENV === 'test' || process.env.VITEST === 'true';
+}
+
+function rowsFromExecute<T extends Record<string, unknown>>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[];
+  if (result && typeof result === 'object' && 'rows' in result && Array.isArray((result as { rows?: unknown }).rows)) {
+    return (result as { rows: T[] }).rows;
+  }
+  return [];
+}
 
 export const WEBHOOK_DELIVERY_STATUSES = [
   'queued',
@@ -354,7 +365,6 @@ async function handleWebhookDeliveryJob(job: ControlPlaneJobRow): Promise<Contro
 registerControlPlaneJobHandler(WEBHOOK_DELIVER_JOB_TYPE, {
   handle: handleWebhookDeliveryJob,
 });
-ensureControlPlaneJobWorker({ jobTypes: [WEBHOOK_DELIVER_JOB_TYPE] });
 
 export async function deliverWebhooks(accountId: string, event: MachineEvent): Promise<void> {
   const eventType = `machine.${event.event}`;
@@ -409,7 +419,11 @@ export async function deliverWebhooks(accountId: string, event: MachineEvent): P
     }
   }
 
-  kickControlPlaneJobWorker({ jobTypes: [WEBHOOK_DELIVER_JOB_TYPE], limit: hooks.length });
+  if (!isTestEnvironment()) {
+    void runWebhookDispatcherServicePass({ limit: hooks.length }).catch((error) => {
+      console.error('[WEBHOOKS] failed to kick webhook dispatcher service pass:', error);
+    });
+  }
 }
 
 export async function enqueueWebhookDeliveryJob(input: {
@@ -425,6 +439,34 @@ export async function enqueueWebhookDeliveryJob(input: {
     maxAttempts: MAX_RETRIES,
     runAfter: input.runAfter,
   });
+}
+
+export async function pruneTerminalWebhookDeliveries(input?: {
+  now?: Date;
+  limit?: number;
+}) {
+  const now = input?.now ?? new Date();
+  const limit = input?.limit ?? 1000;
+  const cutoff = new Date(now.getTime() - WEBHOOK_DELIVERY_RETENTION_MS).toISOString();
+
+  const result = await db.execute(sql<{ id: string }>`
+    with expired as (
+      select ${webhookDeliveries.id}
+      from ${webhookDeliveries}
+      where ${webhookDeliveries.status} in ('delivered', 'dead_lettered')
+        and coalesce(${webhookDeliveries.deliveredAt}, ${webhookDeliveries.deadLetteredAt}, ${webhookDeliveries.lastAttemptAt}, ${webhookDeliveries.createdAt}) < ${cutoff}::timestamp
+      order by coalesce(${webhookDeliveries.deliveredAt}, ${webhookDeliveries.deadLetteredAt}, ${webhookDeliveries.lastAttemptAt}, ${webhookDeliveries.createdAt}) asc
+      limit ${limit}
+    )
+    delete from ${webhookDeliveries}
+    using expired
+    where ${webhookDeliveries.id} = expired.id
+    returning ${webhookDeliveries.id}
+  `);
+
+  const deletedRows = rowsFromExecute<{ id: string }>(result);
+
+  return deletedRows.length;
 }
 
 export const webhookDeliveryInternals = {

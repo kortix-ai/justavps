@@ -47,15 +47,14 @@ const listImagesRoute = createRoute({
   },
 });
 
-// @ts-expect-error — DB returns string status, schema expects enum; runtime values are always valid
-imagesApp.openapi(listImagesRoute, async (c) => {
+imagesApp.openapi(listImagesRoute, (async (c: any) => {
   const accountId = c.get('accountId');
   // Show user's own images + public base images (visible to everyone)
   const result = await db.select().from(images)
     .where(or(eq(images.accountId, accountId), eq(images.isTemplate, true)))
     .then(rows => rows.filter(r => r.status !== 'deleted'));
   return c.json({ images: buildVisibleImageCatalog(result) }, 200);
-});
+}) as any);
 
 // ─── GET /:id — Get Image ───────────────────────────────────────────────────
 

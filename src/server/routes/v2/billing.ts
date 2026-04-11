@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
-// @ts-nocheck
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 import { getBillingComparisonV2, getBillingOverviewV2 } from '../../lib/v2/billing';
@@ -8,7 +7,6 @@ import { handleRouteError } from '../../lib/route-helpers';
 export const billingV2App = new OpenAPIHono<{ Variables: AuthVariables }>();
 billingV2App.use('*', apiGuard);
 
-// @ts-expect-error mixed success/error response typing
 billingV2App.openapi(createRoute({
   method: 'get',
   path: '/overview',
@@ -22,15 +20,14 @@ billingV2App.openapi(createRoute({
       plans: z.array(z.object({ id: z.string(), price_monthly: z.number() })),
     }) } } },
   },
-}), async (c) => {
+}), (async (c: any) => {
   try {
     return c.json(await getBillingOverviewV2({ accountId: c.get('accountId') }));
   } catch (err) {
     return handleRouteError(c, err, 'BILLING-V2') as Response;
   }
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 billingV2App.openapi(createRoute({
   method: 'get',
   path: '/compare',
@@ -45,11 +42,11 @@ billingV2App.openapi(createRoute({
       competitors: z.object({ e2b_monthly_equivalent: z.number(), daytona_monthly_equivalent: z.number() }),
     }) } } },
   },
-}), async (c) => {
+}), (async (c: any) => {
   try {
     const { plan, hours_per_day } = c.req.valid('query');
     return c.json(await getBillingComparisonV2({ plan, hoursPerDay: hours_per_day }));
   } catch (err) {
     return handleRouteError(c, err, 'BILLING-V2') as Response;
   }
-});
+}) as any);

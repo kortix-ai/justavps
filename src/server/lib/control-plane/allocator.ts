@@ -1,7 +1,9 @@
 import { deriveBaremetalCellIdentity } from '@/server/lib/baremetal/cells';
 import { leaseHostCapacity, type LeaseHostCapacityResult, type RequestedHostCapacity } from '@/server/lib/baremetal/reservations';
+import { recordControlPlaneServiceCheckpoint } from './service-state';
 
 export const CONTROL_PLANE_ALLOCATOR_SERVICE = 'allocator' as const;
+export const ALLOCATOR_SCOPE = 'machine_create';
 
 export async function reserveCapacityForMachineCreate(input: {
   machineId: string;
@@ -12,11 +14,52 @@ export async function reserveCapacityForMachineCreate(input: {
   imageAlias?: string | null;
   executor?: Parameters<typeof leaseHostCapacity>[0]['executor'];
 }) {
-  return leaseHostCapacity(input);
+  const startedAt = new Date();
+  try {
+    const result = await leaseHostCapacity(input);
+    await recordControlPlaneServiceCheckpoint({
+      service: CONTROL_PLANE_ALLOCATOR_SERVICE,
+      scope: ALLOCATOR_SCOPE,
+      lastStartedAt: startedAt,
+      lastCompletedAt: new Date(),
+      checkpoint: {
+        last_allocated_at: new Date().toISOString(),
+        last_machine_id: input.machineId,
+        last_selected_host_id: result.host.id,
+        last_outcome: result.decision.outcome,
+      },
+      metadata: {
+        last_region: input.region,
+        last_resources: input.resources,
+        last_error: null,
+      },
+    });
+    return result;
+  } catch (error) {
+    await recordControlPlaneServiceCheckpoint({
+      service: CONTROL_PLANE_ALLOCATOR_SERVICE,
+      scope: ALLOCATOR_SCOPE,
+      lastStartedAt: startedAt,
+      lastCompletedAt: new Date(),
+      checkpoint: {
+        last_allocated_at: new Date().toISOString(),
+        last_machine_id: input.machineId,
+        last_selected_host_id: null,
+        last_outcome: 'rejected',
+      },
+      metadata: {
+        last_region: input.region,
+        last_resources: input.resources,
+        last_error: error instanceof Error ? error.message : String(error),
+      },
+    });
+    throw error;
+  }
 }
 
 export function buildMachinePlacementProviderMeta(lease: LeaseHostCapacityResult, resources: RequestedHostCapacity) {
-  const selectedCell = lease.host.cell ?? deriveBaremetalCellIdentity(lease.host);
+  const selectedCandidate = lease.decision.candidates?.find((candidate) => candidate.hostId === lease.host.id);
+  const selectedCell = selectedCandidate?.cell ?? deriveBaremetalCellIdentity(lease.host);
 
   return {
     baremetal_host_id: lease.host.id,

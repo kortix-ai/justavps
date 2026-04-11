@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
-// @ts-nocheck
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { handleRouteError } from '../../lib/route-helpers';
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
@@ -13,7 +12,6 @@ export const catalogV2App = new OpenAPIHono<{ Variables: AuthVariables }>();
 
 // ── Pricing rates ──────────────────────────────────────────────────────────
 
-// @ts-expect-error mixed response typing
 catalogV2App.openapi(createRoute({
   method: 'get',
   path: '/pricing',
@@ -43,7 +41,6 @@ catalogV2App.openapi(createRoute({
 
 // ── Recommendations (UI shortcuts, not backend entities) ───────────────────
 
-// @ts-expect-error mixed response typing
 catalogV2App.openapi(createRoute({
   method: 'get',
   path: '/recommendations',
@@ -76,7 +73,6 @@ catalogV2App.openapi(createRoute({
 
 // ── Regions ────────────────────────────────────────────────────────────────
 
-// @ts-expect-error mixed response typing
 catalogV2App.openapi(createRoute({
   method: 'get',
   path: '/regions',
@@ -93,19 +89,18 @@ catalogV2App.openapi(createRoute({
       })) }) } },
     },
   },
-}), async (c) => {
+}), (async (c: any) => {
   try {
     return c.json({ regions: listPublicRegions() });
   } catch (err) {
     return handleRouteError(c, err, 'CATALOG-V2') as Response;
   }
-});
+}) as any);
 
 // ── Available hosts with live capacity ─────────────────────────────────────
 
 catalogV2App.use('/hosts', apiGuard);
 
-// @ts-expect-error mixed response typing
 catalogV2App.openapi(createRoute({
   method: 'get',
   path: '/hosts',
@@ -138,7 +133,7 @@ catalogV2App.openapi(createRoute({
       })) }) } },
     },
   },
-}), async (c) => {
+}), (async (c: any) => {
   try {
     const rows = await db.select().from(baremetalHosts);
     const hosts = rows
@@ -176,4 +171,4 @@ catalogV2App.openapi(createRoute({
   } catch (err) {
     return handleRouteError(c, err, 'CATALOG-V2') as Response;
   }
-});
+}) as any);

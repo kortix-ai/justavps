@@ -66,7 +66,7 @@ export interface BaremetalCellCapacityHostLike {
   hostClass?: string | null;
   generation?: string | null;
   cellId?: string | null;
-  cell?: BaremetalCellState | null;
+  cell?: (BaremetalCellState | BaremetalCellIdentity) | null;
   status?: string | null;
   maintenanceState?: string | null;
   metadata?: Record<string, unknown> | null;
@@ -264,7 +264,33 @@ export function buildBaremetalCellCapacitySnapshots(hosts: BaremetalCellCapacity
   const snapshots = new Map<string, BaremetalCellCapacitySnapshot>();
 
   for (const host of hosts) {
-    const cell = host.cell ?? buildBaremetalCellState(host);
+    const normalizedCell = host.cell ? {
+      id: host.cell.id ?? undefined,
+      slug: host.cell.slug,
+      name: host.cell.name,
+      region: host.cell.region,
+      hostClass: host.cell.hostClass,
+      generation: host.cell.generation,
+      status: 'status' in host.cell ? host.cell.status : undefined,
+      reservePolicy: 'reservePolicy' in host.cell ? (host.cell.reservePolicy as unknown as Record<string, unknown>) : undefined,
+      metadata: 'metadata' in host.cell ? (host.cell.metadata as unknown as Record<string, unknown>) : undefined,
+    } : null;
+    const normalizedAdmission = host.cell && 'admission' in host.cell ? {
+      admissionState: host.cell.admission.state,
+      sellabilityState: host.cell.admission.sellability,
+      reason: host.cell.admission.reason,
+      source: host.cell.admission.source ?? undefined,
+      setAt: host.cell.admission.setAt ? new Date(host.cell.admission.setAt) : undefined,
+    } : null;
+    const cell = buildBaremetalCellState({
+      region: host.region,
+      hostClass: host.hostClass,
+      generation: host.generation,
+      cellId: host.cellId,
+      metadata: host.metadata,
+      cell: normalizedCell,
+      admission: normalizedAdmission,
+    });
     if (!cell) continue;
     const snapshot = snapshots.get(cell.slug) ?? {
       cell,

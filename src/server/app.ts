@@ -9,8 +9,23 @@ import { v2 } from './routes/v2';
 import { enrichOpenAPISpec } from './lib/openapi-enrichment';
 import { filterOpenApiDocumentForPrefix, type OpenApiDoc } from './lib/openapi-versioning';
 import { config } from './lib/config';
+import { buildConfigAuditChecks, summarizeConfigAudit } from './lib/config-audit';
+import { ensureControlPlaneRuntimeStarted } from './lib/control-plane/runtime';
+import { CONTROL_PLANE_SERVICE_PROFILES, isControlPlaneServiceStale, listControlPlaneServiceStates } from './lib/control-plane/service-state';
+import { db } from './db';
+
+function summarizeControlPlaneServices(rows: Awaited<ReturnType<typeof listControlPlaneServiceStates>>) {
+  return rows.map((row) => ({
+    service: row.service,
+    scope: row.scope,
+    lease_owner: row.leaseOwner,
+    last_completed_at: row.lastCompletedAt?.toISOString() ?? null,
+  }));
+}
 
 export const app = new OpenAPIHono().basePath('/api');
+
+ensureControlPlaneRuntimeStarted();
 
 const corsOrigins = [
   'https://justavps.com',
@@ -34,12 +49,47 @@ app.use('*', cors({
 app.use('*', logger());
 app.use('*', prettyJSON());
 
-app.get('/health', (c) => {
+app.get('/health', async (c) => {
+  const services = await listControlPlaneServiceStates().catch(() => []);
+  const dbStatus = await db.execute('select 1').then(() => 'ok').catch(() => 'error');
+  const configAudit = summarizeConfigAudit(buildConfigAuditChecks());
   return c.json({
     status: 'ok',
     service: 'justavps-api',
     timestamp: new Date().toISOString(),
+    database: { status: dbStatus },
+    config_audit: configAudit,
+    control_plane: {
+      services: summarizeControlPlaneServices(services),
+    },
   });
+});
+
+app.get('/readyz', async (c) => {
+  const timestamp = new Date().toISOString();
+  const dbOk = await db.execute('select 1').then(() => true).catch(() => false);
+  const services = dbOk ? await listControlPlaneServiceStates().catch(() => []) : [];
+  const now = Date.now();
+  const requiredServices = (Object.entries(CONTROL_PLANE_SERVICE_PROFILES)
+    .filter(([, profile]) => profile.critical)
+    .map(([service]) => service)) as Array<keyof typeof CONTROL_PLANE_SERVICE_PROFILES>;
+  const staleServices = requiredServices.filter((service) => {
+    const rows = services.filter((row) => row.service === service);
+    if (rows.length === 0) return true;
+    return rows.some((row) => isControlPlaneServiceStale(row, now));
+  });
+  const ready = dbOk && staleServices.length === 0;
+
+  return c.json({
+    status: ready ? 'ready' : 'degraded',
+    service: 'justavps-api',
+    timestamp,
+    database: { status: dbOk ? 'ok' : 'error' },
+    control_plane: {
+      stale_services: staleServices,
+      services: summarizeControlPlaneServices(services),
+    },
+  }, ready ? 200 : 503);
 });
 
 app.route('/v1', v1);

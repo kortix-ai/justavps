@@ -3,11 +3,20 @@ import { sql } from 'drizzle-orm';
 import net from 'node:net';
 
 import { db } from '@/server/db';
-import { baremetalHosts, machinePortAllocations, machines, type MachinePortAllocationRow } from '@/server/db/schema';
+import { baremetalHosts, machinePortAllocations, machines } from '@/server/db/schema';
 
 type BaremetalMachineRow = typeof machines.$inferSelect;
+type MachinePortAllocationRow = typeof machinePortAllocations.$inferSelect;
 
 type PortAllocationExecutor = Pick<typeof db, 'select' | 'insert' | 'delete' | 'execute'>;
+
+function rowsFromExecute<T extends Record<string, unknown>>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[];
+  if (result && typeof result === 'object' && 'rows' in result && Array.isArray((result as { rows?: unknown }).rows)) {
+    return (result as { rows: T[] }).rows;
+  }
+  return [];
+}
 
 const SSH_PORT_RANGE = { start: 22000, end: 41999, target: 22 } as const;
 const HTTP_PORT_RANGE = { start: 42000, end: 61999, target: 80 } as const;
@@ -70,7 +79,8 @@ export async function reserveMachinePortAllocations(input: {
   for (const machine of legacyMachines) {
     if (machine.id === input.machineId || machine.provider !== 'baremetal' || machine.deletedAt) continue;
     const meta = (machine.providerMeta ?? {}) as Record<string, unknown>;
-    if (meta.baremetal_host_id !== input.hostId) continue;
+    const legacyHostId = machine.baremetalHostId ?? (typeof meta.baremetal_host_id === 'string' ? meta.baremetal_host_id : null);
+    if (legacyHostId !== input.hostId) continue;
     const sshPort = typeof meta.ssh_port === 'number' ? meta.ssh_port : typeof meta.ssh_port === 'string' ? Number(meta.ssh_port) : null;
     const httpPort = typeof meta.http_port === 'number' ? meta.http_port : typeof meta.http_port === 'string' ? Number(meta.http_port) : null;
     if (sshPort && Number.isInteger(sshPort) && sshPort > 0) usedSshPorts.add(sshPort);
@@ -111,10 +121,26 @@ export async function releaseMachinePortAllocations(machineId: string, executor:
   await executor.delete(machinePortAllocations).where(eq(machinePortAllocations.machineId, machineId));
 }
 
+export async function pruneDeletedMachinePortAllocations(executor: PortAllocationExecutor = db) {
+  const result = await executor.execute(sql<{ id: string }>`
+    delete from ${machinePortAllocations}
+    where ${machinePortAllocations.machineId} in (
+      select ${machines.id}
+      from ${machines}
+      where ${machines.provider} = 'baremetal'
+        and ${machines.deletedAt} is not null
+    )
+    returning ${machinePortAllocations.id}
+  `);
+
+  const deletedRows = rowsFromExecute<{ id: string }>(result);
+  return deletedRows.length;
+}
+
 export async function backfillMachinePortAllocationsFromMachine(machine: BaremetalMachineRow, executor: PortAllocationExecutor = db) {
   if (machine.provider !== 'baremetal' || machine.deletedAt) return null;
   const meta = (machine.providerMeta ?? {}) as Record<string, unknown>;
-  const hostId = typeof meta.baremetal_host_id === 'string' ? meta.baremetal_host_id : null;
+  const hostId = machine.baremetalHostId ?? (typeof meta.baremetal_host_id === 'string' ? meta.baremetal_host_id : null);
   if (!hostId) return null;
 
   const sshPort = typeof meta.ssh_port === 'number' ? meta.ssh_port : typeof meta.ssh_port === 'string' ? Number(meta.ssh_port) : null;

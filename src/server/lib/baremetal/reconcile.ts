@@ -83,7 +83,9 @@ function defaultDeps(): ReconcileDeps {
       await db.update(hostCapacityReservations).set(patch).where(eq(hostCapacityReservations.id, reservationId));
     },
     syncHostImageAvailability: (input) => syncHostImageAvailabilityFromRunnerState(input),
-    syncMachinePortAllocations: (machine) => backfillMachinePortAllocationsFromMachine(machine),
+    syncMachinePortAllocations: async (machine) => {
+      await backfillMachinePortAllocationsFromMachine(machine);
+    },
   };
 }
 
@@ -92,6 +94,7 @@ function readMachineMeta(machine: MachineRow) {
 }
 
 function machineHostId(machine: MachineRow) {
+  if (machine.baremetalHostId) return machine.baremetalHostId;
   const meta = readMachineMeta(machine);
   return typeof meta.baremetal_host_id === 'string' ? meta.baremetal_host_id : null;
 }
@@ -102,6 +105,10 @@ function expectedInstanceId(machine: MachineRow) {
 
 function isWarmPoolInstance(instanceId: string) {
   return instanceId.startsWith('justavps-warm-');
+}
+
+function runnerInstanceIsWarmPool(instance: { instanceId: string; role?: string | null }) {
+  return instance.role === 'warm_pool_reserve' || isWarmPoolInstance(instance.instanceId);
 }
 
 function isLiveMachineCandidate(machine: MachineRow, hostId: string) {
@@ -197,7 +204,7 @@ export function summarizeHostUsage(input: {
     if (typeof instance.diskGb === 'number') usedDiskGb += instance.diskGb;
 
     if (!machinesByInstanceId.has(instance.instanceId)) {
-      if (isWarmPoolInstance(instance.instanceId)) {
+      if (runnerInstanceIsWarmPool(instance)) {
         warmPoolInstanceIds.push(instance.instanceId);
       } else {
         orphanInstanceIds.push(instance.instanceId);
@@ -284,6 +291,12 @@ export async function reconcileBaremetalFleet(
       const cell = await ensureBaremetalHostCellAssignment({ host });
       const state = await deps.fetchRunnerState(host);
       for (const instance of state.instances) liveInstanceIds.add(instance.instanceId);
+      const hostMachines = allMachines.filter((machine) => machine.provider === 'baremetal' && machineHostId(machine) === host.id);
+      for (const machine of hostMachines) {
+        if (!machine.baremetalHostId) {
+          await deps.updateMachine(machine.id, { baremetalHostId: host.id });
+        }
+      }
       const activeMachines = allMachines.filter((machine) => isLiveMachineCandidate(machine, host.id));
       const instancesById = new Set(state.instances.map((instance) => instance.instanceId));
       const staleMachineRows = activeMachines.filter((machine) => machine.status !== 'provisioning' && !instancesById.has(expectedInstanceId(machine)));

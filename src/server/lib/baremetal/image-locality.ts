@@ -49,7 +49,7 @@ export function buildRequestedImageAvailabilityRefs(input: {
   return refs.filter((ref, index, all) => all.findIndex((candidate) => candidate.imageRef === ref.imageRef) === index);
 }
 
-export function buildSchedulerImageLocalityMetadata(rows: BaremetalHostImageRow[]): BaremetalSchedulerImageLocalityMetadata | null {
+export function buildSchedulerImageLocalityMetadata(rows: BaremetalHostImageRow[]): (BaremetalSchedulerImageLocalityMetadata & { state: HostImageAvailabilityState }) | null {
   if (rows.length === 0) return null;
 
   const states = rows

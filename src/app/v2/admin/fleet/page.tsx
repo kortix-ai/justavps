@@ -3,7 +3,7 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useAccount } from "@/hooks/use-account";
-import { useApproveProcurement, useCleanupFleetHostOrphans, useFleetCells, useFleetHosts, useFleetProcurementRecommendations, useFleetProcurements, useSyncProcurement, useUpdateFleetCellAdmissionState, useUpdateFleetHostMaintenanceState, type FleetHostMaintenanceState } from "@/hooks/use-fleet";
+import { useApproveProcurement, useCleanupFleetHostOrphans, useFleetCellCapacitySnapshots, useFleetCells, useFleetConfigAudit, useFleetControlPlaneServices, useFleetHosts, useFleetProcurementRecommendations, useFleetProcurements, useSyncProcurement, useUpdateFleetCellAdmissionState, useUpdateFleetCellReservePolicy, useUpdateFleetHostMaintenanceState, type FleetHostMaintenanceState } from "@/hooks/use-fleet";
 import { cn } from "@/lib/utils";
 import { Activity, Cpu, HardDrive, Loader2, MemoryStick, RefreshCw, Server, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -74,17 +74,49 @@ function formatMaintenanceLabel(state: FleetHostMaintenanceState) {
   return state.replaceAll("_", " ");
 }
 
+function reservePreset(cell: { host_class: string }, mode: 'none' | 'balanced' | 'failover') {
+  if (mode === 'none') {
+    return {
+      warmReserve: { vcpu: 0, memory_gb: 0, disk_gb: 0 },
+      failureReserve: { vcpu: 0, memory_gb: 0, disk_gb: 0 },
+      procurementReserve: { vcpu: 0, memory_gb: 0, disk_gb: 0 },
+    };
+  }
+
+  const base = cell.host_class === 'general-medium'
+    ? { warm: { vcpu: 2, memory_gb: 4, disk_gb: 40 }, failure: { vcpu: 4, memory_gb: 8, disk_gb: 80 }, procurement: { vcpu: 2, memory_gb: 4, disk_gb: 40 } }
+    : { warm: { vcpu: 1, memory_gb: 2, disk_gb: 20 }, failure: { vcpu: 2, memory_gb: 4, disk_gb: 40 }, procurement: { vcpu: 1, memory_gb: 2, disk_gb: 20 } };
+
+  if (mode === 'balanced') {
+    return {
+      warmReserve: base.warm,
+      failureReserve: base.failure,
+      procurementReserve: { vcpu: 0, memory_gb: 0, disk_gb: 0 },
+    };
+  }
+
+  return {
+    warmReserve: base.warm,
+    failureReserve: base.failure,
+    procurementReserve: base.procurement,
+  };
+}
+
 export default function AdminFleetPage() {
   const { data: account, isLoading: accountLoading } = useAccount();
   const enabled = account?.is_admin === true;
   const { data: hosts = [], isLoading: hostsLoading } = useFleetHosts(enabled);
   const { data: cells = [], isLoading: cellsLoading } = useFleetCells(enabled);
+  const { data: configAudit, isLoading: configAuditLoading } = useFleetConfigAudit(enabled);
+  const { data: controlPlaneServices = [], isLoading: controlPlaneServicesLoading } = useFleetControlPlaneServices(enabled);
+  const { data: cellCapacitySnapshots = [], isLoading: cellCapacitySnapshotsLoading } = useFleetCellCapacitySnapshots(enabled, 12);
   const { data: procurementRecommendations = [], isLoading: procurementRecommendationsLoading } = useFleetProcurementRecommendations(enabled);
   const { data: procurements = [], isLoading: procurementsLoading } = useFleetProcurements(enabled);
   const approveProcurement = useApproveProcurement();
   const cleanupHostOrphans = useCleanupFleetHostOrphans();
   const syncProcurement = useSyncProcurement();
   const updateCellAdmission = useUpdateFleetCellAdmissionState();
+  const updateCellReservePolicy = useUpdateFleetCellReservePolicy();
   const updateMaintenance = useUpdateFleetHostMaintenanceState();
 
   if (accountLoading) return <Skeleton className="h-40 w-full rounded-2xl" />;
@@ -134,6 +166,109 @@ export default function AdminFleetPage() {
           </div>
         ))}
       </div>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-sm font-medium text-muted-foreground">Config audit</h2>
+        </div>
+        <div className="rounded-2xl border overflow-hidden">
+          {configAuditLoading ? (
+            <div className="p-4 space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)}</div>
+          ) : configAudit ? (
+            <div className="divide-y divide-border">
+              <div className="p-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="font-medium">Status: {configAudit.status}</div>
+                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                  <Badge variant="outline">ok {configAudit.counts.ok}</Badge>
+                  <Badge variant="outline">warnings {configAudit.counts.warning}</Badge>
+                  <Badge variant="outline">errors {configAudit.counts.error}</Badge>
+                </div>
+              </div>
+              {configAudit.checks.map((check) => (
+                <div key={check.key} className="p-4 space-y-1 text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="font-medium">{check.key}</div>
+                    <Badge variant="outline">{check.severity}</Badge>
+                  </div>
+                  <div>{check.message}</div>
+                  {check.details && <div className="text-xs text-muted-foreground break-all">{check.details}</div>}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-6 text-sm text-muted-foreground">No config audit data.</div>
+          )}
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-sm font-medium text-muted-foreground">Control plane services</h2>
+        </div>
+        <div className="rounded-2xl border overflow-hidden">
+          {controlPlaneServicesLoading ? (
+            <div className="p-4 space-y-2">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>
+          ) : (
+            <div className="divide-y divide-border">
+              {controlPlaneServices.map((service) => (
+                <div key={`${service.service}:${service.scope}`} className="p-4 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="font-medium">{service.service}</div>
+                      <div className="text-xs text-muted-foreground">scope: {service.scope} · {service.mode} · {service.critical ? 'critical' : 'non-critical'}</div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="outline">{service.stale ? 'stale' : 'fresh'}</Badge>
+                      <Badge variant="outline">lease {service.lease_owner ? 'held' : 'idle'}</Badge>
+                      {service.last_completed_at && <Badge variant="outline">last complete {new Date(service.last_completed_at).toLocaleTimeString()}</Badge>}
+                    </div>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-3 text-xs text-muted-foreground">
+                    <div>Lease owner: {service.lease_owner ?? 'none'}</div>
+                    <div>Lease expires: {service.lease_expires_at ? new Date(service.lease_expires_at).toLocaleString() : 'n/a'}</div>
+                    <div>Last started: {service.last_started_at ? new Date(service.last_started_at).toLocaleString() : 'n/a'}</div>
+                    <div>Age since completion: {service.age_ms_since_completion != null ? `${Math.round(service.age_ms_since_completion / 1000)}s` : 'n/a'}</div>
+                  </div>
+                  {Object.keys(service.checkpoint).length > 0 && (
+                    <pre className="overflow-x-auto rounded-lg bg-muted/40 p-3 text-[11px] text-muted-foreground">{JSON.stringify(service.checkpoint, null, 2)}</pre>
+                  )}
+                  <div className="text-xs text-muted-foreground">{service.description}</div>
+                </div>
+              ))}
+              {controlPlaneServices.length === 0 && <div className="p-6 text-sm text-muted-foreground">No control-plane service state yet.</div>}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-sm font-medium text-muted-foreground">Cell capacity snapshots</h2>
+        </div>
+        <div className="rounded-2xl border overflow-hidden">
+          {cellCapacitySnapshotsLoading ? (
+            <div className="p-4 space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>
+          ) : (
+            <div className="divide-y divide-border">
+              {cellCapacitySnapshots.map((snapshot) => (
+                <div key={snapshot.id} className="p-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+                  <div>
+                    <div className="font-medium">{snapshot.cell_slug}</div>
+                    <div className="text-xs text-muted-foreground">{new Date(snapshot.snapshot_window_start).toLocaleString()}</div>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-4 text-xs text-muted-foreground">
+                    <div>Used: {snapshot.used_vcpu}/{snapshot.total_vcpu} vCPU</div>
+                    <div>Sellable: {snapshot.sellable_vcpu} vCPU</div>
+                    <div>Reserve budget: {snapshot.reserve_budget_vcpu} vCPU</div>
+                    <div>Utilization: {(snapshot.utilization_score_basis_points / 100).toFixed(2)}%</div>
+                  </div>
+                </div>
+              ))}
+              {cellCapacitySnapshots.length === 0 && <div className="p-6 text-sm text-muted-foreground">No cell capacity snapshots yet.</div>}
+            </div>
+          )}
+        </div>
+      </section>
 
       <section className="space-y-3">
         <div>
@@ -194,7 +329,7 @@ export default function AdminFleetPage() {
                         className="h-7 text-xs"
                         disabled={updateCellAdmission.isPending || (cell.admission_state === "open" && cell.sellability_state === "sellable")}
                         onClick={() => updateCellAdmission.mutate({
-                          cellId: cell.id,
+                          cellId: cell.id!,
                           admissionState: "open",
                           sellabilityState: "sellable",
                           reason: null,
@@ -211,7 +346,7 @@ export default function AdminFleetPage() {
                         className="h-7 text-xs"
                         disabled={updateCellAdmission.isPending || (cell.admission_state === "restricted" && cell.sellability_state === "reserve_only")}
                         onClick={() => updateCellAdmission.mutate({
-                          cellId: cell.id,
+                          cellId: cell.id!,
                           admissionState: "restricted",
                           sellabilityState: "reserve_only",
                           reason: "Held for reserve / failover capacity",
@@ -228,7 +363,7 @@ export default function AdminFleetPage() {
                         className="h-7 text-xs"
                         disabled={updateCellAdmission.isPending || (cell.admission_state === "closed" && cell.sellability_state === "unsellable")}
                         onClick={() => updateCellAdmission.mutate({
-                          cellId: cell.id,
+                          cellId: cell.id!,
                           admissionState: "closed",
                           sellabilityState: "unsellable",
                           reason: "Cell closed to new placements",
@@ -238,6 +373,51 @@ export default function AdminFleetPage() {
                         })}
                       >
                         {updateCellAdmission.isPending ? <Loader2 className="size-3 animate-spin" /> : "Close sales"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-xs"
+                        disabled={updateCellReservePolicy.isPending}
+                        onClick={() => {
+                          const preset = reservePreset(cell, 'none');
+                          updateCellReservePolicy.mutate({ cellId: cell.id!, ...preset }, {
+                            onSuccess: () => toast.success(`${cell.name} reserve policy cleared`),
+                            onError: (error: Error) => toast.error(error.message),
+                          });
+                        }}
+                      >
+                        {updateCellReservePolicy.isPending ? <Loader2 className="size-3 animate-spin" /> : "No reserve"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-xs"
+                        disabled={updateCellReservePolicy.isPending}
+                        onClick={() => {
+                          const preset = reservePreset(cell, 'balanced');
+                          updateCellReservePolicy.mutate({ cellId: cell.id!, ...preset }, {
+                            onSuccess: () => toast.success(`${cell.name} set to balanced reserve`),
+                            onError: (error: Error) => toast.error(error.message),
+                          });
+                        }}
+                      >
+                        {updateCellReservePolicy.isPending ? <Loader2 className="size-3 animate-spin" /> : "Balanced reserve"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-xs"
+                        disabled={updateCellReservePolicy.isPending}
+                        onClick={() => {
+                          const preset = reservePreset(cell, 'failover');
+                          updateCellReservePolicy.mutate({ cellId: cell.id!, ...preset }, {
+                            onSuccess: () => toast.success(`${cell.name} set to failover reserve`),
+                            onError: (error: Error) => toast.error(error.message),
+                          });
+                        }}
+                      >
+                        {updateCellReservePolicy.isPending ? <Loader2 className="size-3 animate-spin" /> : "Failover reserve"}
                       </Button>
                     </div>
                   )}

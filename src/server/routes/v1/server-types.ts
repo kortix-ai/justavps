@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
-// @ts-nocheck
 /**
  * Server types + provider discovery routes.
  * Uses @hono/zod-openapi: routes declare schemas inline → spec auto-generated.
@@ -59,8 +58,7 @@ const listServerTypesRoute = createRoute({
   },
 });
 
-// @ts-expect-error mixed success/error response typing
-serverTypesApp.openapi(listServerTypesRoute, async (c) => {
+serverTypesApp.openapi(listServerTypesRoute, (async (c: any) => {
   const { provider: providerName, region } = c.req.valid('query');
 
   const lookup = requireProvider(c, providerName);
@@ -89,7 +87,7 @@ serverTypesApp.openapi(listServerTypesRoute, async (c) => {
   } catch (err) {
     return handleRouteError(c, err, 'SERVER-TYPES') as Response;
   }
-});
+}) as any);
 
 // ─── GET /regions — List regions ────────────────────────────────────────────
 
@@ -112,8 +110,7 @@ const listRegionsRoute = createRoute({
   },
 });
 
-// @ts-expect-error mixed success/error response typing
-serverTypesApp.openapi(listRegionsRoute, async (c) => {
+serverTypesApp.openapi(listRegionsRoute, (async (c: any) => {
   const { provider: providerName } = c.req.valid('query');
 
   const lookup = requireProvider(c, providerName);
@@ -125,4 +122,4 @@ serverTypesApp.openapi(listRegionsRoute, async (c) => {
   } catch (err) {
     return handleRouteError(c, err, 'REGIONS') as Response;
   }
-});
+}) as any);

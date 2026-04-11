@@ -99,6 +99,8 @@ async function prepareBaseVm(name: string, cpu: number): Promise<{ ip: string } 
   try {
     await retryTransient(() => runIncusPty(['init', POOL_IMAGE, incusTarget(name), '--vm'], 300000), 310000);
     await waitForInstance(name);
+    await setIncusConfig(name, 'user.justavps.role', 'warm_pool_reserve').catch(() => {});
+    await setIncusConfig(name, 'user.justavps.cpu_bucket', String(cpu)).catch(() => {});
     await applyVmBootTuning(name);
     await setIncusConfig(name, 'limits.cpu', String(cpu));
     await setIncusConfig(name, 'limits.memory', `${BASE_POOL_MEMORY_GIB}GiB`);
@@ -549,6 +551,7 @@ async function listInstancesDetailed() {
       vcpu: parseNumber(instance.config?.['limits.cpu']),
       memoryGb: parseGiB(instance.config?.['limits.memory']),
       diskGb: parseGiB(rootDevice.size),
+      role: instance.config?.['user.justavps.role'] ?? null,
     };
   });
 }
@@ -613,6 +616,7 @@ app.post('/v1/instances', async (c) => {
 
   const body = await c.req.json();
   const instanceName = String(body.instanceName);
+  const machineSlug = String(body.machineSlug || instanceName.replace(/^justavps-/, ''));
   const image = String(body.image);
   const diskGb = Number(body.diskGb);
   const vcpu = Number(body.vcpu);
@@ -633,24 +637,20 @@ app.post('/v1/instances', async (c) => {
       trackedCpuBuckets.add(vcpu);
       const warmVM = await claimWarmVM(vcpu);
       if (warmVM) {
+        const claimedName = warmVM.name;
         console.log(`[runnerd] WARM POOL claim ${warmVM.name} → ${instanceName} +${Date.now() - startTs}ms`);
 
-        // Identity injection: single exec, minimal (config + keys + daemon restart in bg)
-        if (cloudInitUserData.trim()) {
-          const b64 = Buffer.from(cloudInitUserData).toString('base64');
-          await runIncus(['exec', incusTarget(warmVM.name), '--', 'bash', '-c',
-            `echo '${b64}' | base64 -d > /tmp/init.sh && chmod +x /tmp/init.sh && /tmp/init.sh`], 15000);
-          console.log(`[runnerd] identity injected +${Date.now() - startTs}ms`);
-        }
-
-        await applyClaimResources(warmVM.name, memoryGb, diskGb);
+        await applyClaimResources(claimedName, memoryGb, diskGb);
+        console.log(`[runnerd] claim resources applied +${Date.now() - startTs}ms`);
+        await setIncusConfig(claimedName, 'user.justavps.role', 'machine').catch(() => {});
+        await setIncusConfig(claimedName, 'user.justavps.machine_slug', machineSlug).catch(() => {});
 
         // eth0 already pre-pinned in warm pool. Add SSH + HTTP proxy devices (sequential, ~60ms total)
         if (warmVM.privateIpv4 && RUNNERD_PUBLIC_IPV4) {
           try {
-            await runIncus(['config', 'device', 'add', incusTarget(warmVM.name), 'ssh', 'proxy',
+            await runIncus(['config', 'device', 'add', incusTarget(claimedName), 'ssh', 'proxy',
               'nat=true', `listen=tcp:${RUNNERD_PUBLIC_IPV4}:${sshPort}`, `connect=tcp:${warmVM.privateIpv4}:22`], 10000);
-            await runIncus(['config', 'device', 'add', incusTarget(warmVM.name), 'http', 'proxy',
+            await runIncus(['config', 'device', 'add', incusTarget(claimedName), 'http', 'proxy',
               'nat=true', `listen=tcp:${RUNNERD_PUBLIC_IPV4}:${httpPort}`, `connect=tcp:${warmVM.privateIpv4}:80`], 10000);
             console.log(`[runnerd] proxies ready +${Date.now() - startTs}ms ssh:${sshPort} http:${httpPort}`);
           } catch (err) {
@@ -658,10 +658,20 @@ app.post('/v1/instances', async (c) => {
           }
         }
 
-        console.log(`[runnerd] WARM CLAIM COMPLETE ${warmVM.name} total=+${Date.now() - startTs}ms`);
+        // Identity injection last: this restarts machine-local services/daemon and can
+        // trigger readiness callbacks. Do it only after resources + public proxy
+        // devices are all in place.
+        if (cloudInitUserData.trim()) {
+          const b64 = Buffer.from(cloudInitUserData).toString('base64');
+          await runIncus(['exec', incusTarget(claimedName), '--', 'bash', '-c',
+            `echo '${b64}' | base64 -d > /tmp/init.sh && chmod +x /tmp/init.sh && /tmp/init.sh`], 15000);
+          console.log(`[runnerd] identity injected +${Date.now() - startTs}ms`);
+        }
+
+        console.log(`[runnerd] WARM CLAIM COMPLETE ${claimedName} total=+${Date.now() - startTs}ms`);
         regenerateNginxMap().catch(() => {});
         return c.json({
-          instanceId: warmVM.name,
+          instanceId: claimedName,
           hostIpv4: RUNNERD_PUBLIC_IPV4,
           hostIpv6: RUNNERD_PUBLIC_IPV6,
           privateIpv4: warmVM.privateIpv4,

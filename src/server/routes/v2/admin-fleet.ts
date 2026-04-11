@@ -1,20 +1,33 @@
-/* eslint-disable @typescript-eslint/ban-ts-comment */
-// @ts-nocheck
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import type { Context } from 'hono';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { randomBytes, randomUUID } from 'crypto';
 import { db } from '../../db';
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 import { errorResponse, handleRouteError } from '../../lib/route-helpers';
 import { config } from '../../lib/config';
-import { backupArtifacts, baremetalHosts, baremetalProcurements, cellAdmissionControls, cells, hostCapacityReservations, machines } from '../../db/schema';
-import { buildBaremetalCellCapacitySnapshots, buildBaremetalCellState, deriveBaremetalCellIdentity, normalizeBaremetalHostGeneration } from '../../lib/baremetal/cells';
+import { backupArtifacts, baremetalHosts, baremetalProcurements, cellAdmissionControls, cellCapacitySnapshots, cells, hostCapacityReservations, machines } from '../../db/schema';
+import { controlPlaneServiceStates } from '../../db/schema';
+import { buildBaremetalCellCapacitySnapshots, buildBaremetalCellState, normalizeBaremetalHostGeneration } from '../../lib/baremetal/cells';
 import { ensureBaremetalCellRecord } from '../../lib/baremetal/cell-store';
 import { getBaremetalHostClassProfile } from '../../lib/baremetal/host-class-profiles';
 import { HOST_MAINTENANCE_STATES } from '../../lib/baremetal/host-maintenance';
 import { HttpBaremetalRunnerClient } from '../../lib/baremetal/runner-client';
 import { HetznerRobotClient } from '../../lib/baremetal/vendors/hetzner-robot';
+import { CONTROL_PLANE_SERVICE_PROFILES, isControlPlaneServiceStale, listControlPlaneServiceStates } from '../../lib/control-plane/service-state';
+import { runProvisionerServicePass } from '../../lib/control-plane/provisioner';
+import { runWebhookDispatcherServicePass } from '../../lib/control-plane/webhook-dispatcher';
+import { runRoutingRepairServicePass } from '../../lib/control-plane/routing';
+import { runTelemetryRetentionServicePass } from '../../lib/control-plane/telemetry';
+import { runWatchdogServicePass } from '../../lib/control-plane/watchdog';
+import { runFleetAuditorServicePass } from '../../lib/control-plane/fleet-auditor';
+import { runAuthCacheServicePass } from '../../lib/control-plane/auth-cache';
+import { buildConfigAuditChecks, summarizeConfigAudit } from '../../lib/config-audit';
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
 
 export const adminFleetV2App = new OpenAPIHono<{ Variables: AuthVariables }>();
 adminFleetV2App.use('*', apiGuard);
@@ -180,6 +193,101 @@ const ProcurementRecommendationListResponseSchema = z.object({
   recommendations: z.array(ProcurementRecommendationSchema),
 });
 
+const ControlPlaneServiceStateSchema = z.object({
+  id: z.string().uuid(),
+  service: z.string(),
+  scope: z.string(),
+  critical: z.boolean(),
+  mode: z.enum(['event_driven', 'periodic']),
+  description: z.string(),
+  stale: z.boolean(),
+  age_ms_since_completion: z.number().nullable(),
+  lease_owner: z.string().nullable(),
+  lease_expires_at: z.string().nullable(),
+  last_started_at: z.string().nullable(),
+  last_completed_at: z.string().nullable(),
+  checkpoint: z.record(z.string(), z.unknown()),
+  metadata: z.record(z.string(), z.unknown()),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+const ControlPlaneServiceStateListResponseSchema = z.object({
+  services: z.array(ControlPlaneServiceStateSchema),
+});
+
+const CellCapacitySnapshotSchema = z.object({
+  id: z.string().uuid(),
+  cell_id: z.string().uuid().nullable(),
+  cell_slug: z.string(),
+  region: z.string(),
+  host_class: z.string(),
+  generation: z.string(),
+  admission_state: z.enum(['open', 'restricted', 'closed']),
+  sellability_state: z.enum(['sellable', 'reserve_only', 'unsellable']),
+  host_count: z.number(),
+  active_host_count: z.number(),
+  constrained_host_count: z.number(),
+  total_vcpu: z.number(),
+  total_memory_gb: z.number(),
+  total_disk_gb: z.number(),
+  used_vcpu: z.number(),
+  used_memory_gb: z.number(),
+  used_disk_gb: z.number(),
+  reserved_vcpu: z.number(),
+  reserved_memory_gb: z.number(),
+  reserved_disk_gb: z.number(),
+  reserve_budget_vcpu: z.number(),
+  reserve_budget_memory_gb: z.number(),
+  reserve_budget_disk_gb: z.number(),
+  available_vcpu: z.number(),
+  available_memory_gb: z.number(),
+  available_disk_gb: z.number(),
+  sellable_vcpu: z.number(),
+  sellable_memory_gb: z.number(),
+  sellable_disk_gb: z.number(),
+  utilization_score_basis_points: z.number(),
+  snapshot_window_start: z.string(),
+  created_at: z.string(),
+});
+
+const CellCapacitySnapshotListResponseSchema = z.object({
+  snapshots: z.array(CellCapacitySnapshotSchema),
+});
+
+const ControlPlaneRunResponseSchema = z.object({
+  checked: z.boolean(),
+  alerts: z.number(),
+  provisioner: z.object({ acquired: z.boolean(), processed: z.number(), leaseOwner: z.string(), scope: z.string() }),
+  webhooks: z.object({ acquired: z.boolean(), processed: z.number(), jobsPruned: z.number().optional(), deliveriesPruned: z.number().optional(), leaseOwner: z.string(), scope: z.string() }),
+  auth_cache: z.object({ acquired: z.boolean(), synced: z.number(), leaseOwner: z.string(), scope: z.string() }),
+  telemetry: z.object({ acquired: z.boolean(), pruned: z.number(), lifecycleEventsPruned: z.number(), leaseOwner: z.string(), scope: z.string() }),
+  repaired_routing_states: z.number(),
+  routing_repair: z.object({ acquired: z.boolean(), repaired: z.number(), leaseOwner: z.string(), scope: z.string() }),
+  watchdog: z.object({ acquired: z.boolean(), alerts: z.number(), alertSummaries: z.array(z.object({ machineId: z.string().uuid(), slug: z.string(), type: z.string(), details: z.array(z.string()) })), leaseOwner: z.string(), scope: z.string() }),
+  fleet_auditor: z.object({ acquired: z.boolean(), hostsChecked: z.number(), leaseOwner: z.string(), scope: z.string(), checkedAt: z.string().optional(), snapshotsRecorded: z.number().optional(), snapshotsPruned: z.number().optional(), portAllocationsPruned: z.number().optional() }),
+});
+
+const ControlPlaneRunRequestSchema = z.object({
+  services: z.array(z.enum(['provisioner', 'webhook_dispatcher', 'auth_cache', 'routing', 'telemetry', 'watchdog', 'fleet_auditor'])).min(1).optional(),
+});
+
+const ControlPlaneServiceResetLeaseSchema = z.object({
+  service: z.enum(['allocator', 'provisioner', 'telemetry', 'routing', 'watchdog', 'fleet_auditor', 'webhook_dispatcher', 'auth_cache']),
+  scope: z.string(),
+});
+
+const ConfigAuditResponseSchema = z.object({
+  status: z.enum(['ok', 'warning', 'degraded']),
+  counts: z.object({ ok: z.number(), warning: z.number(), error: z.number() }),
+  checks: z.array(z.object({
+    key: z.string(),
+    severity: z.enum(['ok', 'warning', 'error']),
+    message: z.string(),
+    details: z.string().optional(),
+  })),
+});
+
 const HetznerProductListResponseSchema = z.object({
   products: z.array(z.object({
     id: z.string(),
@@ -218,6 +326,7 @@ const ReconcileResponseSchema = z.object({
 const ProcurementRecommendationListSchema = ProcurementRecommendationListResponseSchema;
 
 function machineHostId(machine: typeof machines.$inferSelect) {
+  if (machine.baremetalHostId) return machine.baremetalHostId;
   const meta = (machine.providerMeta ?? {}) as Record<string, unknown>;
   return typeof meta.baremetal_host_id === 'string' ? meta.baremetal_host_id : null;
 }
@@ -286,7 +395,7 @@ function serializeHost(row: typeof baremetalHosts.$inferSelect, context?: {
     metadata: row.metadata,
     cell: row.cellId ? cellsById.get(row.cellId) ?? null : null,
     admission: row.cellId ? admissionsByCellId.get(row.cellId) ?? null : null,
-  }) ?? deriveBaremetalCellIdentity(row);
+  });
   return {
     id: row.id,
     vendor: row.vendor,
@@ -347,7 +456,7 @@ function serializeCells(
         metadata: row.metadata,
         cell: row.cellId ? cellsById.get(row.cellId) ?? null : null,
         admission: row.cellId ? admissionsByCellId.get(row.cellId) ?? null : null,
-      }) ?? deriveBaremetalCellIdentity(row),
+      }),
       status: row.status,
       maintenanceState: row.maintenanceState,
       metadata: row.metadata,
@@ -511,6 +620,66 @@ function serializeProcurementRecommendations(cells: ReturnType<typeof serializeC
   });
 }
 
+function serializeControlPlaneServiceState(row: Awaited<ReturnType<typeof listControlPlaneServiceStates>>[number]) {
+  const now = Date.now();
+  const profile = CONTROL_PLANE_SERVICE_PROFILES[row.service as keyof typeof CONTROL_PLANE_SERVICE_PROFILES];
+  return {
+    id: row.id,
+    service: row.service,
+    scope: row.scope,
+    critical: profile.critical,
+    mode: profile.mode,
+    description: profile.description,
+    stale: profile.mode === 'periodic' ? isControlPlaneServiceStale(row, now) : false,
+    age_ms_since_completion: row.lastCompletedAt ? now - row.lastCompletedAt.getTime() : null,
+    lease_owner: row.leaseOwner,
+    lease_expires_at: row.leaseExpiresAt?.toISOString() ?? null,
+    last_started_at: row.lastStartedAt?.toISOString() ?? null,
+    last_completed_at: row.lastCompletedAt?.toISOString() ?? null,
+    checkpoint: (row.checkpoint ?? {}) as Record<string, unknown>,
+    metadata: (row.metadata ?? {}) as Record<string, unknown>,
+    created_at: row.createdAt.toISOString(),
+    updated_at: row.updatedAt.toISOString(),
+  };
+}
+
+function serializeCellCapacitySnapshot(row: typeof cellCapacitySnapshots.$inferSelect) {
+  return {
+    id: row.id,
+    cell_id: row.cellId,
+    cell_slug: row.cellSlug,
+    region: row.region,
+    host_class: row.hostClass,
+    generation: row.generation,
+    admission_state: row.admissionState,
+    sellability_state: row.sellabilityState,
+    host_count: row.hostCount,
+    active_host_count: row.activeHostCount,
+    constrained_host_count: row.constrainedHostCount,
+    total_vcpu: row.totalVcpu,
+    total_memory_gb: row.totalMemoryGb,
+    total_disk_gb: row.totalDiskGb,
+    used_vcpu: row.usedVcpu,
+    used_memory_gb: row.usedMemoryGb,
+    used_disk_gb: row.usedDiskGb,
+    reserved_vcpu: row.reservedVcpu,
+    reserved_memory_gb: row.reservedMemoryGb,
+    reserved_disk_gb: row.reservedDiskGb,
+    reserve_budget_vcpu: row.reserveBudgetVcpu,
+    reserve_budget_memory_gb: row.reserveBudgetMemoryGb,
+    reserve_budget_disk_gb: row.reserveBudgetDiskGb,
+    available_vcpu: row.availableVcpu,
+    available_memory_gb: row.availableMemoryGb,
+    available_disk_gb: row.availableDiskGb,
+    sellable_vcpu: row.sellableVcpu,
+    sellable_memory_gb: row.sellableMemoryGb,
+    sellable_disk_gb: row.sellableDiskGb,
+    utilization_score_basis_points: row.utilizationScore,
+    snapshot_window_start: row.snapshotWindowStart.toISOString(),
+    created_at: row.createdAt.toISOString(),
+  };
+}
+
 async function placeHetznerRobotOrder(procurementId: string, approvedByUserId?: string) {
   const [procurement] = await db.select().from(baremetalProcurements).where(eq(baremetalProcurements.id, procurementId));
   if (!procurement) throw new Error('Procurement request not found');
@@ -588,7 +757,6 @@ async function placeHetznerRobotOrder(procurementId: string, approvedByUserId?: 
   return { transactionId: transaction.transaction.id, hostId: host?.id ?? hostId };
 }
 
-// @ts-expect-error mixed success/error response typing
 adminFleetV2App.openapi(createRoute({
   method: 'get',
   path: '/products/hetzner',
@@ -603,7 +771,7 @@ adminFleetV2App.openapi(createRoute({
   responses: {
     200: { description: 'Hetzner dedicated products', content: { 'application/json': { schema: HetznerProductListResponseSchema } } },
   },
-}), async (c) => {
+}), (async (c: any) => {
   const adminError = requireAdmin(c);
   if (adminError) return adminError as Response;
   if (!config.hasHetznerRobotCredentials()) return errorResponse(c, 400, 'Hetzner Robot credentials are not configured') as Response;
@@ -626,9 +794,8 @@ adminFleetV2App.openapi(createRoute({
   } catch (err) {
     return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
   }
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 adminFleetV2App.openapi(createRoute({
   method: 'post',
   path: '/cells/{id}/admission-state',
@@ -653,7 +820,7 @@ adminFleetV2App.openapi(createRoute({
   responses: {
     200: { description: 'Cell admission updated', content: { 'application/json': { schema: z.object({ cell: CellSchema }) } } },
   },
-}), async (c) => {
+}), (async (c: any) => {
   const adminError = requireAdmin(c);
   if (adminError) return adminError as Response;
 
@@ -698,9 +865,8 @@ adminFleetV2App.openapi(createRoute({
   } catch (err) {
     return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
   }
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 adminFleetV2App.openapi(createRoute({
   method: 'post',
   path: '/cells/{id}/reserve-policy',
@@ -724,7 +890,7 @@ adminFleetV2App.openapi(createRoute({
   responses: {
     200: { description: 'Cell reserve policy updated', content: { 'application/json': { schema: z.object({ cell: CellSchema }) } } },
   },
-}), async (c) => {
+}), (async (c: any) => {
   const adminError = requireAdmin(c);
   if (adminError) return adminError as Response;
 
@@ -764,9 +930,8 @@ adminFleetV2App.openapi(createRoute({
   } catch (err) {
     return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
   }
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 adminFleetV2App.openapi(createRoute({
   method: 'post',
   path: '/hosts/{id}/maintenance-state',
@@ -789,7 +954,7 @@ adminFleetV2App.openapi(createRoute({
   responses: {
     200: { description: 'Host maintenance state updated', content: { 'application/json': { schema: z.object({ host: HostSchema }) } } },
   },
-}), async (c) => {
+}), (async (c: any) => {
   const adminError = requireAdmin(c);
   if (adminError) return adminError as Response;
 
@@ -820,7 +985,7 @@ adminFleetV2App.openapi(createRoute({
     const nextMetadata = {
       ...(existing.metadata ?? {}),
       maintenance: {
-        ...(typeof (existing.metadata ?? {}).maintenance === 'object' && (existing.metadata ?? {}).maintenance !== null ? (existing.metadata ?? {}).maintenance : {}),
+        ...(asRecord((existing.metadata ?? {}).maintenance) ?? {}),
         last_state: body.state,
         last_note: body.note ?? null,
         changed_by_user_id: c.get('userId'),
@@ -849,9 +1014,8 @@ adminFleetV2App.openapi(createRoute({
   } catch (err) {
     return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
   }
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 adminFleetV2App.openapi(createRoute({
   method: 'get',
   path: '/hosts/{id}/bootstrap-config',
@@ -861,7 +1025,7 @@ adminFleetV2App.openapi(createRoute({
   responses: {
     200: { description: 'Bootstrap configuration', content: { 'application/json': { schema: BootstrapConfigSchema } } },
   },
-}), async (c) => {
+}), (async (c: any) => {
   const adminError = requireAdmin(c);
   if (adminError) return adminError as Response;
   const { id } = c.req.valid('param');
@@ -884,16 +1048,15 @@ adminFleetV2App.openapi(createRoute({
       runner_token: host.runnerToken as string,
     },
   });
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 adminFleetV2App.openapi(createRoute({
   method: 'get',
   path: '/hosts',
   tags: ['Admin Bare Metal'],
   summary: 'List bare-metal hosts',
   responses: { 200: { description: 'Hosts', content: { 'application/json': { schema: HostListResponseSchema } } } },
-}), async (c) => {
+}), (async (c: any) => {
   const adminError = requireAdmin(c);
   if (adminError) return adminError as Response;
 
@@ -915,16 +1078,15 @@ adminFleetV2App.openapi(createRoute({
     })),
     cells: serializeCells(rows, reservationRows, { rows: cellRows, admissions: admissionRows }),
   });
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 adminFleetV2App.openapi(createRoute({
   method: 'post',
   path: '/hosts/reconcile',
   tags: ['Admin Bare Metal'],
   summary: 'Reconcile DB state against live bare-metal hosts',
   responses: { 200: { description: 'Fleet reconciled', content: { 'application/json': { schema: ReconcileResponseSchema } } } },
-}), async (c) => {
+}), (async (c: any) => {
   const adminError = requireAdmin(c);
   if (adminError) return adminError as Response;
 
@@ -947,9 +1109,8 @@ adminFleetV2App.openapi(createRoute({
   } catch (err) {
     return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
   }
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 adminFleetV2App.openapi(createRoute({
   method: 'post',
   path: '/hosts/{id}/cleanup-orphans',
@@ -966,7 +1127,7 @@ adminFleetV2App.openapi(createRoute({
       }) } },
     },
   },
-}), async (c) => {
+}), (async (c: any) => {
   const adminError = requireAdmin(c);
   if (adminError) return adminError as Response;
 
@@ -1017,9 +1178,8 @@ adminFleetV2App.openapi(createRoute({
   } catch (err) {
     return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
   }
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 adminFleetV2App.openapi(createRoute({
   method: 'post',
   path: '/hosts/{id}/register',
@@ -1049,7 +1209,7 @@ adminFleetV2App.openapi(createRoute({
   responses: {
     200: { description: 'Host registered', content: { 'application/json': { schema: z.object({ host: HostListResponseSchema.shape.hosts.element }) } } },
   },
-}), async (c) => {
+}), (async (c: any) => {
   const adminError = requireAdmin(c);
   if (adminError) return adminError as Response;
 
@@ -1087,23 +1247,21 @@ adminFleetV2App.openapi(createRoute({
   } catch (err) {
     return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
   }
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 adminFleetV2App.openapi(createRoute({
   method: 'get',
   path: '/procurements',
   tags: ['Admin Bare Metal'],
   summary: 'List bare-metal procurement requests',
   responses: { 200: { description: 'Procurements', content: { 'application/json': { schema: ProcurementListResponseSchema } } } },
-}), async (c) => {
+}), (async (c: any) => {
   const adminError = requireAdmin(c);
   if (adminError) return adminError as Response;
   const rows = await db.select().from(baremetalProcurements);
   return c.json({ procurements: rows.map(serializeProcurement) });
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 adminFleetV2App.openapi(createRoute({
   method: 'post',
   path: '/procurements',
@@ -1132,7 +1290,7 @@ adminFleetV2App.openapi(createRoute({
   responses: {
     201: { description: 'Procurement created', content: { 'application/json': { schema: z.object({ procurement: ProcurementListResponseSchema.shape.procurements.element }) } } },
   },
-}), async (c) => {
+}), (async (c: any) => {
   const adminError = requireAdmin(c);
   if (adminError) return adminError as Response;
 
@@ -1181,16 +1339,15 @@ adminFleetV2App.openapi(createRoute({
   } catch (err) {
     return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
   }
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 adminFleetV2App.openapi(createRoute({
   method: 'get',
   path: '/procurement-recommendations',
   tags: ['Admin Bare Metal'],
   summary: 'List reserve-aware procurement recommendations by cell',
   responses: { 200: { description: 'Procurement recommendations', content: { 'application/json': { schema: ProcurementRecommendationListSchema } } } },
-}), async (c) => {
+}), (async (c: any) => {
   const adminError = requireAdmin(c);
   if (adminError) return adminError as Response;
 
@@ -1200,9 +1357,187 @@ adminFleetV2App.openapi(createRoute({
   } catch (err) {
     return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
   }
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
+adminFleetV2App.openapi(createRoute({
+  method: 'get',
+  path: '/control-plane/services',
+  tags: ['Admin Bare Metal'],
+  summary: 'List control-plane service states',
+  responses: {
+    200: {
+      description: 'Control-plane service states',
+      content: { 'application/json': { schema: ControlPlaneServiceStateListResponseSchema } },
+    },
+  },
+}), (async (c: any) => {
+  const adminError = requireAdmin(c);
+  if (adminError) return adminError as Response;
+
+  try {
+    const rows = await listControlPlaneServiceStates();
+    return c.json({ services: rows.map(serializeControlPlaneServiceState) });
+  } catch (err) {
+    return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
+  }
+}) as any);
+
+adminFleetV2App.openapi(createRoute({
+  method: 'get',
+  path: '/config-audit',
+  tags: ['Admin Bare Metal'],
+  summary: 'Inspect critical platform configuration readiness',
+  responses: {
+    200: { description: 'Configuration audit', content: { 'application/json': { schema: ConfigAuditResponseSchema } } },
+  },
+}), (async (c: any) => {
+  const adminError = requireAdmin(c);
+  if (adminError) return adminError as Response;
+
+  try {
+    const checks = buildConfigAuditChecks();
+    return c.json({ ...summarizeConfigAudit(checks), checks });
+  } catch (err) {
+    return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
+  }
+}) as any);
+
+adminFleetV2App.openapi(createRoute({
+  method: 'post',
+  path: '/control-plane/run',
+  tags: ['Admin Bare Metal'],
+  summary: 'Run one control-plane maintenance pass',
+  request: {
+    body: {
+      required: false,
+      content: { 'application/json': { schema: ControlPlaneRunRequestSchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Control-plane maintenance pass result',
+      content: { 'application/json': { schema: ControlPlaneRunResponseSchema } },
+    },
+  },
+}), (async (c: any) => {
+  const adminError = requireAdmin(c);
+  if (adminError) return adminError as Response;
+
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const requestedServices: string[] = Array.isArray(body?.services) ? body.services : [];
+    const wants = (service: string) => requestedServices.length === 0 || requestedServices.includes(service);
+
+    const provisioner = wants('provisioner')
+      ? await runProvisionerServicePass({ limit: 10 })
+      : { acquired: false, processed: 0, leaseOwner: 'skipped', scope: 'provisioner:machine_create' };
+    const webhooks = wants('webhook_dispatcher')
+      ? await runWebhookDispatcherServicePass({ limit: 50 })
+      : { acquired: false, processed: 0, jobsPruned: 0, deliveriesPruned: 0, leaseOwner: 'skipped', scope: 'webhook_dispatcher:webhook_deliver' };
+    const authCache = wants('auth_cache')
+      ? await runAuthCacheServicePass({ limit: 100, leaseMs: 120_000 })
+      : { acquired: false, synced: 0, leaseOwner: 'skipped', scope: 'auth_cache:api_keys' };
+    const routingRepair = wants('routing')
+      ? await runRoutingRepairServicePass(25)
+      : { acquired: false, repaired: 0, leaseOwner: 'skipped', scope: 'routing:repair' };
+    const telemetry = wants('telemetry')
+      ? await runTelemetryRetentionServicePass({ limit: 1000 })
+      : { acquired: false, pruned: 0, leaseOwner: 'skipped', scope: 'telemetry:retention' };
+    const watchdog = wants('watchdog')
+      ? await runWatchdogServicePass()
+      : { acquired: false, alerts: 0, alertSummaries: [], leaseOwner: 'skipped', scope: 'watchdog:global' };
+    const fleetAuditor = wants('fleet_auditor')
+      ? await runFleetAuditorServicePass({ maxHosts: 10 })
+      : { acquired: false, hostsChecked: 0, snapshotsPruned: 0, snapshotsRecorded: 0, portAllocationsPruned: 0, leaseOwner: 'skipped', scope: 'fleet_auditor:baremetal' };
+
+    return c.json({
+      checked: true,
+      alerts: watchdog.alerts,
+      provisioner,
+      webhooks,
+      auth_cache: authCache,
+      telemetry,
+      repaired_routing_states: routingRepair.repaired,
+      routing_repair: routingRepair,
+      watchdog,
+      fleet_auditor: fleetAuditor,
+    });
+  } catch (err) {
+    return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
+  }
+}) as any);
+
+adminFleetV2App.openapi(createRoute({
+  method: 'post',
+  path: '/control-plane/reset-lease',
+  tags: ['Admin Bare Metal'],
+  summary: 'Clear a control-plane service lease manually',
+  request: {
+    body: {
+      required: true,
+      content: { 'application/json': { schema: ControlPlaneServiceResetLeaseSchema } },
+    },
+  },
+  responses: {
+    200: { description: 'Lease cleared', content: { 'application/json': { schema: z.object({ ok: z.boolean() }) } } },
+  },
+}), (async (c: any) => {
+  const adminError = requireAdmin(c);
+  if (adminError) return adminError as Response;
+
+  try {
+    const body = c.req.valid('json');
+    await db.update(controlPlaneServiceStates).set({
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      updatedAt: new Date(),
+      metadata: {
+        forced_reset_at: new Date().toISOString(),
+        forced_reset_by_user_id: c.get('userId'),
+      },
+    }).where(and(
+      eq(controlPlaneServiceStates.service, body.service),
+      eq(controlPlaneServiceStates.scope, body.scope),
+    ));
+    return c.json({ ok: true });
+  } catch (err) {
+    return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
+  }
+}) as any);
+
+adminFleetV2App.openapi(createRoute({
+  method: 'get',
+  path: '/cell-capacity-snapshots',
+  tags: ['Admin Bare Metal'],
+  summary: 'List recent cell capacity snapshots',
+  request: {
+    query: z.object({
+      limit: z.coerce.number().int().min(1).max(500).optional(),
+    }),
+  },
+  responses: {
+    200: {
+      description: 'Recent cell capacity snapshots',
+      content: { 'application/json': { schema: CellCapacitySnapshotListResponseSchema } },
+    },
+  },
+}), (async (c: any) => {
+  const adminError = requireAdmin(c);
+  if (adminError) return adminError as Response;
+
+  try {
+    const { limit } = c.req.valid('query');
+    const rows = await db.select().from(cellCapacitySnapshots);
+    const snapshots = rows
+      .sort((a, b) => b.snapshotWindowStart.getTime() - a.snapshotWindowStart.getTime())
+      .slice(0, limit ?? 50)
+      .map(serializeCellCapacitySnapshot);
+    return c.json({ snapshots });
+  } catch (err) {
+    return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
+  }
+}) as any);
+
 adminFleetV2App.openapi(createRoute({
   method: 'post',
   path: '/procurements/{id}/approve',
@@ -1212,7 +1547,7 @@ adminFleetV2App.openapi(createRoute({
   responses: {
     200: { description: 'Procurement approved', content: { 'application/json': { schema: z.object({ ok: z.boolean(), transaction_id: z.string(), host_id: z.string().uuid() }) } } },
   },
-}), async (c) => {
+}), (async (c: any) => {
   const adminError = requireAdmin(c);
   if (adminError) return adminError as Response;
 
@@ -1223,9 +1558,8 @@ adminFleetV2App.openapi(createRoute({
   } catch (err) {
     return handleRouteError(c, err, 'ADMIN-BAREMETAL');
   }
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 adminFleetV2App.openapi(createRoute({
   method: 'post',
   path: '/procurements/{id}/sync',
@@ -1235,7 +1569,7 @@ adminFleetV2App.openapi(createRoute({
   responses: {
     200: { description: 'Procurement synced', content: { 'application/json': { schema: z.object({ ok: z.boolean(), procurement: ProcurementListResponseSchema.shape.procurements.element }) } } },
   },
-}), async (c) => {
+}), (async (c: any) => {
   const adminError = requireAdmin(c);
   if (adminError) return adminError;
 
@@ -1278,4 +1612,4 @@ adminFleetV2App.openapi(createRoute({
   } catch (err) {
     return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
   }
-});
+}) as any);

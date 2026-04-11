@@ -290,12 +290,18 @@ machinesApp.openapi(createMachineRoute, async (c) => {
   if (resolvedImage !== 'ubuntu-24.04') {
     const imageExists = await provider.validateImage(resolvedImage);
     if (!imageExists) {
-      const imageLabel = machineImageId ? 'selected image' : 'default template image';
-      return errorResponse(
-        c,
-        400,
-        `${imageLabel} is no longer available on the provider. Reseed the template snapshots or choose a different image.`,
-      ) as any;
+      const isExplicitImageSelection = typeof data.image_id === 'string' && !!data.image_id;
+      if (!isExplicitImageSelection) {
+        console.warn(`[MACHINES] Default template image ${resolvedImage} is unavailable on provider ${provider.name}; falling back to ubuntu-24.04`);
+        resolvedImage = 'ubuntu-24.04';
+        machineImageId = null;
+      } else {
+        return errorResponse(
+          c,
+          400,
+          'selected image is no longer available on the provider. Choose a different image.',
+        ) as any;
+      }
     }
   }
 
@@ -570,8 +576,7 @@ const listMachinesRoute = createRoute({
   },
 });
 
-// @ts-expect-error — DB returns string status, schema expects enum; runtime values are always valid
-machinesApp.openapi(listMachinesRoute, async (c) => {
+machinesApp.openapi(listMachinesRoute, (async (c: any) => {
   const accountId = c.get('accountId');
   const result = await db.select().from(machines).where(
     and(eq(machines.accountId, accountId), ne(machines.status, 'deleted')),
@@ -591,7 +596,7 @@ machinesApp.openapi(listMachinesRoute, async (c) => {
   return c.json({
     machines: synced.map((m) => serializeMachine(m, subsByMachineId.get(m.id) ?? null, { includeSensitive: false })),
   }, 200);
-});
+}) as any);
 
 // ─── GET /:id — Get Machine ────────────────────────────────────────────────
 

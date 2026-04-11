@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { backfillMachinePortAllocationsFromMachine, releaseMachinePortAllocations, reserveMachinePortAllocations } from '@/server/lib/baremetal/port-allocations';
+import { backfillMachinePortAllocationsFromMachine, pruneDeletedMachinePortAllocations, releaseMachinePortAllocations, reserveMachinePortAllocations } from '@/server/lib/baremetal/port-allocations';
 
 type PortAllocationTestExecutor = NonNullable<Parameters<typeof reserveMachinePortAllocations>[0]['executor']>;
 
@@ -31,7 +31,7 @@ describe('baremetal port allocations', () => {
         },
       }),
       execute: async () => {},
-    } as PortAllocationTestExecutor;
+    } as unknown as PortAllocationTestExecutor;
 
     const first = await reserveMachinePortAllocations({ machineId: 'machine-1', hostId: 'host-1', executor });
     expect(first.sshPort).toBe(22000);
@@ -45,7 +45,7 @@ describe('baremetal port allocations', () => {
           where: async () => rows,
         }),
       }),
-    } as PortAllocationTestExecutor;
+    } as unknown as PortAllocationTestExecutor;
     const second = await reserveMachinePortAllocations({ machineId: 'machine-1', hostId: 'host-1', executor: reuseExecutor });
     expect(second.sshPort).toBe(22000);
     expect(second.httpPort).toBe(42000);
@@ -89,7 +89,7 @@ describe('baremetal port allocations', () => {
       }),
       delete: () => ({ where: async () => {} }),
       execute: async () => {},
-    } as PortAllocationTestExecutor;
+    } as unknown as PortAllocationTestExecutor;
 
     const allocated = await reserveMachinePortAllocations({ machineId: 'machine-new', hostId: 'host-1', executor });
     expect(allocated.sshPort).toBe(22001);
@@ -115,7 +115,7 @@ describe('baremetal port allocations', () => {
       }),
       delete: () => ({ where: async () => {} }),
       execute: async () => {},
-    } as PortAllocationTestExecutor;
+    } as unknown as PortAllocationTestExecutor;
 
     const result = await backfillMachinePortAllocationsFromMachine({
       id: 'machine-legacy',
@@ -131,5 +131,17 @@ describe('baremetal port allocations', () => {
     expect(result?.ssh?.publicPort).toBe(22316);
     expect(result?.http?.publicPort).toBe(8948);
     expect(rows).toHaveLength(2);
+  });
+
+  it('prunes explicit port allocations for deleted machines', async () => {
+    const executor = {
+      select: () => ({ from: async () => [] }),
+      delete: () => ({ where: async () => {} }),
+      execute: async () => ({ rows: [{ id: 'alloc-1' }, { id: 'alloc-2' }] }),
+      insert: () => ({ values: async () => {} }),
+    } as unknown as PortAllocationTestExecutor;
+
+    const deleted = await pruneDeletedMachinePortAllocations(executor);
+    expect(deleted).toBe(2);
   });
 });

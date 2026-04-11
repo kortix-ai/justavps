@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
-// @ts-nocheck
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { apiGuard, type AuthVariables } from '../../lib/api-guard';
 import { createImageV2, deleteImageV2, listImagesV2 } from '../../lib/v2/images';
@@ -22,22 +21,20 @@ const ImageV2Schema = z.object({
   updated_at: z.string(),
 });
 
-// @ts-expect-error mixed success/error response typing
 imagesV2App.openapi(createRoute({
   method: 'get',
   path: '/',
   tags: ['Images V2'],
   summary: 'List images',
   responses: { 200: { description: 'Image list', content: { 'application/json': { schema: z.object({ images: z.array(ImageV2Schema) }) } } } },
-}), async (c) => {
+}), (async (c: any) => {
   try {
     return c.json({ images: await listImagesV2({ accountId: c.get('accountId') }) });
   } catch (err) {
     return handleRouteError(c, err, 'IMAGES-V2') as Response;
   }
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 imagesV2App.openapi(createRoute({
   method: 'post',
   path: '/',
@@ -45,7 +42,7 @@ imagesV2App.openapi(createRoute({
   summary: 'Create image from machine',
   request: { body: { required: true, content: { 'application/json': { schema: z.object({ machine_id: z.string().uuid(), name: z.string().min(1).max(128) }) } } } },
   responses: { 202: { description: 'Image creation started', content: { 'application/json': { schema: ImageV2Schema } } } },
-}), async (c) => {
+}), (async (c: any) => {
   try {
     return c.json(await createImageV2({
       accountId: c.get('accountId'),
@@ -57,9 +54,8 @@ imagesV2App.openapi(createRoute({
   } catch (err) {
     return handleRouteError(c, err, 'IMAGES-V2') as Response;
   }
-});
+}) as any);
 
-// @ts-expect-error mixed success/error response typing
 imagesV2App.openapi(createRoute({
   method: 'delete',
   path: '/{id}',
@@ -67,10 +63,10 @@ imagesV2App.openapi(createRoute({
   summary: 'Delete image',
   request: { params: z.object({ id: z.string() }) },
   responses: { 200: { description: 'Deleted', content: { 'application/json': { schema: z.object({ ok: z.boolean() }) } } } },
-}), async (c) => {
+}), (async (c: any) => {
   try {
     return c.json(await deleteImageV2({ accountId: c.get('accountId'), imageId: c.req.valid('param').id }));
   } catch (err) {
     return handleRouteError(c, err, 'IMAGES-V2') as Response;
   }
-});
+}) as any);

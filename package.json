@@ -14,6 +14,7 @@
     "dev:all": "docker rm -f justavps-postgres 2>/dev/null; docker compose up -d postgres && pnpm run db:push && bash scripts/dev-with-stripe.sh",
     "runnerd:build": "pnpm exec tsc -p runnerd/tsconfig.json",
     "runnerd:dev": "tsx runnerd/src/index.ts",
+    "control-plane:worker": "tsx scripts/control-plane-worker.ts",
     "stripe:listen": "stripe listen --forward-to http://localhost:4100/api/v1/stripe/webhooks --events checkout.session.completed,invoice.payment_failed,customer.subscription.deleted,customer.subscription.updated",
     "db:push": "drizzle-kit push",
     "db:seed:templates": "tsx scripts/seed-base-image.ts",

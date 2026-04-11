@@ -74,7 +74,7 @@ function inferProviderServerId(machine: typeof machines.$inferSelect) {
 function baremetalRunnerFromMachine(machine: typeof machines.$inferSelect) {
   const meta = (machine.providerMeta ?? {}) as Record<string, unknown>;
   const runnerBaseUrl = typeof meta.runner_base_url === 'string' ? meta.runner_base_url : null;
-  const hostId = typeof meta.baremetal_host_id === 'string' ? meta.baremetal_host_id : null;
+  const hostId = machine.baremetalHostId ?? (typeof meta.baremetal_host_id === 'string' ? meta.baremetal_host_id : null);
   if (!runnerBaseUrl || !hostId) throw new Error('Baremetal runner metadata is missing');
   return { runnerBaseUrl, hostId };
 }

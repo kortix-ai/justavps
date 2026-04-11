@@ -4,6 +4,14 @@
  */
 
 import { vi } from 'vitest';
+import { config as dotenvConfig } from 'dotenv';
+
+dotenvConfig();
+dotenvConfig({ path: '.env.local', override: true });
+
+if (!process.env.DATABASE_URL && process.env.TEST_DATABASE_URL) {
+  process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
+}
 
 // Set environment variables immediately
 process.env.HETZNER_API_KEY = 'test-hetzner-key';

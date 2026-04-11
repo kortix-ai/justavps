@@ -20,6 +20,7 @@ interface ProvisionProviderMeta {
   create_status?: string | null;
   public_ipv4?: string | null;
   public_ipv6?: string | null;
+  http_port?: number | null;
   callback_expected?: boolean;
   callback_url?: string | null;
   last_callback_at?: string | null;
@@ -288,6 +289,7 @@ interface CreateMachineInput {
   imageId: string | null;
   serverType: string;
   region: string;
+  baremetalHostId?: string | null;
   ip: string | null;
   providerServerId: string | null;
   machineToken: string;

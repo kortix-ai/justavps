@@ -14,8 +14,7 @@ import { config } from '../../lib/config';
 import { errorResponse } from '../../lib/route-helpers';
 import { eventBus } from '../../lib/event-bus';
 import { getLatestDaemonVersion } from '../../lib/daemon-version';
-import { runProvisionerServicePass } from '../../lib/control-plane/provisioner';
-import { syncRoutingFromHeartbeatReady, runRoutingRepairServicePass } from '../../lib/control-plane/routing';
+import { syncRoutingFromHeartbeatReady } from '../../lib/control-plane/routing';
 import { ingestMachineHeartbeat } from '../../lib/control-plane/telemetry';
 import {
   HeartbeatSchema,
@@ -168,80 +167,6 @@ internalApp.openapi(heartbeatRoute, async (c) => {
   }
 });
 
-// ─── POST /watchdog — Platform-side machine monitoring ──────────────────────
-
-const watchdogRoute = createRoute({
-  method: 'get',
-  path: '/watchdog',
-  tags: ['Internal'],
-  summary: 'Run machine watchdog',
-  description: 'Platform-side monitoring: checks heartbeat staleness, security tampering, and Hetzner network metrics. Called via cron every 5 minutes.',
-  responses: {
-    200: {
-      description: 'Watchdog results',
-      content: {
-        'application/json': {
-          schema: z.object({
-            checked: z.number(),
-            alerts: z.number(),
-            details: z.array(z.object({
-              slug: z.string(),
-              type: z.string(),
-              details: z.array(z.string()),
-            })),
-            baremetal: z.object({
-              checkedAt: z.string(),
-              hosts: z.array(z.object({
-                hostId: z.string(),
-                status: z.enum(['ok', 'error', 'skipped']),
-                instanceCount: z.number(),
-                imageCount: z.number(),
-                staleMachineIds: z.array(z.string()),
-                staleImageIds: z.array(z.string()),
-                orphanInstanceIds: z.array(z.string()),
-                error: z.string().optional(),
-              })),
-            }),
-          }),
-        },
-      },
-    },
-    500: { description: 'Internal Server Error', content: { 'application/json': { schema: ErrorResponseSchema } } },
-  },
-});
-
-internalApp.openapi(watchdogRoute, async (c) => {
-  try {
-    const { processDueControlPlaneJobs } = await import('../../lib/control-plane-jobs');
-    const { runWatchdog } = await import('../../lib/machine-watchdog');
-    const { reconcileBaremetalFleet } = await import('../../lib/baremetal/reconcile');
-    const provisioner = await runProvisionerServicePass({ limit: 10 });
-    await processDueControlPlaneJobs({ jobTypes: ['webhook_deliver'], limit: 50 });
-    const routingRepair = await runRoutingRepairServicePass(25);
-    const alerts = await runWatchdog();
-    const baremetal = await reconcileBaremetalFleet(undefined, {
-      onlyDueHosts: true,
-      dueAfterMs: 5 * 60 * 1000,
-      maxHosts: 10,
-      skipGlobalMachineAudit: true,
-      skipGlobalImageAudit: true,
-    });
-
-    return c.json({
-      checked: true,
-      alerts: alerts.length,
-      provisioner,
-      repaired_routing_states: routingRepair.repaired,
-      routing_repair: routingRepair,
-      details: alerts.map((a) => ({ slug: a.slug, type: a.type, details: a.details })),
-      baremetal,
-    });
-  } catch (err) {
-    console.error('[WATCHDOG] error:', err);
-    return errorResponse(c, 500, 'Watchdog failed') as any;
-  }
-});
-
 // ─── POST /stage — Machine reports provisioning stage ───────────────────────
 
 const stageRoute = createRoute({
@@ -365,8 +290,7 @@ const validateKeyRoute = createRoute({
   },
 });
 
-// @ts-expect-error — handler returns multiple response shapes with different status codes; spec types are correctly declared above
-internalApp.openapi(validateKeyRoute, async (c) => {
+internalApp.openapi(validateKeyRoute, (async (c: any) => {
   const { key: keyValue, machine_slug: machineSlug } = c.req.valid('query');
 
   try {
@@ -439,4 +363,4 @@ internalApp.openapi(validateKeyRoute, async (c) => {
   } catch {
     return c.json({ valid: false, message: 'DB unavailable' }, 503);
   }
-});
+}) as any);

@@ -149,6 +149,73 @@ export type FleetProcurementRecommendation = {
   notes: string[];
 };
 
+export type FleetControlPlaneServiceState = {
+  id: string;
+  service: string;
+  scope: string;
+  critical: boolean;
+  mode: 'event_driven' | 'periodic';
+  description: string;
+  stale: boolean;
+  age_ms_since_completion: number | null;
+  lease_owner: string | null;
+  lease_expires_at: string | null;
+  last_started_at: string | null;
+  last_completed_at: string | null;
+  checkpoint: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type FleetCellCapacitySnapshot = {
+  id: string;
+  cell_id: string | null;
+  cell_slug: string;
+  region: string;
+  host_class: string;
+  generation: string;
+  admission_state: 'open' | 'restricted' | 'closed';
+  sellability_state: 'sellable' | 'reserve_only' | 'unsellable';
+  host_count: number;
+  active_host_count: number;
+  constrained_host_count: number;
+  total_vcpu: number;
+  total_memory_gb: number;
+  total_disk_gb: number;
+  used_vcpu: number;
+  used_memory_gb: number;
+  used_disk_gb: number;
+  reserved_vcpu: number;
+  reserved_memory_gb: number;
+  reserved_disk_gb: number;
+  reserve_budget_vcpu: number;
+  reserve_budget_memory_gb: number;
+  reserve_budget_disk_gb: number;
+  available_vcpu: number;
+  available_memory_gb: number;
+  available_disk_gb: number;
+  sellable_vcpu: number;
+  sellable_memory_gb: number;
+  sellable_disk_gb: number;
+  utilization_score_basis_points: number;
+  snapshot_window_start: string;
+  created_at: string;
+};
+
+export type FleetConfigAuditCheck = {
+  key: string;
+  severity: 'ok' | 'warning' | 'error';
+  message: string;
+  details?: string;
+};
+
+export type FleetConfigAudit = {
+  status: 'ok' | 'warning' | 'degraded';
+  counts: { ok: number; warning: number; error: number };
+  checks: FleetConfigAuditCheck[];
+};
+
 export function useFleetHosts(enabled = true) {
   return useQuery({
     ...fleetOverviewQueryOptions(enabled),
@@ -184,6 +251,39 @@ export function useFleetProcurementRecommendations(enabled = true) {
     },
     enabled,
     refetchInterval: 10_000,
+  });
+}
+
+export function useFleetControlPlaneServices(enabled = true) {
+  return useQuery({
+    queryKey: ['fleet', 'control-plane-services'],
+    queryFn: async () => {
+      const data = await apiV2.get<{ services: FleetControlPlaneServiceState[] }>('/admin/fleet/control-plane/services');
+      return data.services;
+    },
+    enabled,
+    refetchInterval: 10_000,
+  });
+}
+
+export function useFleetCellCapacitySnapshots(enabled = true, limit = 20) {
+  return useQuery({
+    queryKey: ['fleet', 'cell-capacity-snapshots', limit],
+    queryFn: async () => {
+      const data = await apiV2.get<{ snapshots: FleetCellCapacitySnapshot[] }>(`/admin/fleet/cell-capacity-snapshots?limit=${limit}`);
+      return data.snapshots;
+    },
+    enabled,
+    refetchInterval: 10_000,
+  });
+}
+
+export function useFleetConfigAudit(enabled = true) {
+  return useQuery({
+    queryKey: ['fleet', 'config-audit'],
+    queryFn: async () => apiV2.get<FleetConfigAudit>('/admin/fleet/config-audit'),
+    enabled,
+    refetchInterval: 30_000,
   });
 }
 
