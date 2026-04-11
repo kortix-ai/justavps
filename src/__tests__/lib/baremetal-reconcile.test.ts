@@ -1,4 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/server/lib/baremetal/cell-store', () => ({
+  ensureBaremetalHostCellAssignment: vi.fn(async ({ host }: { host: { cellId?: string | null; region: string; hostClass: string; generation?: string | null } }) => ({
+    id: host.cellId ?? 'cell-generated',
+    slug: `${host.region}--${host.hostClass}--${host.generation ?? 'gen1'}`,
+    name: `${host.region.toUpperCase()} ${host.hostClass} ${host.generation ?? 'gen1'}`,
+    region: host.region,
+    hostClass: host.hostClass,
+    generation: host.generation ?? 'gen1',
+  })),
+}));
 
 import { reconcileBaremetalFleet, summarizeHostUsage } from '@/server/lib/baremetal/reconcile';
 
@@ -33,7 +44,12 @@ describe('baremetal reconciliation', () => {
     const checkedAt = new Date('2026-04-04T12:00:00.000Z');
     const hosts = [{
       id: 'host-1',
-      status: 'active',
+      status: 'disabled',
+      hostClass: 'general-small',
+      generation: 'gen1',
+      region: 'hel1',
+      cellId: 'cell-1',
+      maintenanceState: 'maintenance',
       runnerBaseUrl: 'http://runner',
       runnerToken: 'token',
       lastHeartbeatAt: null,
@@ -61,14 +77,33 @@ describe('baremetal reconciliation', () => {
       description: null,
       updatedAt: checkedAt,
     }];
+    const reservationRows = [{
+      id: 'reservation-stale',
+      hostId: 'host-1',
+      machineId: 'machine-stale',
+      reservationType: 'machine_create',
+      state: 'committed',
+      vcpu: 2,
+      memoryGb: 4,
+      diskGb: 40,
+      expiresAt: null,
+      committedAt: checkedAt,
+      releasedAt: null,
+      metadata: {},
+      createdAt: checkedAt,
+      updatedAt: checkedAt,
+    }];
     const hostUpdates: Array<Record<string, unknown>> = [];
     const machineUpdates: Array<Record<string, unknown>> = [];
     const imageUpdates: Array<Record<string, unknown>> = [];
+    const reservationUpdates: Array<Record<string, unknown>> = [];
 
     const result = await reconcileBaremetalFleet({
       loadHosts: async () => hosts as never[],
       loadMachines: async () => machineRows as never[],
       loadImages: async () => imageRows as never[],
+      loadReservations: async () => reservationRows as never[],
+      expireReservations: async () => {},
       fetchRunnerState: async () => ({
         checkedAt: checkedAt.toISOString(),
         runnerd: 'ok',
@@ -84,6 +119,9 @@ describe('baremetal reconciliation', () => {
       },
       updateImage: async (imageId, patch) => {
         imageUpdates.push({ imageId, ...patch });
+      },
+      updateReservation: async (reservationId, patch) => {
+        reservationUpdates.push({ reservationId, ...patch });
       },
     });
 
@@ -103,13 +141,97 @@ describe('baremetal reconciliation', () => {
       imageId: 'image-stale',
       status: 'deleted',
     })]);
+    expect(reservationUpdates).toEqual([expect.objectContaining({
+      reservationId: 'reservation-stale',
+      state: 'released',
+    })]);
     expect(hostUpdates).toEqual([expect.objectContaining({
       hostId: 'host-1',
-      status: 'active',
+      status: 'disabled',
+      cellId: expect.any(String),
+      generation: 'gen1',
       usedVcpu: 0,
       usedMemoryGb: 0,
       usedDiskGb: 0,
       lastHeartbeatAt: expect.any(Date),
     })]);
+  });
+
+  it('can reconcile only due hosts without scanning the full fleet', async () => {
+    const checkedAt = new Date();
+    const dueCheckedAt = new Date(checkedAt.getTime() - 10 * 60 * 1000).toISOString();
+    const freshCheckedAt = new Date(checkedAt.getTime() - 30 * 1000).toISOString();
+    const hosts = [
+      {
+        id: 'host-due',
+        status: 'active',
+        hostClass: 'general-small',
+        generation: 'gen1',
+        region: 'hel1',
+        cellId: 'cell-due',
+        maintenanceState: 'in_service',
+        runnerBaseUrl: 'http://runner-due',
+        runnerToken: 'token',
+        lastHeartbeatAt: new Date('2026-04-04T12:00:00.000Z'),
+        usedVcpu: 0,
+        usedMemoryGb: 0,
+        usedDiskGb: 0,
+        metadata: {
+          reconciliation: {
+            checked_at: dueCheckedAt,
+          },
+        },
+        updatedAt: checkedAt,
+      },
+      {
+        id: 'host-fresh',
+        status: 'active',
+        hostClass: 'general-small',
+        generation: 'gen1',
+        region: 'hel1',
+        cellId: 'cell-fresh',
+        maintenanceState: 'in_service',
+        runnerBaseUrl: 'http://runner-fresh',
+        runnerToken: 'token',
+        lastHeartbeatAt: new Date('2026-04-04T12:09:30.000Z'),
+        usedVcpu: 0,
+        usedMemoryGb: 0,
+        usedDiskGb: 0,
+        metadata: {
+          reconciliation: {
+            checked_at: freshCheckedAt,
+          },
+        },
+        updatedAt: checkedAt,
+      },
+    ];
+    const fetchRunnerState = vi.fn(async () => ({
+      checkedAt: checkedAt.toISOString(),
+      runnerd: 'ok',
+      incus: { status: 'ok', serverVersion: '6.0', instanceCount: 0, imageCount: 0 },
+      instances: [],
+      images: [],
+    }));
+
+    const result = await reconcileBaremetalFleet({
+      loadHosts: async () => hosts as never[],
+      loadMachines: async () => [],
+      loadImages: async () => [],
+      loadReservations: async () => [],
+      expireReservations: async () => {},
+      fetchRunnerState,
+      updateHost: async () => {},
+      updateMachine: async () => {},
+      updateImage: async () => {},
+      updateReservation: async () => {},
+    }, {
+      onlyDueHosts: true,
+      dueAfterMs: 5 * 60 * 1000,
+    });
+
+    expect(fetchRunnerState).toHaveBeenCalledTimes(1);
+    expect(fetchRunnerState).toHaveBeenCalledWith(expect.objectContaining({ id: 'host-due' }));
+    expect(result.hosts).toHaveLength(1);
+    expect(result.hosts[0]?.hostId).toBe('host-due');
   });
 });

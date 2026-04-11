@@ -235,6 +235,8 @@ function BackupsPanel({ machineId, machine }: { machineId: string; machine: { pr
   const deleteBackup = useDeleteBackup();
   const [confirm, ConfirmDialog] = useConfirm();
   const backups = data?.backups ?? [];
+  const restoreExecutions = data?.restore_executions ?? [];
+  const summary = data?.summary;
   const snapshotNote = machine.price_monthly ? `Included with your $${machine.price_monthly.toFixed(0)}/mo machine.` : "Included with this machine.";
 
   return (
@@ -288,6 +290,24 @@ function BackupsPanel({ machineId, machine }: { machineId: string; machine: { pr
         </div>
       </div>
 
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-xl border bg-card px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Inventory</p>
+          <p className="mt-1 text-lg font-semibold">{summary?.total_snapshots ?? backups.length}</p>
+          <p className="text-xs text-muted-foreground">{summary?.ready_snapshots ?? backups.filter((b) => ["available", "ready"].includes(b.status)).length} ready for restore</p>
+        </div>
+        <div className="rounded-xl border bg-card px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Restore runs</p>
+          <p className="mt-1 text-lg font-semibold">{summary?.total_restores ?? restoreExecutions.length}</p>
+          <p className="text-xs text-muted-foreground">{summary?.failed_restores ?? restoreExecutions.filter((execution) => execution.status === "failed").length} failed attempts kept for audit</p>
+        </div>
+        <div className="rounded-xl border bg-card px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Last restore</p>
+          <p className="mt-1 text-sm font-semibold">{summary?.last_restore_at ? timeAgo(summary.last_restore_at) : "Never"}</p>
+          <p className="text-xs text-muted-foreground">History remains visible even after a snapshot is deleted.</p>
+        </div>
+      </div>
+
       <div className="rounded-xl border bg-card overflow-hidden">
         <div className="px-4 py-3 border-b flex items-center justify-between">
           <span className="text-sm font-medium">History</span>
@@ -311,6 +331,17 @@ function BackupsPanel({ machineId, machine }: { machineId: string; machine: { pr
                   <p className="text-[11px] text-muted-foreground">
                     {timeAgo(b.created)}{b.size > 0 && ` · ${b.size.toFixed(1)} GB`}
                   </p>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+                    {b.inventory_source && <span>inventory: {b.inventory_source}</span>}
+                    {b.storage_scope && <span>· storage: {b.storage_scope.replace(/_/g, " ")}</span>}
+                    {(b.restore_count ?? 0) > 0 && <span>· restored {b.restore_count}×</span>}
+                    {b.last_restore_at && <span>· last restore {timeAgo(b.last_restore_at)}</span>}
+                  </div>
+                  {b.latest_restore?.error && (
+                    <p className="mt-1 text-[10px] text-red-600 dark:text-red-400 truncate">
+                      Last restore error: {b.latest_restore.error}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
                   {b.status === "creating" ? (
@@ -327,6 +358,19 @@ function BackupsPanel({ machineId, machine }: { machineId: string; machine: { pr
                       )}
                     >
                       {b.status}
+                    </Badge>
+                  )}
+                  {b.latest_restore && (
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "text-[10px]",
+                        b.latest_restore.status === "succeeded" && "border-emerald-500/30 text-emerald-600 dark:text-emerald-400",
+                        b.latest_restore.status === "failed" && "border-red-500/30 text-red-600 dark:text-red-400",
+                        b.latest_restore.status === "running" && "border-blue-500/30 text-blue-600 dark:text-blue-400",
+                      )}
+                    >
+                      restore {b.latest_restore.status}
                     </Badge>
                   )}
                   {["available", "ready"].includes(b.status) && (
@@ -383,6 +427,54 @@ function BackupsPanel({ machineId, machine }: { machineId: string; machine: { pr
                       </Button>
                     </>
                   )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-xl border bg-card overflow-hidden">
+        <div className="px-4 py-3 border-b flex items-center justify-between">
+          <span className="text-sm font-medium">Restore execution history</span>
+          {!isLoading && <span className="text-xs text-muted-foreground">{restoreExecutions.length} runs</span>}
+        </div>
+        {isLoading ? (
+          <div className="p-3 space-y-2">
+            {[1, 2].map((i) => <Skeleton key={i} className="h-11 rounded-lg" />)}
+          </div>
+        ) : restoreExecutions.length === 0 ? (
+          <div className="flex flex-col items-center py-10 text-center">
+            <Clock className="size-7 text-muted-foreground/25 mb-2" />
+            <p className="text-sm text-muted-foreground">No restore history yet</p>
+          </div>
+        ) : (
+          <div className="divide-y">
+            {restoreExecutions.slice(0, 8).map((execution) => (
+              <div key={execution.id} className="px-4 py-3 hover:bg-muted/30 transition-colors">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium truncate">{execution.snapshot_name ?? execution.snapshot_id ?? execution.artifact_id}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Started {timeAgo(execution.started_at)}
+                      {execution.duration_ms !== null && ` · ${(execution.duration_ms / 1000).toFixed(1)}s`}
+                      {execution.target_host_id && ` · target ${execution.target_host_id.slice(0, 8)}`}
+                    </p>
+                    {execution.error && (
+                      <p className="mt-1 text-[10px] text-red-600 dark:text-red-400 truncate">{execution.error}</p>
+                    )}
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "text-[10px] shrink-0",
+                      execution.status === "succeeded" && "border-emerald-500/30 text-emerald-600 dark:text-emerald-400",
+                      execution.status === "failed" && "border-red-500/30 text-red-600 dark:text-red-400",
+                      execution.status === "running" && "border-blue-500/30 text-blue-600 dark:text-blue-400",
+                    )}
+                  >
+                    {execution.status}
+                  </Badge>
                 </div>
               </div>
             ))}
@@ -850,7 +942,7 @@ export default function MachineDetailPage() {
                 <div>
                   <p className="text-sm font-semibold">{provisioning.label}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    First boot takes about 60–90 seconds.
+                    First boot can take longer than a warm start.
                   </p>
                 </div>
                 <span className="font-mono text-sm font-semibold tabular-nums text-foreground">
@@ -1077,7 +1169,7 @@ export default function MachineDetailPage() {
             </div>
             <h3 className="text-sm font-medium mb-1">{provisioning.label}</h3>
             <p className="text-xs text-muted-foreground max-w-xs">
-              Terminal, SSH, and tools appear once the machine becomes ready. First boot takes about 60–90 seconds.
+              Terminal, SSH, and tools appear once the machine becomes ready.
             </p>
           </div>
         </div>

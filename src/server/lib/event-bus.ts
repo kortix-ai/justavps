@@ -1,17 +1,21 @@
 /**
  * Machine Event Bus — Vercel-compatible (no in-memory state).
  *
- * All state changes are persisted to DB (machines + machine_events tables).
- * SSE consumers poll the DB. The "emit" methods here only write to DB and
- * trigger webhook delivery — no in-memory pub/sub.
+ * Lifecycle state changes are persisted to the hot machine lifecycle stream
+ * (`machines` + `machine_events`). High-volume retained telemetry is written to
+ * bucketed rollups separately so SSE/OLTP and telemetry retention can evolve
+ * independently. No in-memory pub/sub.
  */
 
 import { eq } from 'drizzle-orm';
 import { db } from '../db';
 import { machines, machineEvents } from '../db/schema';
+import { recordMachineTelemetry } from './machine-telemetry';
 import { deliverWebhooks } from './webhook-delivery';
 
-export type MachineEventType = 'stage_changed' | 'status_changed' | 'heartbeat';
+export type MachineLifecycleEventType = 'stage_changed' | 'status_changed';
+export type MachineTelemetryEventType = 'heartbeat';
+export type MachineEventType = MachineLifecycleEventType | MachineTelemetryEventType;
 
 export interface MachineEvent {
   machineId: string;
@@ -127,11 +131,14 @@ class MachineEventBus {
   }
 
   /**
-   * Fire-and-forget event (e.g. heartbeat) — just deliver webhooks.
-   * Used for events that don't need DB persistence (heartbeat data
-   * is already stored on the machines row by the caller).
+   * Fire-and-forget event (e.g. heartbeat) — deliver webhooks and retain a
+   * bucketed telemetry rollup outside the lifecycle event hot path.
    */
   async emitTransient(event: MachineEvent): Promise<void> {
+    recordMachineTelemetry(event).catch((err) => {
+      console.error(`[EVENT-BUS] Telemetry persistence failed:`, err);
+    });
+
     deliverWebhooks(event.accountId, event).catch((err) => {
       console.error(`[EVENT-BUS] Webhook delivery failed:`, err);
     });

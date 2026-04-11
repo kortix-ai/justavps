@@ -1,22 +1,30 @@
 import { resolvePlanForDisplay } from '@/lib/plan-catalog';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db';
-import { baremetalHosts, images, machines } from '../../db/schema';
+import { baremetalHosts, hostCapacityReservations, images, machines } from '../../db/schema';
+import { ensureBaremetalHostCellAssignment } from './cell-store';
+import { expireStaleHostCapacityReservations } from './reservations';
+import { syncHostImageAvailabilityFromRunnerState } from './image-locality';
 import { HttpBaremetalRunnerClient } from './runner-client';
 import type { RunnerHostState } from './types';
 
 type HostRow = typeof baremetalHosts.$inferSelect;
 type MachineRow = typeof machines.$inferSelect;
 type ImageRow = typeof images.$inferSelect;
+type HostCapacityReservationRow = typeof hostCapacityReservations.$inferSelect;
 
 type ReconcileDeps = {
   loadHosts: () => Promise<HostRow[]>;
   loadMachines: () => Promise<MachineRow[]>;
   loadImages: () => Promise<ImageRow[]>;
+  loadReservations: () => Promise<HostCapacityReservationRow[]>;
+  expireReservations: (now: Date) => Promise<void>;
   fetchRunnerState: (host: HostRow) => Promise<RunnerHostState>;
   updateHost: (hostId: string, patch: Partial<HostRow>) => Promise<void>;
   updateMachine: (machineId: string, patch: Partial<MachineRow>) => Promise<void>;
   updateImage: (imageId: string, patch: Partial<ImageRow>) => Promise<void>;
+  updateReservation: (reservationId: string, patch: Partial<HostCapacityReservationRow>) => Promise<void>;
+  syncHostImageAvailability: (input: { hostId: string; images: Array<{ imageId: string; aliases: string[] }>; at: Date }) => Promise<void>;
 };
 
 export interface BaremetalHostReconciliationResult {
@@ -35,11 +43,24 @@ export interface BaremetalFleetReconciliationResult {
   hosts: BaremetalHostReconciliationResult[];
 }
 
+export interface ReconcileBaremetalFleetOptions {
+  hostIds?: string[];
+  onlyDueHosts?: boolean;
+  dueAfterMs?: number;
+  maxHosts?: number;
+  skipGlobalMachineAudit?: boolean;
+  skipGlobalImageAudit?: boolean;
+}
+
+const DEFAULT_HOST_RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
+
 function defaultDeps(): ReconcileDeps {
   return {
     loadHosts: () => db.select().from(baremetalHosts),
     loadMachines: () => db.select().from(machines),
     loadImages: () => db.select().from(images),
+    loadReservations: () => db.select().from(hostCapacityReservations),
+    expireReservations: (now) => expireStaleHostCapacityReservations(now),
     fetchRunnerState: async (host) => {
       if (!host.runnerBaseUrl || !host.runnerToken) {
         throw new Error(`baremetal host ${host.id} is missing runner connection metadata`);
@@ -55,6 +76,10 @@ function defaultDeps(): ReconcileDeps {
     updateImage: async (imageId, patch) => {
       await db.update(images).set(patch).where(eq(images.id, imageId));
     },
+    updateReservation: async (reservationId, patch) => {
+      await db.update(hostCapacityReservations).set(patch).where(eq(hostCapacityReservations.id, reservationId));
+    },
+    syncHostImageAvailability: (input) => syncHostImageAvailabilityFromRunnerState(input),
   };
 }
 
@@ -94,6 +119,21 @@ function unique(values: string[]) {
   return [...new Set(values)];
 }
 
+function shouldReleaseCommittedReservation(machine: MachineRow | undefined) {
+  if (!machine) return true;
+  return machine.deletedAt !== null || machine.status === 'deleted';
+}
+
+function shouldReleaseReservedReservation(machine: MachineRow | undefined) {
+  if (!machine) return true;
+  return machine.deletedAt !== null || machine.status === 'deleted' || machine.status === 'error';
+}
+
+function reconciledHostStatus(host: HostRow, runnerStatus: RunnerHostState['incus']['status']) {
+  if (host.status === 'disabled') return 'disabled';
+  return runnerStatus === 'ok' ? 'active' : 'error';
+}
+
 function buildHostMetadata(host: HostRow, state: RunnerHostState, details: { staleMachineIds: string[]; staleImageIds: string[]; orphanInstanceIds: string[]; }) {
   return {
     ...(host.metadata ?? {}),
@@ -109,6 +149,25 @@ function buildHostMetadata(host: HostRow, state: RunnerHostState, details: { sta
       orphan_instance_ids: details.orphanInstanceIds,
     },
   };
+}
+
+function hostLastReconciledAt(host: HostRow) {
+  const reconciliation = (host.metadata?.reconciliation ?? {}) as Record<string, unknown>;
+  const checkedAt = reconciliation.checked_at;
+  if (typeof checkedAt !== 'string') return null;
+  const parsed = new Date(checkedAt);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function shouldReconcileHost(host: HostRow, checkedAt: Date, options: ReconcileBaremetalFleetOptions) {
+  if (options.hostIds?.includes(host.id)) return true;
+  if (!options.onlyDueHosts) return true;
+  if (host.status === 'error' || host.maintenanceState === 'draining') return true;
+
+  const dueAfterMs = options.dueAfterMs ?? DEFAULT_HOST_RECONCILE_INTERVAL_MS;
+  const lastReconciledAt = hostLastReconciledAt(host) ?? host.lastHeartbeatAt;
+  if (!lastReconciledAt) return true;
+  return checkedAt.getTime() - lastReconciledAt.getTime() >= dueAfterMs;
 }
 
 export function summarizeHostUsage(input: {
@@ -148,27 +207,47 @@ export function summarizeHostUsage(input: {
   };
 }
 
-export async function reconcileBaremetalFleet(depsArg?: Partial<ReconcileDeps>): Promise<BaremetalFleetReconciliationResult> {
+export async function reconcileBaremetalFleet(
+  depsArg?: Partial<ReconcileDeps>,
+  options: ReconcileBaremetalFleetOptions = {},
+): Promise<BaremetalFleetReconciliationResult> {
   const deps = { ...defaultDeps(), ...(depsArg ?? {}) } as ReconcileDeps;
+  if (depsArg && !depsArg.syncHostImageAvailability) {
+    deps.syncHostImageAvailability = async () => {};
+  }
   const checkedAt = new Date().toISOString();
-  const [hosts, allMachines, allImages] = await Promise.all([
+  await deps.expireReservations(new Date(checkedAt));
+  const [hosts, allMachines, allImages, allReservations] = await Promise.all([
     deps.loadHosts(),
     deps.loadMachines(),
     deps.loadImages(),
+    deps.loadReservations(),
   ]);
 
   const results: BaremetalHostReconciliationResult[] = [];
+  const machinesById = new Map(allMachines.map((machine) => [machine.id, machine]));
   const runnerImageAliases = new Set<string>();
   const liveInstanceIds = new Set<string>();
   const staleImageIds = new Set<string>();
   const updatedMachineIds = new Set<string>();
+  const selectedHostIds = new Set<string>();
+  const selectedHostFilter = options.hostIds ? new Set(options.hostIds) : null;
+  const checkedAtDate = new Date(checkedAt);
 
   const deletedWithoutTimestamp = allMachines.filter((machine) => machine.provider === 'baremetal' && machine.status === 'deleted' && machine.deletedAt === null);
   for (const machine of deletedWithoutTimestamp) {
     await deps.updateMachine(machine.id, { deletedAt: new Date(checkedAt) });
   }
 
-  for (const host of hosts) {
+  let hostsToProcess = selectedHostFilter
+    ? hosts.filter((host) => selectedHostFilter.has(host.id))
+    : hosts.filter((host) => shouldReconcileHost(host, checkedAtDate, options));
+  if (typeof options.maxHosts === 'number') {
+    hostsToProcess = hostsToProcess.slice(0, options.maxHosts);
+  }
+
+  for (const host of hostsToProcess) {
+    selectedHostIds.add(host.id);
     if (!host.runnerBaseUrl || !host.runnerToken || host.status === 'deleted') {
       results.push({
         hostId: host.id,
@@ -183,6 +262,7 @@ export async function reconcileBaremetalFleet(depsArg?: Partial<ReconcileDeps>):
     }
 
     try {
+      const cell = await ensureBaremetalHostCellAssignment({ host });
       const state = await deps.fetchRunnerState(host);
       for (const instance of state.instances) liveInstanceIds.add(instance.instanceId);
       const activeMachines = allMachines.filter((machine) => isLiveMachineCandidate(machine, host.id));
@@ -211,10 +291,17 @@ export async function reconcileBaremetalFleet(depsArg?: Partial<ReconcileDeps>):
         for (const alias of image.aliases) runnerImageAliases.add(alias);
         runnerImageAliases.add(image.imageId);
       }
+      await deps.syncHostImageAvailability({
+        hostId: host.id,
+        images: state.images.map((image) => ({ imageId: image.imageId, aliases: image.aliases })),
+        at: new Date(checkedAt),
+      });
 
       await deps.updateHost(host.id, {
-        status: state.incus.status === 'ok' ? 'active' : 'error',
+        status: reconciledHostStatus(host, state.incus.status),
         lastHeartbeatAt: new Date(checkedAt),
+        generation: cell.generation,
+        cellId: cell.id,
         usedVcpu: usage.usedVcpu,
         usedMemoryGb: usage.usedMemoryGb,
         usedDiskGb: usage.usedDiskGb,
@@ -238,7 +325,7 @@ export async function reconcileBaremetalFleet(depsArg?: Partial<ReconcileDeps>):
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await deps.updateHost(host.id, {
-        status: 'error',
+        status: reconciledHostStatus(host, 'error'),
         metadata: {
           ...(host.metadata ?? {}),
           reconciliation: {
@@ -261,10 +348,14 @@ export async function reconcileBaremetalFleet(depsArg?: Partial<ReconcileDeps>):
     }
   }
 
-  const fleetStaleMachines = allMachines.filter((machine) => {
+  const fleetStaleMachines = options.skipGlobalMachineAudit ? [] : allMachines.filter((machine) => {
     if (machine.provider !== 'baremetal' || machine.deletedAt !== null || machine.status === 'deleted') return false;
     if (machine.status === 'provisioning') return false;
     if (updatedMachineIds.has(machine.id)) return false;
+    if (selectedHostIds.size > 0) {
+      const hostId = machineHostId(machine);
+      if (hostId && !selectedHostIds.has(hostId)) return false;
+    }
     return !liveInstanceIds.has(expectedInstanceId(machine));
   });
 
@@ -284,12 +375,47 @@ export async function reconcileBaremetalFleet(depsArg?: Partial<ReconcileDeps>):
     });
   }
 
+  const deletedMachineIds = new Set([
+    ...deletedWithoutTimestamp.map((machine) => machine.id),
+    ...updatedMachineIds,
+    ...fleetStaleMachines.map((machine) => machine.id),
+  ]);
+  const erroredMachineIds = new Set(allMachines.filter((machine) => machine.status === 'error').map((machine) => machine.id));
+
+  for (const reservation of allReservations) {
+    const machine = machinesById.get(reservation.machineId);
+    const treatedAsDeleted = deletedMachineIds.has(reservation.machineId);
+    const treatedAsErrored = erroredMachineIds.has(reservation.machineId);
+    if (reservation.state === 'committed' && (!machine || treatedAsDeleted || shouldReleaseCommittedReservation(machine))) {
+      await deps.updateReservation(reservation.id, {
+        state: 'released',
+        releasedAt: new Date(checkedAt),
+        updatedAt: new Date(checkedAt),
+        metadata: {
+          ...(reservation.metadata ?? {}),
+          reconciled_release_reason: machine || treatedAsDeleted ? 'machine_deleted' : 'machine_missing',
+        },
+      });
+    }
+    if (reservation.state === 'reserved' && (!machine || treatedAsDeleted || treatedAsErrored || shouldReleaseReservedReservation(machine))) {
+      await deps.updateReservation(reservation.id, {
+        state: 'released',
+        releasedAt: new Date(checkedAt),
+        updatedAt: new Date(checkedAt),
+        metadata: {
+          ...(reservation.metadata ?? {}),
+          reconciled_release_reason: treatedAsErrored || machine?.status === 'error' ? 'machine_error' : machine || treatedAsDeleted ? 'machine_deleted' : 'machine_missing',
+        },
+      });
+    }
+  }
+
   const fleetStaleMachineIds = new Set(fleetStaleMachines.map((machine) => machine.id));
   for (const result of results) {
     result.staleMachineIds = unique([...result.staleMachineIds, ...fleetStaleMachineIds]);
   }
 
-  const canReconcileImages = results.every((result) => result.status !== 'error');
+  const canReconcileImages = !options.skipGlobalImageAudit && results.every((result) => result.status !== 'error');
   const staleImages = canReconcileImages ? allImages.filter((image) => {
     if (!isLiveImageCandidate(image)) return false;
     if (image.providerImageId) return !runnerImageAliases.has(image.providerImageId);
@@ -313,4 +439,13 @@ export async function reconcileBaremetalFleet(depsArg?: Partial<ReconcileDeps>):
   }
 
   return { checkedAt, hosts: results };
+}
+
+export async function reconcileBaremetalHost(hostId: string, depsArg?: Partial<ReconcileDeps>) {
+  const result = await reconcileBaremetalFleet(depsArg, {
+    hostIds: [hostId],
+    skipGlobalMachineAudit: true,
+    skipGlobalImageAudit: true,
+  });
+  return result.hosts[0] ?? null;
 }

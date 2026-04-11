@@ -196,7 +196,7 @@ export default function MachinesPage() {
             </div>
           ))}
         </div>
-      ) : !error && machines?.length === 0 ? (
+      ) : error ? null : machines?.length === 0 ? (
         /* ── Empty State ──────────────────────────────────────────────── */
         <div className="flex flex-col items-center justify-center py-24">
           <div className="relative mb-6">

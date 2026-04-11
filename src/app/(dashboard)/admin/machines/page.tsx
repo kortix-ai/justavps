@@ -36,6 +36,11 @@ import {
 } from "@/components/ui/dialog";
 import { api, ApiError } from "@/hooks/api-client";
 import { useAccount } from "@/hooks/use-account";
+import {
+  formatMachineHealthPercent,
+  getAdminMachinesRangeLabel,
+  getAdminMachinesTotalPages,
+} from "@/lib/admin-machines";
 import { toast } from "sonner";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -60,7 +65,7 @@ type AdminMachine = {
   ready_at: string | null;
   deleted_at: string | null;
   last_heartbeat_at: string | null;
-  health: { cpu: number; memory: number; disk: number } | null;
+  health: { cpu: number | null; memory: number | null; disk: number | null } | null;
   owner: { id: string; email: string | null; name: string | null };
   account: { id: string; name: string | null; slug: string | null; type: string | null } | null;
   subscription: {
@@ -273,9 +278,10 @@ export default function AdminMachinesPage() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
+  const totalPages = getAdminMachinesTotalPages(data?.total, PAGE_SIZE);
   const statusSummary = data?.summary.by_status ?? {};
   const sourceSummary = data?.summary.by_source ?? {};
+  const rangeLabel = getAdminMachinesRangeLabel(data, machines.length);
 
   return (
     <div className="space-y-6">
@@ -446,7 +452,7 @@ export default function AdminMachinesPage() {
                 {selected.size === machines.length ? "Deselect all" : "Select all"} ({machines.length})
               </button>
               <span>
-                Showing {data!.offset + 1}–{Math.min(data!.offset + machines.length, data!.total)} of {data!.total}
+                {rangeLabel}
               </span>
             </div>
           )}
@@ -533,15 +539,15 @@ export default function AdminMachinesPage() {
                           <div className="flex items-center gap-3 text-xs">
                             <span className="flex items-center gap-1">
                               <Cpu className="size-3" />
-                              CPU {m.health.cpu}%
+                              CPU {formatMachineHealthPercent(m.health.cpu)}
                             </span>
                             <span className="flex items-center gap-1">
                               <MemoryStick className="size-3" />
-                              RAM {m.health.memory}%
+                              RAM {formatMachineHealthPercent(m.health.memory)}
                             </span>
                             <span className="flex items-center gap-1">
                               <HardDrive className="size-3" />
-                              Disk {m.health.disk}%
+                              Disk {formatMachineHealthPercent(m.health.disk)}
                             </span>
                           </div>
                         )}

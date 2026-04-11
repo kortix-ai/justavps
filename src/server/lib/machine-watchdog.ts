@@ -24,6 +24,7 @@ import { db } from '../db';
 import { machines } from '../db/schema';
 import { config } from './config';
 import { eventBus } from './event-bus';
+import { effectiveHeartbeatForMachine, listHeartbeatStatesByMachineIds } from './heartbeat-state';
 
 const HETZNER_API = 'https://api.hetzner.cloud/v1';
 
@@ -182,15 +183,21 @@ export async function runWatchdog(): Promise<WatchdogAlert[]> {
         ne(machines.status, 'deleted'),
       ),
     );
+  const heartbeatStates = await listHeartbeatStatesByMachineIds(activeMachines.map((machine) => machine.id));
+  const heartbeatStateByMachineId = new Map(heartbeatStates.map((state) => [state.machineId, state]));
 
   const now = Date.now();
 
   for (const machine of activeMachines) {
     const machineAlerts: string[] = [];
+    const heartbeat = effectiveHeartbeatForMachine({
+      machine,
+      state: heartbeatStateByMachineId.get(machine.id),
+    });
 
     // ── 1. Heartbeat staleness check (tamper-proof) ───────────────────
-    if (machine.lastHeartbeatAt) {
-      const elapsed = now - machine.lastHeartbeatAt.getTime();
+    if (heartbeat.lastHeartbeatAt) {
+      const elapsed = now - heartbeat.lastHeartbeatAt.getTime();
 
       if (elapsed > HEARTBEAT_DEAD_MS) {
         alerts.push({
@@ -235,8 +242,8 @@ export async function runWatchdog(): Promise<WatchdogAlert[]> {
     }
 
     // ── 2. Security tamper check (from last heartbeat data) ───────────
-    if (machine.lastHeartbeat?.security) {
-      const sec = machine.lastHeartbeat.security;
+    if (heartbeat.lastHeartbeat?.security) {
+      const sec = heartbeat.lastHeartbeat.security;
       if (!sec.ufw_active) machineAlerts.push('UFW firewall disabled');
       if (!sec.fail2ban_active) machineAlerts.push('fail2ban disabled');
       if (!sec.ssh_key_only) machineAlerts.push('SSH password auth enabled');

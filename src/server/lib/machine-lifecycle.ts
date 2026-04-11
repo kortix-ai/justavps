@@ -6,9 +6,11 @@ import { generateMachineToken, fingerprintSSHKey, encryptSecret } from './crypto
 import { generateSSHKeyPair } from './ssh-keygen';
 import { buildCloudInit } from './cloud-init';
 import { config } from './config';
-import { cloudflareClient, type MachineRoutingKVRecord } from './cloudflare';
 import { stripeClient, type MachineSpecs } from './stripe';
 import { getProvider, type ComputeProvider } from './providers';
+import { syncMachineRoutingState } from './routing-state';
+import { releaseMachinePortAllocations } from './baremetal/port-allocations';
+import { getHostCapacityReservationForMachine, releaseHostCapacityReservation } from './baremetal/reservations';
 import { updateProviderMeta } from './provider-meta';
 import { resolvePlanForDisplay, STARTING_MONTHLY_PRICE, marketForRegion } from '@/lib/plan-catalog';
 
@@ -171,25 +173,6 @@ export function buildMachineUserData(
   });
 }
 
-function buildMachineRoutingKVData(input: {
-  machineId: string;
-  slug: string;
-  accountId: string;
-  ip: string;
-  originPort?: number | null;
-  status: string;
-  serverType: string;
-}): MachineRoutingKVRecord {
-  return {
-    machine_id: input.machineId,
-    account_id: input.accountId,
-    ip: input.ip,
-    origin_port: input.originPort ?? undefined,
-    status: input.status,
-    server_type: input.serverType,
-  };
-}
-
 /**
  * Register machine in Cloudflare:
  * - Writes machine:{slug} to KV for Worker auth/routing (HTTP proxy)
@@ -205,27 +188,21 @@ export async function setupProxyDNS(
   serverType: string,
   options?: { routingIp?: string | null; routingPort?: number | null },
 ) {
-  if (!config.isCloudflareConfigured()) return;
-
   const primaryIp = options?.routingIp ?? addresses.ipv4 ?? addresses.ipv6;
-  if (!primaryIp) return;
-
-  // 1. KV entry for HTTP routing via Worker
-  await cloudflareClient.writeKVMachine(slug, buildMachineRoutingKVData({
+  await syncMachineRoutingState({
     machineId,
-    slug,
     accountId,
-    ip: primaryIp,
-    originPort: options?.routingPort,
-    status: 'provisioning',
+    machineSlug: slug,
+    machineStatus: 'provisioning',
     serverType,
-  })).catch((err: unknown) => {
-    console.warn(`[CF KV] Failed to write machine:${slug}:`, err);
-  });
-
-  // 2. Unproxied DNS record for SSH access (origin-<slug>.<domain>)
-  await cloudflareClient.addMachineDNS(slug, addresses).catch((err: unknown) => {
-    console.warn(`[CF DNS] Failed to create origin record for ${slug}:`, err);
+    desiredIp: primaryIp,
+    desiredOriginPort: options?.routingPort ?? null,
+    publicIpv4: addresses.ipv4 ?? null,
+    publicIpv6: addresses.ipv6 ?? null,
+    originHostname: `origin-${slug}.${config.PROXY_DOMAIN}`,
+    source: 'machine_setup_proxy_dns',
+  }).catch((err: unknown) => {
+    console.warn(`[ROUTING] Failed to sync routing state for ${slug}:`, err);
   });
 }
 
@@ -318,11 +295,13 @@ interface CreateMachineInput {
   sshPrivateKey: string | null;
   priceMonthly: number | null;
   backupsEnabled?: boolean;
+  executor?: Pick<typeof db, 'insert'>;
 }
 
 export async function createMachineRecord(input: CreateMachineInput) {
-  const [machine] = await db.insert(machines).values({
-    ...input,
+  const { executor = db, ...values } = input;
+  const [machine] = await executor.insert(machines).values({
+    ...values,
     sshPublicKey: input.sshPublicKey ?? '',
     backupsEnabled: input.backupsEnabled ?? true,
     // Encrypt secrets at rest — decrypted on read via decryptSecret()
@@ -393,8 +372,20 @@ export async function cleanupMachineResources(
   }
 
   if (config.isCloudflareConfigured()) {
-    await cloudflareClient.removeMachineDNS(machine.slug).catch(() => {});
-    await cloudflareClient.deleteKVMachine(machine.slug);
+    const meta = readProviderMeta(machine);
+    await syncMachineRoutingState({
+      machineId: machine.id,
+      accountId: machine.accountId ?? machine.ownerId,
+      machineSlug: machine.slug,
+      machineStatus: 'deleted',
+      serverType: machine.serverType,
+      desiredIp: null,
+      desiredOriginPort: typeof meta.http_port === 'number' ? meta.http_port : null,
+      publicIpv4: typeof meta.public_ipv4 === 'string' ? meta.public_ipv4 : null,
+      publicIpv6: typeof meta.public_ipv6 === 'string' ? meta.public_ipv6 : null,
+      originHostname: `origin-${machine.slug}.${config.PROXY_DOMAIN}`,
+      source: 'machine_cleanup',
+    }).catch(() => {});
   }
 
   if (stripeClient.isConfigured()) {
@@ -402,6 +393,20 @@ export async function cleanupMachineResources(
     if (sub) {
       await stripeClient.cancelMachineSubscription(sub.stripeSubscriptionId).catch(() => {});
     }
+  }
+
+  if (machine.provider === 'baremetal') {
+    const reservation = await getHostCapacityReservationForMachine(machine.id).catch(() => null);
+    if (reservation && ['reserved', 'committed'].includes(reservation.state)) {
+      await releaseHostCapacityReservation({
+        reservationId: reservation.id,
+        metadata: {
+          ...(reservation.metadata ?? {}),
+          released_by: 'machine_cleanup',
+        },
+      }).catch(() => {});
+    }
+    await releaseMachinePortAllocations(machine.id).catch(() => {});
   }
 
   await db.update(machines)
@@ -443,15 +448,20 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
         machine = { ...machine, ip: nextIp, providerMeta: nextMeta };
 
         if (config.isCloudflareConfigured() && nextIp) {
-          await cloudflareClient.writeKVMachine(machine.slug, buildMachineRoutingKVData({
+          await syncMachineRoutingState({
             machineId: machine.id,
-            slug: machine.slug,
             accountId: machine.accountId ?? machine.ownerId,
-            ip: nextIp,
-            status: machine.status,
+            machineSlug: machine.slug,
+            machineStatus: machine.status,
             serverType: machine.serverType,
-          })).catch((err) => {
-            console.warn(`[MACHINES] Failed to sync KV for ${machine.slug}:`, err);
+            desiredIp: nextIp,
+            desiredOriginPort: typeof nextMeta.http_port === 'number' ? nextMeta.http_port : null,
+            publicIpv4: typeof nextMeta.public_ipv4 === 'string' ? nextMeta.public_ipv4 : null,
+            publicIpv6: typeof nextMeta.public_ipv6 === 'string' ? nextMeta.public_ipv6 : null,
+            originHostname: `origin-${machine.slug}.${config.PROXY_DOMAIN}`,
+            source: 'machine_network_refresh',
+          }).catch((err) => {
+            console.warn(`[MACHINES] Failed to sync routing state for ${machine.slug}:`, err);
           });
         }
       }

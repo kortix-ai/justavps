@@ -312,6 +312,30 @@ interface Backup {
   created: string;
   size: number;
   status: string;
+  artifact_id?: string | null;
+  artifact_status?: string | null;
+  inventory_source?: 'provider' | 'database' | 'merged';
+  storage_scope?: string | null;
+  storage_url?: string | null;
+  restore_count?: number;
+  last_restore_at?: string | null;
+  latest_restore?: BackupRestoreExecution | null;
+}
+
+interface BackupRestoreExecution {
+  id: string;
+  artifact_id: string;
+  snapshot_id: string | null;
+  snapshot_name: string | null;
+  status: string;
+  trigger_source: string;
+  started_at: string;
+  completed_at: string | null;
+  duration_ms: number | null;
+  error: string | null;
+  requested_by_user_id: string | null;
+  source_host_id: string | null;
+  target_host_id: string | null;
 }
 
 type V2Snapshot = {
@@ -319,6 +343,28 @@ type V2Snapshot = {
   name: string;
   created_at: string;
   status: string;
+  artifact_id?: string | null;
+  artifact_status?: string | null;
+  inventory_source?: 'provider' | 'database' | 'merged';
+  storage_scope?: string | null;
+  storage_url?: string | null;
+  restore_count?: number;
+  last_restore_at?: string | null;
+  latest_restore?: BackupRestoreExecution | null;
+};
+
+type V2SnapshotInventoryResponse = {
+  snapshots: V2Snapshot[];
+  restore_executions: BackupRestoreExecution[];
+  summary: {
+    total_snapshots: number;
+    ready_snapshots: number;
+    deleted_snapshots: number;
+    snapshots_with_restore_history: number;
+    total_restores: number;
+    failed_restores: number;
+    last_restore_at: string | null;
+  };
 };
 
 function mapV2Snapshot(snapshot: V2Snapshot): Backup {
@@ -328,16 +374,30 @@ function mapV2Snapshot(snapshot: V2Snapshot): Backup {
     created: snapshot.created_at,
     size: 0,
     status: snapshot.status,
+    artifact_id: snapshot.artifact_id ?? null,
+    artifact_status: snapshot.artifact_status ?? null,
+    inventory_source: snapshot.inventory_source,
+    storage_scope: snapshot.storage_scope ?? null,
+    storage_url: snapshot.storage_url ?? null,
+    restore_count: snapshot.restore_count ?? 0,
+    last_restore_at: snapshot.last_restore_at ?? null,
+    latest_restore: snapshot.latest_restore ?? null,
   };
 }
 
 export function useBackups(machineId: string) {
   return useQuery({
     queryKey: ["backups", machineId] as const,
-    queryFn: () => apiV2.get<{ snapshots: V2Snapshot[] }>(`/snapshots/${machineId}`).then((d) => ({ backups: d.snapshots.map(mapV2Snapshot), backups_enabled: true })),
+    queryFn: () => apiV2.get<V2SnapshotInventoryResponse>(`/snapshots/${machineId}`).then((d) => ({
+      backups: d.snapshots.map(mapV2Snapshot),
+      restore_executions: d.restore_executions,
+      summary: d.summary,
+      backups_enabled: true,
+    })),
     refetchInterval: (query) => {
       const backups = query.state.data?.backups;
-      if (backups?.some((b) => b.status === "creating")) return 5_000;
+      const restoreExecutions = query.state.data?.restore_executions;
+      if (backups?.some((b) => b.status === "creating") || restoreExecutions?.some((execution) => execution.status === 'running')) return 5_000;
       return 30_000;
     },
   });

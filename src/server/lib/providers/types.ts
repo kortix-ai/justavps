@@ -33,6 +33,8 @@ export interface CreateServerOpts {
   vcpu?: number;
   memoryGb?: number;
   diskGb?: number;
+  sshPort?: number | null;
+  httpPort?: number | null;
 }
 
 export interface ServerResult {

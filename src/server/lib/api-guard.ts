@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createHash } from 'crypto';
 import { decode } from 'next-auth/jwt';
+import { setCookie } from 'hono/cookie';
 import { createMiddleware } from 'hono/factory';
 import { eq } from 'drizzle-orm';
 import { db } from '../db';
@@ -54,12 +55,26 @@ function extractSessionCookie(cookieHeader: string): { value: string; salt: stri
   return null;
 }
 
-function extractRequestedAccountId(c: any): string | null {
+function extractRequestedAccountId(c: any): { accountId: string | null; source: 'header' | 'cookie' | 'none' } {
   const headerAccountId = c.req.header('X-Account-Id');
-  if (headerAccountId) return headerAccountId;
+  if (headerAccountId) return { accountId: headerAccountId, source: 'header' };
 
   const cookieHeader = c.req.header('Cookie') || '';
-  return extractCookieValue(cookieHeader, ACCOUNT_COOKIE_NAME);
+  const cookieAccountId = extractCookieValue(cookieHeader, ACCOUNT_COOKIE_NAME);
+  if (cookieAccountId) return { accountId: cookieAccountId, source: 'cookie' };
+
+  return { accountId: null, source: 'none' };
+}
+
+function accountCookieOptions(c: any) {
+  const url = new URL(c.req.url);
+  return {
+    path: '/',
+    httpOnly: true,
+    sameSite: 'Lax' as const,
+    secure: url.protocol === 'https:',
+    maxAge: 60 * 60 * 24 * 30,
+  };
 }
 
 async function setResolvedContext(
@@ -82,7 +97,8 @@ async function setResolvedContext(
   const resolvedUser = await ensureAutoAdminUser(user);
   await ensureUserAccountGraph(resolvedUser);
 
-  const requestedAccountId = extractRequestedAccountId(c);
+  const requested = extractRequestedAccountId(c);
+  const requestedAccountId = requested.accountId;
 
   if (options?.forcedAccountId && requestedAccountId && requestedAccountId !== options.forcedAccountId) {
     return c.json({ error: true, message: 'API key account mismatch', status: 403 }, 403);
@@ -96,7 +112,13 @@ async function setResolvedContext(
   }
 
   if (!options?.forcedAccountId && requestedAccountId && accountContext.active.account.id !== requestedAccountId) {
-    return c.json({ error: true, message: 'Account access denied', status: 403 }, 403);
+    if (requested.source === 'header') {
+      return c.json({ error: true, message: 'Account access denied', status: 403 }, 403);
+    }
+
+    // Stale account cookie from a previous login/account switch.
+    // Heal it automatically so a valid session can continue with its resolved account.
+    setCookie(c, ACCOUNT_COOKIE_NAME, accountContext.active.account.id, accountCookieOptions(c));
   }
 
   c.set('userId', resolvedUser.id);

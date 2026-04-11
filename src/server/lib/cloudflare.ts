@@ -91,6 +91,7 @@ export interface MachineRoutingKVRecord {
   platform_url?: string;
   updated_at?: string;
   routing_version?: number;
+  routing_state?: string;
 }
 
 function machineHostnames(slug: string, domain: string) {

@@ -24,6 +24,9 @@ const API_V1 = `${BASE_URL}/api/v1`;
 const TARGET_HOST_IP = process.env.E2E_BAREMETAL_HOST_IP || '135.181.129.188';
 const TARGET_HOST_ID = process.env.E2E_BAREMETAL_HOST_ID || undefined;
 const TARGET_IMAGE_ID = process.env.E2E_IMAGE_ID || undefined;
+const MACHINE_VCPU = Number(process.env.E2E_MACHINE_VCPU || '1');
+const MACHINE_RAM_GB = Number(process.env.E2E_MACHINE_RAM_GB || '1');
+const MACHINE_DISK_GB = Number(process.env.E2E_MACHINE_DISK_GB || '10');
 
 type MachineView = {
   id: string;
@@ -172,6 +175,21 @@ async function waitFor<T>(label: string, fn: () => Promise<T>, predicate: (value
   throw new Error(`Timed out waiting for ${label}. lastValue=${JSON.stringify(lastValue)} lastError=${lastError instanceof Error ? lastError.message : String(lastError)}`);
 }
 
+async function waitForTcpPort(host: string, port: number, timeoutMs: number, intervalMs: number) {
+  const start = Date.now();
+  let lastError: unknown;
+  while (Date.now() - start < timeoutMs) {
+    try {
+      await execFileAsync('nc', ['-z', '-w', '2', host, String(port)], { timeout: 5_000 });
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+    await sleep(intervalMs);
+  }
+  throw new Error(`Timed out waiting for TCP ${host}:${port}. lastError=${lastError instanceof Error ? lastError.message : String(lastError)}`);
+}
+
 async function createHarnessUser() {
   const passwordHash = await hashPassword(state.password);
   const [user] = await db.insert(users).values({
@@ -226,6 +244,7 @@ async function main() {
   console.log(`E2E_BAREMETAL_HOST_ID=${TARGET_HOST_ID ?? '(auto)'}`);
   console.log(`E2E_BAREMETAL_HOST_IP=${TARGET_HOST_IP}`);
   console.log(`E2E_IMAGE_ID=${TARGET_IMAGE_ID ?? '(default)'}`);
+  console.log(`E2E_MACHINE=${MACHINE_VCPU}vCPU/${MACHINE_RAM_GB}GB/${MACHINE_DISK_GB}GB`);
   await createHarnessUser();
 
   const warmPoolState = await waitForWarmPoolReady();
@@ -240,7 +259,7 @@ async function main() {
   const createStart = Date.now();
   const create = await http<MachineView>(API_V2, '/machines', {
     method: 'POST',
-    body: JSON.stringify({ vcpu: 1, ram_gb: 1, disk_gb: 10, region: 'hel1', name: `e2e-runtime-${Date.now()}`, ...(TARGET_HOST_ID ? { host_id: TARGET_HOST_ID } : {}), ...(TARGET_IMAGE_ID ? { image_id: TARGET_IMAGE_ID } : {}) }),
+    body: JSON.stringify({ vcpu: MACHINE_VCPU, ram_gb: MACHINE_RAM_GB, disk_gb: MACHINE_DISK_GB, region: 'hel1', name: `e2e-runtime-${Date.now()}`, ...(TARGET_HOST_ID ? { host_id: TARGET_HOST_ID } : {}), ...(TARGET_IMAGE_ID ? { image_id: TARGET_IMAGE_ID } : {}) }),
   });
   state.machineId = create.data.id;
   state.machineSlug = create.data.slug;
@@ -259,11 +278,15 @@ async function main() {
 
   const sshGateway = ready.connectivity.ssh_host ?? TARGET_HOST_IP;
   if (!sshGateway) throw new Error('Missing ssh host for runtime verification');
+  if (!ready.connectivity.ssh_port) throw new Error('Missing ssh port for runtime verification');
 
   // Write returned private key to temp file
   const tmpKey = path.join(os.tmpdir(), `justavps_${ready.slug}`);
   await fs.writeFile(tmpKey, `${ready.connectivity.ssh_private_key}\n`, { mode: 0o600 });
   state.keyPath = tmpKey;
+
+  await waitForTcpPort(sshGateway, ready.connectivity.ssh_port, warmPoolState === 'ready' ? 20_000 : 60_000, 1_000);
+  console.log('[ssh] port is reachable');
 
   // SSH check
   await execFileAsync('ssh', [
@@ -302,7 +325,13 @@ async function main() {
   const terminalShareUrl = `https://${ready.slug}.kortix-dev.cloud/_terminal?__proxy_token=${tokenResp.data.token}`;
 
   // Verify public share URL end-to-end (first response sets cookie + redirects)
-  const first = await requestJson<null>(appShareUrl, {}, 30_000);
+  const first = await waitFor(
+    'proxy token initial redirect',
+    () => requestJson<null>(appShareUrl, {}, 30_000),
+    (res) => res.status === 302,
+    20_000,
+    1_000,
+  );
   if (first.status !== 302) {
     throw new Error(`proxy URL did not return initial redirect: status=${first.status}`);
   }

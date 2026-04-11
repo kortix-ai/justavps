@@ -8,9 +8,11 @@ import {
   type ServerResult,
   type ServerTypeInfo,
 } from './types';
+import { buildBaremetalCellState, deriveBaremetalCellIdentity, normalizeBaremetalHostGeneration } from '../baremetal/cells';
 import { pickBaremetalHostForPlan } from '../baremetal/scheduler';
 import { HttpBaremetalRunnerClient } from '../baremetal/runner-client';
 import type { BaremetalHostCandidate, BaremetalPlacementResult, BaremetalRunnerClient } from '../baremetal/types';
+import { hostAcceptsPlacement, hostPlacementBlockReason } from '../baremetal/host-maintenance';
 
 type HostSelector = (input: { region: string; serverType: string }) => Promise<BaremetalPlacementResult | null>;
 type RunnerClientFactory = (host: BaremetalHostCandidate) => BaremetalRunnerClient;
@@ -22,21 +24,37 @@ const DEFAULT_REGIONS: RegionInfo[] = [
 ];
 
 async function defaultSelectHost(input: { region: string; serverType: string }): Promise<BaremetalPlacementResult | null> {
-  const { reconcileBaremetalFleet } = await import('../baremetal/reconcile');
   const { db } = await import('../../db');
-  const { baremetalHosts } = await import('../../db/schema');
-  await reconcileBaremetalFleet();
+  const { baremetalHosts, cellAdmissionControls, cells } = await import('../../db/schema');
   const rows = await db.select().from(baremetalHosts);
-  const candidates = rows.map((row) => ({
-    id: row.id,
-    region: row.region,
-    status: row.status as BaremetalHostCandidate['status'],
-    runnerBaseUrl: row.runnerBaseUrl,
-    publicIpv4: row.publicIpv4,
-    publicIpv6: row.publicIpv6,
-    runnerToken: row.runnerToken ? row.runnerToken : null,
-    capacity: {
-      totalVcpu: row.totalVcpu ?? 0,
+  const cellRows = await db.select().from(cells);
+  const admissionRows = await db.select().from(cellAdmissionControls);
+  const cellsById = new Map(cellRows.map((cell) => [cell.id, cell]));
+  const admissionsByCellId = new Map(admissionRows.map((admission) => [admission.cellId, admission]));
+    const candidates = rows.map((row) => ({
+      id: row.id,
+      region: row.region,
+      status: row.status as BaremetalHostCandidate['status'],
+      hostClass: row.hostClass,
+      generation: normalizeBaremetalHostGeneration(row.generation, row.metadata),
+      cellId: row.cellId,
+      cell: buildBaremetalCellState({
+        region: row.region,
+        hostClass: row.hostClass,
+        generation: row.generation,
+        cellId: row.cellId,
+        metadata: row.metadata,
+        cell: row.cellId ? cellsById.get(row.cellId) ?? null : null,
+        admission: row.cellId ? admissionsByCellId.get(row.cellId) ?? null : null,
+      }) ?? deriveBaremetalCellIdentity(row),
+      maintenanceState: row.maintenanceState,
+      runnerBaseUrl: row.runnerBaseUrl,
+      publicIpv4: row.publicIpv4,
+      publicIpv6: row.publicIpv6,
+      runnerToken: row.runnerToken ? row.runnerToken : null,
+      metadata: row.metadata,
+      capacity: {
+        totalVcpu: row.totalVcpu ?? 0,
       totalMemoryGb: row.totalMemoryGb ?? 0,
       totalDiskGb: row.totalDiskGb ?? 0,
       usedVcpu: row.usedVcpu ?? 0,
@@ -56,18 +74,38 @@ function defaultRunnerClientFactory(host: BaremetalHostCandidate): BaremetalRunn
 
 async function loadHostById(hostId: string): Promise<BaremetalHostCandidate | null> {
   const { db } = await import('../../db');
-  const { baremetalHosts } = await import('../../db/schema');
-  const rows = await db.select().from(baremetalHosts);
+  const { baremetalHosts, cellAdmissionControls, cells } = await import('../../db/schema');
+  const [rows, cellRows, admissionRows] = await Promise.all([
+    db.select().from(baremetalHosts),
+    db.select().from(cells),
+    db.select().from(cellAdmissionControls),
+  ]);
   const row = rows.find((item) => item.id === hostId);
   if (!row) return null;
+  const cellsById = new Map(cellRows.map((cell) => [cell.id, cell]));
+  const admissionsByCellId = new Map(admissionRows.map((admission) => [admission.cellId, admission]));
   return {
     id: row.id,
     region: row.region,
     status: row.status as BaremetalHostCandidate['status'],
+    hostClass: row.hostClass,
+    generation: normalizeBaremetalHostGeneration(row.generation, row.metadata),
+    cellId: row.cellId,
+    cell: buildBaremetalCellState({
+      region: row.region,
+      hostClass: row.hostClass,
+      generation: row.generation,
+      cellId: row.cellId,
+      metadata: row.metadata,
+      cell: row.cellId ? cellsById.get(row.cellId) ?? null : null,
+      admission: row.cellId ? admissionsByCellId.get(row.cellId) ?? null : null,
+    }) ?? deriveBaremetalCellIdentity(row),
+    maintenanceState: row.maintenanceState,
     runnerBaseUrl: row.runnerBaseUrl,
     publicIpv4: row.publicIpv4,
     publicIpv6: row.publicIpv6,
     runnerToken: row.runnerToken,
+    metadata: row.metadata,
     capacity: {
       totalVcpu: row.totalVcpu ?? 0,
       totalMemoryGb: row.totalMemoryGb ?? 0,
@@ -124,18 +162,37 @@ export class BaremetalProvider implements ComputeProvider {
 
   async deleteImage(imageId: string): Promise<void> {
     const { db } = await import('../../db');
-    const { baremetalHosts } = await import('../../db/schema');
-    const rows = await db.select().from(baremetalHosts);
+    const { baremetalHosts, cellAdmissionControls, cells } = await import('../../db/schema');
+    const [rows, cellRows, admissionRows] = await Promise.all([
+      db.select().from(baremetalHosts),
+      db.select().from(cells),
+      db.select().from(cellAdmissionControls),
+    ]);
+    const cellsById = new Map(cellRows.map((cell) => [cell.id, cell]));
+    const admissionsByCellId = new Map(admissionRows.map((admission) => [admission.cellId, admission]));
     const activeHosts = rows
       .filter((row) => row.status === 'active' && row.runnerBaseUrl && row.runnerToken)
       .map((row) => ({
         id: row.id,
         region: row.region,
         status: row.status as BaremetalHostCandidate['status'],
+        hostClass: row.hostClass,
+        generation: normalizeBaremetalHostGeneration(row.generation, row.metadata),
+        cellId: row.cellId,
+        cell: buildBaremetalCellState({
+          region: row.region,
+          hostClass: row.hostClass,
+          generation: row.generation,
+          cellId: row.cellId,
+          metadata: row.metadata,
+          cell: row.cellId ? cellsById.get(row.cellId) ?? null : null,
+          admission: row.cellId ? admissionsByCellId.get(row.cellId) ?? null : null,
+        }) ?? deriveBaremetalCellIdentity(row),
         runnerBaseUrl: row.runnerBaseUrl,
         publicIpv4: row.publicIpv4,
         publicIpv6: row.publicIpv6,
         runnerToken: row.runnerToken,
+        metadata: row.metadata,
         capacity: {
           totalVcpu: row.totalVcpu ?? 0,
           totalMemoryGb: row.totalMemoryGb ?? 0,
@@ -175,8 +232,8 @@ export class BaremetalProvider implements ComputeProvider {
 
       if (opts.hostId) {
         const specific = await loadHostById(opts.hostId);
-        if (!specific || specific.status !== 'active' || !specific.runnerBaseUrl) {
-          throw new Error(`Requested host ${opts.hostId} is not active or not registered`);
+        if (!specific || !hostAcceptsPlacement(specific)) {
+          throw new Error(`Requested host ${opts.hostId} cannot accept placement: ${specific ? hostPlacementBlockReason(specific) : 'host not found'}`);
         }
         const fv = specific.capacity.totalVcpu - specific.capacity.usedVcpu;
         const fm = specific.capacity.totalMemoryGb - specific.capacity.usedMemoryGb;
@@ -191,10 +248,13 @@ export class BaremetalProvider implements ComputeProvider {
         const { baremetalHosts } = await import('../../db/schema');
         const rows = await db.select().from(baremetalHosts);
         const active = rows
-          .filter((r) => r.status === 'active' && r.region === opts.region && r.runnerBaseUrl)
+          .filter((r) => r.region === opts.region && hostAcceptsPlacement(r))
           .map((r) => ({
             id: r.id, region: r.region, status: r.status as BaremetalHostCandidate['status'],
+            hostClass: r.hostClass,
+            maintenanceState: r.maintenanceState,
             runnerBaseUrl: r.runnerBaseUrl, publicIpv4: r.publicIpv4, publicIpv6: r.publicIpv6, runnerToken: r.runnerToken,
+            metadata: r.metadata,
             capacity: { totalVcpu: r.totalVcpu ?? 0, totalMemoryGb: r.totalMemoryGb ?? 0, totalDiskGb: r.totalDiskGb ?? 0, usedVcpu: r.usedVcpu ?? 0, usedMemoryGb: r.usedMemoryGb ?? 0, usedDiskGb: r.usedDiskGb ?? 0 },
           }));
         const eligible = active.filter((h) => {
@@ -230,6 +290,8 @@ export class BaremetalProvider implements ComputeProvider {
       vcpu,
       memoryGb,
       diskGb,
+      sshPort: opts.sshPort ?? null,
+      httpPort: opts.httpPort ?? null,
       labels: opts.labels,
     });
 
@@ -245,6 +307,9 @@ export class BaremetalProvider implements ComputeProvider {
       publicIpv6,
       metadata: {
         baremetal_host_id: hostCandidate.id,
+        baremetal_cell_id: hostCandidate.cell?.id ?? hostCandidate.cellId ?? null,
+        baremetal_cell_slug: hostCandidate.cell?.slug ?? null,
+        baremetal_cell_generation: hostCandidate.cell?.generation ?? hostCandidate.generation ?? null,
         private_ipv4: result.privateIpv4,
         ssh_port: result.sshPort,
         http_port: result.httpPort ?? null,

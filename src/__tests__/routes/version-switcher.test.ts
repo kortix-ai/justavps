@@ -8,6 +8,7 @@ describe('version switcher routing', () => {
     expect(pathForVersion('/images', 'v2')).toBe('/v2/images');
     expect(pathForVersion('/billing', 'v2')).toBe('/v2/billing');
     expect(pathForVersion('/admin/fleet', 'v2')).toBe('/v2/admin/fleet');
+    expect(pathForVersion('/admin/machines', 'v2')).toBe('/v2/admin/machines');
   });
 
   it('maps v2 pages back to v1 namespace', () => {
@@ -15,5 +16,6 @@ describe('version switcher routing', () => {
     expect(pathForVersion('/v2/images', 'v1')).toBe('/images');
     expect(pathForVersion('/v2/billing', 'v1')).toBe('/billing');
     expect(pathForVersion('/v2/admin/fleet', 'v1')).toBe('/admin/fleet');
+    expect(pathForVersion('/v2/admin/machines', 'v1')).toBe('/admin/machines');
   });
 });

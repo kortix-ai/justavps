@@ -13,6 +13,63 @@ const SnapshotSchema = z.object({
   name: z.string(),
   created_at: z.string(),
   status: z.string(),
+  artifact_id: z.string().nullable().optional(),
+  artifact_status: z.string().nullable().optional(),
+  inventory_source: z.enum(['provider', 'database', 'merged']).optional(),
+  backup_kind: z.string().nullable().optional(),
+  inventory_scope: z.string().nullable().optional(),
+  storage_scope: z.string().nullable().optional(),
+  display_name: z.string().nullable().optional(),
+  storage_url: z.string().nullable().optional(),
+  retention_until: z.string().nullable().optional(),
+  source_host_id: z.string().nullable().optional(),
+  restore_count: z.number().optional(),
+  last_restore_at: z.string().nullable().optional(),
+  latest_restore: z.object({
+    id: z.string(),
+    artifact_id: z.string(),
+    snapshot_id: z.string().nullable(),
+    snapshot_name: z.string().nullable(),
+    status: z.string(),
+    trigger_source: z.string(),
+    started_at: z.string(),
+    completed_at: z.string().nullable(),
+    duration_ms: z.number().nullable(),
+    error: z.string().nullable(),
+    requested_by_user_id: z.string().nullable(),
+    source_host_id: z.string().nullable(),
+    target_host_id: z.string().nullable(),
+  }).nullable().optional(),
+});
+
+const RestoreExecutionSchema = z.object({
+  id: z.string(),
+  artifact_id: z.string(),
+  snapshot_id: z.string().nullable(),
+  snapshot_name: z.string().nullable(),
+  status: z.string(),
+  trigger_source: z.string(),
+  started_at: z.string(),
+  completed_at: z.string().nullable(),
+  duration_ms: z.number().nullable(),
+  error: z.string().nullable(),
+  requested_by_user_id: z.string().nullable(),
+  source_host_id: z.string().nullable(),
+  target_host_id: z.string().nullable(),
+});
+
+const SnapshotInventorySchema = z.object({
+  snapshots: z.array(SnapshotSchema),
+  restore_executions: z.array(RestoreExecutionSchema),
+  summary: z.object({
+    total_snapshots: z.number(),
+    ready_snapshots: z.number(),
+    deleted_snapshots: z.number(),
+    snapshots_with_restore_history: z.number(),
+    total_restores: z.number(),
+    failed_restores: z.number(),
+    last_restore_at: z.string().nullable(),
+  }),
 });
 
 // @ts-expect-error mixed success/error response typing
@@ -22,10 +79,10 @@ snapshotsV2App.openapi(createRoute({
   tags: ['Snapshots V2'],
   summary: 'List machine snapshots',
   request: { params: z.object({ machineId: z.string().uuid() }) },
-  responses: { 200: { description: 'Snapshots', content: { 'application/json': { schema: z.object({ snapshots: z.array(SnapshotSchema) }) } } } },
+  responses: { 200: { description: 'Snapshots', content: { 'application/json': { schema: SnapshotInventorySchema } } } },
 }), async (c) => {
   try {
-    return c.json({ snapshots: await listSnapshotsV2({ accountId: c.get('accountId'), machineId: c.req.valid('param').machineId }) });
+    return c.json(await listSnapshotsV2({ accountId: c.get('accountId'), machineId: c.req.valid('param').machineId }));
   } catch (err) {
     return handleRouteError(c, err, 'SNAPSHOTS-V2') as Response;
   }
@@ -45,7 +102,7 @@ snapshotsV2App.openapi(createRoute({
 }), async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
-    return c.json(await createSnapshotV2({ accountId: c.get('accountId'), machineId: c.req.valid('param').machineId, name: body.name }), 202);
+    return c.json(await createSnapshotV2({ accountId: c.get('accountId'), machineId: c.req.valid('param').machineId, name: body.name, requestedByUserId: c.get('userId') }), 202);
   } catch (err) {
     return handleRouteError(c, err, 'SNAPSHOTS-V2') as Response;
   }
@@ -58,11 +115,11 @@ snapshotsV2App.openapi(createRoute({
   tags: ['Snapshots V2'],
   summary: 'Restore machine snapshot',
   request: { params: z.object({ machineId: z.string().uuid(), snapshotId: z.string() }) },
-  responses: { 200: { description: 'Restored', content: { 'application/json': { schema: z.object({ ok: z.boolean() }) } } } },
+  responses: { 200: { description: 'Restored', content: { 'application/json': { schema: z.object({ ok: z.boolean(), restore_execution_id: z.string().uuid() }) } } } },
 }), async (c) => {
   try {
     const { machineId, snapshotId } = c.req.valid('param');
-    return c.json(await restoreSnapshotV2({ accountId: c.get('accountId'), machineId, snapshotId }));
+    return c.json(await restoreSnapshotV2({ accountId: c.get('accountId'), machineId, snapshotId, requestedByUserId: c.get('userId') }));
   } catch (err) {
     return handleRouteError(c, err, 'SNAPSHOTS-V2') as Response;
   }

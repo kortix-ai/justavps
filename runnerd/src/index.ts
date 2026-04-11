@@ -141,14 +141,20 @@ async function createWarmVM(cpu: number): Promise<PoolVM | null> {
   return vm;
 }
 
-function claimWarmVM(cpu: number): PoolVM | null {
+async function claimWarmVM(cpu: number): Promise<PoolVM | null> {
   const bucket = getWarmBucket(cpu);
-  const vm = bucket.shift() ?? null;
-  if (vm) {
-    console.log(`[warm-pool] claimed ${vm.name} (cpu=${cpu}), bucket now ${bucket.length}/${WARM_POOL_PER_CPU}`);
-    replenishPools().catch(() => {});
+  while (bucket.length > 0) {
+    const vm = bucket.shift()!;
+    try {
+      await runIncus(['info', incusTarget(vm.name)], 5000);
+      console.log(`[warm-pool] claimed ${vm.name} (cpu=${cpu}), bucket now ${bucket.length}/${WARM_POOL_PER_CPU}`);
+      replenishPools().catch(() => {});
+      return vm;
+    } catch {
+      console.warn(`[warm-pool] dropped stale entry ${vm.name} (cpu=${cpu})`);
+    }
   }
-  return vm;
+  return null;
 }
 
 async function prunePrefix(prefix: string) {
@@ -336,19 +342,6 @@ async function growGuestFilesystem(instanceName: string) {
   ], 30000);
 }
 
-async function waitForHostTcp(ip: string, port: number, timeoutMs = 30000) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    try {
-      await execFileAsync('nc', ['-z', '-w', '1', ip, String(port)], { timeout: 2000 });
-      return;
-    } catch {
-      await delay(100);
-    }
-  }
-  throw new Error(`Timed out waiting for TCP ${ip}:${port}`);
-}
-
 async function applyClaimResources(instanceName: string, memoryGb: number, diskGb: number) {
   // RAM hotplug works on running VMs; don't block waiting for guest visibility.
   await setIncusConfig(instanceName, 'limits.memory', `${memoryGb}GiB`);
@@ -379,6 +372,15 @@ function httpPortForInstance(instanceId: string) {
   const digest = createHash('sha1').update(instanceId).digest();
   const offset = digest.readUInt16BE(2) % 1000;
   return 8000 + offset;
+}
+
+function resolveExplicitPort(value: unknown, fallback: number) {
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isInteger(parsed) && parsed > 0) return parsed;
+  }
+  return fallback;
 }
 
 /**
@@ -616,6 +618,8 @@ app.post('/v1/instances', async (c) => {
   const vcpu = Number(body.vcpu);
   const memoryGb = Number(body.memoryGb);
   const cloudInitUserData = String(body.cloudInitUserData || '');
+  const requestedSshPort = resolveExplicitPort(body.sshPort, sshPortForInstance(instanceName));
+  const requestedHttpPort = resolveExplicitPort(body.httpPort, httpPortForInstance(instanceName));
 
   try {
     const isGoldenImage = image === 'justavps-golden' || image.startsWith('justavps-golden');
@@ -624,10 +628,10 @@ app.post('/v1/instances', async (c) => {
     // ── WARM POOL: check BEFORE cold init to avoid wasting 2s on incus init ──
     if (isGoldenImage) {
       const startTs = Date.now();
-      const sshPort = sshPortForInstance(instanceName);
-      const httpPort = httpPortForInstance(instanceName);
+      const sshPort = requestedSshPort;
+      const httpPort = requestedHttpPort;
       trackedCpuBuckets.add(vcpu);
-      const warmVM = claimWarmVM(vcpu);
+      const warmVM = await claimWarmVM(vcpu);
       if (warmVM) {
         console.log(`[runnerd] WARM POOL claim ${warmVM.name} → ${instanceName} +${Date.now() - startTs}ms`);
 
@@ -748,8 +752,8 @@ app.post('/v1/instances', async (c) => {
     await waitForCloudInit(instanceName);
     console.log(`[runnerd] inspected ${instanceName} privateIpv4=${inspected.privateIpv4 ?? 'none'} status=${inspected.status ?? 'unknown'}`);
 
-    const sshPort = sshPortForInstance(instanceName);
-    const httpPort = httpPortForInstance(instanceName);
+    const sshPort = requestedSshPort;
+    const httpPort = requestedHttpPort;
     if (inspected.privateIpv4 && RUNNERD_PUBLIC_IPV4) {
       await setupProxyDevices(instanceName, inspected.privateIpv4, sshPort, httpPort).catch((err) =>
         console.warn(`[runnerd] proxy setup failed for ${instanceName}: ${err instanceof Error ? err.message : err}`)

@@ -10,11 +10,13 @@ import { eq } from 'drizzle-orm';
 import { db } from '../../db';
 import { machines, apiKeys } from '../../db/schema';
 import { validateApiKey, decryptSecret } from '../../lib/crypto';
-import { cloudflareClient } from '../../lib/cloudflare';
 import { config } from '../../lib/config';
 import { errorResponse } from '../../lib/route-helpers';
 import { eventBus } from '../../lib/event-bus';
 import { getLatestDaemonVersion } from '../../lib/daemon-version';
+import { runProvisionerServicePass } from '../../lib/control-plane/provisioner';
+import { syncRoutingFromHeartbeatReady, runRoutingRepairServicePass } from '../../lib/control-plane/routing';
+import { ingestMachineHeartbeat } from '../../lib/control-plane/telemetry';
 import {
   HeartbeatSchema,
   StageReportSchema,
@@ -61,23 +63,20 @@ internalApp.openapi(heartbeatRoute, async (c) => {
     }
 
     const shouldMarkReady = (machine.status === 'provisioning' || machine.status === 'error');
-
-    const providerMeta = {
-      ...((machine.providerMeta ?? {}) as Record<string, unknown>),
-      last_callback_at: new Date().toISOString(),
-      ...(shouldMarkReady ? { ready_via: 'heartbeat' } : {}),
-    };
-    await db.update(machines).set({
-      lastHeartbeatAt: new Date(),
-      lastHeartbeat: {
-        cpu: load.cpu, memory: load.memory, disk: load.disk, services,
-        ...(network ? { network } : {}),
-        ...(security ? { security } : {}),
+    const heartbeatAt = new Date();
+    const { projectedMachinePatch } = await ingestMachineHeartbeat({
+      machine,
+      heartbeatAt,
+      shouldMarkReady,
+      payload: {
+        daemonVersion: daemon_version,
+        uptime,
+        services,
+        load,
+        network,
+        security,
       },
-      ...(daemon_version ? { daemonVersion: daemon_version } : {}),
-      providerMeta,
-      ...(shouldMarkReady ? { status: 'ready', readyAt: new Date(), provisioningStage: 'services_ready' } : {}),
-    }).where(eq(machines.id, machine.id));
+    });
 
     // ── Security tamper detection ───────────────────────────────────────
     if (security && !shouldMarkReady) {
@@ -132,14 +131,22 @@ internalApp.openapi(heartbeatRoute, async (c) => {
     });
 
     if (shouldMarkReady && config.isCloudflareConfigured() && machine.ip) {
-      const providerMeta = (machine.providerMeta ?? {}) as Record<string, unknown>;
-      cloudflareClient.writeKVMachine(slug, {
-        machine_id: machine.id,
-        account_id: machine.accountId ?? machine.ownerId,
-        ip: machine.ip,
-        origin_port: typeof providerMeta.http_port === 'number' ? providerMeta.http_port : undefined,
-        status: 'ready',
-        server_type: machine.serverType,
+      const providerMeta = {
+        ...((machine.providerMeta ?? {}) as Record<string, unknown>),
+        ...((projectedMachinePatch?.providerMeta ?? {}) as Record<string, unknown>),
+      };
+      syncRoutingFromHeartbeatReady({
+        machineId: machine.id,
+        accountId: machine.accountId ?? machine.ownerId,
+        machineSlug: slug,
+        machineStatus: 'ready',
+        serverType: machine.serverType,
+        desiredIp: machine.ip,
+        desiredOriginPort: typeof providerMeta.http_port === 'number' ? providerMeta.http_port : null,
+        publicIpv4: typeof providerMeta.public_ipv4 === 'string' ? providerMeta.public_ipv4 : machine.ip,
+        publicIpv6: typeof providerMeta.public_ipv6 === 'string' ? providerMeta.public_ipv6 : null,
+        originHostname: `origin-${slug}.${config.PROXY_DOMAIN}`,
+        source: 'heartbeat_ready',
       }).catch(() => {});
     }
 
@@ -205,14 +212,27 @@ const watchdogRoute = createRoute({
 
 internalApp.openapi(watchdogRoute, async (c) => {
   try {
+    const { processDueControlPlaneJobs } = await import('../../lib/control-plane-jobs');
     const { runWatchdog } = await import('../../lib/machine-watchdog');
     const { reconcileBaremetalFleet } = await import('../../lib/baremetal/reconcile');
+    const provisioner = await runProvisionerServicePass({ limit: 10 });
+    await processDueControlPlaneJobs({ jobTypes: ['webhook_deliver'], limit: 50 });
+    const routingRepair = await runRoutingRepairServicePass(25);
     const alerts = await runWatchdog();
-    const baremetal = await reconcileBaremetalFleet();
+    const baremetal = await reconcileBaremetalFleet(undefined, {
+      onlyDueHosts: true,
+      dueAfterMs: 5 * 60 * 1000,
+      maxHosts: 10,
+      skipGlobalMachineAudit: true,
+      skipGlobalImageAudit: true,
+    });
 
     return c.json({
       checked: true,
       alerts: alerts.length,
+      provisioner,
+      repaired_routing_states: routingRepair.repaired,
+      routing_repair: routingRepair,
       details: alerts.map((a) => ({ slug: a.slug, type: a.type, details: a.details })),
       baremetal,
     });

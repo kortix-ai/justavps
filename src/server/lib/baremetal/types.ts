@@ -1,3 +1,10 @@
+import type {
+  BaremetalCellAdmissionState,
+  BaremetalCellCapacitySnapshot,
+  BaremetalCellSellabilityState,
+  BaremetalCellState,
+} from './cells';
+
 export type BaremetalVendor = 'hetzner_robot';
 
 export type BaremetalHostStatus =
@@ -28,15 +35,137 @@ export interface BaremetalCapacity {
   usedDiskGb: number;
 }
 
+export interface BaremetalPlacementResources {
+  vcpu: number;
+  memoryGb: number;
+  diskGb: number;
+}
+
+export interface BaremetalSchedulerWarmPoolMetadata {
+  enabled?: boolean | null;
+  availableCpuBuckets?: number[] | null;
+  exactResourceKeys?: string[] | null;
+  ready?: number | null;
+  target?: number | null;
+}
+
+export interface BaremetalSchedulerImageLocalityMetadata {
+  state?: 'local' | 'remote' | 'warming' | 'unknown' | null;
+  imageIds?: string[] | null;
+  aliases?: string[] | null;
+}
+
+export interface BaremetalSchedulerHostClassPolicyMetadata {
+  scoreAdjustment?: number | null;
+  labels?: string[] | null;
+}
+
+export interface BaremetalSchedulerHostMetadata {
+  schedulable?: boolean | null;
+  unschedulableReason?: string | null;
+  warmPool?: BaremetalSchedulerWarmPoolMetadata | null;
+  imageLocality?: BaremetalSchedulerImageLocalityMetadata | null;
+  hostClassPolicy?: BaremetalSchedulerHostClassPolicyMetadata | null;
+}
+
+export interface BaremetalPlacementPolicy {
+  requiredHostClass?: string | null;
+  requiredCellId?: string | null;
+  preferredHostClasses?: string[];
+  preferredCellIds?: string[];
+  warmPoolPreference?: 'prefer' | 'neutral' | 'avoid';
+  requireLocalImage?: boolean;
+  cellSpreadPreference?: 'spread' | 'pack' | 'neutral';
+  maxProjectedUtilizationScore?: number | null;
+  allowRestrictedCellAdmission?: boolean;
+  allowReserveOnlySellability?: boolean;
+}
+
+export interface BaremetalPlacementRequest {
+  region: string;
+  resources: BaremetalPlacementResources;
+  requestedHostId?: string;
+  imageId?: string | null;
+  imageAlias?: string | null;
+  policy?: BaremetalPlacementPolicy;
+}
+
 export interface BaremetalHostCandidate {
   id: string;
   region: string;
   status: BaremetalHostStatus;
+  hostClass?: string | null;
+  generation?: string | null;
+  cellId?: string | null;
+  cell?: BaremetalCellState | null;
+  maintenanceState?: string | null;
   runnerBaseUrl: string | null;
   publicIpv4: string | null;
   publicIpv6?: string | null;
   runnerToken?: string | null;
+  metadata?: Record<string, unknown> | null;
   capacity: BaremetalCapacity;
+}
+
+export interface BaremetalPlacementCandidateEvaluation {
+  hostId: string;
+  eligible: boolean;
+  score: number | null;
+  reasons: string[];
+  cell: BaremetalCellState | null;
+  projectedUsage: BaremetalPlacementResources;
+  cellProjectedUtilization: {
+    hostCount: number;
+    vcpuPercent: number;
+    memoryPercent: number;
+    diskPercent: number;
+    score: number;
+    reserveBudget: BaremetalPlacementResources;
+    projectedAvailable: BaremetalPlacementResources;
+    projectedSellable: BaremetalPlacementResources;
+    reserveSatisfied: boolean;
+    admissionState: BaremetalCellAdmissionState;
+    sellabilityState: BaremetalCellSellabilityState;
+  } | null;
+  projectedUtilization: {
+    vcpuPercent: number;
+    memoryPercent: number;
+    diskPercent: number;
+    score: number;
+  };
+  schedulingHints: {
+    requestedHost: boolean;
+    warmPool: 'exact' | 'cpu_bucket' | 'none' | 'unknown';
+    imageLocality: 'local' | 'remote' | 'warming' | 'unknown';
+    hostClass: string | null;
+    generation: string | null;
+    cellId: string | null;
+    cellSlug: string | null;
+    maintenanceState: string | null;
+    schedulable: boolean;
+    admissionState: BaremetalCellAdmissionState;
+    sellabilityState: BaremetalCellSellabilityState;
+  };
+}
+
+export interface BaremetalPlacementDecision {
+  outcome: 'placed' | 'rejected';
+  selectedHostId: string | null;
+  summary: string;
+  explanation: string[];
+  request: BaremetalPlacementRequest;
+  policy: Required<Pick<BaremetalPlacementPolicy, 'warmPoolPreference' | 'requireLocalImage'>> & {
+    requiredHostClass: string | null;
+    requiredCellId: string | null;
+    preferredHostClasses: string[];
+    preferredCellIds: string[];
+    cellSpreadPreference: 'spread' | 'pack' | 'neutral';
+    maxProjectedUtilizationScore: number | null;
+    allowRestrictedCellAdmission: boolean;
+    allowReserveOnlySellability: boolean;
+  };
+  cells: BaremetalCellCapacitySnapshot[];
+  candidates: BaremetalPlacementCandidateEvaluation[];
 }
 
 export interface BaremetalPlanDefinition {
@@ -51,6 +180,7 @@ export interface BaremetalPlanDefinition {
 export interface BaremetalPlacementResult {
   host: BaremetalHostCandidate;
   plan: BaremetalPlanDefinition;
+  decision: BaremetalPlacementDecision;
 }
 
 export interface RunnerCreateInstanceInput {
@@ -64,6 +194,8 @@ export interface RunnerCreateInstanceInput {
   vcpu: number;
   memoryGb: number;
   diskGb: number;
+  sshPort?: number | null;
+  httpPort?: number | null;
   labels?: Record<string, string>;
 }
 

@@ -17,6 +17,7 @@ describe('versioning helpers', () => {
     expect(pathForVersion('/machines/abc', 'v2')).toBe('/v2/machines/abc');
     expect(pathForVersion('/v2/machines/abc', 'v1')).toBe('/machines/abc');
     expect(pathForVersion('/admin/fleet', 'v2')).toBe('/v2/admin/fleet');
+    expect(pathForVersion('/admin/machines', 'v2')).toBe('/v2/admin/machines');
   });
 
   it('keeps non-versioned surfaces stable across versions', () => {
