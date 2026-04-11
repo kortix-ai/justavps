@@ -50,6 +50,7 @@ const HostReconciliationReportSchema = z.object({
   stale_machine_ids: z.array(z.string().uuid()),
   stale_image_ids: z.array(z.string().uuid()),
   orphan_instance_ids: z.array(z.string()),
+  warm_pool_instance_ids: z.array(z.string()),
   error: z.string().nullable(),
 });
 
@@ -261,6 +262,7 @@ function buildReconciliationReport(row: typeof baremetalHosts.$inferSelect) {
     stale_machine_ids: Array.isArray(reconciliation.stale_machine_ids) ? reconciliation.stale_machine_ids.filter((id): id is string => typeof id === 'string') : [],
     stale_image_ids: Array.isArray(reconciliation.stale_image_ids) ? reconciliation.stale_image_ids.filter((id): id is string => typeof id === 'string') : [],
     orphan_instance_ids: Array.isArray(reconciliation.orphan_instance_ids) ? reconciliation.orphan_instance_ids.filter((id): id is string => typeof id === 'string') : [],
+    warm_pool_instance_ids: Array.isArray(reconciliation.warm_pool_instance_ids) ? reconciliation.warm_pool_instance_ids.filter((id): id is string => typeof id === 'string') : [],
     error: typeof reconciliation.error === 'string' ? reconciliation.error : null,
   };
 }
@@ -584,10 +586,6 @@ async function placeHetznerRobotOrder(procurementId: string, approvedByUserId?: 
   }).where(eq(baremetalProcurements.id, procurement.id));
 
   return { transactionId: transaction.transaction.id, hostId: host?.id ?? hostId };
-}
-
-function isWarmPoolInstance(instanceId: string) {
-  return instanceId.startsWith('justavps-warm-');
 }
 
 // @ts-expect-error mixed success/error response typing
@@ -980,8 +978,8 @@ adminFleetV2App.openapi(createRoute({
 
     const reconciliation = buildReconciliationReport(host);
     const orphans = reconciliation.orphan_instance_ids;
-    const skipped = orphans.filter((instanceId) => isWarmPoolInstance(instanceId));
-    const cleaned = orphans.filter((instanceId) => !isWarmPoolInstance(instanceId));
+    const skipped = reconciliation.warm_pool_instance_ids;
+    const cleaned = orphans;
 
     if (cleaned.length > 0) {
       const runner = new HttpBaremetalRunnerClient(host.runnerBaseUrl, host.runnerToken);

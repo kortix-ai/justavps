@@ -5,6 +5,8 @@ import net from 'node:net';
 import { db } from '@/server/db';
 import { baremetalHosts, machinePortAllocations, machines, type MachinePortAllocationRow } from '@/server/db/schema';
 
+type BaremetalMachineRow = typeof machines.$inferSelect;
+
 type PortAllocationExecutor = Pick<typeof db, 'select' | 'insert' | 'delete' | 'execute'>;
 
 const SSH_PORT_RANGE = { start: 22000, end: 41999, target: 22 } as const;
@@ -107,6 +109,31 @@ export async function reserveMachinePortAllocations(input: {
 
 export async function releaseMachinePortAllocations(machineId: string, executor: PortAllocationExecutor = db) {
   await executor.delete(machinePortAllocations).where(eq(machinePortAllocations.machineId, machineId));
+}
+
+export async function backfillMachinePortAllocationsFromMachine(machine: BaremetalMachineRow, executor: PortAllocationExecutor = db) {
+  if (machine.provider !== 'baremetal' || machine.deletedAt) return null;
+  const meta = (machine.providerMeta ?? {}) as Record<string, unknown>;
+  const hostId = typeof meta.baremetal_host_id === 'string' ? meta.baremetal_host_id : null;
+  if (!hostId) return null;
+
+  const sshPort = typeof meta.ssh_port === 'number' ? meta.ssh_port : typeof meta.ssh_port === 'string' ? Number(meta.ssh_port) : null;
+  const httpPort = typeof meta.http_port === 'number' ? meta.http_port : typeof meta.http_port === 'string' ? Number(meta.http_port) : null;
+  const existing = await getMachinePortAllocations(machine.id, executor);
+  const now = new Date();
+  const inserts: Array<{ machineId: string; hostId: string; protocol: 'ssh' | 'http'; publicPort: number; targetPort: number; metadata: Record<string, unknown>; createdAt: Date; updatedAt: Date }> = [];
+
+  if (!existing.ssh && sshPort && Number.isInteger(sshPort) && sshPort > 0) {
+    inserts.push({ machineId: machine.id, hostId, protocol: 'ssh', publicPort: sshPort, targetPort: SSH_PORT_RANGE.target, metadata: { source: 'legacy_provider_meta' }, createdAt: now, updatedAt: now });
+  }
+  if (!existing.http && httpPort && Number.isInteger(httpPort) && httpPort > 0) {
+    inserts.push({ machineId: machine.id, hostId, protocol: 'http', publicPort: httpPort, targetPort: HTTP_PORT_RANGE.target, metadata: { source: 'legacy_provider_meta' }, createdAt: now, updatedAt: now });
+  }
+  if (inserts.length > 0) {
+    await executor.insert(machinePortAllocations).values(inserts);
+  }
+
+  return getMachinePortAllocations(machine.id, executor);
 }
 
 export type MachinePortAllocationSummary = Pick<MachinePortAllocationRow, 'machineId' | 'hostId' | 'protocol' | 'publicPort' | 'targetPort'>;

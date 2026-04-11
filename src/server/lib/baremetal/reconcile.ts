@@ -5,6 +5,7 @@ import { baremetalHosts, hostCapacityReservations, images, machines } from '../.
 import { ensureBaremetalHostCellAssignment } from './cell-store';
 import { expireStaleHostCapacityReservations } from './reservations';
 import { syncHostImageAvailabilityFromRunnerState } from './image-locality';
+import { backfillMachinePortAllocationsFromMachine } from './port-allocations';
 import { HttpBaremetalRunnerClient } from './runner-client';
 import type { RunnerHostState } from './types';
 
@@ -25,6 +26,7 @@ type ReconcileDeps = {
   updateImage: (imageId: string, patch: Partial<ImageRow>) => Promise<void>;
   updateReservation: (reservationId: string, patch: Partial<HostCapacityReservationRow>) => Promise<void>;
   syncHostImageAvailability: (input: { hostId: string; images: Array<{ imageId: string; aliases: string[] }>; at: Date }) => Promise<void>;
+  syncMachinePortAllocations: (machine: MachineRow) => Promise<void>;
 };
 
 export interface BaremetalHostReconciliationResult {
@@ -35,6 +37,7 @@ export interface BaremetalHostReconciliationResult {
   staleMachineIds: string[];
   staleImageIds: string[];
   orphanInstanceIds: string[];
+  warmPoolInstanceIds: string[];
   error?: string;
 }
 
@@ -80,6 +83,7 @@ function defaultDeps(): ReconcileDeps {
       await db.update(hostCapacityReservations).set(patch).where(eq(hostCapacityReservations.id, reservationId));
     },
     syncHostImageAvailability: (input) => syncHostImageAvailabilityFromRunnerState(input),
+    syncMachinePortAllocations: (machine) => backfillMachinePortAllocationsFromMachine(machine),
   };
 }
 
@@ -94,6 +98,10 @@ function machineHostId(machine: MachineRow) {
 
 function expectedInstanceId(machine: MachineRow) {
   return machine.providerServerId || `justavps-${machine.slug}`;
+}
+
+function isWarmPoolInstance(instanceId: string) {
+  return instanceId.startsWith('justavps-warm-');
 }
 
 function isLiveMachineCandidate(machine: MachineRow, hostId: string) {
@@ -134,7 +142,7 @@ function reconciledHostStatus(host: HostRow, runnerStatus: RunnerHostState['incu
   return runnerStatus === 'ok' ? 'active' : 'error';
 }
 
-function buildHostMetadata(host: HostRow, state: RunnerHostState, details: { staleMachineIds: string[]; staleImageIds: string[]; orphanInstanceIds: string[]; }) {
+function buildHostMetadata(host: HostRow, state: RunnerHostState, details: { staleMachineIds: string[]; staleImageIds: string[]; orphanInstanceIds: string[]; warmPoolInstanceIds: string[]; }) {
   return {
     ...(host.metadata ?? {}),
     reconciliation: {
@@ -147,6 +155,7 @@ function buildHostMetadata(host: HostRow, state: RunnerHostState, details: { sta
       stale_machine_ids: details.staleMachineIds,
       stale_image_ids: details.staleImageIds,
       orphan_instance_ids: details.orphanInstanceIds,
+      warm_pool_instance_ids: details.warmPoolInstanceIds,
     },
   };
 }
@@ -180,6 +189,7 @@ export function summarizeHostUsage(input: {
   let usedMemoryGb = 0;
   let usedDiskGb = 0;
   const orphanInstanceIds: string[] = [];
+  const warmPoolInstanceIds: string[] = [];
 
   for (const instance of input.runnerState.instances) {
     if (typeof instance.vcpu === 'number') usedVcpu += instance.vcpu;
@@ -187,7 +197,11 @@ export function summarizeHostUsage(input: {
     if (typeof instance.diskGb === 'number') usedDiskGb += instance.diskGb;
 
     if (!machinesByInstanceId.has(instance.instanceId)) {
-      orphanInstanceIds.push(instance.instanceId);
+      if (isWarmPoolInstance(instance.instanceId)) {
+        warmPoolInstanceIds.push(instance.instanceId);
+      } else {
+        orphanInstanceIds.push(instance.instanceId);
+      }
       continue;
     }
 
@@ -204,6 +218,7 @@ export function summarizeHostUsage(input: {
     usedMemoryGb,
     usedDiskGb,
     orphanInstanceIds: unique(orphanInstanceIds),
+    warmPoolInstanceIds: unique(warmPoolInstanceIds),
   };
 }
 
@@ -214,6 +229,9 @@ export async function reconcileBaremetalFleet(
   const deps = { ...defaultDeps(), ...(depsArg ?? {}) } as ReconcileDeps;
   if (depsArg && !depsArg.syncHostImageAvailability) {
     deps.syncHostImageAvailability = async () => {};
+  }
+  if (depsArg && !depsArg.syncMachinePortAllocations) {
+    deps.syncMachinePortAllocations = async () => {};
   }
   const checkedAt = new Date().toISOString();
   await deps.expireReservations(new Date(checkedAt));
@@ -257,6 +275,7 @@ export async function reconcileBaremetalFleet(
         staleMachineIds: [],
         staleImageIds: [],
         orphanInstanceIds: [],
+        warmPoolInstanceIds: [],
       });
       continue;
     }
@@ -268,6 +287,7 @@ export async function reconcileBaremetalFleet(
       const activeMachines = allMachines.filter((machine) => isLiveMachineCandidate(machine, host.id));
       const instancesById = new Set(state.instances.map((instance) => instance.instanceId));
       const staleMachineRows = activeMachines.filter((machine) => machine.status !== 'provisioning' && !instancesById.has(expectedInstanceId(machine)));
+      const liveMachineRows = activeMachines.filter((machine) => instancesById.has(expectedInstanceId(machine)));
       const usage = summarizeHostUsage({ host, runnerState: state, activeMachines });
 
       for (const machine of staleMachineRows) {
@@ -296,6 +316,9 @@ export async function reconcileBaremetalFleet(
         images: state.images.map((image) => ({ imageId: image.imageId, aliases: image.aliases })),
         at: new Date(checkedAt),
       });
+      for (const machine of liveMachineRows) {
+        await deps.syncMachinePortAllocations(machine);
+      }
 
       await deps.updateHost(host.id, {
         status: reconciledHostStatus(host, state.incus.status),
@@ -309,6 +332,7 @@ export async function reconcileBaremetalFleet(
           staleMachineIds: staleMachineRows.map((machine) => machine.id),
           staleImageIds: [],
           orphanInstanceIds: usage.orphanInstanceIds,
+          warmPoolInstanceIds: usage.warmPoolInstanceIds,
         }),
         updatedAt: new Date(checkedAt),
       });
@@ -321,6 +345,7 @@ export async function reconcileBaremetalFleet(
         staleMachineIds: staleMachineRows.map((machine) => machine.id),
         staleImageIds: [],
         orphanInstanceIds: usage.orphanInstanceIds,
+        warmPoolInstanceIds: usage.warmPoolInstanceIds,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -343,6 +368,7 @@ export async function reconcileBaremetalFleet(
         staleMachineIds: [],
         staleImageIds: [],
         orphanInstanceIds: [],
+        warmPoolInstanceIds: [],
         error: message,
       });
     }

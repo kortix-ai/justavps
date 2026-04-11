@@ -327,12 +327,13 @@ describe('admin baremetal host bootstrap routes', () => {
           image_count: 2,
           stale_machine_ids: [],
           stale_image_ids: [],
-          orphan_instance_ids: ['justavps-deadbox', 'justavps-warm-cpu2-abc123'],
+          orphan_instance_ids: ['justavps-deadbox'],
+          warm_pool_instance_ids: ['justavps-warm-cpu2-abc123'],
         },
       },
     }]);
     selectDirectMock
-      .mockReturnValueOnce([{ ...hostRow, status: 'active', runnerBaseUrl: 'http://1.2.3.4:7779', runnerToken: 'runner-token-123', metadata: { reconciliation: { checked_at: '2026-04-11T01:01:00.000Z', instance_count: 4, image_count: 2, stale_machine_ids: [], stale_image_ids: [], orphan_instance_ids: ['justavps-warm-cpu2-abc123'] } } }])
+      .mockReturnValueOnce([{ ...hostRow, status: 'active', runnerBaseUrl: 'http://1.2.3.4:7779', runnerToken: 'runner-token-123', metadata: { reconciliation: { checked_at: '2026-04-11T01:01:00.000Z', instance_count: 4, image_count: 2, stale_machine_ids: [], stale_image_ids: [], orphan_instance_ids: [], warm_pool_instance_ids: ['justavps-warm-cpu2-abc123'] } } }])
       .mockReturnValueOnce([])
       .mockReturnValueOnce([])
       .mockReturnValueOnce([])
@@ -349,6 +350,7 @@ describe('admin baremetal host bootstrap routes', () => {
     expect(reconcileBaremetalHostMock).toHaveBeenCalledWith(hostRow.id);
     expect(data.cleaned_instance_ids).toEqual(['justavps-deadbox']);
     expect(data.skipped_instance_ids).toEqual(['justavps-warm-cpu2-abc123']);
-    expect(data.host.reconciliation_report.orphan_instance_ids).toEqual(['justavps-warm-cpu2-abc123']);
+    expect(data.host.reconciliation_report.orphan_instance_ids).toEqual([]);
+    expect(data.host.reconciliation_report.warm_pool_instance_ids).toEqual(['justavps-warm-cpu2-abc123']);
   });
 });

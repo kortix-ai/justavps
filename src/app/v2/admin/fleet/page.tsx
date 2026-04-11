@@ -361,10 +361,19 @@ export default function AdminFleetPage() {
                       <div className="text-muted-foreground text-xs">Orphan instances</div>
                       <div>{host.reconciliation_report.orphan_instance_ids.length}</div>
                     </div>
+                    <div>
+                      <div className="text-muted-foreground text-xs">Warm reserves</div>
+                      <div>{host.reconciliation_report.warm_pool_instance_ids.length}</div>
+                    </div>
                   </div>
                   {host.reconciliation_report.orphan_instance_ids.length > 0 && (
                     <div className="text-xs text-muted-foreground break-all">
                       Orphans: {host.reconciliation_report.orphan_instance_ids.join(", ")}
+                    </div>
+                  )}
+                  {host.reconciliation_report.warm_pool_instance_ids.length > 0 && (
+                    <div className="text-xs text-muted-foreground break-all">
+                      Warm reserves: {host.reconciliation_report.warm_pool_instance_ids.join(", ")}
                     </div>
                   )}
                   <div className="text-xs text-muted-foreground break-all">
@@ -409,7 +418,7 @@ export default function AdminFleetPage() {
                       size="sm"
                       variant="ghost"
                       className="h-7 text-xs"
-                      disabled={cleanupHostOrphans.isPending || host.reconciliation_report.orphan_instance_ids.filter((id) => !id.startsWith('justavps-warm-')).length === 0}
+                      disabled={cleanupHostOrphans.isPending || host.reconciliation_report.orphan_instance_ids.length === 0}
                       onClick={() => cleanupHostOrphans.mutate(host.id, {
                         onSuccess: (data) => toast.success(`${host.name}: cleaned ${data.cleaned_instance_ids.length} orphan instance(s)`),
                         onError: (error: Error) => toast.error(error.message),

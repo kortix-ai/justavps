@@ -43,6 +43,7 @@ export type FleetHost = {
     stale_machine_ids: string[];
     stale_image_ids: string[];
     orphan_instance_ids: string[];
+    warm_pool_instance_ids: string[];
     error: string | null;
   };
   metadata: Record<string, unknown>;

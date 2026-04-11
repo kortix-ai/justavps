@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { releaseMachinePortAllocations, reserveMachinePortAllocations } from '@/server/lib/baremetal/port-allocations';
+import { backfillMachinePortAllocationsFromMachine, releaseMachinePortAllocations, reserveMachinePortAllocations } from '@/server/lib/baremetal/port-allocations';
 
 type PortAllocationTestExecutor = NonNullable<Parameters<typeof reserveMachinePortAllocations>[0]['executor']>;
 
@@ -94,5 +94,42 @@ describe('baremetal port allocations', () => {
     const allocated = await reserveMachinePortAllocations({ machineId: 'machine-new', hostId: 'host-1', executor });
     expect(allocated.sshPort).toBe(22001);
     expect(allocated.httpPort).toBe(42001);
+  });
+
+  it('backfills missing explicit allocations from legacy provider metadata', async () => {
+    const rows: Array<{ machineId: string; hostId: string; protocol: 'ssh' | 'http'; publicPort: number; targetPort: number; metadata: Record<string, unknown> }> = [];
+    let selectCount = 0;
+    const executor = {
+      select: () => ({
+        from: () => ({
+          where: async () => {
+            selectCount += 1;
+            return selectCount === 1 ? [] : rows;
+          },
+        }),
+      }),
+      insert: () => ({
+        values: async (values: typeof rows) => {
+          rows.push(...values);
+        },
+      }),
+      delete: () => ({ where: async () => {} }),
+      execute: async () => {},
+    } as PortAllocationTestExecutor;
+
+    const result = await backfillMachinePortAllocationsFromMachine({
+      id: 'machine-legacy',
+      provider: 'baremetal',
+      deletedAt: null,
+      providerMeta: {
+        baremetal_host_id: 'host-1',
+        ssh_port: 22316,
+        http_port: 8948,
+      },
+    } as never, executor);
+
+    expect(result?.ssh?.publicPort).toBe(22316);
+    expect(result?.http?.publicPort).toBe(8948);
+    expect(rows).toHaveLength(2);
   });
 });

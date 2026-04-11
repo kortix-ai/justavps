@@ -37,6 +37,7 @@ describe('baremetal reconciliation', () => {
       usedMemoryGb: 6,
       usedDiskGb: 50,
       orphanInstanceIds: ['orphan'],
+      warmPoolInstanceIds: [],
     });
   });
 
@@ -233,5 +234,55 @@ describe('baremetal reconciliation', () => {
     expect(fetchRunnerState).toHaveBeenCalledWith(expect.objectContaining({ id: 'host-due' }));
     expect(result.hosts).toHaveLength(1);
     expect(result.hosts[0]?.hostId).toBe('host-due');
+  });
+
+  it('backfills explicit machine port allocations for live machines during reconcile', async () => {
+    const syncMachinePortAllocations = vi.fn(async () => {});
+    await reconcileBaremetalFleet({
+      loadHosts: async () => [{
+        id: 'host-1',
+        status: 'active',
+        hostClass: 'general-small',
+        generation: 'gen1',
+        region: 'hel1',
+        cellId: 'cell-1',
+        maintenanceState: 'in_service',
+        runnerBaseUrl: 'http://runner',
+        runnerToken: 'token',
+        lastHeartbeatAt: null,
+        usedVcpu: 0,
+        usedMemoryGb: 0,
+        usedDiskGb: 0,
+        metadata: {},
+        updatedAt: new Date(),
+      }] as never[],
+      loadMachines: async () => [{
+        id: 'machine-1',
+        provider: 'baremetal',
+        slug: 'live',
+        status: 'ready',
+        deletedAt: null,
+        providerServerId: 'justavps-live',
+        serverType: 'starter',
+        providerMeta: { baremetal_host_id: 'host-1', ssh_port: 22316, http_port: 8948 },
+      }] as never[],
+      loadImages: async () => [],
+      loadReservations: async () => [],
+      expireReservations: async () => {},
+      fetchRunnerState: async () => ({
+        checkedAt: new Date().toISOString(),
+        runnerd: 'ok',
+        incus: { status: 'ok', serverVersion: '6.0', instanceCount: 1, imageCount: 0 },
+        instances: [{ instanceId: 'justavps-live', status: 'Running', privateIpv4: '10.0.0.2', vcpu: 2, memoryGb: 4, diskGb: 40 }],
+        images: [],
+      }),
+      updateHost: async () => {},
+      updateMachine: async () => {},
+      updateImage: async () => {},
+      updateReservation: async () => {},
+      syncMachinePortAllocations,
+    });
+
+    expect(syncMachinePortAllocations).toHaveBeenCalledWith(expect.objectContaining({ id: 'machine-1' }));
   });
 });
