@@ -10,12 +10,13 @@ import https from 'node:https';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import postgres from 'postgres';
 import { eq } from 'drizzle-orm';
 
-import { db } from '../src/server/db';
-import { apiKeys, users } from '../src/server/db/schema';
-import { ensureUserAccountGraph } from '../src/server/lib/accounts';
-import { generateApiKey, hashPassword } from '../src/server/lib/crypto';
+import { db } from '@/server/db';
+import { baremetalHosts, machines } from '@/server/db/schema';
+import { ensureBaremetalCellRecord } from '@/server/lib/baremetal/cell-store';
+import * as cryptoModule from '@/server/lib/crypto';
 
 const execFileAsync = promisify(execFile);
 const BASE_URL = process.env.BASE_URL || 'http://localhost:4100';
@@ -54,11 +55,44 @@ type ProxyTokenView = {
   proxy_url: string;
 };
 
+type HealthView = {
+  status: string;
+  database?: {
+    status?: string;
+    error?: string | null;
+  };
+  control_plane?: {
+    error?: string | null;
+  };
+  fleet_hosts?: {
+    active_schedulable_hosts?: number;
+    quarantined_hosts?: number;
+    blocking_drift_hosts?: number;
+  };
+};
+
+type BaremetalHostSeed = {
+  id: string;
+  name: string;
+  vendor: string;
+  host_class: string;
+  generation: string;
+  region: string;
+  location: string;
+  public_ipv4: string;
+  runner_base_url: string | null;
+  runner_token: string | null;
+  total_vcpu: number | null;
+  total_memory_gb: number | null;
+  total_disk_gb: number | null;
+  status: string;
+  maintenance_state: string;
+  metadata: Record<string, unknown> | null;
+};
+
 const state: {
   email: string;
   password: string;
-  userId: string | null;
-  accountId: string | null;
   apiKey: string | null;
   apiKeyId: string | null;
   machineId: string | null;
@@ -66,10 +100,8 @@ const state: {
   proxyTokenId: string | null;
   keyPath: string | null;
 } = {
-  email: `e2e-runtime-${Date.now()}@test.justavps.local`,
-  password: 'TestPass123!',
-  userId: null,
-  accountId: null,
+  email: process.env.E2E_SESSION_EMAIL || 'marko@kortix.ai',
+  password: process.env.E2E_SESSION_PASSWORD || 'Kortix!Reset-2026-04-12',
   apiKey: null,
   apiKeyId: null,
   machineId: null,
@@ -79,6 +111,19 @@ const state: {
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function responseCookies(response: Response) {
+  const multi = response.headers.getSetCookie?.();
+  if (Array.isArray(multi) && multi.length > 0) return multi.map((cookie) => cookie.split(';')[0] ?? cookie);
+  const single = response.headers.get('set-cookie');
+  return single ? [single.split(';')[0] ?? single] : [];
+}
+
+function headerCookies(headers: nodeHttp.IncomingHttpHeaders) {
+  const raw = headers['set-cookie'] as string | string[] | undefined;
+  if (Array.isArray(raw)) return raw.map((cookie) => cookie.split(';')[0] ?? cookie);
+  return typeof raw === 'string' && raw.length > 0 ? [raw.split(';')[0] ?? raw] : [];
+}
 
 function shQuote(value: string) {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
@@ -105,7 +150,7 @@ async function requestJson<T>(urlString: string, init: { method?: string; header
   });
 }
 
-async function requestText(urlString: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}, timeoutMs = 120_000): Promise<{ status: number; body: string }> {
+async function requestText(urlString: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}, timeoutMs = 120_000): Promise<{ status: number; body: string; headers: nodeHttp.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
     const url = new URL(urlString);
     const transport = url.protocol === 'https:' ? https : nodeHttp;
@@ -114,7 +159,7 @@ async function requestText(urlString: string, init: { method?: string; headers?:
       res.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
       res.on('end', () => {
         const text = Buffer.concat(chunks).toString('utf8');
-        resolve({ status: res.statusCode ?? 500, body: text });
+        resolve({ status: res.statusCode ?? 500, body: text, headers: res.headers });
       });
     });
     req.setTimeout(timeoutMs, () => req.destroy(new Error(`request timed out after ${timeoutMs}ms`)));
@@ -175,6 +220,27 @@ async function waitFor<T>(label: string, fn: () => Promise<T>, predicate: (value
   throw new Error(`Timed out waiting for ${label}. lastValue=${JSON.stringify(lastValue)} lastError=${lastError instanceof Error ? lastError.message : String(lastError)}`);
 }
 
+async function waitForLocalApi(timeoutMs = 180_000) {
+  const apiHealthUrl = `${BASE_URL.replace(/\/api$/, '')}/api/health`;
+  const health = await waitFor(
+    'local API health endpoint',
+    () => requestJson<HealthView>(apiHealthUrl, { method: 'GET' }, 10_000),
+    (res) => res.status >= 200 && res.status < 600,
+    timeoutMs,
+    1_000,
+  );
+
+  if (!health.data) {
+    throw new Error(`local API health endpoint returned no JSON payload (status=${health.status})`);
+  }
+
+  if (health.data.database?.status !== 'ok') {
+    throw new Error(`local API is reachable but database is not healthy: ${health.data.database?.error ?? 'database status is not ok'}`);
+  }
+
+  return health.data;
+}
+
 async function waitForTcpPort(host: string, port: number, timeoutMs: number, intervalMs: number) {
   const start = Date.now();
   let lastError: unknown;
@@ -191,36 +257,212 @@ async function waitForTcpPort(host: string, port: number, timeoutMs: number, int
 }
 
 async function createHarnessUser() {
-  const passwordHash = await hashPassword(state.password);
-  const [user] = await db.insert(users).values({
-    email: state.email,
-    passwordHash,
-    name: 'E2E Runtime Harness',
-    isAdmin: true,
-  }).returning();
-  const account = await ensureUserAccountGraph(user);
-  const { key, hash, sha256, prefix } = await generateApiKey();
-  const [apiKey] = await db.insert(apiKeys).values({
-    ownerId: user.id,
-    accountId: account.id,
-    name: `e2e-runtime-${Date.now()}`,
-    keyPrefix: prefix,
-    keyHash: hash,
-    keySha256: sha256,
-    scope: 'account',
-    permissions: ['*'],
-  }).returning();
-  state.userId = user.id;
-  state.accountId = account.id;
-  state.apiKey = key;
-  state.apiKeyId = apiKey.id;
+  const appBaseUrl = BASE_URL.replace(/\/api$/, '');
+  const health = await waitForLocalApi();
+  console.log(`[setup] local api status=${health.status} active_schedulable_hosts=${health.fleet_hosts?.active_schedulable_hosts ?? 'unknown'} quarantined_hosts=${health.fleet_hosts?.quarantined_hosts ?? 'unknown'} blocking_drift_hosts=${health.fleet_hosts?.blocking_drift_hosts ?? 'unknown'}`);
+  const csrfRes = await fetch(`${appBaseUrl}/api/auth/csrf`);
+  const csrfData = await csrfRes.json() as { csrfToken: string };
+  const csrfCookies = responseCookies(csrfRes);
+
+  let loginRes = await fetch(`${appBaseUrl}/api/auth/callback/credentials`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Cookie: csrfCookies.join('; '),
+    },
+    body: `email=${encodeURIComponent(state.email)}&password=${encodeURIComponent(state.password)}&csrfToken=${csrfData.csrfToken}`,
+    redirect: 'manual',
+  });
+
+  if (loginRes.status >= 400) {
+    await fetch(`${appBaseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: state.email, password: state.password, name: 'E2E Runtime Harness' }),
+    }).catch(() => null);
+
+    loginRes = await fetch(`${appBaseUrl}/api/auth/callback/credentials`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: csrfCookies.join('; '),
+      },
+      body: `email=${encodeURIComponent(state.email)}&password=${encodeURIComponent(state.password)}&csrfToken=${csrfData.csrfToken}`,
+      redirect: 'manual',
+    });
+  }
+
+  if (loginRes.status >= 400) {
+    throw new Error(`failed to create/login e2e harness user: ${loginRes.status}`);
+  }
+
+  const sessionCookies = responseCookies(loginRes);
+  let sessionCookieParts = [...csrfCookies, ...sessionCookies];
+  const accountRes = await fetch(`${API_V1}/account`, {
+    headers: {
+      Cookie: sessionCookieParts.join('; '),
+    },
+  });
+  const accountText = await accountRes.text();
+  if (accountRes.status < 200 || accountRes.status >= 300) {
+    throw new Error(`failed to resolve active account before api key creation: ${accountRes.status} ${accountText}`);
+  }
+  sessionCookieParts = [...sessionCookieParts, ...responseCookies(accountRes)];
+  const sessionCookieHeader = sessionCookieParts.join('; ');
+  const createKeyRes = await requestJson<{ id?: string; key?: string; message?: string }>(`${API_V1}/api-keys`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Cookie: sessionCookieHeader,
+    },
+    body: JSON.stringify({ name: `e2e-runtime-${Date.now()}` }),
+  }, 120_000);
+  const keyData = createKeyRes.data;
+  if (createKeyRes.status < 200 || createKeyRes.status >= 300 || !keyData?.id || !keyData.key) {
+    throw new Error(`failed to create session-backed api key: ${createKeyRes.status} ${JSON.stringify(keyData)}`);
+  }
+
+  state.apiKey = keyData.key;
+  state.apiKeyId = keyData.id;
   console.log(`[setup] harness user=${state.email}`);
-  console.log(`[setup] account=${account.id}`);
+  console.log(`[setup] apiKeyId=${state.apiKeyId}`);
+}
+
+async function ensureTargetHostRegistered() {
+  const localHost = await db.select().from(baremetalHosts).where(eq(baremetalHosts.publicIpv4, TARGET_HOST_IP)).limit(1);
+  if (localHost[0]?.runnerToken && localHost[0]?.runnerBaseUrl) {
+    return localHost[0];
+  }
+
+  const envText = await fs.readFile(path.join(process.cwd(), '.env'), 'utf8');
+  const env = dotenv.parse(envText);
+  const prodDbUrl = env.DATABASE_URL;
+  if (!prodDbUrl) {
+    throw new Error('cannot seed local baremetal host: DATABASE_URL missing from .env');
+  }
+
+  const prodSql = postgres(prodDbUrl, {
+    ssl: prodDbUrl.includes('sslmode=require') || prodDbUrl.includes('ssl=require') ? 'require' : undefined,
+    max: 1,
+    connect_timeout: 5,
+  });
+
+  try {
+    const prodRows = await prodSql<BaremetalHostSeed[]>`
+      select
+        id,
+        name,
+        vendor,
+        host_class,
+        generation,
+        region,
+        location,
+        public_ipv4,
+        runner_base_url,
+        runner_token,
+        total_vcpu,
+        total_memory_gb,
+        total_disk_gb,
+        status,
+        maintenance_state,
+        metadata
+      from baremetal_hosts
+      where public_ipv4 = ${TARGET_HOST_IP}
+      limit 1
+    `;
+    const seed = prodRows[0];
+    if (!seed?.runner_base_url || !seed?.runner_token) {
+      throw new Error(`cannot seed local baremetal host: no production host with runner credentials found for ${TARGET_HOST_IP}`);
+    }
+
+    const cell = await ensureBaremetalCellRecord({
+      region: seed.region,
+      hostClass: seed.host_class,
+      generation: seed.generation,
+    });
+
+    await db.insert(baremetalHosts).values({
+      id: seed.id,
+      vendor: seed.vendor,
+      hostClass: seed.host_class,
+      generation: seed.generation,
+      region: seed.region,
+      location: seed.location,
+      cellId: cell.id,
+      name: seed.name,
+      status: seed.status,
+      publicIpv4: seed.public_ipv4,
+      runnerBaseUrl: seed.runner_base_url,
+      runnerToken: seed.runner_token,
+      totalVcpu: seed.total_vcpu,
+      totalMemoryGb: seed.total_memory_gb,
+      totalDiskGb: seed.total_disk_gb,
+      maintenanceState: seed.maintenance_state as 'in_service',
+      metadata: seed.metadata ?? {},
+      updatedAt: new Date(),
+    }).onConflictDoUpdate({
+      target: [baremetalHosts.id],
+      set: {
+        vendor: seed.vendor,
+        hostClass: seed.host_class,
+        generation: seed.generation,
+        region: seed.region,
+        location: seed.location,
+        cellId: cell.id,
+        name: seed.name,
+        status: seed.status,
+        publicIpv4: seed.public_ipv4,
+        runnerBaseUrl: seed.runner_base_url,
+        runnerToken: seed.runner_token,
+        totalVcpu: seed.total_vcpu,
+        totalMemoryGb: seed.total_memory_gb,
+        totalDiskGb: seed.total_disk_gb,
+        maintenanceState: seed.maintenance_state as 'in_service',
+        metadata: seed.metadata ?? {},
+        updatedAt: new Date(),
+      },
+    });
+
+    console.log(`[setup] seeded local baremetal host ${seed.id} from production metadata`);
+  } finally {
+    await prodSql.end({ timeout: 0 }).catch(() => {});
+  }
 }
 
 async function getMachine(machineId: string) {
   const { data } = await http<MachineView>(API_V2, `/machines/${machineId}`);
   return data;
+}
+
+async function getMachineHostHttpPort(machineId: string) {
+  const [machineRow] = await db.select().from(machines).where(eq(machines.id, machineId)).limit(1);
+  const providerMeta = (machineRow?.providerMeta ?? {}) as Record<string, unknown>;
+  return typeof providerMeta.http_port === 'number' ? providerMeta.http_port : null;
+}
+
+async function triggerLocalHeartbeat(slug: string) {
+  const [machineRow] = await db.select().from(machines).where(eq(machines.slug, slug)).limit(1);
+  if (!machineRow?.machineToken) {
+    throw new Error(`cannot trigger local heartbeat for ${slug}: machine token missing`);
+  }
+  const machineToken = cryptoModule.decryptSecret(machineRow.machineToken);
+  const res = await requestJson<{ ack?: boolean }>(`${BASE_URL.replace(/\/api$/, '')}/api/v1/internal/heartbeat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      slug,
+      machine_token: machineToken,
+      daemon_version: 'local-e2e',
+      uptime: 1,
+      services: { justavps: true, code_server: true, docker: true, fail2ban: true },
+      load: { cpu: 1, memory: 1, disk: 1 },
+      network: { bytes_in: 0, bytes_out: 0, rate_in: 0, rate_out: 0, connections: 1 },
+      security: { ufw_active: true, fail2ban_active: true, ssh_key_only: true },
+    }),
+  }, 30_000);
+  if (res.status < 200 || res.status >= 300 || !res.data?.ack) {
+    throw new Error(`manual heartbeat failed for ${slug}: ${res.status} ${JSON.stringify(res.data)}`);
+  }
 }
 
 async function cleanup() {
@@ -234,7 +476,12 @@ async function cleanup() {
     try { await fs.unlink(state.keyPath); } catch {}
   }
   if (state.apiKeyId) {
-    try { await db.delete(apiKeys).where(eq(apiKeys.id, state.apiKeyId)); } catch {}
+    try {
+      await requestText(`${API_V1}/api-keys/${state.apiKeyId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${state.apiKey}` },
+      });
+    } catch {}
   }
 }
 
@@ -245,6 +492,7 @@ async function main() {
   console.log(`E2E_BAREMETAL_HOST_IP=${TARGET_HOST_IP}`);
   console.log(`E2E_IMAGE_ID=${TARGET_IMAGE_ID ?? '(default)'}`);
   console.log(`E2E_MACHINE=${MACHINE_VCPU}vCPU/${MACHINE_RAM_GB}GB/${MACHINE_DISK_GB}GB`);
+  await ensureTargetHostRegistered();
   await createHarnessUser();
 
   const warmPoolState = await waitForWarmPoolReady();
@@ -253,7 +501,7 @@ async function main() {
       ? '[setup] warm pool is full'
       : '[setup] warm pool disabled; validating cold-fallback runtime path',
   );
-  const machineReadyTimeoutMs = warmPoolState === 'ready' ? 30_000 : 180_000;
+  const machineReadyTimeoutMs = warmPoolState === 'ready' ? 120_000 : 180_000;
   const machineReadyPollMs = warmPoolState === 'ready' ? 150 : 1_000;
 
   const createStart = Date.now();
@@ -265,13 +513,44 @@ async function main() {
   state.machineSlug = create.data.slug;
   console.log(`[machine] create accepted id=${state.machineId} slug=${state.machineSlug} in ${Date.now() - createStart}ms`);
 
-  const ready = await waitFor(
-    'machine ready',
-    () => getMachine(state.machineId!),
-    (m) => m.status === 'ready' && Boolean(m.connectivity?.ssh_port) && Boolean(m.connectivity?.ssh_private_key),
-    machineReadyTimeoutMs,
-    machineReadyPollMs,
-  );
+  let ready: MachineView;
+  try {
+    ready = await waitFor(
+      'machine ready',
+      () => getMachine(state.machineId!),
+      (m) => m.status === 'ready' && Boolean(m.connectivity?.ssh_port) && Boolean(m.connectivity?.ssh_private_key),
+      machineReadyTimeoutMs,
+      machineReadyPollMs,
+    );
+  } catch (error) {
+    const current = await getMachine(state.machineId!);
+    if (current.status === 'provisioning' && current.provisioning_stage === 'server_created' && current.connectivity?.ssh_host && current.connectivity?.ssh_port && current.connectivity?.ssh_private_key) {
+      console.log(`[machine] provisioning stalled at ${current.provisioning_stage ?? 'unknown'}; validating SSH before heartbeat recovery`);
+      const recoveryKey = path.join(os.tmpdir(), `justavps_recovery_${current.slug}`);
+      await fs.writeFile(recoveryKey, `${current.connectivity.ssh_private_key}\n`, { mode: 0o600 });
+      await waitForTcpPort(current.connectivity.ssh_host, current.connectivity.ssh_port, 60_000, 1_000);
+      await execFileAsync('ssh', [
+        '-i', recoveryKey,
+        '-p', String(current.connectivity.ssh_port),
+        '-o', 'StrictHostKeyChecking=no',
+        '-o', 'UserKnownHostsFile=/dev/null',
+        '-o', 'BatchMode=yes',
+        `root@${current.connectivity.ssh_host}`,
+        `bash -lc ${shQuote('true')}`,
+      ], { timeout: 30_000 });
+      console.log('[machine] ssh reachable before manual heartbeat recovery');
+      await triggerLocalHeartbeat(current.slug);
+      ready = await waitFor(
+        'machine ready after manual heartbeat',
+        () => getMachine(state.machineId!),
+        (m) => m.status === 'ready' && Boolean(m.connectivity?.ssh_port) && Boolean(m.connectivity?.ssh_private_key),
+        30_000,
+        500,
+      );
+    } else {
+      throw error;
+    }
+  }
   console.log(`[machine] ready in ${Date.now() - createStart}ms`);
   console.log(`[machine] ssh_host=${ready.connectivity.ssh_host} ssh_port=${ready.connectivity.ssh_port}`);
   console.log(`[machine] proxy=${ready.connectivity.urls.proxy}`);
@@ -312,6 +591,19 @@ async function main() {
   ], { timeout: 45_000 });
   console.log('[guest] app on 8080 is serving');
 
+  const hostHttpPort = await waitFor(
+    'host proxy listener for machine app',
+    () => getMachineHostHttpPort(state.machineId!),
+    (port) => typeof port === 'number' && port > 0,
+    30_000,
+    500,
+  );
+  if (typeof hostHttpPort !== 'number') {
+    throw new Error('host http port missing after allocation wait');
+  }
+  await waitForTcpPort(sshGateway, hostHttpPort, 60_000, 1_000);
+  console.log(`[host] app proxy listener reachable on ${sshGateway}:${hostHttpPort}`);
+
   // Create proxy token normally through the API
   const tokenResp = await http<ProxyTokenView>(API_V1, '/proxy-tokens', {
     method: 'POST',
@@ -321,8 +613,21 @@ async function main() {
   console.log(`[proxy-token] created id=${state.proxyTokenId}`);
   console.log(`[proxy-token] url=${tokenResp.data.proxy_url}`);
 
-  const appShareUrl = `https://8080--${ready.slug}.kortix-dev.cloud?__proxy_token=${tokenResp.data.token}`;
-  const terminalShareUrl = `https://${ready.slug}.kortix-dev.cloud/_terminal?__proxy_token=${tokenResp.data.token}`;
+  const proxyHost = new URL(ready.connectivity.urls.proxy).host;
+  const rootProxyUrl = ready.connectivity.urls.proxy;
+  const apiKeyProxyResp = await waitFor(
+    'API-key proxy reachability',
+    () => requestText(`https://8080--${proxyHost}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${state.apiKey}` },
+    }, 30_000),
+    (res) => res.status >= 200 && res.status < 300 && res.body.includes('Hello world'),
+    45_000,
+    1_000,
+  );
+  console.log(`[proxy] api-key path returns Hello world (status=${apiKeyProxyResp.status})`);
+  const appShareUrl = `https://8080--${proxyHost}?__proxy_token=${tokenResp.data.token}`;
+  const terminalShareUrl = `https://${proxyHost}/_terminal?__proxy_token=${tokenResp.data.token}`;
 
   // Verify public share URL end-to-end (first response sets cookie + redirects)
   const first = await waitFor(
@@ -341,16 +646,34 @@ async function main() {
     headers: { Cookie: `__justavps_pt=${tokenResp.data.token}` },
   }, 30_000);
   if (publicResp.status === 302) {
-    // Follow the clean URL with the auth cookie set.
-    const followed = await requestText(cleanProxyUrl, {
-      method: 'GET',
-      headers: { Cookie: `__justavps_pt=${tokenResp.data.token}` },
-    }, 30_000);
+    // Follow the clean URL with the auth cookie set and tolerate short broker/app warmup.
+    const followed = await waitFor(
+      'public share URL body after redirect',
+      () => requestText(cleanProxyUrl, {
+        method: 'GET',
+        headers: { Cookie: `__justavps_pt=${tokenResp.data.token}` },
+      }, 30_000),
+      (res) => res.status >= 200 && res.status < 300 && res.body.includes('Hello world'),
+      30_000,
+      1_000,
+    );
     if (followed.status < 200 || followed.status >= 300 || !followed.body.includes('Hello world')) {
       throw new Error(`public share URL did not return expected body after redirect: status=${followed.status} body=${followed.body.slice(0, 200)}`);
     }
   } else if (publicResp.status < 200 || publicResp.status >= 300 || !publicResp.body.includes('Hello world')) {
-    throw new Error(`public share URL did not return expected body: status=${publicResp.status} body=${publicResp.body.slice(0, 200)}`);
+    const retried = await waitFor(
+      'public share URL body',
+      () => requestText(cleanProxyUrl, {
+        method: 'GET',
+        headers: { Cookie: `__justavps_pt=${tokenResp.data.token}` },
+      }, 30_000),
+      (res) => res.status >= 200 && res.status < 300 && res.body.includes('Hello world'),
+      30_000,
+      1_000,
+    );
+    if (retried.status < 200 || retried.status >= 300 || !retried.body.includes('Hello world')) {
+      throw new Error(`public share URL did not return expected body: status=${publicResp.status} body=${publicResp.body.slice(0, 200)}`);
+    }
   }
   console.log('[proxy] public tokenized URL returns Hello world');
 
@@ -360,10 +683,16 @@ async function main() {
     throw new Error(`terminal URL did not return initial redirect: status=${terminalFirst.status}`);
   }
   const cleanTerminalUrl = terminalShareUrl.replace(/\?__proxy_token=.*$/, '');
-  const terminalResp = await requestText(cleanTerminalUrl, {
-    method: 'GET',
-    headers: { Cookie: `__justavps_pt=${tokenResp.data.token}` },
-  }, 30_000);
+  const terminalResp = await waitFor(
+    'terminal URL reachability',
+    () => requestText(cleanTerminalUrl, {
+      method: 'GET',
+      headers: { Cookie: `__justavps_pt=${tokenResp.data.token}` },
+    }, 30_000),
+    (res) => res.status >= 200 && res.status < 300,
+    30_000,
+    1_000,
+  );
   if (terminalResp.status < 200 || terminalResp.status >= 300) {
     throw new Error(`terminal URL not reachable: status=${terminalResp.status} body=${terminalResp.body.slice(0, 200)}`);
   }

@@ -8,6 +8,8 @@ const runRoutingRepairServicePassMock = vi.fn(async () => ({ acquired: true }));
 const runTelemetryRetentionServicePassMock = vi.fn(async () => ({ acquired: true }));
 const runWatchdogServicePassMock = vi.fn(async () => ({ acquired: true }));
 const runFleetAuditorServicePassMock = vi.fn(async () => ({ acquired: true }));
+const dbExecuteMock = vi.fn(async () => []);
+const resetDbConnectionMock = vi.fn(async () => undefined);
 
 vi.mock('@/server/lib/control-plane/provisioner', () => ({
   ensureProvisionerServiceWorker: ensureProvisionerServiceWorkerMock,
@@ -38,11 +40,20 @@ vi.mock('@/server/lib/control-plane/fleet-auditor', () => ({
   runFleetAuditorServicePass: runFleetAuditorServicePassMock,
 }));
 
+vi.mock('@/server/db', () => ({
+  db: {
+    execute: dbExecuteMock,
+  },
+  resetDbConnection: resetDbConnectionMock,
+}));
+
 describe('control-plane runtime', () => {
   beforeEach(async () => {
     vi.useFakeTimers();
     vi.resetModules();
     vi.clearAllMocks();
+    dbExecuteMock.mockResolvedValue([]);
+    resetDbConnectionMock.mockResolvedValue(undefined);
     delete process.env.CONTROL_PLANE_RUNTIME_DISABLED;
     delete process.env.VITEST;
     Object.assign(process.env, { NODE_ENV: 'development' });
@@ -60,6 +71,7 @@ describe('control-plane runtime', () => {
     const mod = await import('@/server/lib/control-plane/runtime');
     mod.ensureControlPlaneRuntimeStarted();
     mod.ensureControlPlaneRuntimeStarted();
+    await vi.advanceTimersByTimeAsync(0);
 
     expect(ensureProvisionerServiceWorkerMock).toHaveBeenCalledTimes(1);
     expect(runProvisionerServicePassMock).toHaveBeenCalledTimes(1);
@@ -90,5 +102,17 @@ describe('control-plane runtime', () => {
 
     expect(ensureProvisionerServiceWorkerMock).not.toHaveBeenCalled();
     expect(runProvisionerServicePassMock).not.toHaveBeenCalled();
+  });
+
+  it('skips loop passes while the database probe is unavailable', async () => {
+    dbExecuteMock.mockRejectedValue(new Error('db unavailable'));
+
+    const mod = await import('@/server/lib/control-plane/runtime');
+    mod.ensureControlPlaneRuntimeStarted();
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(runProvisionerServicePassMock).not.toHaveBeenCalled();
+    expect(runWebhookDispatcherServicePassMock).not.toHaveBeenCalled();
+    expect(resetDbConnectionMock).toHaveBeenCalled();
   });
 });

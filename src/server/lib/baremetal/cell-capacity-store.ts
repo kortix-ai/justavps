@@ -83,6 +83,7 @@ export async function recordCellCapacitySnapshots(input: {
       sellabilityState: snapshot.cell.admission.sellability,
       hostCount: snapshot.hostCount,
       activeHostCount: snapshot.activeHostCount,
+      activeSchedulableHostCount: snapshot.activeSchedulableHostCount,
       constrainedHostCount: snapshot.constrainedHostCount,
       totalVcpu: snapshot.totals.vcpu,
       totalMemoryGb: snapshot.totals.memoryGb,

@@ -66,14 +66,31 @@ async function deleteKV(key: string): Promise<void> {
   const kv = getKVConfig();
   if (!kv) return;
 
-  await fetch(`${CF_API}/accounts/${kv.accountId}/storage/kv/namespaces/${kv.kvNamespaceId}/values/${key}`, {
-    method: 'DELETE',
-    headers: {
-      'X-Auth-Key': config.CLOUDFLARE_API_KEY,
-      'X-Auth-Email': config.CLOUDFLARE_EMAIL,
-    },
-    signal: AbortSignal.timeout(CF_KV_TIMEOUT_MS),
-  }).catch(() => {});
+  const url = `${CF_API}/accounts/${kv.accountId}/storage/kv/namespaces/${kv.kvNamespaceId}/values/${key}`;
+  for (let attempt = 0; attempt < MAX_CF_RETRIES; attempt += 1) {
+    const res = await fetch(url, {
+      method: 'DELETE',
+      headers: {
+        'X-Auth-Key': config.CLOUDFLARE_API_KEY,
+        'X-Auth-Email': config.CLOUDFLARE_EMAIL,
+      },
+      signal: AbortSignal.timeout(CF_KV_TIMEOUT_MS),
+    });
+
+    if (res.ok || res.status === 404) return;
+
+    const text = await res.text().catch(() => '');
+    const shouldRetry = res.status === 429 || res.status >= 500;
+    if (!shouldRetry || attempt === MAX_CF_RETRIES - 1) {
+      throw new Error(`KV delete failed: ${res.status} ${text.slice(0, 200)}`);
+    }
+
+    const retryAfter = Number.parseFloat(res.headers.get('retry-after') || '0');
+    const delay = Number.isFinite(retryAfter) && retryAfter > 0
+      ? retryAfter * 1000
+      : Math.min(15_000, 750 * (2 ** attempt));
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
 }
 
 // ─── API Key Sync ───────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 import { and, eq, inArray, ne } from 'drizzle-orm';
+import net from 'node:net';
 import { db } from '../../db';
 import { accounts, baremetalHosts, images, machines, subscriptions, users } from '../../db/schema';
 import { config } from '../config';
@@ -346,6 +347,35 @@ function sanitizeJobError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+async function waitForTcpListener(host: string | null | undefined, port: number | null | undefined, timeoutMs = 15_000, intervalMs = 500) {
+  if (!host || !port) return false;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const connected = await new Promise<boolean>((resolve) => {
+      const socket = net.createConnection({ host, port });
+      socket.setTimeout(Math.min(1_000, intervalMs));
+      socket.once('connect', () => {
+        socket.destroy();
+        resolve(true);
+      });
+      socket.once('timeout', () => {
+        socket.destroy();
+        resolve(false);
+      });
+      socket.once('error', () => {
+        socket.destroy();
+        resolve(false);
+      });
+    });
+
+    if (connected) return true;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  return false;
+}
+
 async function resolveMachineCreateImage(machine: MachineRow, payload: MachineCreateJobPayload) {
   const provider = getProvider('baremetal');
   let resolvedImage = 'justavps-golden';
@@ -589,12 +619,17 @@ export async function handleMachineCreateJob(machineId: string, payload: Machine
 
       const isWarmClaim = server.metadata?.warm_pool === true;
       if (isWarmClaim) {
+        const routingReady = await waitForTcpListener(host.publicIpv4 ?? publicIpv4 ?? publicIpv6, routingPort ?? null);
         await db.update(machines).set({
-          status: 'ready',
-          readyAt: new Date(),
-          provisioningStage: 'services_ready',
+          status: routingReady ? 'ready' : 'provisioning',
+          readyAt: routingReady ? new Date() : null,
+          provisioningStage: routingReady ? 'services_ready' : 'server_created',
         }).where(eq(machines.id, machine.id));
-        await eventBus.emitStatusChange(machine.id, payload.accountId, 'ready', 'Machine ready (warm pool)');
+        if (routingReady) {
+          await eventBus.emitStatusChange(machine.id, payload.accountId, 'ready', 'Machine ready (warm pool)');
+        } else {
+          await eventBus.emitStageChange(machine.id, payload.accountId, 'server_created', 'Warm pool claimed, waiting for public proxy readiness');
+        }
       } else {
         await eventBus.emitStageChange(machine.id, payload.accountId, 'server_created', 'Server created');
       }

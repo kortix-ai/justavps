@@ -214,12 +214,20 @@ export async function listControlPlaneServiceStates(input?: {
   executor?: Pick<typeof db, 'select'>;
 }) {
   const executor = input?.executor ?? db;
-  const rows = await executor.select().from(controlPlaneServiceStates);
-  return rows.filter((row) => {
-    if (input?.service && row.service !== input.service) return false;
-    if (input?.scope && row.scope !== serviceScope(input.scope)) return false;
-    return true;
-  });
+  const query = executor.select().from(controlPlaneServiceStates);
+  if (input?.service && input?.scope) {
+    return query.where(and(
+      eq(controlPlaneServiceStates.service, input.service),
+      eq(controlPlaneServiceStates.scope, serviceScope(input.scope)),
+    ));
+  }
+  if (input?.service) {
+    return query.where(eq(controlPlaneServiceStates.service, input.service));
+  }
+  if (input?.scope) {
+    return query.where(eq(controlPlaneServiceStates.scope, serviceScope(input.scope)));
+  }
+  return query;
 }
 
 export function isControlPlaneServiceStale(row: Pick<ControlPlaneServiceStateRow, 'leaseOwner' | 'leaseExpiresAt' | 'lastCompletedAt' | 'lastStartedAt'>, now = Date.now()) {

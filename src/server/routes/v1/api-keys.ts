@@ -39,6 +39,7 @@ const createAPIKeyRoute = createRoute({
     },
     400: { description: 'Bad Request', content: { 'application/json': { schema: ErrorResponseSchema } } },
     401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    502: { description: 'Worker auth cache sync failed', content: { 'application/json': { schema: ErrorResponseSchema } } },
   },
 });
 
@@ -83,14 +84,21 @@ apiKeysApp.openapi(createAPIKeyRoute, async (c) => {
     expiresAt,
   }).returning();
 
-  await syncApiKeyToKV(key, accountId, body.name, {
-    scope,
-    machineIds,
-    permissions,
-    expiresAt: expiresAt?.toISOString() ?? null,
-  }).catch((err: unknown) => {
-    console.warn('[API-KEYS] Failed to sync API key to KV:', err);
-  });
+  try {
+    await syncApiKeyToKV(key, accountId, body.name, {
+      scope,
+      machineIds,
+      permissions,
+      expiresAt: expiresAt?.toISOString() ?? null,
+    });
+  } catch (error) {
+    await db.delete(apiKeys).where(eq(apiKeys.id, apiKey.id)).catch(() => {});
+    return c.json({
+      error: true,
+      message: `Failed to sync API key to Worker auth cache: ${error instanceof Error ? error.message : String(error)}`,
+      status: 502,
+    }, 502);
+  }
 
   return c.json({
     id: apiKey.id,
@@ -158,6 +166,7 @@ const deleteAPIKeyRoute = createRoute({
     204: { description: 'API key deleted' },
     401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
     404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    502: { description: 'Worker auth cache revoke failed', content: { 'application/json': { schema: ErrorResponseSchema } } },
   },
 });
 
@@ -168,7 +177,15 @@ apiKeysApp.openapi(deleteAPIKeyRoute, async (c) => {
   if (!key) return c.json({ error: true, message: 'API key not found', status: 404 }, 404);
 
   if (key.keySha256) {
-    await deleteApiKeyFromKV(key.keySha256).catch(() => {});
+    try {
+      await deleteApiKeyFromKV(key.keySha256);
+    } catch (error) {
+      return c.json({
+        error: true,
+        message: `Failed to revoke API key from Worker auth cache: ${error instanceof Error ? error.message : String(error)}`,
+        status: 502,
+      }, 502);
+    }
   }
 
   await db.delete(apiKeys).where(eq(apiKeys.id, id));

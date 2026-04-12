@@ -36,6 +36,38 @@ describe('api key routes', () => {
     vi.resetModules();
     vi.clearAllMocks();
     deleteApiKeyFromKVMock.mockResolvedValue(undefined);
+    syncApiKeyToKVMock.mockResolvedValue(undefined);
+  });
+
+  it('returns 502 and rolls back the DB row when KV sync fails on create', async () => {
+    insertReturningMock.mockResolvedValueOnce([{
+      id: '33333333-3333-4333-8333-333333333333',
+      name: 'build-bot',
+      keyPrefix: 'sk_live_abc',
+      scope: 'account',
+      machineIds: null,
+      permissions: ['*'],
+      expiresAt: null,
+      createdAt: new Date('2026-04-11T00:00:00.000Z'),
+    }]);
+    syncApiKeyToKVMock.mockRejectedValueOnce(new Error('cf put failed'));
+    deleteWhereMock.mockResolvedValueOnce(undefined);
+
+    const { apiKeysApp } = await import('@/server/routes/v1/api-keys');
+    const res = await apiKeysApp.request(new Request('http://localhost/', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'build-bot', scope: 'account', permissions: ['*'] }),
+    }));
+
+    expect(res.status).toBe(502);
+    expect(syncApiKeyToKVMock).toHaveBeenCalledTimes(1);
+    expect(deleteWhereMock).toHaveBeenCalledTimes(1);
+    await expect(res.json()).resolves.toMatchObject({
+      error: true,
+      status: 502,
+      message: expect.stringContaining('cf put failed'),
+    });
   });
 
   it('deletes API keys from KV by their SHA-256 lookup key', async () => {
@@ -52,5 +84,26 @@ describe('api key routes', () => {
 
     expect(res.status).toBe(204);
     expect(deleteApiKeyFromKVMock).toHaveBeenCalledWith('deadbeefcafebabefeedface0123456789abcdef0123456789abcdef01234567');
+  });
+
+  it('returns 502 and does not delete the DB row when KV revoke fails', async () => {
+    selectWhereMock.mockResolvedValueOnce([{
+      id: '11111111-1111-4111-8111-111111111111',
+      accountId: '22222222-2222-2222-2222-222222222222',
+      keyPrefix: 'sk_live_abc',
+      keySha256: 'deadbeefcafebabefeedface0123456789abcdef0123456789abcdef01234567',
+    }]);
+    deleteApiKeyFromKVMock.mockRejectedValueOnce(new Error('cf delete failed'));
+
+    const { apiKeysApp } = await import('@/server/routes/v1/api-keys');
+    const res = await apiKeysApp.request(new Request('http://localhost/11111111-1111-4111-8111-111111111111', { method: 'DELETE' }));
+
+    expect(res.status).toBe(502);
+    expect(deleteWhereMock).not.toHaveBeenCalled();
+    await expect(res.json()).resolves.toMatchObject({
+      error: true,
+      status: 502,
+      message: expect.stringContaining('cf delete failed'),
+    });
   });
 });

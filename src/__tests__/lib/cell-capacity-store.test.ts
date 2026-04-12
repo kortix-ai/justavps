@@ -61,6 +61,7 @@ describe('cell capacity snapshot store', () => {
       cellId: 'cell-1',
       cellSlug: 'hel1--general-small--gen1',
       hostCount: 1,
+      activeSchedulableHostCount: 1,
       totalVcpu: 12,
       usedVcpu: 4,
       reservedVcpu: 1,

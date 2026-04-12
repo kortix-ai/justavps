@@ -63,6 +63,7 @@ export interface BaremetalSchedulerHostClassPolicyMetadata {
 export interface BaremetalSchedulerHostMetadata {
   schedulable?: boolean | null;
   unschedulableReason?: string | null;
+  driftStatus?: 'in_policy' | 'warning_drift' | 'blocking_drift' | null;
   warmPool?: BaremetalSchedulerWarmPoolMetadata | null;
   imageLocality?: BaremetalSchedulerImageLocalityMetadata | null;
   hostClassPolicy?: BaremetalSchedulerHostClassPolicyMetadata | null;
@@ -143,6 +144,7 @@ export interface BaremetalPlacementCandidateEvaluation {
     cellSlug: string | null;
     maintenanceState: string | null;
     schedulable: boolean;
+    driftStatus: 'in_policy' | 'warning_drift' | 'blocking_drift' | null;
     admissionState: BaremetalCellAdmissionState;
     sellabilityState: BaremetalCellSellabilityState;
   };

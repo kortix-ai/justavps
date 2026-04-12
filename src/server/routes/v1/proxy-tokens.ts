@@ -49,6 +49,7 @@ const createProxyTokenRoute = createRoute({
     400: { description: 'Bad Request', content: { 'application/json': { schema: ErrorResponseSchema } } },
     401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
     404: { description: 'Machine not found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    502: { description: 'Worker proxy-token cache sync failed', content: { 'application/json': { schema: ErrorResponseSchema } } },
   },
 });
 
@@ -83,22 +84,28 @@ proxyTokensApp.openapi(createProxyTokenRoute, async (c) => {
     expiresAt,
   }).returning();
 
-  // Sync to CF KV with TTL
-  await syncProxyTokenToKV(token, {
-    account_id: accountId,
-    machine_id: machine.id,
-    machine_slug: machine.slug,
-    ports,
-    expires_at: expiresAt.toISOString(),
-  }, expiresInSeconds).catch((err: unknown) => {
-    console.warn('[PROXY-TOKENS] Failed to sync token to KV:', err);
-  });
+  try {
+    await syncProxyTokenToKV(token, {
+      account_id: accountId,
+      machine_id: machine.id,
+      machine_slug: machine.slug,
+      ports,
+      expires_at: expiresAt.toISOString(),
+    }, expiresInSeconds);
+  } catch (error) {
+    await db.delete(proxyTokens).where(eq(proxyTokens.id, row.id)).catch(() => {});
+    return c.json({
+      error: true,
+      message: `Failed to sync proxy token to Worker auth cache: ${error instanceof Error ? error.message : String(error)}`,
+      status: 502,
+    }, 502);
+  }
 
   // Build proxy URL
   const firstPort = ports?.[0];
-  const baseUrl = firstPort
-    ? `https://${firstPort}--${machine.slug}.${config.PROXY_DOMAIN}`
-    : `https://${machine.slug}.${config.PROXY_DOMAIN}`;
+  const baseUrl = !firstPort || firstPort === 80
+    ? `https://${machine.slug}.${config.PROXY_DOMAIN}`
+    : `https://${firstPort}--${machine.slug}.${config.PROXY_DOMAIN}`;
   const proxyUrl = `${baseUrl}?__proxy_token=${token}`;
 
   return c.json({
@@ -192,6 +199,7 @@ const revokeProxyTokenRoute = createRoute({
     204: { description: 'Proxy token revoked' },
     401: { description: 'Unauthorized', content: { 'application/json': { schema: ErrorResponseSchema } } },
     404: { description: 'Not Found', content: { 'application/json': { schema: ErrorResponseSchema } } },
+    502: { description: 'Worker proxy-token revoke failed', content: { 'application/json': { schema: ErrorResponseSchema } } },
   },
 });
 
@@ -206,11 +214,18 @@ proxyTokensApp.openapi(revokeProxyTokenRoute, async (c) => {
     return c.json({ error: true, message: 'Proxy token not found', status: 404 }, 404);
   }
 
-  // Set revoked_at
-  await db.update(proxyTokens).set({ revokedAt: new Date() }).where(eq(proxyTokens.id, id));
+  try {
+    await deleteProxyTokenFromKV(token.tokenSha256);
+  } catch (error) {
+    return c.json({
+      error: true,
+      message: `Failed to revoke proxy token from Worker auth cache: ${error instanceof Error ? error.message : String(error)}`,
+      status: 502,
+    }, 502);
+  }
 
-  // Delete from KV
-  await deleteProxyTokenFromKV(token.tokenSha256).catch(() => {});
+  // Set revoked_at only after Worker auth cache revoke succeeds.
+  await db.update(proxyTokens).set({ revokedAt: new Date() }).where(eq(proxyTokens.id, id));
 
   return c.body(null, 204);
 });

@@ -49,6 +49,7 @@ export interface BaremetalCellCapacitySnapshot {
   cell: BaremetalCellState;
   hostCount: number;
   activeHostCount: number;
+  activeSchedulableHostCount: number;
   constrainedHostCount: number;
   totals: CapacityLike;
   used: CapacityLike;
@@ -296,6 +297,7 @@ export function buildBaremetalCellCapacitySnapshots(hosts: BaremetalCellCapacity
       cell,
       hostCount: 0,
       activeHostCount: 0,
+      activeSchedulableHostCount: 0,
       constrainedHostCount: 0,
       totals: emptyCapacity(),
       used: emptyCapacity(),
@@ -308,8 +310,13 @@ export function buildBaremetalCellCapacitySnapshots(hosts: BaremetalCellCapacity
     };
 
     snapshot.hostCount += 1;
+    const scheduler = host.metadata && typeof host.metadata === 'object' && !Array.isArray(host.metadata)
+      ? (host.metadata.scheduler as Record<string, unknown> | undefined)
+      : undefined;
+    const schedulable = typeof scheduler?.schedulable === 'boolean' ? scheduler.schedulable : true;
     if (host.status === 'active') snapshot.activeHostCount += 1;
-    if (host.maintenanceState && host.maintenanceState !== 'in_service') snapshot.constrainedHostCount += 1;
+    if (host.status === 'active' && schedulable) snapshot.activeSchedulableHostCount += 1;
+    if ((host.maintenanceState && host.maintenanceState !== 'in_service') || schedulable === false) snapshot.constrainedHostCount += 1;
     snapshot.cell = cell;
     snapshot.reserveBudget = reserveBudgetForPolicy(cell.reservePolicy);
     snapshot.totals = addCapacity(snapshot.totals, {

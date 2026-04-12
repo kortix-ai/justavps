@@ -5,11 +5,15 @@ import { runWatchdogServicePass } from './watchdog';
 import { runFleetAuditorServicePass } from './fleet-auditor';
 import { runWebhookDispatcherServicePass } from './webhook-dispatcher';
 import { runAuthCacheServicePass } from './auth-cache';
+import { db, resetDbConnection } from '@/server/db';
 
 declare global {
   var __justavpsControlPlaneRuntimeStarted: boolean | undefined;
   var __justavpsControlPlaneRuntimeTimers: NodeJS.Timeout[] | undefined;
+  var __justavpsControlPlaneRuntimeDbUnavailableLoggedAt: number | undefined;
 }
+
+const CONTROL_PLANE_DB_PROBE_TIMEOUT_MS = 5_000;
 
 function isRuntimeDisabled() {
   return process.env.NODE_ENV === 'test'
@@ -18,12 +22,12 @@ function isRuntimeDisabled() {
 }
 
 function registerLoop(intervalMs: number, task: () => Promise<void>) {
-  void task().catch((error) => {
+  void runLoopTask(task).catch((error) => {
     console.error('[CONTROL-PLANE-RUNTIME] initial loop error:', error);
   });
 
   const timer = setInterval(() => {
-    void task().catch((error) => {
+    void runLoopTask(task).catch((error) => {
       console.error('[CONTROL-PLANE-RUNTIME] loop error:', error);
     });
   }, intervalMs);
@@ -36,6 +40,37 @@ function registerLoop(intervalMs: number, task: () => Promise<void>) {
     ...(globalThis.__justavpsControlPlaneRuntimeTimers ?? []),
     timer,
   ];
+}
+
+async function probeRuntimeDatabase() {
+  const attempt = async () => Promise.race([
+    db.execute('select 1'),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`control-plane db probe timed out after ${CONTROL_PLANE_DB_PROBE_TIMEOUT_MS}ms`)), CONTROL_PLANE_DB_PROBE_TIMEOUT_MS)),
+  ]);
+
+  try {
+    await attempt();
+    return true;
+  } catch {
+    await resetDbConnection().catch(() => {});
+    try {
+      await attempt();
+      return true;
+    } catch (retryError) {
+      const now = Date.now();
+      if (!globalThis.__justavpsControlPlaneRuntimeDbUnavailableLoggedAt || now - globalThis.__justavpsControlPlaneRuntimeDbUnavailableLoggedAt > 60_000) {
+        globalThis.__justavpsControlPlaneRuntimeDbUnavailableLoggedAt = now;
+        console.error('[CONTROL-PLANE-RUNTIME] database unavailable, skipping loop pass:', retryError);
+      }
+      return false;
+    }
+  }
+}
+
+async function runLoopTask(task: () => Promise<void>) {
+  const dbOk = await probeRuntimeDatabase();
+  if (!dbOk) return;
+  await task();
 }
 
 export function ensureControlPlaneRuntimeStarted() {
@@ -80,4 +115,5 @@ export function resetControlPlaneRuntimeForTests() {
   }
   globalThis.__justavpsControlPlaneRuntimeTimers = [];
   globalThis.__justavpsControlPlaneRuntimeStarted = false;
+  globalThis.__justavpsControlPlaneRuntimeDbUnavailableLoggedAt = undefined;
 }

@@ -225,6 +225,11 @@ export async function leaseHostCapacity(input: {
             cellSlug: cell?.slug ?? null,
             maintenanceState: host.maintenanceState,
             schedulable: hostAcceptsPlacement(host),
+            driftStatus: (((host.metadata ?? {}) as Record<string, unknown>).bootstrap as Record<string, unknown> | undefined)?.drift_status === 'in_policy'
+              || (((host.metadata ?? {}) as Record<string, unknown>).bootstrap as Record<string, unknown> | undefined)?.drift_status === 'warning_drift'
+              || (((host.metadata ?? {}) as Record<string, unknown>).bootstrap as Record<string, unknown> | undefined)?.drift_status === 'blocking_drift'
+              ? ((((host.metadata ?? {}) as Record<string, unknown>).bootstrap as Record<string, unknown>).drift_status as 'in_policy' | 'warning_drift' | 'blocking_drift')
+              : null,
             admissionState: cell?.admission.state ?? 'open',
             sellabilityState: cell?.admission.sellability ?? 'sellable',
           },

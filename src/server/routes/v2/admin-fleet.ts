@@ -23,7 +23,7 @@ import { runTelemetryRetentionServicePass } from '../../lib/control-plane/teleme
 import { runWatchdogServicePass } from '../../lib/control-plane/watchdog';
 import { runFleetAuditorServicePass } from '../../lib/control-plane/fleet-auditor';
 import { runAuthCacheServicePass } from '../../lib/control-plane/auth-cache';
-import { buildConfigAuditChecks, summarizeConfigAudit } from '../../lib/config-audit';
+import { loadConfigAuditChecks, loadFleetHostAuditSummary, summarizeConfigAudit } from '../../lib/config-audit';
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -67,6 +67,36 @@ const HostReconciliationReportSchema = z.object({
   error: z.string().nullable(),
 });
 
+const HostBootstrapValidationArtifactSchema = z.object({
+  status: z.enum(['passed', 'warning', 'failed']).nullable(),
+  bootstrap_version: z.string().nullable(),
+  runnerd_version: z.string().nullable(),
+  incus_version: z.string().nullable(),
+  storage_driver: z.string().nullable(),
+  storage_pool: z.string().nullable(),
+  started_at: z.string().nullable(),
+  completed_at: z.string().nullable(),
+  smoke_test_machine_id: z.string().nullable(),
+  smoke_test_result: z.enum(['passed', 'failed']).nullable(),
+  warm_pool_result: z.enum(['passed', 'failed']).nullable(),
+  triggered_by: z.string().nullable(),
+  notes: z.array(z.string()),
+});
+
+const HostOperatorIncusUiSchema = z.object({
+  exposure: z.enum(['disabled', 'operator_only', 'cluster_console']).nullable(),
+  url: z.string().nullable(),
+  note: z.string().nullable(),
+  updated_at: z.string().nullable(),
+});
+
+const HostSchedulerStateSchema = z.object({
+  schedulable: z.boolean().nullable(),
+  unschedulable_reason: z.string().nullable(),
+  updated_at: z.string().nullable(),
+  updated_by: z.string().nullable(),
+});
+
 const HostListResponseSchema = z.object({
   hosts: z.array(z.object({
     id: z.string().uuid(),
@@ -100,6 +130,10 @@ const HostListResponseSchema = z.object({
     last_heartbeat_at: z.string().nullable(),
     drain_report: HostDrainReportSchema,
     reconciliation_report: HostReconciliationReportSchema,
+    bootstrap_validation: HostBootstrapValidationArtifactSchema,
+    drift_status: z.enum(['in_policy', 'warning_drift', 'blocking_drift']).nullable(),
+    scheduler: HostSchedulerStateSchema,
+    incus_ui: HostOperatorIncusUiSchema,
     metadata: z.record(z.string(), z.unknown()),
     created_at: z.string(),
     updated_at: z.string(),
@@ -114,6 +148,7 @@ const HostListResponseSchema = z.object({
     status: z.string(),
     host_count: z.number(),
     active_host_count: z.number(),
+    active_schedulable_host_count: z.number(),
     constrained_host_count: z.number(),
     admission_state: z.enum(['open', 'restricted', 'closed']),
     sellability_state: z.enum(['sellable', 'reserve_only', 'unsellable']),
@@ -227,6 +262,7 @@ const CellCapacitySnapshotSchema = z.object({
   sellability_state: z.enum(['sellable', 'reserve_only', 'unsellable']),
   host_count: z.number(),
   active_host_count: z.number(),
+  active_schedulable_host_count: z.number(),
   constrained_host_count: z.number(),
   total_vcpu: z.number(),
   total_memory_gb: z.number(),
@@ -260,7 +296,7 @@ const ControlPlaneRunResponseSchema = z.object({
   alerts: z.number(),
   provisioner: z.object({ acquired: z.boolean(), processed: z.number(), leaseOwner: z.string(), scope: z.string() }),
   webhooks: z.object({ acquired: z.boolean(), processed: z.number(), jobsPruned: z.number().optional(), deliveriesPruned: z.number().optional(), leaseOwner: z.string(), scope: z.string() }),
-  auth_cache: z.object({ acquired: z.boolean(), synced: z.number(), leaseOwner: z.string(), scope: z.string() }),
+  auth_cache: z.object({ acquired: z.boolean(), synced: z.number(), syncFailed: z.number().optional(), expiredApiKeysPruned: z.number().optional(), expiredApiKeyKvDeleted: z.number().optional(), expiredApiKeyKvDeleteFailed: z.number().optional(), proxyTokensPruned: z.number().optional(), proxyTokenKvDeleted: z.number().optional(), proxyTokenKvDeleteFailed: z.number().optional(), leaseOwner: z.string(), scope: z.string() }),
   telemetry: z.object({ acquired: z.boolean(), pruned: z.number(), lifecycleEventsPruned: z.number(), leaseOwner: z.string(), scope: z.string() }),
   repaired_routing_states: z.number(),
   routing_repair: z.object({ acquired: z.boolean(), repaired: z.number(), leaseOwner: z.string(), scope: z.string() }),
@@ -286,6 +322,32 @@ const ConfigAuditResponseSchema = z.object({
     message: z.string(),
     details: z.string().optional(),
   })),
+});
+
+const FleetHostAuditEntrySchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  status: z.string(),
+  quarantined: z.boolean(),
+  unschedulable_reason: z.string().nullable(),
+  drift_status: z.enum(['in_policy', 'warning_drift', 'blocking_drift']).nullable(),
+  validation_status: z.enum(['passed', 'warning', 'failed']).nullable(),
+});
+
+const FleetHostAuditResponseSchema = z.object({
+  summary: z.object({
+    total_hosts: z.number(),
+    active_schedulable_hosts: z.number(),
+    bootstrapping_hosts: z.number(),
+    pending_validation_hosts: z.number(),
+    quarantined_hosts: z.number(),
+    warning_drift_hosts: z.number(),
+    blocking_drift_hosts: z.number(),
+  }),
+  pending_validation: z.array(FleetHostAuditEntrySchema),
+  quarantined: z.array(FleetHostAuditEntrySchema),
+  warning_drift: z.array(FleetHostAuditEntrySchema),
+  blocking_drift: z.array(FleetHostAuditEntrySchema),
 });
 
 const HetznerProductListResponseSchema = z.object({
@@ -376,6 +438,66 @@ function buildReconciliationReport(row: typeof baremetalHosts.$inferSelect) {
   };
 }
 
+function buildBootstrapValidationArtifact(row: typeof baremetalHosts.$inferSelect) {
+  const bootstrap = asRecord((row.metadata ?? {}).bootstrap);
+  const validation = asRecord(bootstrap?.validation_artifact);
+  return {
+    status: validation?.status === 'passed' || validation?.status === 'warning' || validation?.status === 'failed' ? validation.status : null,
+    bootstrap_version: typeof validation?.bootstrap_version === 'string' ? validation.bootstrap_version : null,
+    runnerd_version: typeof validation?.runnerd_version === 'string' ? validation.runnerd_version : null,
+    incus_version: typeof validation?.incus_version === 'string' ? validation.incus_version : null,
+    storage_driver: typeof validation?.storage_driver === 'string' ? validation.storage_driver : null,
+    storage_pool: typeof validation?.storage_pool === 'string' ? validation.storage_pool : null,
+    started_at: typeof validation?.started_at === 'string' ? validation.started_at : null,
+    completed_at: typeof validation?.completed_at === 'string' ? validation.completed_at : null,
+    smoke_test_machine_id: typeof validation?.smoke_test_machine_id === 'string' ? validation.smoke_test_machine_id : null,
+    smoke_test_result: validation?.smoke_test_result === 'passed' || validation?.smoke_test_result === 'failed' ? validation.smoke_test_result : null,
+    warm_pool_result: validation?.warm_pool_result === 'passed' || validation?.warm_pool_result === 'failed' ? validation.warm_pool_result : null,
+    triggered_by: typeof validation?.triggered_by === 'string' ? validation.triggered_by : null,
+    notes: Array.isArray(validation?.notes) ? validation.notes.filter((note): note is string => typeof note === 'string') : [],
+  };
+}
+
+function buildHostDriftStatus(row: typeof baremetalHosts.$inferSelect) {
+  const bootstrap = asRecord((row.metadata ?? {}).bootstrap);
+  const value = bootstrap?.drift_status;
+  return value === 'in_policy' || value === 'warning_drift' || value === 'blocking_drift' ? value : null;
+}
+
+function buildHostIncusUiState(row: typeof baremetalHosts.$inferSelect) {
+  const operator = asRecord((row.metadata ?? {}).operator);
+  const incusUi = asRecord(operator?.incus_ui);
+  const exposure = incusUi?.exposure;
+  return {
+    exposure: exposure === 'disabled' || exposure === 'operator_only' || exposure === 'cluster_console' ? exposure : null,
+    url: typeof incusUi?.url === 'string' ? incusUi.url : null,
+    note: typeof incusUi?.note === 'string' ? incusUi.note : null,
+    updated_at: typeof incusUi?.updated_at === 'string' ? incusUi.updated_at : null,
+  };
+}
+
+function buildHostSchedulerState(row: typeof baremetalHosts.$inferSelect) {
+  const scheduler = asRecord((row.metadata ?? {}).scheduler);
+  return {
+    schedulable: typeof scheduler?.schedulable === 'boolean' ? scheduler.schedulable : null,
+    unschedulable_reason: typeof scheduler?.unschedulableReason === 'string'
+      ? scheduler.unschedulableReason
+      : typeof scheduler?.unschedulable_reason === 'string'
+        ? scheduler.unschedulable_reason
+        : null,
+    updated_at: typeof scheduler?.updatedAt === 'string'
+      ? scheduler.updatedAt
+      : typeof scheduler?.updated_at === 'string'
+        ? scheduler.updated_at
+        : null,
+    updated_by: typeof scheduler?.updatedBy === 'string'
+      ? scheduler.updatedBy
+      : typeof scheduler?.updated_by === 'string'
+        ? scheduler.updated_by
+        : null,
+  };
+}
+
 function serializeHost(row: typeof baremetalHosts.$inferSelect, context?: {
   machines?: Array<typeof machines.$inferSelect>;
   reservations?: Array<typeof hostCapacityReservations.$inferSelect>;
@@ -428,6 +550,10 @@ function serializeHost(row: typeof baremetalHosts.$inferSelect, context?: {
     last_heartbeat_at: row.lastHeartbeatAt?.toISOString() ?? null,
     drain_report: buildDrainReport(row, context),
     reconciliation_report: buildReconciliationReport(row),
+    bootstrap_validation: buildBootstrapValidationArtifact(row),
+    drift_status: buildHostDriftStatus(row),
+    scheduler: buildHostSchedulerState(row),
+    incus_ui: buildHostIncusUiState(row),
     metadata: row.metadata ?? {},
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
@@ -491,6 +617,7 @@ function serializeCells(
     status: snapshot.cell.status,
     host_count: snapshot.hostCount,
     active_host_count: snapshot.activeHostCount,
+    active_schedulable_host_count: snapshot.activeSchedulableHostCount,
     constrained_host_count: snapshot.constrainedHostCount,
     admission_state: snapshot.cell.admission.state,
     sellability_state: snapshot.cell.admission.sellability,
@@ -655,6 +782,7 @@ function serializeCellCapacitySnapshot(row: typeof cellCapacitySnapshots.$inferS
     sellability_state: row.sellabilityState,
     host_count: row.hostCount,
     active_host_count: row.activeHostCount,
+    active_schedulable_host_count: row.activeSchedulableHostCount,
     constrained_host_count: row.constrainedHostCount,
     total_vcpu: row.totalVcpu,
     total_memory_gb: row.totalMemoryGb,
@@ -1250,6 +1378,225 @@ adminFleetV2App.openapi(createRoute({
 }) as any);
 
 adminFleetV2App.openapi(createRoute({
+  method: 'post',
+  path: '/hosts/{id}/validation-artifact',
+  tags: ['Admin Bare Metal'],
+  summary: 'Record a bootstrap validation artifact for a host',
+  request: {
+    params: z.object({ id: z.string().uuid() }),
+    body: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: z.object({
+            status: z.enum(['passed', 'warning', 'failed']),
+            bootstrap_version: z.string().optional(),
+            runnerd_version: z.string().optional(),
+            incus_version: z.string().optional(),
+            storage_driver: z.string().optional(),
+            storage_pool: z.string().optional(),
+            started_at: z.string().datetime().optional(),
+            completed_at: z.string().datetime().optional(),
+            smoke_test_machine_id: z.string().optional(),
+            smoke_test_result: z.enum(['passed', 'failed']).optional(),
+            warm_pool_result: z.enum(['passed', 'failed']).optional(),
+            drift_status: z.enum(['in_policy', 'warning_drift', 'blocking_drift']).optional(),
+            triggered_by: z.string().optional(),
+            notes: z.array(z.string()).optional(),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: { description: 'Host validation artifact recorded', content: { 'application/json': { schema: z.object({ host: HostSchema }) } } },
+  },
+}), (async (c: any) => {
+  const adminError = requireAdmin(c);
+  if (adminError) return adminError as Response;
+
+  try {
+    const { id } = c.req.valid('param');
+    const body = c.req.valid('json');
+    const [existing] = await db.select().from(baremetalHosts).where(eq(baremetalHosts.id, id));
+    if (!existing) return errorResponse(c, 404, 'Host not found') as Response;
+
+    const nextMetadata = {
+      ...(existing.metadata ?? {}),
+      scheduler: {
+        ...(asRecord((existing.metadata ?? {}).scheduler) ?? {}),
+        schedulable: body.status === 'failed' ? false : true,
+        unschedulableReason: body.status === 'failed' ? 'host quarantined after failed bootstrap validation' : null,
+        updatedAt: new Date().toISOString(),
+        updatedBy: body.triggered_by ?? c.get('userId') ?? 'system/bootstrap-validation',
+      },
+      bootstrap: {
+        ...(asRecord((existing.metadata ?? {}).bootstrap) ?? {}),
+        validation_artifact: {
+          status: body.status,
+          bootstrap_version: body.bootstrap_version ?? null,
+          runnerd_version: body.runnerd_version ?? null,
+          incus_version: body.incus_version ?? null,
+          storage_driver: body.storage_driver ?? null,
+          storage_pool: body.storage_pool ?? null,
+          started_at: body.started_at ?? null,
+          completed_at: body.completed_at ?? new Date().toISOString(),
+          smoke_test_machine_id: body.smoke_test_machine_id ?? null,
+          smoke_test_result: body.smoke_test_result ?? null,
+          warm_pool_result: body.warm_pool_result ?? null,
+          triggered_by: body.triggered_by ?? c.get('userId') ?? null,
+          notes: body.notes ?? [],
+        },
+        drift_status: body.drift_status ?? buildHostDriftStatus(existing) ?? (body.status === 'failed' ? 'blocking_drift' : 'in_policy'),
+      },
+    };
+
+    const nextHostStatus = body.status === 'failed'
+      ? 'error'
+      : existing.status === 'bootstrapping'
+        ? 'active'
+        : existing.status;
+
+    const [host] = await db.update(baremetalHosts).set({
+      status: nextHostStatus,
+      metadata: nextMetadata,
+      updatedAt: new Date(),
+    }).where(eq(baremetalHosts.id, id)).returning();
+
+    const [cellRows, admissionRows] = await Promise.all([
+      db.select().from(cells),
+      db.select().from(cellAdmissionControls),
+    ]);
+
+    return c.json({ host: serializeHost(host, { cellRows, cellAdmissions: admissionRows }) });
+  } catch (err) {
+    return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
+  }
+}) as any);
+
+adminFleetV2App.openapi(createRoute({
+  method: 'post',
+  path: '/hosts/{id}/operator-settings',
+  tags: ['Admin Bare Metal'],
+  summary: 'Update operator-only host settings such as Incus UI exposure',
+  request: {
+    params: z.object({ id: z.string().uuid() }),
+    body: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: z.object({
+            incus_ui_exposure: z.enum(['disabled', 'operator_only', 'cluster_console']),
+            incus_ui_url: z.string().url().optional().or(z.literal('')),
+            incus_ui_note: z.string().optional(),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: { description: 'Host operator settings updated', content: { 'application/json': { schema: z.object({ host: HostSchema }) } } },
+  },
+}), (async (c: any) => {
+  const adminError = requireAdmin(c);
+  if (adminError) return adminError as Response;
+
+  try {
+    const { id } = c.req.valid('param');
+    const body = c.req.valid('json');
+    const [existing] = await db.select().from(baremetalHosts).where(eq(baremetalHosts.id, id));
+    if (!existing) return errorResponse(c, 404, 'Host not found') as Response;
+
+    const now = new Date().toISOString();
+    const nextMetadata = {
+      ...(existing.metadata ?? {}),
+      operator: {
+        ...(asRecord((existing.metadata ?? {}).operator) ?? {}),
+        incus_ui: {
+          exposure: body.incus_ui_exposure,
+          url: body.incus_ui_url || null,
+          note: body.incus_ui_note ?? null,
+          updated_at: now,
+        },
+      },
+    };
+
+    const [host] = await db.update(baremetalHosts).set({
+      metadata: nextMetadata,
+      updatedAt: new Date(),
+    }).where(eq(baremetalHosts.id, id)).returning();
+
+    const [cellRows, admissionRows] = await Promise.all([
+      db.select().from(cells),
+      db.select().from(cellAdmissionControls),
+    ]);
+
+    return c.json({ host: serializeHost(host, { cellRows, cellAdmissions: admissionRows }) });
+  } catch (err) {
+    return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
+  }
+}) as any);
+
+adminFleetV2App.openapi(createRoute({
+  method: 'post',
+  path: '/hosts/{id}/scheduler-state',
+  tags: ['Admin Bare Metal'],
+  summary: 'Update scheduler quarantine state for a host',
+  request: {
+    params: z.object({ id: z.string().uuid() }),
+    body: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: z.object({
+            schedulable: z.boolean(),
+            reason: z.string().optional(),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: { description: 'Host scheduler state updated', content: { 'application/json': { schema: z.object({ host: HostSchema }) } } },
+  },
+}), (async (c: any) => {
+  const adminError = requireAdmin(c);
+  if (adminError) return adminError as Response;
+
+  try {
+    const { id } = c.req.valid('param');
+    const body = c.req.valid('json');
+    const [existing] = await db.select().from(baremetalHosts).where(eq(baremetalHosts.id, id));
+    if (!existing) return errorResponse(c, 404, 'Host not found') as Response;
+
+    const nextMetadata = {
+      ...(existing.metadata ?? {}),
+      scheduler: {
+        ...(asRecord((existing.metadata ?? {}).scheduler) ?? {}),
+        schedulable: body.schedulable,
+        unschedulableReason: body.schedulable ? null : (body.reason ?? 'host manually quarantined by operator'),
+        updatedAt: new Date().toISOString(),
+        updatedBy: c.get('userId') ?? 'system/operator',
+      },
+    };
+
+    const [host] = await db.update(baremetalHosts).set({
+      metadata: nextMetadata,
+      updatedAt: new Date(),
+    }).where(eq(baremetalHosts.id, id)).returning();
+
+    const [cellRows, admissionRows] = await Promise.all([
+      db.select().from(cells),
+      db.select().from(cellAdmissionControls),
+    ]);
+
+    return c.json({ host: serializeHost(host, { cellRows, cellAdmissions: admissionRows }) });
+  } catch (err) {
+    return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
+  }
+}) as any);
+
+adminFleetV2App.openapi(createRoute({
   method: 'get',
   path: '/procurements',
   tags: ['Admin Bare Metal'],
@@ -1395,8 +1742,35 @@ adminFleetV2App.openapi(createRoute({
   if (adminError) return adminError as Response;
 
   try {
-    const checks = buildConfigAuditChecks();
+    const fleetHostAudit = await loadFleetHostAuditSummary();
+    const checks = await loadConfigAuditChecks(fleetHostAudit.hostRows);
     return c.json({ ...summarizeConfigAudit(checks), checks });
+  } catch (err) {
+    return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
+  }
+}) as any);
+
+adminFleetV2App.openapi(createRoute({
+  method: 'get',
+  path: '/host-audit',
+  tags: ['Admin Bare Metal'],
+  summary: 'Inspect aggregate host validation and drift state',
+  responses: {
+    200: { description: 'Fleet host audit', content: { 'application/json': { schema: FleetHostAuditResponseSchema } } },
+  },
+}), (async (c: any) => {
+  const adminError = requireAdmin(c);
+  if (adminError) return adminError as Response;
+
+  try {
+    const audit = await loadFleetHostAuditSummary();
+    return c.json({
+      summary: audit.summary,
+      pending_validation: audit.pendingValidation,
+      quarantined: audit.quarantined,
+      warning_drift: audit.warningDrift,
+      blocking_drift: audit.blockingDrift,
+    });
   } catch (err) {
     return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
   }

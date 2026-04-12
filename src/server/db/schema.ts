@@ -451,6 +451,7 @@ export const cellCapacitySnapshots = pgTable('cell_capacity_snapshots', {
   sellabilityState: cellSellabilityStateEnum('sellability_state').notNull(),
   hostCount: integer('host_count').notNull(),
   activeHostCount: integer('active_host_count').notNull(),
+  activeSchedulableHostCount: integer('active_schedulable_host_count').notNull().default(0),
   constrainedHostCount: integer('constrained_host_count').notNull(),
   totalVcpu: integer('total_vcpu').notNull(),
   totalMemoryGb: integer('total_memory_gb').notNull(),

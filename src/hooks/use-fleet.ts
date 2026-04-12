@@ -46,6 +46,34 @@ export type FleetHost = {
     warm_pool_instance_ids: string[];
     error: string | null;
   };
+  bootstrap_validation: {
+    status: 'passed' | 'warning' | 'failed' | null;
+    bootstrap_version: string | null;
+    runnerd_version: string | null;
+    incus_version: string | null;
+    storage_driver: string | null;
+    storage_pool: string | null;
+    started_at: string | null;
+    completed_at: string | null;
+    smoke_test_machine_id: string | null;
+    smoke_test_result: 'passed' | 'failed' | null;
+    warm_pool_result: 'passed' | 'failed' | null;
+    triggered_by: string | null;
+    notes: string[];
+  };
+  drift_status: 'in_policy' | 'warning_drift' | 'blocking_drift' | null;
+  scheduler: {
+    schedulable: boolean | null;
+    unschedulable_reason: string | null;
+    updated_at: string | null;
+    updated_by: string | null;
+  };
+  incus_ui: {
+    exposure: 'disabled' | 'operator_only' | 'cluster_console' | null;
+    url: string | null;
+    note: string | null;
+    updated_at: string | null;
+  };
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -63,6 +91,7 @@ export type FleetCell = {
   status: string;
   host_count: number;
   active_host_count: number;
+  active_schedulable_host_count: number;
   constrained_host_count: number;
   admission_state: 'open' | 'restricted' | 'closed';
   sellability_state: 'sellable' | 'reserve_only' | 'unsellable';
@@ -103,6 +132,13 @@ function fleetOverviewQueryOptions(enabled: boolean) {
     enabled,
     refetchInterval: 10_000,
   } as const;
+}
+
+function invalidateFleetViews(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ['fleet', 'overview'] });
+  qc.invalidateQueries({ queryKey: ['fleet', 'host-audit'] });
+  qc.invalidateQueries({ queryKey: ['fleet', 'config-audit'] });
+  qc.invalidateQueries({ queryKey: ['fleet', 'cell-capacity-snapshots'] });
 }
 
 export type FleetProcurement = {
@@ -179,6 +215,7 @@ export type FleetCellCapacitySnapshot = {
   sellability_state: 'sellable' | 'reserve_only' | 'unsellable';
   host_count: number;
   active_host_count: number;
+  active_schedulable_host_count: number;
   constrained_host_count: number;
   total_vcpu: number;
   total_memory_gb: number;
@@ -214,6 +251,32 @@ export type FleetConfigAudit = {
   status: 'ok' | 'warning' | 'degraded';
   counts: { ok: number; warning: number; error: number };
   checks: FleetConfigAuditCheck[];
+};
+
+export type FleetHostAuditEntry = {
+  id: string;
+  name: string;
+  status: string;
+  quarantined: boolean;
+  unschedulable_reason: string | null;
+  drift_status: 'in_policy' | 'warning_drift' | 'blocking_drift' | null;
+  validation_status: 'passed' | 'warning' | 'failed' | null;
+};
+
+export type FleetHostAudit = {
+  summary: {
+    total_hosts: number;
+    active_schedulable_hosts: number;
+    bootstrapping_hosts: number;
+    pending_validation_hosts: number;
+    quarantined_hosts: number;
+    warning_drift_hosts: number;
+    blocking_drift_hosts: number;
+  };
+  pending_validation: FleetHostAuditEntry[];
+  quarantined: FleetHostAuditEntry[];
+  warning_drift: FleetHostAuditEntry[];
+  blocking_drift: FleetHostAuditEntry[];
 };
 
 export function useFleetHosts(enabled = true) {
@@ -287,6 +350,15 @@ export function useFleetConfigAudit(enabled = true) {
   });
 }
 
+export function useFleetHostAudit(enabled = true) {
+  return useQuery({
+    queryKey: ['fleet', 'host-audit'],
+    queryFn: async () => apiV2.get<FleetHostAudit>('/admin/fleet/host-audit'),
+    enabled,
+    refetchInterval: 10_000,
+  });
+}
+
 export function useApproveProcurement() {
   const qc = useQueryClient();
   return useMutation({
@@ -317,7 +389,7 @@ export function useUpdateFleetHostMaintenanceState() {
       ...(note ? { note } : {}),
     }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['fleet', 'overview'] });
+      invalidateFleetViews(qc);
     },
   });
 }
@@ -327,7 +399,44 @@ export function useCleanupFleetHostOrphans() {
   return useMutation({
     mutationFn: async (hostId: string) => apiV2.post<{ cleaned_instance_ids: string[]; skipped_instance_ids: string[]; host: FleetHost }>(`/admin/fleet/hosts/${hostId}/cleanup-orphans`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['fleet', 'overview'] });
+      invalidateFleetViews(qc);
+    },
+  });
+}
+
+export function useUpdateFleetHostOperatorSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      hostId,
+      incusUiExposure,
+      incusUiUrl,
+      incusUiNote,
+    }: {
+      hostId: string;
+      incusUiExposure: 'disabled' | 'operator_only' | 'cluster_console';
+      incusUiUrl?: string;
+      incusUiNote?: string;
+    }) => apiV2.post<{ host: FleetHost }>(`/admin/fleet/hosts/${hostId}/operator-settings`, {
+      incus_ui_exposure: incusUiExposure,
+      ...(incusUiUrl !== undefined ? { incus_ui_url: incusUiUrl } : {}),
+      ...(incusUiNote !== undefined ? { incus_ui_note: incusUiNote } : {}),
+    }),
+    onSuccess: () => {
+      invalidateFleetViews(qc);
+    },
+  });
+}
+
+export function useUpdateFleetHostSchedulerState() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ hostId, schedulable, reason }: { hostId: string; schedulable: boolean; reason?: string }) => apiV2.post<{ host: FleetHost }>(`/admin/fleet/hosts/${hostId}/scheduler-state`, {
+      schedulable,
+      ...(reason !== undefined ? { reason } : {}),
+    }),
+    onSuccess: () => {
+      invalidateFleetViews(qc);
     },
   });
 }
@@ -351,7 +460,7 @@ export function useUpdateFleetCellAdmissionState() {
       ...(reason !== undefined ? { reason } : {}),
     }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['fleet', 'overview'] });
+      invalidateFleetViews(qc);
     },
   });
 }
@@ -375,7 +484,7 @@ export function useUpdateFleetCellReservePolicy() {
       procurement_reserve: procurementReserve,
     }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['fleet', 'overview'] });
+      invalidateFleetViews(qc);
     },
   });
 }

@@ -69,6 +69,8 @@ const selectFromMock = vi.fn(() => ({
   where: selectWhereMock,
   then: (resolve: (value: unknown) => unknown) => resolve(selectDirectMock()),
 }));
+const updateWhereMock = vi.fn(() => ({ returning: updateReturningMock }));
+const updateSetMock = vi.fn(() => ({ where: updateWhereMock }));
 const updateReturningMock = vi.fn();
 const insertReturningMock = vi.fn();
 const deleteInstanceMock = vi.fn();
@@ -144,7 +146,7 @@ vi.mock('@/server/db', () => ({
   db: {
     select: vi.fn(() => ({ from: selectFromMock })),
     insert: vi.fn(() => ({ values: vi.fn(() => ({ returning: insertReturningMock, onConflictDoUpdate: vi.fn(async () => []) })) })),
-    update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ returning: updateReturningMock })) })) })),
+    update: vi.fn(() => ({ set: updateSetMock })),
   },
 }));
 
@@ -216,6 +218,245 @@ describe('admin baremetal host bootstrap routes', () => {
     expect(data.host.total_vcpu).toBe(12);
     expect(data.host.status).toBe('active');
     expect(data.host.cell_slug).toBe('hel1--general-small--gen1');
+    expect(data.host.bootstrap_validation.status).toBeNull();
+    expect(data.host.drift_status).toBeNull();
+    expect(data.host.scheduler).toEqual({ schedulable: null, unschedulable_reason: null, updated_at: null, updated_by: null });
+    expect(data.host.incus_ui.exposure).toBeNull();
+  });
+
+  it('records a host bootstrap validation artifact and exposes drift status', async () => {
+    selectWhereMock.mockResolvedValueOnce([{ ...hostRow, status: 'bootstrapping', runnerToken: 'runner-token-123', metadata: { bootstrap: { storage_driver: 'dir' } } }]);
+    selectDirectMock
+      .mockReturnValueOnce([cellRow])
+      .mockReturnValueOnce([cellAdmissionRow]);
+    updateReturningMock.mockResolvedValueOnce([{
+      ...hostRow,
+      status: 'active',
+      runnerToken: 'runner-token-123',
+      metadata: {
+        scheduler: {
+          schedulable: true,
+          unschedulableReason: null,
+          updatedAt: '2026-04-11T10:01:00.000Z',
+          updatedBy: 'bootstrap-script',
+        },
+        bootstrap: {
+          storage_driver: 'dir',
+          drift_status: 'in_policy',
+          validation_artifact: {
+            status: 'passed',
+            bootstrap_version: 'bootstrap-baremetal-host.sh@v1',
+            runnerd_version: '1.0.0',
+            incus_version: '6.0',
+            storage_driver: 'dir',
+            storage_pool: 'default',
+            started_at: '2026-04-11T10:00:00.000Z',
+            completed_at: '2026-04-11T10:01:00.000Z',
+            smoke_test_result: 'passed',
+            warm_pool_result: 'passed',
+            triggered_by: 'bootstrap-script',
+            notes: ['runner registration succeeded'],
+          },
+        },
+      },
+      updatedAt: new Date('2026-04-11T10:01:00.000Z'),
+    }]);
+
+    const { adminFleetV2App } = await import('@/server/routes/v2/admin-fleet');
+    const res = await adminFleetV2App.request(new Request(`http://localhost/hosts/${hostRow.id}/validation-artifact`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        status: 'passed',
+        bootstrap_version: 'bootstrap-baremetal-host.sh@v1',
+        runnerd_version: '1.0.0',
+        incus_version: '6.0',
+        storage_driver: 'dir',
+        storage_pool: 'default',
+        started_at: '2026-04-11T10:00:00.000Z',
+        completed_at: '2026-04-11T10:01:00.000Z',
+        smoke_test_result: 'passed',
+        warm_pool_result: 'passed',
+        drift_status: 'in_policy',
+        triggered_by: 'bootstrap-script',
+        notes: ['runner registration succeeded'],
+      }),
+    }));
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.host.bootstrap_validation).toMatchObject({
+      status: 'passed',
+      runnerd_version: '1.0.0',
+      incus_version: '6.0',
+      storage_driver: 'dir',
+      storage_pool: 'default',
+      smoke_test_result: 'passed',
+      warm_pool_result: 'passed',
+    });
+    expect(data.host.drift_status).toBe('in_policy');
+    expect(data.host.status).toBe('active');
+    expect(data.host.scheduler).toMatchObject({ schedulable: true, unschedulable_reason: null, updated_by: 'bootstrap-script' });
+    expect(updateSetMock).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({
+        scheduler: expect.objectContaining({ schedulable: true, unschedulableReason: null }),
+      }),
+    }));
+  });
+
+  it('marks a bootstrapping host as error when validation fails', async () => {
+    selectWhereMock.mockResolvedValueOnce([{ ...hostRow, status: 'bootstrapping', metadata: { bootstrap: { storage_driver: 'dir' } } }]);
+    selectDirectMock
+      .mockReturnValueOnce([cellRow])
+      .mockReturnValueOnce([cellAdmissionRow]);
+    updateReturningMock.mockResolvedValueOnce([{
+      ...hostRow,
+      status: 'error',
+      metadata: {
+        scheduler: {
+          schedulable: false,
+          unschedulableReason: 'host quarantined after failed bootstrap validation',
+          updatedAt: '2026-04-11T10:01:00.000Z',
+          updatedBy: 'system/bootstrap-validation',
+        },
+        bootstrap: {
+          storage_driver: 'dir',
+          drift_status: 'blocking_drift',
+          validation_artifact: {
+            status: 'failed',
+            bootstrap_version: 'bootstrap-baremetal-host.sh@v1',
+            runnerd_version: '1.0.0',
+            incus_version: '6.0',
+            storage_driver: 'dir',
+            storage_pool: 'default',
+            started_at: '2026-04-11T10:00:00.000Z',
+            completed_at: '2026-04-11T10:01:00.000Z',
+            smoke_test_result: 'failed',
+            warm_pool_result: 'failed',
+            triggered_by: 'bootstrap-script',
+            notes: ['proxy smoke test failed'],
+          },
+        },
+      },
+      updatedAt: new Date('2026-04-11T10:01:00.000Z'),
+    }]);
+
+    const { adminFleetV2App } = await import('@/server/routes/v2/admin-fleet');
+    const res = await adminFleetV2App.request(new Request(`http://localhost/hosts/${hostRow.id}/validation-artifact`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        status: 'failed',
+        bootstrap_version: 'bootstrap-baremetal-host.sh@v1',
+        runnerd_version: '1.0.0',
+        incus_version: '6.0',
+        storage_driver: 'dir',
+        storage_pool: 'default',
+        started_at: '2026-04-11T10:00:00.000Z',
+        completed_at: '2026-04-11T10:01:00.000Z',
+        smoke_test_result: 'failed',
+        warm_pool_result: 'failed',
+        notes: ['proxy smoke test failed'],
+      }),
+    }));
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.host.status).toBe('error');
+    expect(data.host.bootstrap_validation.status).toBe('failed');
+    expect(data.host.drift_status).toBe('blocking_drift');
+    expect(data.host.scheduler).toEqual({
+      schedulable: false,
+      unschedulable_reason: 'host quarantined after failed bootstrap validation',
+      updated_at: '2026-04-11T10:01:00.000Z',
+      updated_by: 'system/bootstrap-validation',
+    });
+    expect(updateSetMock).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({
+        scheduler: expect.objectContaining({
+          schedulable: false,
+          unschedulableReason: 'host quarantined after failed bootstrap validation',
+        }),
+      }),
+    }));
+  });
+
+  it('updates operator Incus UI exposure settings for a host', async () => {
+    selectWhereMock.mockResolvedValueOnce([{ ...hostRow, status: 'active', publicIpv4: '1.2.3.4', metadata: {} }]);
+    selectDirectMock
+      .mockReturnValueOnce([cellRow])
+      .mockReturnValueOnce([cellAdmissionRow]);
+    updateReturningMock.mockResolvedValueOnce([{
+      ...hostRow,
+      status: 'active',
+      publicIpv4: '1.2.3.4',
+      metadata: {
+        operator: {
+          incus_ui: {
+            exposure: 'operator_only',
+            url: 'https://1.2.3.4:8443',
+            note: 'vpn-only',
+            updated_at: '2026-04-11T11:00:00.000Z',
+          },
+        },
+      },
+      updatedAt: new Date('2026-04-11T11:00:00.000Z'),
+    }]);
+
+    const { adminFleetV2App } = await import('@/server/routes/v2/admin-fleet');
+    const res = await adminFleetV2App.request(new Request(`http://localhost/hosts/${hostRow.id}/operator-settings`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        incus_ui_exposure: 'operator_only',
+        incus_ui_url: 'https://1.2.3.4:8443',
+        incus_ui_note: 'vpn-only',
+      }),
+    }));
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.host.incus_ui).toMatchObject({
+      exposure: 'operator_only',
+      url: 'https://1.2.3.4:8443',
+      note: 'vpn-only',
+    });
+  });
+
+  it('updates host scheduler quarantine state', async () => {
+    selectWhereMock.mockResolvedValueOnce([{ ...hostRow, status: 'active', metadata: {} }]);
+    selectDirectMock
+      .mockReturnValueOnce([cellRow])
+      .mockReturnValueOnce([cellAdmissionRow]);
+    updateReturningMock.mockResolvedValueOnce([{
+      ...hostRow,
+      status: 'active',
+      metadata: {
+        scheduler: {
+          schedulable: false,
+          unschedulableReason: 'host manually quarantined by operator',
+          updatedAt: '2026-04-11T11:05:00.000Z',
+          updatedBy: '11111111-1111-1111-1111-111111111111',
+        },
+      },
+      updatedAt: new Date('2026-04-11T11:05:00.000Z'),
+    }]);
+
+    const { adminFleetV2App } = await import('@/server/routes/v2/admin-fleet');
+    const res = await adminFleetV2App.request(new Request(`http://localhost/hosts/${hostRow.id}/scheduler-state`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ schedulable: false, reason: 'host manually quarantined by operator' }),
+    }));
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.host.scheduler).toEqual({
+      schedulable: false,
+      unschedulable_reason: 'host manually quarantined by operator',
+      updated_at: '2026-04-11T11:05:00.000Z',
+      updated_by: '11111111-1111-1111-1111-111111111111',
+    });
   });
 
   it('updates host maintenance state', async () => {
@@ -395,6 +636,7 @@ describe('admin baremetal host bootstrap routes', () => {
       sellabilityState: 'sellable',
       hostCount: 2,
       activeHostCount: 2,
+      activeSchedulableHostCount: 1,
       constrainedHostCount: 0,
       totalVcpu: 24,
       totalMemoryGb: 124,
@@ -426,6 +668,7 @@ describe('admin baremetal host bootstrap routes', () => {
     const data = await res.json();
     expect(data.snapshots[0]).toMatchObject({
       cell_slug: 'hel1--general-small--gen1',
+      active_schedulable_host_count: 1,
       total_vcpu: 24,
       reserve_budget_vcpu: 4,
       utilization_score_basis_points: 2597,
@@ -496,6 +739,36 @@ describe('admin baremetal host bootstrap routes', () => {
     });
     expect(Array.isArray(data.checks)).toBe(true);
     expect(data.checks.some((check: { key: string }) => check.key === 'database_url')).toBe(true);
+  });
+
+  it('returns a fleet host audit summary', async () => {
+    selectDirectMock.mockReturnValueOnce([
+      { ...hostRow, status: 'bootstrapping', metadata: {} },
+      { ...hostRow, id: '00000000-0000-4000-8000-000000000099', name: 'bm-host-2', metadata: { scheduler: { schedulable: false, unschedulableReason: 'host quarantined after failed bootstrap validation' }, bootstrap: { drift_status: 'blocking_drift', validation_artifact: { status: 'failed' } } } },
+    ]);
+
+    const { adminFleetV2App } = await import('@/server/routes/v2/admin-fleet');
+    const res = await adminFleetV2App.request(new Request('http://localhost/host-audit'));
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.summary).toMatchObject({
+      total_hosts: 2,
+      active_schedulable_hosts: 0,
+      bootstrapping_hosts: 1,
+      pending_validation_hosts: 1,
+      quarantined_hosts: 1,
+      blocking_drift_hosts: 1,
+    });
+    expect(data.pending_validation).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: hostRow.name, status: 'bootstrapping' }),
+    ]));
+    expect(data.quarantined).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'bm-host-2', quarantined: true, unschedulable_reason: 'host quarantined after failed bootstrap validation' }),
+    ]));
+    expect(data.blocking_drift).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'bm-host-2', drift_status: 'blocking_drift', quarantined: true, unschedulable_reason: 'host quarantined after failed bootstrap validation' }),
+    ]));
   });
 
   it('cleans up non-warm orphan instances and preserves warm reserves', async () => {

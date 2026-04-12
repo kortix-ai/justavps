@@ -93,6 +93,7 @@ function asImageLocalityState(value: unknown): 'local' | 'remote' | 'warming' | 
 function normalizeSchedulerMetadata(host: BaremetalHostCandidate): BaremetalSchedulerHostMetadata {
   const metadata = asRecord(host.metadata);
   const scheduler = asRecord(metadata?.scheduler) ?? metadata;
+  const bootstrap = asRecord(metadata?.bootstrap);
 
   if (!scheduler) return {};
 
@@ -111,6 +112,9 @@ function normalizeSchedulerMetadata(host: BaremetalHostCandidate): BaremetalSche
       : typeof scheduler.unschedulable_reason === 'string'
         ? scheduler.unschedulable_reason
         : null,
+    driftStatus: bootstrap?.drift_status === 'in_policy' || bootstrap?.drift_status === 'warning_drift' || bootstrap?.drift_status === 'blocking_drift'
+      ? bootstrap.drift_status
+      : null,
     warmPool: warmPool ? {
       enabled: typeof warmPool.enabled === 'boolean' ? warmPool.enabled : null,
       availableCpuBuckets: asNumberArray(warmPool.availableCpuBuckets) ?? asNumberArray(warmPool.available_cpu_buckets),
@@ -238,6 +242,12 @@ function candidateExplanation(args: {
   if (metadata.schedulable === false) {
     disqualifiers.schedulable = true;
     reasons.push(metadata.unschedulableReason ?? 'host marked unschedulable by scheduler metadata');
+  }
+  if (metadata.driftStatus === 'blocking_drift') {
+    disqualifiers.schedulable = true;
+    reasons.push('host has blocking bootstrap drift and is not eligible for placement');
+  } else if (metadata.driftStatus === 'warning_drift') {
+    reasons.push('host has warning bootstrap drift');
   }
 
   if (policy.requiredHostClass && host.hostClass !== policy.requiredHostClass) {
@@ -369,11 +379,12 @@ function candidateExplanation(args: {
       generation: cell?.generation ?? host.generation ?? null,
       cellId: cell?.id ?? host.cellId ?? null,
       cellSlug: cell?.slug ?? null,
-      maintenanceState: host.maintenanceState ?? null,
-      schedulable: metadata.schedulable !== false && hostAcceptsPlacement(host),
-      admissionState: cellSnapshot?.cell.admission.state ?? 'open',
-      sellabilityState: cellSnapshot?.cell.admission.sellability ?? 'sellable',
-    },
+        maintenanceState: host.maintenanceState ?? null,
+        schedulable: metadata.schedulable !== false && metadata.driftStatus !== 'blocking_drift' && hostAcceptsPlacement(host),
+        driftStatus: metadata.driftStatus ?? null,
+        admissionState: cellSnapshot?.cell.admission.state ?? 'open',
+        sellabilityState: cellSnapshot?.cell.admission.sellability ?? 'sellable',
+      },
   };
 }
 

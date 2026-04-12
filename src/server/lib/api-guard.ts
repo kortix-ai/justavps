@@ -22,6 +22,10 @@ function sha256(input: string): string {
   return createHash('sha256').update(input).digest('hex');
 }
 
+function buildApiKeyPrefix(key: string): string {
+  return `${key.slice(0, 16)}...`;
+}
+
 export type AuthVariables = {
   userId: string;
   accountId: string;
@@ -219,8 +223,9 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(async (c,
         return next();
       }
 
-      const allKeys = await db.select().from(apiKeys);
-      for (const candidate of allKeys) {
+      const fallbackPrefix = buildApiKeyPrefix(key);
+      const fallbackCandidates = await db.select().from(apiKeys).where(eq(apiKeys.keyPrefix, fallbackPrefix)).limit(8);
+      for (const candidate of fallbackCandidates) {
         if (!(await validateApiKey(key, candidate.keyHash))) continue;
 
         if (candidate.expiresAt && candidate.expiresAt < new Date()) {

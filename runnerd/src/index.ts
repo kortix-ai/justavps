@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
+import net from 'node:net';
 import type { Context } from 'hono';
 import { setTimeout as delay } from 'node:timers/promises';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -299,6 +300,37 @@ async function waitForPrivateIpv4(instanceName: string, timeoutMs = 120000) {
   throw new Error(`Timed out waiting for private IPv4 on ${instanceName}`);
 }
 
+async function waitForTcpListener(host: string, port: number, timeoutMs = 10_000, intervalMs = 250) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError: string | null = null;
+
+  while (Date.now() < deadline) {
+    const ready = await new Promise<boolean>((resolve) => {
+      const socket = net.createConnection({ host, port });
+      socket.setTimeout(Math.min(intervalMs, 1_000));
+      socket.once('connect', () => {
+        socket.destroy();
+        resolve(true);
+      });
+      socket.once('timeout', () => {
+        lastError = `timeout connecting to ${host}:${port}`;
+        socket.destroy();
+        resolve(false);
+      });
+      socket.once('error', (error) => {
+        lastError = error instanceof Error ? error.message : String(error);
+        socket.destroy();
+        resolve(false);
+      });
+    });
+
+    if (ready) return;
+    await delay(intervalMs);
+  }
+
+  throw new Error(`timed out waiting for tcp listener ${host}:${port}${lastError ? ` (${lastError})` : ''}`);
+}
+
 async function waitForCloudInit(instanceName: string, timeoutMs = 300000) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
@@ -316,8 +348,8 @@ async function waitForCloudInit(instanceName: string, timeoutMs = 300000) {
   throw new Error(`Timed out waiting for cloud-init on ${instanceName}`);
 }
 
-async function setIncusConfig(instanceName: string, key: string, value: string) {
-  await retryBusy(() => runIncus(['config', 'set', incusTarget(instanceName), key, value]));
+async function setIncusConfig(instanceName: string, key: string, value: string, timeoutMs = 120000) {
+  await retryBusy(() => runIncus(['config', 'set', incusTarget(instanceName), key, value]), timeoutMs);
 }
 
 async function applyVmBootTuning(instanceName: string) {
@@ -422,6 +454,35 @@ async function setupProxyDevices(instanceName: string, vmIp: string, sshPort: nu
   ], 10000);
 
   // HTTP NAT: host:httpPort → vm:80 (daemon proxy inside VM)
+  await runIncus([
+    'config', 'device', 'add', incusTarget(instanceName), 'http', 'proxy',
+    'nat=true',
+    `listen=tcp:${RUNNERD_PUBLIC_IPV4}:${httpPort}`,
+    `connect=tcp:${vmIp}:80`,
+  ], 10000);
+
+  await waitForTcpListener(RUNNERD_PUBLIC_IPV4, sshPort);
+  await waitForTcpListener(RUNNERD_PUBLIC_IPV4, httpPort);
+}
+
+async function setupWarmClaimProxyDevices(instanceName: string, vmIp: string, sshPort: number, httpPort: number) {
+  if (!RUNNERD_PUBLIC_IPV4) throw new Error('RUNNERD_PUBLIC_IPV4 not set');
+
+  for (const dev of ['ssh', 'http']) {
+    try {
+      await runIncus(['config', 'device', 'remove', incusTarget(instanceName), dev], 5000);
+    } catch {
+      // device may not exist — ignore
+    }
+  }
+
+  await runIncus([
+    'config', 'device', 'add', incusTarget(instanceName), 'ssh', 'proxy',
+    'nat=true',
+    `listen=tcp:${RUNNERD_PUBLIC_IPV4}:${sshPort}`,
+    `connect=tcp:${vmIp}:22`,
+  ], 10000);
+
   await runIncus([
     'config', 'device', 'add', incusTarget(instanceName), 'http', 'proxy',
     'nat=true',
@@ -642,29 +703,25 @@ app.post('/v1/instances', async (c) => {
 
         await applyClaimResources(claimedName, memoryGb, diskGb);
         console.log(`[runnerd] claim resources applied +${Date.now() - startTs}ms`);
-        await setIncusConfig(claimedName, 'user.justavps.role', 'machine').catch(() => {});
-        await setIncusConfig(claimedName, 'user.justavps.machine_slug', machineSlug).catch(() => {});
+        void setIncusConfig(claimedName, 'user.justavps.role', 'machine', 10_000).catch(() => {});
+        void setIncusConfig(claimedName, 'user.justavps.machine_slug', machineSlug, 10_000).catch(() => {});
 
-        // eth0 already pre-pinned in warm pool. Add SSH + HTTP proxy devices (sequential, ~60ms total)
+        // Rebuild proxy devices idempotently. Warm claims must remove any stale
+        // listener/device state from the reserve lifecycle before exposing the
+        // claimed machine publicly.
         if (warmVM.privateIpv4 && RUNNERD_PUBLIC_IPV4) {
-          try {
-            await runIncus(['config', 'device', 'add', incusTarget(claimedName), 'ssh', 'proxy',
-              'nat=true', `listen=tcp:${RUNNERD_PUBLIC_IPV4}:${sshPort}`, `connect=tcp:${warmVM.privateIpv4}:22`], 10000);
-            await runIncus(['config', 'device', 'add', incusTarget(claimedName), 'http', 'proxy',
-              'nat=true', `listen=tcp:${RUNNERD_PUBLIC_IPV4}:${httpPort}`, `connect=tcp:${warmVM.privateIpv4}:80`], 10000);
-            console.log(`[runnerd] proxies ready +${Date.now() - startTs}ms ssh:${sshPort} http:${httpPort}`);
-          } catch (err) {
-            console.warn(`[runnerd] proxy setup failed: ${err instanceof Error ? err.message : err}`);
-          }
+          await setupWarmClaimProxyDevices(claimedName, warmVM.privateIpv4, sshPort, httpPort);
+          console.log(`[runnerd] proxies ready +${Date.now() - startTs}ms ssh:${sshPort} http:${httpPort}`);
         }
 
         // Identity injection last: this restarts machine-local services/daemon and can
         // trigger readiness callbacks. Do it only after resources + public proxy
         // devices are all in place.
         if (cloudInitUserData.trim()) {
+          console.log(`[runnerd] warm claim identity injection starting +${Date.now() - startTs}ms`);
           const b64 = Buffer.from(cloudInitUserData).toString('base64');
           await runIncus(['exec', incusTarget(claimedName), '--', 'bash', '-c',
-            `echo '${b64}' | base64 -d > /tmp/init.sh && chmod +x /tmp/init.sh && /tmp/init.sh`], 15000);
+            `echo '${b64}' | base64 -d > /tmp/init.sh && chmod +x /tmp/init.sh && /tmp/init.sh`], 60000);
           console.log(`[runnerd] identity injected +${Date.now() - startTs}ms`);
         }
 

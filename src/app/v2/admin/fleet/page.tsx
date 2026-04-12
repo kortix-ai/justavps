@@ -3,7 +3,7 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useAccount } from "@/hooks/use-account";
-import { useApproveProcurement, useCleanupFleetHostOrphans, useFleetCellCapacitySnapshots, useFleetCells, useFleetConfigAudit, useFleetControlPlaneServices, useFleetHosts, useFleetProcurementRecommendations, useFleetProcurements, useSyncProcurement, useUpdateFleetCellAdmissionState, useUpdateFleetCellReservePolicy, useUpdateFleetHostMaintenanceState, type FleetHostMaintenanceState } from "@/hooks/use-fleet";
+import { useApproveProcurement, useCleanupFleetHostOrphans, useFleetCellCapacitySnapshots, useFleetCells, useFleetConfigAudit, useFleetControlPlaneServices, useFleetHostAudit, useFleetHosts, useFleetProcurementRecommendations, useFleetProcurements, useSyncProcurement, useUpdateFleetCellAdmissionState, useUpdateFleetCellReservePolicy, useUpdateFleetHostMaintenanceState, useUpdateFleetHostOperatorSettings, useUpdateFleetHostSchedulerState, type FleetHostMaintenanceState } from "@/hooks/use-fleet";
 import { cn } from "@/lib/utils";
 import { Activity, Cpu, HardDrive, Loader2, MemoryStick, RefreshCw, Server, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -41,6 +41,59 @@ function maintenanceTone(state: FleetHostMaintenanceState) {
       return "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20";
     default:
       return "bg-muted text-muted-foreground border-border";
+  }
+}
+
+function validationTone(status: 'passed' | 'warning' | 'failed' | null) {
+  switch (status) {
+    case 'passed':
+      return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20';
+    case 'warning':
+      return 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20';
+    case 'failed':
+      return 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20';
+    default:
+      return 'bg-muted text-muted-foreground border-border';
+  }
+}
+
+function driftTone(state: 'in_policy' | 'warning_drift' | 'blocking_drift' | null) {
+  switch (state) {
+    case 'in_policy':
+      return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20';
+    case 'warning_drift':
+      return 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20';
+    case 'blocking_drift':
+      return 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20';
+    default:
+      return 'bg-muted text-muted-foreground border-border';
+  }
+}
+
+function incusUiTone(state: 'disabled' | 'operator_only' | 'cluster_console' | null) {
+  switch (state) {
+    case 'operator_only':
+      return 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20';
+    case 'cluster_console':
+      return 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20';
+    case 'disabled':
+      return 'bg-muted text-muted-foreground border-border';
+    default:
+      return 'bg-muted text-muted-foreground border-border';
+  }
+}
+
+function configAuditTone(state: 'ok' | 'warning' | 'error' | 'degraded') {
+  switch (state) {
+    case 'ok':
+      return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20';
+    case 'warning':
+      return 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20';
+    case 'error':
+    case 'degraded':
+      return 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20';
+    default:
+      return 'bg-muted text-muted-foreground border-border';
   }
 }
 
@@ -108,6 +161,7 @@ export default function AdminFleetPage() {
   const { data: hosts = [], isLoading: hostsLoading } = useFleetHosts(enabled);
   const { data: cells = [], isLoading: cellsLoading } = useFleetCells(enabled);
   const { data: configAudit, isLoading: configAuditLoading } = useFleetConfigAudit(enabled);
+  const { data: hostAudit, isLoading: hostAuditLoading } = useFleetHostAudit(enabled);
   const { data: controlPlaneServices = [], isLoading: controlPlaneServicesLoading } = useFleetControlPlaneServices(enabled);
   const { data: cellCapacitySnapshots = [], isLoading: cellCapacitySnapshotsLoading } = useFleetCellCapacitySnapshots(enabled, 12);
   const { data: procurementRecommendations = [], isLoading: procurementRecommendationsLoading } = useFleetProcurementRecommendations(enabled);
@@ -118,6 +172,8 @@ export default function AdminFleetPage() {
   const updateCellAdmission = useUpdateFleetCellAdmissionState();
   const updateCellReservePolicy = useUpdateFleetCellReservePolicy();
   const updateMaintenance = useUpdateFleetHostMaintenanceState();
+  const updateOperatorSettings = useUpdateFleetHostOperatorSettings();
+  const updateSchedulerState = useUpdateFleetHostSchedulerState();
 
   if (accountLoading) return <Skeleton className="h-40 w-full rounded-2xl" />;
 
@@ -133,12 +189,20 @@ export default function AdminFleetPage() {
 
   const totalHosts = hosts.length;
   const activeHosts = hosts.filter((host) => host.status === "active").length;
-  const constrainedHosts = hosts.filter((host) => host.maintenance_state !== "in_service").length;
+  const activeSchedulableHosts = hosts.filter((host) => host.status === "active" && host.scheduler.schedulable !== false).length;
+  const constrainedHosts = hosts.filter((host) => host.maintenance_state !== "in_service" || host.scheduler.schedulable === false).length;
   const openProcurements = procurements.filter((procurement) => procurement.resolved_at === null).length;
+  const pendingValidationHosts = hosts.filter((host) => !host.bootstrap_validation.status || host.status === 'bootstrapping').length;
+  const blockingDriftHosts = hosts.filter((host) => host.drift_status === 'blocking_drift').length;
+  const quarantinedHosts = hosts.filter((host) => host.scheduler.schedulable === false).length;
   const totalVcpu = hosts.reduce((sum, host) => sum + (host.total_vcpu ?? 0), 0);
   const usedVcpu = hosts.reduce((sum, host) => sum + host.used_vcpu, 0);
   const totalRam = hosts.reduce((sum, host) => sum + (host.total_memory_gb ?? 0), 0);
   const usedRam = hosts.reduce((sum, host) => sum + host.used_memory_gb, 0);
+  const orderedConfigChecks = configAudit?.checks.slice().sort((a, b) => {
+    const order = { error: 0, warning: 1, ok: 2 } as const;
+    return order[a.severity] - order[b.severity] || a.key.localeCompare(b.key);
+  }) ?? [];
 
   return (
     <div className="space-y-6">
@@ -149,13 +213,17 @@ export default function AdminFleetPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-9">
         {[
           { label: "Hosts", value: `${activeHosts}/${totalHosts} active`, icon: Server },
+          { label: "Schedulable Active", value: `${activeSchedulableHosts}/${totalHosts}`, icon: ShieldCheck },
           { label: "vCPU", value: `${usedVcpu}/${totalVcpu}`, icon: Cpu },
           { label: "RAM", value: `${usedRam}/${totalRam} GB`, icon: MemoryStick },
           { label: "Open Procurements", value: String(openProcurements), icon: HardDrive },
           { label: "Constrained Hosts", value: String(constrainedHosts), icon: Activity },
+          { label: "Pending Validation", value: String(pendingValidationHosts), icon: ShieldCheck },
+          { label: "Quarantined Hosts", value: String(quarantinedHosts), icon: ShieldCheck },
+          { label: "Blocking Drift", value: String(blockingDriftHosts), icon: ShieldCheck },
         ].map((card) => (
           <div key={card.label} className="rounded-2xl border p-5">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -177,18 +245,21 @@ export default function AdminFleetPage() {
           ) : configAudit ? (
             <div className="divide-y divide-border">
               <div className="p-4 flex flex-wrap items-center justify-between gap-3">
-                <div className="font-medium">Status: {configAudit.status}</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="font-medium">Status: {configAudit.status}</div>
+                  <Badge variant="outline" className={cn(configAuditTone(configAudit.status))}>{configAudit.status}</Badge>
+                </div>
                 <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                  <Badge variant="outline">ok {configAudit.counts.ok}</Badge>
-                  <Badge variant="outline">warnings {configAudit.counts.warning}</Badge>
-                  <Badge variant="outline">errors {configAudit.counts.error}</Badge>
+                  <Badge variant="outline" className={cn(configAuditTone('ok'))}>ok {configAudit.counts.ok}</Badge>
+                  <Badge variant="outline" className={cn(configAuditTone('warning'))}>warnings {configAudit.counts.warning}</Badge>
+                  <Badge variant="outline" className={cn(configAuditTone('error'))}>errors {configAudit.counts.error}</Badge>
                 </div>
               </div>
-              {configAudit.checks.map((check) => (
+              {orderedConfigChecks.map((check) => (
                 <div key={check.key} className="p-4 space-y-1 text-sm">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="font-medium">{check.key}</div>
-                    <Badge variant="outline">{check.severity}</Badge>
+                    <Badge variant="outline" className={cn(configAuditTone(check.severity))}>{check.severity}</Badge>
                   </div>
                   <div>{check.message}</div>
                   {check.details && <div className="text-xs text-muted-foreground break-all">{check.details}</div>}
@@ -197,6 +268,58 @@ export default function AdminFleetPage() {
             </div>
           ) : (
             <div className="p-6 text-sm text-muted-foreground">No config audit data.</div>
+          )}
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-sm font-medium text-muted-foreground">Host validation audit</h2>
+        </div>
+        <div className="rounded-2xl border overflow-hidden">
+          {hostAuditLoading ? (
+            <div className="p-4 space-y-2">{Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)}</div>
+          ) : hostAudit ? (
+            <div className="divide-y divide-border">
+                <div className="p-4 grid gap-3 md:grid-cols-6 text-sm">
+                  <div><div className="text-muted-foreground text-xs">Total hosts</div><div>{hostAudit.summary.total_hosts}</div></div>
+                  <div><div className="text-muted-foreground text-xs">Schedulable active</div><div>{hostAudit.summary.active_schedulable_hosts}</div></div>
+                  <div><div className="text-muted-foreground text-xs">Bootstrapping</div><div>{hostAudit.summary.bootstrapping_hosts}</div></div>
+                  <div><div className="text-muted-foreground text-xs">Pending validation</div><div>{hostAudit.summary.pending_validation_hosts}</div></div>
+                  <div><div className="text-muted-foreground text-xs">Quarantined</div><div>{hostAudit.summary.quarantined_hosts}</div></div>
+                  <div><div className="text-muted-foreground text-xs">Warning drift</div><div>{hostAudit.summary.warning_drift_hosts}</div></div>
+                  <div><div className="text-muted-foreground text-xs">Blocking drift</div><div>{hostAudit.summary.blocking_drift_hosts}</div></div>
+                </div>
+              {hostAudit.pending_validation.length > 0 && (
+                <div className="p-4 space-y-2 text-sm">
+                  <div className="font-medium">Pending validation hosts</div>
+                  <div className="flex flex-wrap gap-2">{hostAudit.pending_validation.map((host) => <Badge key={host.id} variant="outline">{host.name} · {host.status}</Badge>)}</div>
+                </div>
+              )}
+              {hostAudit.blocking_drift.length > 0 && (
+                <div className="p-4 space-y-2 text-sm">
+                  <div className="font-medium">Blocking drift hosts</div>
+                  <div className="flex flex-wrap gap-2">{hostAudit.blocking_drift.map((host) => <Badge key={host.id} variant="outline" className={cn(driftTone('blocking_drift'))}>{host.name}{host.quarantined ? ' · quarantined' : ''}</Badge>)}</div>
+                </div>
+              )}
+              {hostAudit.summary.quarantined_hosts > 0 && (
+                <div className="p-4 space-y-2 text-sm">
+                  <div className="font-medium">Quarantined hosts</div>
+                  <div className="flex flex-wrap gap-2">{hostAudit.quarantined.map((host) => <Badge key={`${host.id}-quarantine`} variant="outline" className={cn(driftTone(host.drift_status === 'warning_drift' ? 'warning_drift' : 'blocking_drift'))}>{host.name}{host.unschedulable_reason ? ` · ${host.unschedulable_reason}` : ''}</Badge>)}</div>
+                </div>
+              )}
+              {hostAudit.warning_drift.length > 0 && (
+                <div className="p-4 space-y-2 text-sm">
+                  <div className="font-medium">Warning drift hosts</div>
+                  <div className="flex flex-wrap gap-2">{hostAudit.warning_drift.map((host) => <Badge key={host.id} variant="outline" className={cn(driftTone('warning_drift'))}>{host.name}</Badge>)}</div>
+                </div>
+              )}
+              {hostAudit.pending_validation.length === 0 && hostAudit.blocking_drift.length === 0 && hostAudit.warning_drift.length === 0 && (
+                <div className="p-6 text-sm text-muted-foreground">All hosts are validated and in policy.</div>
+              )}
+            </div>
+          ) : (
+            <div className="p-6 text-sm text-muted-foreground">No host audit data.</div>
           )}
         </div>
       </section>
@@ -256,8 +379,9 @@ export default function AdminFleetPage() {
                     <div className="font-medium">{snapshot.cell_slug}</div>
                     <div className="text-xs text-muted-foreground">{new Date(snapshot.snapshot_window_start).toLocaleString()}</div>
                   </div>
-                  <div className="grid gap-3 md:grid-cols-4 text-xs text-muted-foreground">
+                  <div className="grid gap-3 md:grid-cols-5 text-xs text-muted-foreground">
                     <div>Used: {snapshot.used_vcpu}/{snapshot.total_vcpu} vCPU</div>
+                    <div>Schedulable active: {snapshot.active_schedulable_host_count}/{snapshot.host_count} hosts</div>
                     <div>Sellable: {snapshot.sellable_vcpu} vCPU</div>
                     <div>Reserve budget: {snapshot.reserve_budget_vcpu} vCPU</div>
                     <div>Utilization: {(snapshot.utilization_score_basis_points / 100).toFixed(2)}%</div>
@@ -310,6 +434,10 @@ export default function AdminFleetPage() {
                     <div>
                       <div className="text-muted-foreground text-xs">Reservations</div>
                       <div>{cell.reserved_vcpu} vCPU pending · score {cell.utilization_score.toFixed(2)}</div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground text-xs">Schedulable active</div>
+                      <div>{cell.active_schedulable_host_count}/{cell.host_count} hosts</div>
                     </div>
                     <div>
                       <div className="text-muted-foreground text-xs">Reserve budget</div>
@@ -504,6 +632,20 @@ export default function AdminFleetPage() {
                       <Badge variant="outline" className={cn("capitalize", maintenanceTone(host.maintenance_state))}>{formatMaintenanceLabel(host.maintenance_state)}</Badge>
                       <Badge variant="outline" className={cn("capitalize", admissionTone(host.cell_admission_state))}>{host.cell_admission_state}</Badge>
                       <Badge variant="outline" className={cn("capitalize", sellabilityTone(host.cell_sellability_state))}>{host.cell_sellability_state.replaceAll("_", " ")}</Badge>
+                      <Badge variant="outline" className={cn("capitalize", validationTone(host.bootstrap_validation.status))}>
+                        validation {host.bootstrap_validation.status ?? 'pending'}
+                      </Badge>
+                      <Badge variant="outline" className={cn("capitalize", driftTone(host.drift_status))}>
+                        drift {host.drift_status?.replaceAll('_', ' ') ?? 'unknown'}
+                      </Badge>
+                      <Badge variant="outline" className={cn("capitalize", incusUiTone(host.incus_ui.exposure))}>
+                        incus ui {host.incus_ui.exposure?.replaceAll('_', ' ') ?? 'unset'}
+                      </Badge>
+                      {host.scheduler.schedulable === false && (
+                        <Badge variant="outline" className={cn("capitalize", driftTone('blocking_drift'))}>
+                          scheduler quarantined
+                        </Badge>
+                      )}
                     </div>
                   </div>
                   <div className="grid gap-3 md:grid-cols-3 text-sm">
@@ -538,6 +680,30 @@ export default function AdminFleetPage() {
                       <div>{host.drain_report.active_reservations}</div>
                     </div>
                     <div>
+                      <div className="text-muted-foreground text-xs">Bootstrap validation</div>
+                      <div>{host.bootstrap_validation.completed_at ? new Date(host.bootstrap_validation.completed_at).toLocaleString() : 'Pending'}</div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground text-xs">Runner / Incus</div>
+                      <div>{host.bootstrap_validation.runnerd_version ?? 'runnerd ?'} · {host.bootstrap_validation.incus_version ?? 'incus ?'}</div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground text-xs">Storage profile</div>
+                      <div>{host.bootstrap_validation.storage_driver ?? 'unknown'} / {host.bootstrap_validation.storage_pool ?? 'default'}</div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground text-xs">Incus UI</div>
+                      <div>{host.incus_ui.exposure?.replaceAll('_', ' ') ?? 'unset'}{host.incus_ui.url ? ` · ${host.incus_ui.url}` : ''}</div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground text-xs">Scheduler state</div>
+                      <div>{host.scheduler.schedulable === false ? 'quarantined' : host.scheduler.schedulable === true ? 'schedulable' : 'unknown'}</div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground text-xs">Scheduler updated</div>
+                      <div>{host.scheduler.updated_at ? new Date(host.scheduler.updated_at).toLocaleString() : 'Unknown'}{host.scheduler.updated_by ? ` · ${host.scheduler.updated_by}` : ''}</div>
+                    </div>
+                    <div>
                       <div className="text-muted-foreground text-xs">Orphan instances</div>
                       <div>{host.reconciliation_report.orphan_instance_ids.length}</div>
                     </div>
@@ -554,6 +720,22 @@ export default function AdminFleetPage() {
                   {host.reconciliation_report.warm_pool_instance_ids.length > 0 && (
                     <div className="text-xs text-muted-foreground break-all">
                       Warm reserves: {host.reconciliation_report.warm_pool_instance_ids.join(", ")}
+                    </div>
+                  )}
+                  {(host.bootstrap_validation.smoke_test_result || host.bootstrap_validation.warm_pool_result || host.bootstrap_validation.notes.length > 0) && (
+                    <div className="rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground space-y-1">
+                      <div>
+                        Smoke test: {host.bootstrap_validation.smoke_test_result ?? 'pending'}
+                        {host.bootstrap_validation.smoke_test_machine_id ? ` · machine ${host.bootstrap_validation.smoke_test_machine_id}` : ''}
+                      </div>
+                      <div>Warm pool check: {host.bootstrap_validation.warm_pool_result ?? 'pending'}</div>
+                      <div>Triggered by: {host.bootstrap_validation.triggered_by ?? 'unknown'}</div>
+                      {host.bootstrap_validation.notes.map((note) => <div key={note}>{note}</div>)}
+                    </div>
+                  )}
+                  {host.scheduler.unschedulable_reason && (
+                    <div className="rounded-lg bg-red-500/5 p-3 text-xs text-red-700 dark:text-red-300 border border-red-500/20">
+                      Scheduler quarantine reason: {host.scheduler.unschedulable_reason}
                     </div>
                   )}
                   <div className="text-xs text-muted-foreground break-all">
@@ -605,6 +787,54 @@ export default function AdminFleetPage() {
                       })}
                     >
                       {cleanupHostOrphans.isPending ? <Loader2 className="size-3 animate-spin" /> : "Cleanup orphans"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs"
+                      disabled={updateSchedulerState.isPending || host.scheduler.schedulable === false}
+                      onClick={() => updateSchedulerState.mutate({ hostId: host.id, schedulable: false, reason: 'host manually quarantined by operator' }, {
+                        onSuccess: () => toast.success(`${host.name} quarantined from scheduling`),
+                        onError: (error: Error) => toast.error(error.message),
+                      })}
+                    >
+                      {updateSchedulerState.isPending ? <Loader2 className="size-3 animate-spin" /> : 'Quarantine host'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs"
+                      disabled={updateSchedulerState.isPending || host.scheduler.schedulable !== false}
+                      onClick={() => updateSchedulerState.mutate({ hostId: host.id, schedulable: true }, {
+                        onSuccess: () => toast.success(`${host.name} returned to scheduling`),
+                        onError: (error: Error) => toast.error(error.message),
+                      })}
+                    >
+                      {updateSchedulerState.isPending ? <Loader2 className="size-3 animate-spin" /> : 'Clear quarantine'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs"
+                      disabled={updateOperatorSettings.isPending || host.incus_ui.exposure === 'disabled'}
+                      onClick={() => updateOperatorSettings.mutate({ hostId: host.id, incusUiExposure: 'disabled' }, {
+                        onSuccess: () => toast.success(`${host.name} Incus UI disabled`),
+                        onError: (error: Error) => toast.error(error.message),
+                      })}
+                    >
+                      {updateOperatorSettings.isPending ? <Loader2 className="size-3 animate-spin" /> : 'Disable Incus UI'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs"
+                      disabled={updateOperatorSettings.isPending || host.incus_ui.exposure === 'operator_only'}
+                      onClick={() => updateOperatorSettings.mutate({ hostId: host.id, incusUiExposure: 'operator_only', incusUiUrl: host.public_ipv4 ? `https://${host.public_ipv4}:8443` : '' }, {
+                        onSuccess: () => toast.success(`${host.name} Incus UI marked operator-only`),
+                        onError: (error: Error) => toast.error(error.message),
+                      })}
+                    >
+                      {updateOperatorSettings.isPending ? <Loader2 className="size-3 animate-spin" /> : 'Operator Incus UI'}
                     </Button>
                   </div>
                 </div>

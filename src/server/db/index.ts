@@ -34,12 +34,23 @@ export function getDb() {
       max: Number(process.env.DB_MAX_CONNECTIONS || 5),
       idle_timeout: Number(process.env.DB_IDLE_TIMEOUT_SECONDS || 20),
       max_lifetime: Number(process.env.DB_MAX_LIFETIME_SECONDS || 60 * 30),
+      connect_timeout: Number(process.env.DB_CONNECT_TIMEOUT_SECONDS || 5),
     });
     globalThis.__justavpsSql = sql;
     _db = drizzlePostgres(sql, { schema });
     globalThis.__justavpsDb = _db;
   }
   return _db;
+}
+
+export async function resetDbConnection() {
+  const sql = globalThis.__justavpsSql;
+  _db = null;
+  globalThis.__justavpsDb = undefined;
+  globalThis.__justavpsSql = undefined;
+  if (sql) {
+    await sql.end({ timeout: 0 }).catch(() => {});
+  }
 }
 
 // Proxy for convenient import: `import { db } from './db'`

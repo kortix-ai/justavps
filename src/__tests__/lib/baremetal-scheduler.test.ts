@@ -105,6 +105,56 @@ describe('scheduleBaremetalPlacement', () => {
     ]));
   });
 
+  it('rejects hosts with blocking bootstrap drift from new placements', () => {
+    const decision = scheduleBaremetalPlacement({
+      request: {
+        region: 'fsn1',
+        resources: { vcpu: 2, memoryGb: 4, diskGb: 80 },
+      },
+      hosts: [
+        baseHost({
+          id: 'host-drifted',
+          metadata: { bootstrap: { drift_status: 'blocking_drift' } },
+        }),
+        baseHost({
+          id: 'host-clean',
+          runnerBaseUrl: 'http://runner-b',
+          publicIpv4: '2.2.2.2',
+        }),
+      ],
+    });
+
+    expect(decision.selectedHostId).toBe('host-clean');
+    expect(decision.candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        hostId: 'host-drifted',
+        eligible: false,
+        reasons: expect.arrayContaining(['host has blocking bootstrap drift and is not eligible for placement']),
+        schedulingHints: expect.objectContaining({ driftStatus: 'blocking_drift', schedulable: false }),
+      }),
+    ]));
+  });
+
+  it('surfaces warning bootstrap drift without hard-blocking placement', () => {
+    const decision = scheduleBaremetalPlacement({
+      request: {
+        region: 'fsn1',
+        resources: { vcpu: 2, memoryGb: 4, diskGb: 80 },
+      },
+      hosts: [
+        baseHost({ metadata: { bootstrap: { drift_status: 'warning_drift' } } }),
+      ],
+    });
+
+    expect(decision.selectedHostId).toBe('host-a');
+    expect(decision.candidates[0]).toMatchObject({
+      hostId: 'host-a',
+      eligible: true,
+      schedulingHints: { driftStatus: 'warning_drift', schedulable: true },
+    });
+    expect(decision.candidates[0]?.reasons).toEqual(expect.arrayContaining(['host has warning bootstrap drift']));
+  });
+
   it('uses warm-pool, image locality, and host-class policy hooks in scoring', () => {
     const decision = scheduleBaremetalPlacement({
       request: {
