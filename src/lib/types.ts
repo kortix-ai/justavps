@@ -7,6 +7,7 @@
 
 export type MachineStatus = 'provisioning' | 'ready' | 'error' | 'stopped' | 'deleted';
 export type ImageStatus = 'creating' | 'ready' | 'failed' | 'deleted';
+export type MachineMode = 'vm' | 'container';
 
 // ─── Machine ─────────────────────────────────────────────────────────────────
 
@@ -19,6 +20,9 @@ export interface Machine {
   provisioning_stage_updated_at: string | null;
   provider: string;
   api_version: 'v1' | 'v2';
+  machine_mode?: MachineMode;
+  requested_image_kind?: 'golden' | 'catalog' | 'docker' | null;
+  requested_image_ref?: string | null;
   image_id: string | null;
   server_type: string;
   region: string;

@@ -1,9 +1,9 @@
 import { and, eq, inArray, ne } from 'drizzle-orm';
 import net from 'node:net';
 import { db } from '../../db';
-import { accounts, baremetalHosts, images, machines, subscriptions, users } from '../../db/schema';
+import { accounts, baremetalHosts, machines, subscriptions, users } from '../../db/schema';
 import { config } from '../config';
-import { resolveRequestedProviderImage, serializeImageRow } from '../image-catalog';
+import { serializeImageRow } from '../image-catalog';
 import { backupSurcharge } from '@/lib/plan-catalog';
 import { getProvider } from '../providers';
 import { stripeClient } from '../stripe';
@@ -23,11 +23,19 @@ import {
 } from '../machine-lifecycle';
 import { commitHostCapacityReservation, getHostCapacityReservationForMachine, releaseHostCapacityReservation } from '../baremetal/reservations';
 import { recordHostImageLocalityIntent } from '../baremetal/image-locality';
-import { getMachinePortAllocations, releaseMachinePortAllocations, reserveMachinePortAllocations } from '../baremetal/port-allocations';
+import { releaseMachinePortAllocations, reserveMachinePortAllocations } from '../baremetal/port-allocations';
 import { deriveBaremetalCellIdentity } from '../baremetal/cells';
 import { checkMachineLimit } from '../account-limits';
 import { decryptSecret } from '../crypto';
+import { recordMachineBenchmark } from '../machine-benchmarks';
 import { buildMachinePlacementProviderMeta, reserveCapacityForMachineCreate } from '../control-plane/allocator';
+import {
+  defaultPlacementImageAlias,
+  normalizeDockerImageRef,
+  resolveMachineCreateImage,
+} from '@/server/domains/machine/image-source';
+import { serializeMachineV2 as serializeMachineViewV2 } from '@/server/domains/machine/serialization';
+import type { MachineImageSourceKind, MachineRuntimeKind } from '@/server/domains/machine/types';
 import {
   enqueueMachineCreateJob,
   ensureProvisionerServiceWorker,
@@ -40,6 +48,7 @@ import {
 
 type MachineRow = typeof machines.$inferSelect;
 type SubscriptionRow = typeof subscriptions.$inferSelect;
+export type V2MachineMode = 'vm' | 'container';
 export interface V2MachineView {
   id: string;
   slug: string;
@@ -48,6 +57,10 @@ export interface V2MachineView {
   provisioning_stage: string | null;
   provisioning_stage_updated_at: string | null;
   api_version: 'v2';
+  machine_mode: V2MachineMode;
+  requested_image_kind: MachineImageSourceKind | null;
+  requested_image_ref: string | null;
+  runtime_kind?: MachineRuntimeKind;
   region: string;
   resources: {
     vcpu: number;
@@ -110,9 +123,11 @@ export interface V2CreateMachineInput {
   ram_gb: number;
   disk_gb: number;
   host_id?: string;
+  machine_mode?: V2MachineMode;
   region?: string;
   name?: string;
   image_id?: string | null;
+  docker_image?: string | null;
   env_vars?: Record<string, string>;
   cloud_init_script?: string;
   ssh_key_ids?: string[];
@@ -131,7 +146,9 @@ interface MachineCreateJobPayload {
   isAdmin: boolean;
   reservationId: string;
   requestUrl?: string;
+  machineMode?: V2MachineMode;
   imageId?: string | null;
+  dockerImage?: string | null;
   envVars?: Record<string, string>;
   cloudInitScript?: string;
   sshKeyIds?: string[];
@@ -143,14 +160,6 @@ function isBenignLifecycleError(error: unknown, expected: 'stopped' | 'running')
   return expected === 'stopped'
     ? message.includes('already stopped')
     : message.includes('already running');
-}
-
-export function normalizeResolvedImageForProvider(providerName: string, resolvedImage: string) {
-  if (providerName === 'baremetal') {
-    if (resolvedImage === 'ubuntu-24.04') return 'images:ubuntu/noble/cloud';
-    if (/^\d+$/.test(resolvedImage)) return 'images:ubuntu/noble/cloud';
-  }
-  return resolvedImage;
 }
 
 function providerMeta(machine: MachineRow) {
@@ -187,135 +196,8 @@ async function ensureBaremetalHostBinding(machine: MachineRow) {
   return updated ?? { ...machine, baremetalHostId: host.id, providerMeta: nextMeta };
 }
 
-async function resolveImageSummary(imageId: string | null): Promise<ReturnType<typeof serializeImageRow> | null> {
-  if (!imageId) return null;
-  const [img] = await db.select().from(images).where(eq(images.id, imageId));
-  return img ? serializeImageRow(img) : null;
-}
-
-async function readSshAccess(machine: MachineRow) {
-  const meta = providerMeta(machine);
-  const portAllocations = await getMachinePortAllocations(machine.id).catch(() => ({ ssh: null, http: null, rows: [] }));
-  const sshPort = portAllocations.ssh?.publicPort ?? (typeof meta.ssh_port === 'number'
-    ? meta.ssh_port
-    : typeof meta.ssh_port === 'string' && meta.ssh_port.trim()
-      ? Number(meta.ssh_port)
-      : null);
-  // SSH should use the actual bare-metal host gateway IP. This is the only
-  // consistently reliable path for VM NAT forwarding. The pretty origin-* DNS
-  // hostname may exist, but DNS/proxy precedence can still make it unreliable.
-  // We keep SSH honest: connect to the gateway host and forwarded port.
-  const hostIp = typeof meta.public_ipv4 === 'string' ? meta.public_ipv4 : null;
-  const originHost = `origin-${machine.slug}.${config.PROXY_DOMAIN}`;
-  return {
-    sshHost: hostIp,
-    sshOriginHost: hostIp ? originHost : null,
-    sshHostFallbackIp: hostIp,
-    privateIpv4: typeof meta.private_ipv4 === 'string' ? meta.private_ipv4 : null,
-    sshPort,
-  };
-}
-
-function decryptSshPrivateKey(machine: MachineRow): string | null {
-  if (!machine.sshPrivateKey) return null;
-  // V2 stores plaintext PEM; V1 stores encrypted. Handle both.
-  if (machine.sshPrivateKey.startsWith('-----BEGIN')) return machine.sshPrivateKey;
-  try {
-    return decryptSecret(machine.sshPrivateKey);
-  } catch {
-    return null;
-  }
-}
-
 export async function serializeMachineV2(machine: MachineRow, sub?: SubscriptionRow | null): Promise<V2MachineView> {
-  const ssh = await readSshAccess(machine);
-  const proxyDomain = config.PROXY_DOMAIN;
-  const image = await resolveImageSummary(machine.imageId);
-  const provider = getProvider(machine.provider);
-  const meta = providerMeta(machine);
-  const providerProgressRaw = typeof meta.create_progress === 'number' ? meta.create_progress : null;
-  const providerProgress = providerProgressRaw != null && providerProgressRaw <= 1
-    ? Math.round(providerProgressRaw * 100)
-    : providerProgressRaw;
-  const providerStatus = typeof meta.create_status === 'string' ? meta.create_status : null;
-  const callbackExpected = typeof meta.callback_expected === 'boolean' ? meta.callback_expected : null;
-  const callbackUrl = typeof meta.callback_url === 'string' ? meta.callback_url : null;
-  const sshPort = ssh.sshPort;
-  const sshHost = ssh.sshHost;
-  const sshKeyPath = `~/.ssh/justavps_${machine.slug}`;
-  const sshPrivateKey = decryptSshPrivateKey(machine);
-
-  // Build the user-facing SSH command (port-forwarded via Incus proxy NAT on host)
-  const sshCommand = sshHost && sshPort
-    ? `ssh -i ${sshKeyPath} -p ${sshPort} -o StrictHostKeyChecking=no root@${sshHost}`
-    : null;
-
-  // One-liner that writes the key to disk and connects immediately
-  const sshSetupCommand = sshPrivateKey && sshHost && sshPort
-    ? `mkdir -p ~/.ssh && cat > ${sshKeyPath} << 'JUSTAVPSKEY'\n${sshPrivateKey.trim()}\nJUSTAVPSKEY\nchmod 600 ${sshKeyPath} && ssh -i ${sshKeyPath} -p ${sshPort} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${sshHost}`
-    : null;
-
-  // Block to append to ~/.ssh/config for editor integration
-  const sshConfigBlock = sshHost && sshPort
-    ? `Host ${machine.slug}\n  HostName ${sshHost}\n  Port ${sshPort}\n  User root\n  IdentityFile ${sshKeyPath}\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null`
-    : null;
-
-  // Resources: from machine columns, fallback to provider_meta for legacy rows
-  const vcpu = machine.vcpu ?? (typeof meta.vcpu === 'number' ? meta.vcpu : 2);
-  const ramGb = machine.ramGb ?? (typeof meta.ram_gb === 'number' ? meta.ram_gb : 4);
-  const diskGb = machine.diskGb ?? (typeof meta.disk_gb === 'number' ? meta.disk_gb : 80);
-
-  return {
-    id: machine.id,
-    slug: machine.slug,
-    name: machine.name,
-    status: machine.status as V2MachineView['status'],
-    provisioning_stage: machine.provisioningStage ?? null,
-    provisioning_stage_updated_at: machine.provisioningStageUpdatedAt?.toISOString() ?? null,
-    api_version: 'v2',
-    region: machine.region,
-    resources: { vcpu, ram_gb: ramGb, disk_gb: diskGb },
-    billing: {
-      mode: 'flat_monthly',
-      price_monthly: machine.priceMonthly ?? null,
-      current_period_end: sub?.currentPeriodEnd?.toISOString() ?? null,
-    },
-    image,
-    connectivity: {
-      ssh_host: sshHost,
-      ssh_port: sshPort,
-      ssh_command: sshCommand,
-      ssh_setup_command: sshSetupCommand,
-      ssh_config_block: sshConfigBlock,
-      ssh_private_key: sshPrivateKey,
-      ssh_public_key: machine.sshPublicKey || null,
-      urls: {
-        // Public-facing proxy URLs should always use the clean worker-style hostname.
-        // The host IP + NAT port stays an internal transport detail.
-        proxy: `https://${machine.slug}.${proxyDomain}`,
-        terminal: `https://${machine.slug}.${proxyDomain}/_terminal`,
-        port_template: `https://{port}--${machine.slug}.${proxyDomain}`,
-      },
-    },
-    capabilities: {
-      can_start: machine.status === 'stopped',
-      can_stop: machine.status === 'ready',
-      can_reboot: machine.status === 'ready',
-      can_resize: false,
-      can_snapshot: provider.capabilities.backups || provider.capabilities.images,
-      can_create_image: provider.capabilities.images,
-    },
-    health: machine.lastHeartbeat ? {
-      ...machine.lastHeartbeat,
-      last_heartbeat_at: machine.lastHeartbeatAt?.toISOString() ?? null,
-    } : null,
-    provider_progress: providerProgress,
-    provider_status: providerStatus,
-    callback_expected: callbackExpected,
-    callback_url: callbackUrl,
-    created_at: machine.createdAt.toISOString(),
-    ready_at: machine.readyAt?.toISOString() ?? null,
-  };
+  return serializeMachineViewV2(machine, sub);
 }
 
 async function loadOwnedMachine(machineId: string, accountId: string): Promise<MachineRow> {
@@ -337,10 +219,6 @@ export async function getMachineV2(input: { accountId: string; machineId: string
   const machine = await syncMachineStatus(await ensureBaremetalHostBinding(await loadOwnedMachine(input.machineId, input.accountId)));
   const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.machineId, machine.id));
   return serializeMachineV2(machine, sub ?? null);
-}
-
-export function defaultPlacementImageAlias(imageId?: string | null) {
-  return imageId ? null : 'justavps-golden';
 }
 
 function sanitizeJobError(error: unknown) {
@@ -374,28 +252,6 @@ async function waitForTcpListener(host: string | null | undefined, port: number 
   }
 
   return false;
-}
-
-async function resolveMachineCreateImage(machine: MachineRow, payload: MachineCreateJobPayload) {
-  const provider = getProvider('baremetal');
-  let resolvedImage = 'justavps-golden';
-  let machineImageId = machine.imageId;
-
-  if (payload.imageId) {
-    const [img] = await db.select().from(images).where(eq(images.id, payload.imageId));
-    if (!img || (img.accountId !== payload.accountId && !img.isTemplate)) {
-      throw new Error('Image not found');
-    }
-    const resolved = resolveRequestedProviderImage({ explicitImage: img });
-    if (!resolved.ok) throw new Error(resolved.message);
-    resolvedImage = normalizeResolvedImageForProvider(provider.name, resolved.selection.providerImage);
-    machineImageId = resolved.selection.machineImageId;
-    if (machineImageId !== machine.imageId) {
-      await db.update(machines).set({ imageId: machineImageId }).where(eq(machines.id, machine.id));
-    }
-  }
-
-  return { resolvedImage, machineImageId };
 }
 
 async function ensureMachineCreateSshKeys(machine: MachineRow, payload: MachineCreateJobPayload) {
@@ -513,19 +369,25 @@ export async function handleMachineCreateJob(machineId: string, payload: Machine
 
   const provider = getProvider('baremetal');
   const machineToken = decryptSecret(machine.machineToken);
-  const { resolvedImage } = await resolveMachineCreateImage(machine, payload);
+  const { resolvedImage } = await resolveMachineCreateImage({ machine, payload });
   const sshKeys = await ensureMachineCreateSshKeys(machine, payload);
   const extraSSHKeys = payload.sshKeyIds?.length
     ? await resolveSSHKeyPublicKeys(payload.accountId, payload.sshKeyIds)
     : [];
-  const callbackConfig = resolveMachineCallbackConfig(payload.requestUrl);
+  const callbackConfig = payload.dockerImage
+    ? { callbackExpected: false, url: null }
+    : resolveMachineCallbackConfig(payload.requestUrl);
+  const callbackUrl = callbackConfig.url ?? config.PLATFORM_URL;
   const isGoldenImage = resolvedImage === 'justavps-golden' || resolvedImage.startsWith('justavps-golden');
-  const userdata = isGoldenImage
+  const isDockerImage = /^(docker|oci):/i.test(resolvedImage);
+  const userdata = isDockerImage
+    ? ''
+    : isGoldenImage
     ? (await import('../cloud-init-v2')).buildCloudInitV2({
         slug: machine.slug,
         sshPublicKey: sshKeys.publicKey,
         machineToken,
-        platformCallbackUrl: callbackConfig.url,
+        platformCallbackUrl: callbackUrl,
         proxyDomain: config.PROXY_DOMAIN,
         envVars: payload.envVars,
         extraSSHKeys,
@@ -535,7 +397,7 @@ export async function handleMachineCreateJob(machineId: string, payload: Machine
         machine.slug,
         sshKeys.publicKey,
         machineToken,
-        callbackConfig.url,
+        callbackUrl,
         payload.envVars,
         extraSSHKeys,
         payload.cloudInitScript,
@@ -568,6 +430,7 @@ export async function handleMachineCreateJob(machineId: string, payload: Machine
         userData: userdata,
         sshKeyIds: [providerKeyId],
         enableBackups: payload.enableBackups === true,
+        machineMode: payload.machineMode ?? (machine.machineMode as V2MachineMode),
         labels: { justavps: 'true', slug: machine.slug, owner: payload.userId.slice(0, 63) },
         hostId: host.id,
         vcpu: machine.vcpu ?? 0,
@@ -587,6 +450,7 @@ export async function handleMachineCreateJob(machineId: string, payload: Machine
         create_action_id: server.createActionId ?? null,
         create_status: 'running',
         create_progress: 1,
+        machine_mode: payload.machineMode ?? (machine.machineMode as V2MachineMode),
         baremetal_host_id: host.id,
         baremetal_cell_id: host.cellId,
         baremetal_cell_slug: deriveBaremetalCellIdentity(host)?.slug ?? null,
@@ -601,10 +465,26 @@ export async function handleMachineCreateJob(machineId: string, payload: Machine
 
       const [updatedMachine] = await db.update(machines).set({
         ip: publicIpv4 ?? publicIpv6 ?? server.publicIp,
+        publicIpv4: publicIpv4 ?? null,
+        publicIpv6: publicIpv6 ?? null,
+        sshPort: sshPort ?? null,
+        httpPort: routingPort ?? null,
+        providerProgress: 100,
+        providerStatus: 'running',
+        callbackExpected: callbackConfig.callbackExpected,
+        callbackUrl: callbackUrl,
         providerServerId: server.serverId,
         providerMeta: nextProviderMeta,
       }).where(eq(machines.id, machine.id)).returning();
       machineForSideEffects = updatedMachine ?? { ...machine, providerServerId: server.serverId, providerMeta: nextProviderMeta };
+
+      await recordMachineBenchmark({
+        machineId: machine.id,
+        accountId: payload.accountId,
+        baremetalHostId: host.id,
+        machineMode: payload.machineMode ?? (machine.machineMode as V2MachineMode),
+        metadata: nextProviderMeta,
+      }).catch((error) => console.warn(`[v2-job ${machine.slug}] benchmark persist error:`, error));
 
       if (reservation.state === 'reserved') {
         await commitHostCapacityReservation({
@@ -713,7 +593,16 @@ export async function createMachineV2(input: { accountId: string; userId: string
   const reqVcpu = data.vcpu;
   const reqRam = data.ram_gb;
   const reqDisk = data.disk_gb;
+  const machineMode = data.machine_mode ?? 'vm';
+  const dockerImage = normalizeDockerImageRef(data.docker_image);
   const region = data.region ?? 'hel1';
+
+  if (dockerImage && machineMode !== 'container') {
+    throw new Error('Docker image refs are only supported for container machines');
+  }
+  if (dockerImage && data.image_id) {
+    throw new Error('Choose either an image template or a Docker image, not both');
+  }
 
   // ── 2. Pricing (pure compute) ────────────────────────────────────────────
   const priceMonthly = computeMonthlyPrice(reqVcpu, reqRam, reqDisk);
@@ -724,7 +613,9 @@ export async function createMachineV2(input: { accountId: string; userId: string
   const { slug, machineToken } = await generateMachineIdentity();
   console.log(`[v2-create] +${ms()}ms identity generated slug=${slug}`);
 
-  const callbackConfig = resolveMachineCallbackConfig(input.requestUrl);
+  const callbackConfig = dockerImage
+    ? { callbackExpected: false, url: null }
+    : resolveMachineCallbackConfig(input.requestUrl);
   let machine!: MachineRow;
   await db.transaction(async (tx) => {
     machine = await createMachineRecord({
@@ -733,6 +624,9 @@ export async function createMachineV2(input: { accountId: string; userId: string
       slug,
       name: data.name || `machine-${slug}`,
       provider: 'baremetal',
+      machineMode,
+      requestedImageKind: dockerImage ? 'docker' : data.image_id ? 'catalog' : 'golden',
+      requestedImageRef: dockerImage,
       imageId: null,
       serverType: 'custom',
       region,
@@ -752,7 +646,7 @@ export async function createMachineV2(input: { accountId: string; userId: string
       requestedHostId: data.host_id,
       resources: { vcpu: reqVcpu, memoryGb: reqRam, diskGb: reqDisk },
       imageId: data.image_id ?? null,
-      imageAlias: defaultPlacementImageAlias(data.image_id),
+      imageAlias: defaultPlacementImageAlias(data.image_id, dockerImage),
       executor: tx,
     });
     const selectedCandidate = lease.decision.candidates.find((candidate) => candidate.hostId === lease.host.id);
@@ -760,7 +654,7 @@ export async function createMachineV2(input: { accountId: string; userId: string
       await recordHostImageLocalityIntent({
         hostId: lease.host.id,
         imageId: data.image_id ?? null,
-        imageAlias: defaultPlacementImageAlias(data.image_id),
+        imageAlias: defaultPlacementImageAlias(data.image_id, dockerImage),
         state: selectedCandidate.schedulingHints.imageLocality === 'local' ? 'local' : 'warming',
         source: 'placement',
         metadata: {
@@ -776,6 +670,9 @@ export async function createMachineV2(input: { accountId: string; userId: string
       callback_url: callbackConfig.url,
       create_status: 'queued',
       create_progress: 0,
+      machine_mode: machineMode,
+      requested_image_ref: dockerImage,
+      requested_image_kind: dockerImage ? 'docker' : data.image_id ? 'catalog' : 'golden',
       ...buildMachinePlacementProviderMeta(lease, {
         vcpu: reqVcpu,
         memoryGb: reqRam,
@@ -803,7 +700,9 @@ export async function createMachineV2(input: { accountId: string; userId: string
         isAdmin: input.isAdmin,
         reservationId: lease.reservation.id,
         requestUrl: input.requestUrl,
+        machineMode,
         imageId: data.image_id ?? null,
+        dockerImage,
         envVars: data.env_vars,
         cloudInitScript: data.cloud_init_script,
         sshKeyIds: data.ssh_key_ids,

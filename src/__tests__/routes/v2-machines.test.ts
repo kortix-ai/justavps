@@ -44,6 +44,9 @@ describe('v2 machines API', () => {
         slug: 'abc123',
         name: 'Agent Box',
         status: 'ready',
+        machine_mode: 'vm',
+        requested_image_kind: 'golden',
+        requested_image_ref: null,
         region: 'hel1',
         plan: { id: 'starter', label: 'Starter', vcpu: 2, ram_gb: 4, disk_gb: 80, price_monthly: 12 },
         billing: { mode: 'flat_monthly', price_monthly: 12, compute_seconds: null, storage_gb: 80 },
@@ -56,7 +59,7 @@ describe('v2 machines API', () => {
       },
     ]);
 
-    const { machinesV2App } = await import('@/server/routes/v2/machines');
+    const { machinesV2App } = await import('@/server/api/v2/public/machines');
     const res = await machinesV2App.request(new Request('http://localhost/'));
     expect(res.status).toBe(200);
     const data = await res.json();
@@ -71,6 +74,9 @@ describe('v2 machines API', () => {
       slug: 'abc123',
       name: 'Agent Box',
       status: 'provisioning',
+      machine_mode: 'vm',
+      requested_image_kind: 'golden',
+      requested_image_ref: null,
       region: 'hel1',
       resources: { vcpu: 2, ram_gb: 4, disk_gb: 80 },
       billing: { mode: 'flat_monthly', price_monthly: 12, current_period_end: null },
@@ -82,7 +88,7 @@ describe('v2 machines API', () => {
       ready_at: null,
     });
 
-    const { machinesV2App } = await import('@/server/routes/v2/machines');
+    const { machinesV2App } = await import('@/server/api/v2/public/machines');
     const res = await machinesV2App.request(new Request('http://localhost/', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -90,6 +96,7 @@ describe('v2 machines API', () => {
         vcpu: 2,
         ram_gb: 4,
         disk_gb: 80,
+        machine_mode: 'vm',
         region: 'hel1',
         name: 'Agent Box',
         image_id: null,
@@ -100,7 +107,50 @@ describe('v2 machines API', () => {
     expect(createMachineMock).toHaveBeenCalledWith(expect.objectContaining({
       accountId: '22222222-2222-2222-2222-222222222222',
       userId: '11111111-1111-1111-1111-111111111111',
-      input: expect.objectContaining({ vcpu: 2, ram_gb: 4, disk_gb: 80, region: 'hel1' }),
+      input: expect.objectContaining({ vcpu: 2, ram_gb: 4, disk_gb: 80, machine_mode: 'vm', region: 'hel1' }),
+    }));
+  });
+
+  it('accepts docker images for container machines', async () => {
+    createMachineMock.mockResolvedValueOnce({
+      id: machineId,
+      slug: 'docker-box',
+      name: 'Docker Box',
+      status: 'provisioning',
+      machine_mode: 'container',
+      requested_image_kind: 'docker',
+      requested_image_ref: 'docker:nginx:latest',
+      region: 'hel1',
+      resources: { vcpu: 2, ram_gb: 4, disk_gb: 20 },
+      billing: { mode: 'flat_monthly', price_monthly: 12, current_period_end: null },
+      image: null,
+      connectivity: { public_ip: null, private_ipv4: null, ssh_command: null, ssh_port: null, urls: null },
+      capabilities: { can_start: false, can_stop: false, can_reboot: false, can_resize: true, can_snapshot: true, can_create_image: true },
+      health: null,
+      created_at: new Date().toISOString(),
+      ready_at: null,
+    });
+
+    const { machinesV2App } = await import('@/server/api/v2/public/machines');
+    const res = await machinesV2App.request(new Request('http://localhost/', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        vcpu: 2,
+        ram_gb: 4,
+        disk_gb: 20,
+        machine_mode: 'container',
+        region: 'hel1',
+        docker_image: 'nginx:latest',
+      }),
+    }));
+
+    expect(res.status).toBe(202);
+    expect(createMachineMock).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({
+        machine_mode: 'container',
+        docker_image: 'nginx:latest',
+      }),
     }));
   });
 
@@ -110,7 +160,7 @@ describe('v2 machines API', () => {
     rebootMachineMock.mockResolvedValueOnce({ ok: true });
     deleteMachineMock.mockResolvedValueOnce({ ok: true });
 
-    const { machinesV2App } = await import('@/server/routes/v2/machines');
+    const { machinesV2App } = await import('@/server/api/v2/public/machines');
 
     const startRes = await machinesV2App.request(new Request(`http://localhost/${machineId}/start`, { method: 'POST' }));
     expect(startRes.status).toBe(200);

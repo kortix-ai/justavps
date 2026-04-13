@@ -21,6 +21,16 @@ export const machineTelemetryRetentionClassEnum = pgEnum('machine_telemetry_rete
 export const cellAdmissionStateEnum = pgEnum('cell_admission_state', ['open', 'restricted', 'closed']);
 export const cellSellabilityStateEnum = pgEnum('cell_sellability_state', ['sellable', 'reserve_only', 'unsellable']);
 export const machinePortProtocolEnum = pgEnum('machine_port_protocol', ['ssh', 'http']);
+export const machineModeEnum = pgEnum('machine_mode', ['vm', 'container']);
+export const machineImageSourceKindEnum = pgEnum('machine_image_source_kind', ['golden', 'catalog', 'docker']);
+export const machineReadyViaEnum = pgEnum('machine_ready_via', ['heartbeat', 'probe']);
+export const machineBenchmarkScenarioEnum = pgEnum('machine_benchmark_scenario', [
+  'cold_create',
+  'warm_pool_start',
+  'snapshot_restore',
+  'user_image_cold_create',
+  'stop_start',
+]);
 
 // ─── Users ──────────────────────────────────────────────────────────────────
 
@@ -129,6 +139,9 @@ export const machines = pgTable('machines', {
 
   // Provider-agnostic fields
   provider: text('provider').notNull(), // "cloud" | future providers...
+  machineMode: machineModeEnum('machine_mode').notNull().default('vm'),
+  requestedImageKind: machineImageSourceKindEnum('requested_image_kind').default('golden'),
+  requestedImageRef: text('requested_image_ref'),
   imageId: uuid('image_id'), // nullable, no FK
   serverType: text('server_type').notNull(), // V1: plan id; V2: 'custom'
   region: text('region').notNull(),
@@ -137,6 +150,19 @@ export const machines = pgTable('machines', {
   ramGb: integer('ram_gb'),     // V2: actual allocated RAM in GB
   diskGb: integer('disk_gb'),   // V2: actual allocated disk in GB
   ip: text('ip'),
+  publicIpv4: text('public_ipv4'),
+  publicIpv6: text('public_ipv6'),
+  sshPort: integer('ssh_port'),
+  httpPort: integer('http_port'),
+  readyVia: machineReadyViaEnum('ready_via'),
+  providerProgress: integer('provider_progress'),
+  providerStatus: text('provider_status'),
+  createActionId: text('create_action_id'),
+  callbackExpected: boolean('callback_expected'),
+  callbackUrl: text('callback_url'),
+  lastCallbackAt: text('last_callback_at'),
+  lastProbeAt: text('last_probe_at'),
+  daemonReachableAt: text('daemon_reachable_at'),
 
   // Provider-specific (generic storage)
   providerServerId: text('provider_server_id'), // Provider-specific server ID
@@ -339,6 +365,24 @@ export const baremetalHosts = pgTable('baremetal_hosts', {
   statusUpdatedAtIdx: index('baremetal_hosts_status_updated_at_idx').on(table.status, table.updatedAt),
   maintenanceStateUpdatedAtIdx: index('baremetal_hosts_maintenance_state_updated_idx').on(table.maintenanceState, table.updatedAt),
   cellStatusIdx: index('baremetal_hosts_cell_status_idx').on(table.cellId, table.status, table.updatedAt),
+}));
+
+export const machineBenchmarks = pgTable('machine_benchmarks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  machineId: uuid('machine_id').references(() => machines.id, { onDelete: 'cascade' }),
+  accountId: uuid('account_id').references(() => accounts.id, { onDelete: 'set null' }),
+  baremetalHostId: uuid('baremetal_host_id').references(() => baremetalHosts.id, { onDelete: 'set null' }),
+  machineMode: machineModeEnum('machine_mode').notNull(),
+  scenario: machineBenchmarkScenarioEnum('machine_benchmark_scenario').notNull(),
+  success: boolean('success').notNull().default(true),
+  totalMs: integer('total_ms'),
+  stageTimings: jsonb('stage_timings').$type<Record<string, number>>().notNull().default({}),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  machineCreatedIdx: index('machine_benchmarks_machine_created_idx').on(table.machineId, table.createdAt.desc()),
+  accountCreatedIdx: index('machine_benchmarks_account_created_idx').on(table.accountId, table.createdAt.desc()),
+  modeScenarioCreatedIdx: index('machine_benchmarks_mode_scenario_created_idx').on(table.machineMode, table.scenario, table.createdAt.desc()),
 }));
 
 export const hostCapacityReservations = pgTable('host_capacity_reservations', {

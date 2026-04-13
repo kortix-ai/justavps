@@ -46,7 +46,7 @@ describe('admin baremetal API', () => {
       },
     ]);
 
-    const { adminFleetV2App } = await import('@/server/routes/v2/admin-fleet');
+    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
     const req = new Request('http://localhost/products/hetzner?location=FSN1&max_price=60');
     const res = await adminFleetV2App.request(req);
     expect(res.status).toBe(200);

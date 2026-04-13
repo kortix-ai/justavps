@@ -49,7 +49,7 @@ describe('v2 images and billing APIs', () => {
         updated_at: new Date().toISOString(),
       },
     ]);
-    const { imagesV2App } = await import('@/server/routes/v2/images');
+    const { imagesV2App } = await import('@/server/api/v2/public/images');
     const res = await imagesV2App.request(new Request('http://localhost/'));
     expect(res.status).toBe(200);
     const data = await res.json();
@@ -59,7 +59,7 @@ describe('v2 images and billing APIs', () => {
   it('creates and deletes images through v2 routes', async () => {
     createImageMock.mockResolvedValueOnce({ id: 'img-1', name: 'Base Image' });
     deleteImageMock.mockResolvedValueOnce({ ok: true });
-    const { imagesV2App } = await import('@/server/routes/v2/images');
+    const { imagesV2App } = await import('@/server/api/v2/public/images');
     const createRes = await imagesV2App.request(new Request('http://localhost/', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -83,7 +83,7 @@ describe('v2 images and billing APIs', () => {
       monthly_price: 21,
       competitors: { e2b_monthly_equivalent: 242, daytona_monthly_equivalent: 193 },
     });
-    const { billingV2App } = await import('@/server/routes/v2/billing');
+    const { billingV2App } = await import('@/server/api/v2/public/billing');
     const overviewRes = await billingV2App.request(new Request('http://localhost/overview'));
     expect(overviewRes.status).toBe(200);
     const comparisonRes = await billingV2App.request(new Request('http://localhost/compare?plan=basic&hours_per_day=24'));

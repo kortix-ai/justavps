@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { serverTypesApp } from '@/server/routes/v1/server-types';
+import { serverTypesApp } from '@/server/api/v1/legacy/server-types';
 import * as providers from '@/server/lib/providers';
 
 type MockedProviders = typeof providers & {

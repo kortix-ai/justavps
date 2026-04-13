@@ -35,7 +35,7 @@ describe('v2 billing lifecycle actions', () => {
 
   it('cancels a machine subscription via v2 route', async () => {
     cancelMachineMock.mockResolvedValueOnce({ action: 'cancel', status: 'scheduled' });
-    const { machinesV2App } = await import('@/server/routes/v2/machines');
+    const { machinesV2App } = await import('@/server/api/v2/public/machines');
     const res = await machinesV2App.request(new Request(`http://localhost/${machineId}/cancel`, { method: 'POST' }));
     expect(res.status).toBe(200);
     expect(cancelMachineMock).toHaveBeenCalledWith(expect.objectContaining({ machineId }));
@@ -43,7 +43,7 @@ describe('v2 billing lifecycle actions', () => {
 
   it('reactivates a machine subscription via v2 route', async () => {
     reactivateMachineMock.mockResolvedValueOnce({ action: 'reactivate', status: 'active' });
-    const { machinesV2App } = await import('@/server/routes/v2/machines');
+    const { machinesV2App } = await import('@/server/api/v2/public/machines');
     const res = await machinesV2App.request(new Request(`http://localhost/${machineId}/reactivate`, { method: 'POST' }));
     expect(res.status).toBe(200);
     expect(reactivateMachineMock).toHaveBeenCalledWith(expect.objectContaining({ machineId }));

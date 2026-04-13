@@ -4,8 +4,8 @@ import { logger } from 'hono/logger';
 import { prettyJSON } from 'hono/pretty-json';
 import { Scalar } from '@scalar/hono-api-reference';
 
-import { v1 } from './routes/v1';
-import { v2 } from './routes/v2';
+import { v1 } from './api/v1/legacy';
+import { v2 } from './api/v2';
 import { enrichOpenAPISpec } from './lib/openapi-enrichment';
 import { filterOpenApiDocumentForPrefix, type OpenApiDoc } from './lib/openapi-versioning';
 import { config } from './lib/config';
@@ -53,7 +53,7 @@ async function probeDatabase() {
   try {
     await attempt();
     return { ok: true as const, error: null };
-  } catch (error) {
+  } catch {
     await resetDbConnection().catch(() => {});
     try {
       await attempt();
@@ -72,7 +72,7 @@ async function listControlPlaneServicesWithTimeout() {
   try {
     const rows = await attempt();
     return { rows: Array.isArray(rows) ? rows : [], error: null as string | null };
-  } catch (error) {
+  } catch {
     await resetDbConnection().catch(() => {});
     try {
       const rows = await attempt();

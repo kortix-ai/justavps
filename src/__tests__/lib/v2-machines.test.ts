@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildBaremetalCellSlug, deriveBaremetalCellIdentity } from '@/server/lib/baremetal/cells';
-import { defaultPlacementImageAlias, normalizeResolvedImageForProvider } from '@/server/lib/v2/machines';
+import { defaultPlacementImageAlias, normalizeResolvedImageForProvider } from '@/server/domains/machine/image-source';
 
 describe('normalizeResolvedImageForProvider', () => {
   it('maps default ubuntu image to an Incus image alias for baremetal', () => {
@@ -29,6 +29,10 @@ describe('defaultPlacementImageAlias', () => {
 
   it('does not force a locality alias when a custom image id is requested', () => {
     expect(defaultPlacementImageAlias('image-123')).toBeNull();
+  });
+
+  it('does not force a locality alias when a docker image is requested', () => {
+    expect(defaultPlacementImageAlias(null, 'docker:nginx:latest')).toBeNull();
   });
 });
 

@@ -12,6 +12,8 @@ afterEach(() => {
 
 describe('resolveMachineCallbackConfig', () => {
   it('uses the request origin for deployed hosts', async () => {
+    vi.stubEnv('MACHINE_CALLBACK_URL', '');
+    vi.stubEnv('PLATFORM_URL', '');
     const { resolveMachineCallbackConfig } = await loadLifecycle();
     expect(resolveMachineCallbackConfig('https://dev.justavps.com/api/v1/machines')).toEqual({
       url: 'https://dev.justavps.com',
@@ -50,13 +52,16 @@ describe('resolveMachineCallbackConfig', () => {
 
 describe('resolvePlatformCallbackUrl', () => {
   it('returns the resolved callback URL', async () => {
+    vi.stubEnv('MACHINE_CALLBACK_URL', '');
+    vi.stubEnv('PLATFORM_URL', '');
     const { resolvePlatformCallbackUrl } = await loadLifecycle();
     expect(resolvePlatformCallbackUrl('https://dev.justavps.com/api/v1/machines')).toBe('https://dev.justavps.com');
   });
 
   it('falls back to configured platform URL for invalid request URLs', async () => {
+    vi.stubEnv('MACHINE_CALLBACK_URL', process.env.MACHINE_CALLBACK_URL ?? '');
     vi.stubEnv('PLATFORM_URL', 'http://localhost:4100');
     const { resolvePlatformCallbackUrl } = await loadLifecycle();
-    expect(resolvePlatformCallbackUrl('not-a-url')).toBe('http://localhost:4100');
+    expect(resolvePlatformCallbackUrl('not-a-url')).toBe(process.env.MACHINE_CALLBACK_URL || 'http://localhost:4100');
   });
 });

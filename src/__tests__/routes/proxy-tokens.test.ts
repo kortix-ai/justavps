@@ -59,7 +59,7 @@ describe('proxy token routes', () => {
     syncProxyTokenToKVMock.mockRejectedValueOnce(new Error('cf put failed'));
     deleteWhereMock.mockResolvedValueOnce(undefined);
 
-    const { proxyTokensApp } = await import('@/server/routes/v1/proxy-tokens');
+    const { proxyTokensApp } = await import('@/server/api/v1/legacy/proxy-tokens');
     const res = await proxyTokensApp.request(new Request('http://localhost/', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -84,7 +84,7 @@ describe('proxy token routes', () => {
     }]);
     deleteProxyTokenFromKVMock.mockRejectedValueOnce(new Error('cf delete failed'));
 
-    const { proxyTokensApp } = await import('@/server/routes/v1/proxy-tokens');
+    const { proxyTokensApp } = await import('@/server/api/v1/legacy/proxy-tokens');
     const res = await proxyTokensApp.request(new Request('http://localhost/11111111-1111-4111-8111-111111111111', { method: 'DELETE' }));
 
     expect(res.status).toBe(502);
@@ -112,7 +112,7 @@ describe('proxy token routes', () => {
       createdAt: new Date('2026-04-11T00:00:00.000Z'),
     }]);
 
-    const { proxyTokensApp } = await import('@/server/routes/v1/proxy-tokens');
+    const { proxyTokensApp } = await import('@/server/api/v1/legacy/proxy-tokens');
     const res = await proxyTokensApp.request(new Request('http://localhost/', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

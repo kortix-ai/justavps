@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, apiV2, ApiError } from "@/hooks/api-client";
-import type { Machine, CheckoutRequired } from "@/lib/types";
+import type { Machine, CheckoutRequired, MachineMode } from "@/lib/types";
 
 export type V2Machine = {
   id: string;
@@ -10,6 +10,9 @@ export type V2Machine = {
   provisioning_stage: string | null;
   provisioning_stage_updated_at: string | null;
   api_version: 'v2';
+  machine_mode: MachineMode;
+  requested_image_kind: 'golden' | 'catalog' | 'docker' | null;
+  requested_image_ref: string | null;
   region: string;
   resources: { vcpu: number; ram_gb: number; disk_gb: number };
   billing: { mode: string; price_monthly: number | null };
@@ -45,6 +48,9 @@ function mapV2Machine(machine: V2Machine): Machine {
     provisioning_stage_updated_at: machine.provisioning_stage_updated_at,
     provider: "managed",
     api_version: machine.api_version,
+    machine_mode: machine.machine_mode,
+    requested_image_kind: machine.requested_image_kind,
+    requested_image_ref: machine.requested_image_ref,
     image_id: machine.image?.id ?? null,
     server_type: `${machine.resources.vcpu}v-${machine.resources.ram_gb}g-${machine.resources.disk_gb}d`,
     region: machine.region,
@@ -124,6 +130,7 @@ export function useMachine(id: string) {
 
 interface CreateMachineInput {
   image_id?: string | null;
+  docker_image?: string | null;
   server_type?: string;
   plan?: string;
   region: string;
@@ -133,6 +140,7 @@ interface CreateMachineInput {
   enable_backups?: boolean;
   /** V2 custom resource sizing */
   host_id?: string;
+  machine_mode?: MachineMode;
   vcpu?: number;
   ram_gb?: number;
   disk_gb?: number;
@@ -158,11 +166,13 @@ export function useCreateMachine() {
             region: input.region,
             name: input.name,
             image_id: input.image_id,
+            docker_image: input.docker_image,
             ssh_key_ids: input.ssh_key_ids,
             billing_interval: input.billing_interval,
             billing_mode: 'flat_monthly',
             enable_backups: input.enable_backups,
             host_id: input.host_id,
+            machine_mode: input.machine_mode,
             vcpu: input.vcpu,
             ram_gb: input.ram_gb,
             disk_gb: input.disk_gb,

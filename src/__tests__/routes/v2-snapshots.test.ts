@@ -58,7 +58,7 @@ describe('v2 snapshots API', () => {
         last_restore_at: new Date().toISOString(),
       },
     });
-    const { snapshotsV2App } = await import('@/server/routes/v2/snapshots');
+    const { snapshotsV2App } = await import('@/server/api/v2/public/snapshots');
     const res = await snapshotsV2App.request(new Request(`http://localhost/${machineId}`));
     expect(res.status).toBe(200);
     const data = await res.json();
@@ -71,7 +71,7 @@ describe('v2 snapshots API', () => {
     createSnapshotMock.mockResolvedValueOnce({ id: 'snap-1', name: 'before-upgrade', created_at: new Date().toISOString(), status: 'creating' });
     restoreSnapshotMock.mockResolvedValueOnce({ ok: true, restore_execution_id: 'restore-1' });
     deleteSnapshotMock.mockResolvedValueOnce({ ok: true });
-    const { snapshotsV2App } = await import('@/server/routes/v2/snapshots');
+    const { snapshotsV2App } = await import('@/server/api/v2/public/snapshots');
     const createRes = await snapshotsV2App.request(new Request(`http://localhost/${machineId}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

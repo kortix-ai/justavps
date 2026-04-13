@@ -67,6 +67,7 @@ import {
   RotateCcw,
   Eye,
   EyeOff,
+  Box,
 } from "lucide-react";
 import { timeAgo, cn, regionDisplay, PROXY_DOMAIN } from "@/lib/utils";
 
@@ -1006,7 +1007,21 @@ export default function MachineDetailPage() {
 
           {/* ── CONNECT ───────────────────────────────────────────────── */}
           <TabsContent value="connect" className="mt-0 min-w-0">
-            <SshConnectPanel machine={machine} />
+            {machine.requested_image_kind === "docker" ? (
+              <div className="rounded-xl border bg-card p-4 space-y-2">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="size-4 text-amber-500 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium">Docker app image</p>
+                    <p className="text-xs text-muted-foreground">
+                      This machine bootstrapped from <code className="font-mono text-foreground">{machine.requested_image_ref}</code>. Arbitrary Docker app containers do not get the normal SSH/bootstrap tooling injected automatically.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <SshConnectPanel machine={machine} />
+            )}
           </TabsContent>
 
           {/* ── TERMINAL ──────────────────────────────────────────────── */}
@@ -1094,6 +1109,12 @@ export default function MachineDetailPage() {
                       <div className="flex items-center gap-2 text-muted-foreground"><MapPin className="size-3.5" /><span>Region</span></div>
                       <span className="font-medium">{regionDisplay(machine.region).label}</span>
                     </div>
+                    {machine.requested_image_ref && (
+                      <div className="flex items-center justify-between gap-4 text-sm">
+                        <div className="flex items-center gap-2 text-muted-foreground"><Box className="size-3.5" /><span>Bootstrap image</span></div>
+                        <span className="font-mono text-xs break-all text-right">{machine.requested_image_ref}</span>
+                      </div>
+                    )}
                   </div>
                 </>
               ) : (
@@ -1110,6 +1131,12 @@ export default function MachineDetailPage() {
                     <div className="flex items-center gap-2 text-muted-foreground"><DollarSign className="size-3.5" /><span>Cost</span></div>
                     <span className="font-medium">${machine.price_monthly ?? 0}/mo</span>
                   </div>
+                  {machine.requested_image_ref && (
+                    <div className="flex items-center justify-between gap-4 text-sm">
+                      <div className="flex items-center gap-2 text-muted-foreground"><Box className="size-3.5" /><span>Bootstrap image</span></div>
+                      <span className="font-mono text-xs break-all text-right">{machine.requested_image_ref}</span>
+                    </div>
+                  )}
                   <p className="text-xs text-muted-foreground pt-1">Live CPU, memory and disk metrics appear once the machine reports health data.</p>
                 </div>
               )}

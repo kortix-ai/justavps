@@ -31,6 +31,13 @@ export async function updateProviderMeta(machineId: string, patch: ProviderMetaP
     ...((current?.providerMeta ?? {}) as ProviderMetaPatch),
     ...patch,
   };
-  await db.update(machines).set({ providerMeta: merged }).where(eq(machines.id, machineId));
+  await db.update(machines).set({
+    providerMeta: merged,
+    createActionId: patch.create_action_id ?? undefined,
+    lastCallbackAt: patch.last_callback_at ?? undefined,
+    lastProbeAt: patch.last_probe_at ?? undefined,
+    daemonReachableAt: patch.daemon_reachable_at ?? undefined,
+    readyVia: patch.ready_via ?? undefined,
+  }).where(eq(machines.id, machineId));
   return merged;
 }

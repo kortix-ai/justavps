@@ -53,7 +53,7 @@ describe('api key routes', () => {
     syncApiKeyToKVMock.mockRejectedValueOnce(new Error('cf put failed'));
     deleteWhereMock.mockResolvedValueOnce(undefined);
 
-    const { apiKeysApp } = await import('@/server/routes/v1/api-keys');
+    const { apiKeysApp } = await import('@/server/api/v1/legacy/api-keys');
     const res = await apiKeysApp.request(new Request('http://localhost/', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -79,7 +79,7 @@ describe('api key routes', () => {
     }]);
     deleteWhereMock.mockResolvedValueOnce(undefined);
 
-    const { apiKeysApp } = await import('@/server/routes/v1/api-keys');
+    const { apiKeysApp } = await import('@/server/api/v1/legacy/api-keys');
     const res = await apiKeysApp.request(new Request('http://localhost/11111111-1111-4111-8111-111111111111', { method: 'DELETE' }));
 
     expect(res.status).toBe(204);
@@ -95,7 +95,7 @@ describe('api key routes', () => {
     }]);
     deleteApiKeyFromKVMock.mockRejectedValueOnce(new Error('cf delete failed'));
 
-    const { apiKeysApp } = await import('@/server/routes/v1/api-keys');
+    const { apiKeysApp } = await import('@/server/api/v1/legacy/api-keys');
     const res = await apiKeysApp.request(new Request('http://localhost/11111111-1111-4111-8111-111111111111', { method: 'DELETE' }));
 
     expect(res.status).toBe(502);

@@ -7,6 +7,9 @@ const enqueueMachineCreateJobMock = vi.fn();
 const kickProvisionerServiceWorkerMock = vi.fn();
 const ensureProvisionerServiceWorkerMock = vi.fn();
 const registerMachineCreateJobHandlerMock = vi.fn();
+const checkMachineLimitMock = vi.fn();
+const generateMachineIdentityMock = vi.fn();
+const resolveMachineCallbackConfigMock = vi.fn();
 
 vi.mock('@/server/db', () => ({
   db: {
@@ -16,7 +19,7 @@ vi.mock('@/server/db', () => ({
 }));
 
 vi.mock('@/server/lib/account-limits', () => ({
-  checkMachineLimit: vi.fn().mockResolvedValue({ allowed: true, current: 0, max: 5 }),
+  checkMachineLimit: checkMachineLimitMock,
 }));
 
 vi.mock('@/lib/v2-pricing', () => ({
@@ -25,8 +28,8 @@ vi.mock('@/lib/v2-pricing', () => ({
 
 vi.mock('@/server/lib/machine-lifecycle', () => ({
   createMachineRecord: createMachineRecordMock,
-  generateMachineIdentity: vi.fn().mockResolvedValue({ slug: 'abc123', machineToken: 'token-123' }),
-  resolveMachineCallbackConfig: vi.fn().mockReturnValue({ callbackExpected: true, url: 'https://callback.example/machine' }),
+  generateMachineIdentity: generateMachineIdentityMock,
+  resolveMachineCallbackConfig: resolveMachineCallbackConfigMock,
   syncMachineStatus: vi.fn((machine) => machine),
   cleanupMachineResources: vi.fn(),
   autoGenerateAndSaveSSHKey: vi.fn(),
@@ -86,6 +89,9 @@ vi.mock('@/server/lib/providers', () => ({
 describe('createMachineV2 durable machine create flow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    checkMachineLimitMock.mockResolvedValue({ allowed: true, current: 0, max: 5 });
+    generateMachineIdentityMock.mockResolvedValue({ slug: 'abc123', machineToken: 'token-123' });
+    resolveMachineCallbackConfigMock.mockReturnValue({ callbackExpected: true, url: 'https://callback.example/machine' });
 
     transactionMock.mockImplementation(async (callback: (tx: { update: ReturnType<typeof vi.fn>; insert: ReturnType<typeof vi.fn>; select: ReturnType<typeof vi.fn>; execute: ReturnType<typeof vi.fn>; }) => Promise<void>) => {
       const updateReturningRow = {
@@ -96,6 +102,9 @@ describe('createMachineV2 durable machine create flow', () => {
         name: 'Agent Box',
         status: 'provisioning',
         provider: 'baremetal',
+        machineMode: 'vm',
+        requestedImageKind: 'golden',
+        requestedImageRef: null,
         imageId: null,
         serverType: 'custom',
         region: 'hel1',
@@ -146,6 +155,9 @@ describe('createMachineV2 durable machine create flow', () => {
       name: 'Agent Box',
       status: 'provisioning',
       provider: 'baremetal',
+      machineMode: 'vm',
+      requestedImageKind: 'golden',
+      requestedImageRef: null,
       imageId: null,
       serverType: 'custom',
       region: 'hel1',
@@ -247,11 +259,16 @@ describe('createMachineV2 durable machine create flow', () => {
         disk_gb: 80,
         region: 'hel1',
         name: 'Agent Box',
+        machine_mode: 'vm',
       },
     });
 
     expect(result.kind).toBe('machine');
     expect(createMachineRecordMock).toHaveBeenCalledTimes(1);
+    expect(createMachineRecordMock).toHaveBeenCalledWith(expect.objectContaining({
+      requestedImageKind: 'golden',
+      requestedImageRef: null,
+    }));
     expect(reserveCapacityForMachineCreateMock).toHaveBeenCalledWith(expect.objectContaining({
       machineId: 'machine-1',
       region: 'hel1',
@@ -262,7 +279,7 @@ describe('createMachineV2 durable machine create flow', () => {
     expect(enqueueMachineCreateJobMock).toHaveBeenCalledWith(expect.objectContaining({
       jobType: 'machine_create',
       subjectId: 'machine-1',
-      payload: expect.objectContaining({ reservationId: 'reservation-1' }),
+      payload: expect.objectContaining({ reservationId: 'reservation-1', machineMode: 'vm' }),
     }));
     expect(transactionMock).toHaveBeenCalledTimes(1);
     expect(kickProvisionerServiceWorkerMock).toHaveBeenCalledWith(1);
@@ -272,5 +289,39 @@ describe('createMachineV2 durable machine create flow', () => {
         provider_status: 'queued',
       },
     });
+  });
+
+  it('passes docker image refs through the container create flow', async () => {
+    const { createMachineV2 } = await import('@/server/lib/v2/machines');
+    await createMachineV2({
+      accountId: 'account-1',
+      userId: 'user-1',
+      isAdmin: false,
+      requestUrl: 'https://app.example/v2/machines',
+      input: {
+        vcpu: 2,
+        ram_gb: 4,
+        disk_gb: 20,
+        region: 'hel1',
+        name: 'Docker Box',
+        machine_mode: 'container',
+        docker_image: 'nginx:latest',
+      },
+    });
+
+    expect(reserveCapacityForMachineCreateMock).toHaveBeenCalledWith(expect.objectContaining({
+      imageId: null,
+      imageAlias: null,
+    }));
+    expect(createMachineRecordMock).toHaveBeenCalledWith(expect.objectContaining({
+      requestedImageKind: 'docker',
+      requestedImageRef: 'docker:nginx:latest',
+    }));
+    expect(enqueueMachineCreateJobMock).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({
+        machineMode: 'container',
+        dockerImage: 'docker:nginx:latest',
+      }),
+    }));
   });
 });

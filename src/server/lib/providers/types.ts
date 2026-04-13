@@ -35,6 +35,7 @@ export interface CreateServerOpts {
   diskGb?: number;
   sshPort?: number | null;
   httpPort?: number | null;
+  machineMode?: 'vm' | 'container';
 }
 
 export interface ServerResult {

@@ -14,7 +14,7 @@ import postgres from 'postgres';
 import { eq } from 'drizzle-orm';
 
 import { db } from '@/server/db';
-import { baremetalHosts, machines } from '@/server/db/schema';
+import { baremetalHosts, hostCapacityReservations, machines } from '@/server/db/schema';
 import { ensureBaremetalCellRecord } from '@/server/lib/baremetal/cell-store';
 import * as cryptoModule from '@/server/lib/crypto';
 
@@ -117,12 +117,6 @@ function responseCookies(response: Response) {
   if (Array.isArray(multi) && multi.length > 0) return multi.map((cookie) => cookie.split(';')[0] ?? cookie);
   const single = response.headers.get('set-cookie');
   return single ? [single.split(';')[0] ?? single] : [];
-}
-
-function headerCookies(headers: nodeHttp.IncomingHttpHeaders) {
-  const raw = headers['set-cookie'] as string | string[] | undefined;
-  if (Array.isArray(raw)) return raw.map((cookie) => cookie.split(';')[0] ?? cookie);
-  return typeof raw === 'string' && raw.length > 0 ? [raw.split(';')[0] ?? raw] : [];
 }
 
 function shQuote(value: string) {
@@ -429,6 +423,21 @@ async function ensureTargetHostRegistered() {
   }
 }
 
+async function reconcileLocalHostCapacity(hostId: string) {
+  const reservations = await db.select().from(hostCapacityReservations).where(eq(hostCapacityReservations.hostId, hostId));
+  const committed = reservations.filter((row) => row.state === 'committed');
+  const usedVcpu = committed.reduce((sum, row) => sum + (row.vcpu ?? 0), 0);
+  const usedMemoryGb = committed.reduce((sum, row) => sum + (row.memoryGb ?? 0), 0);
+  const usedDiskGb = committed.reduce((sum, row) => sum + (row.diskGb ?? 0), 0);
+  await db.update(baremetalHosts).set({
+    usedVcpu,
+    usedMemoryGb,
+    usedDiskGb,
+    updatedAt: new Date(),
+  }).where(eq(baremetalHosts.id, hostId));
+  console.log(`[setup] reconciled local host capacity vcpu=${usedVcpu} mem=${usedMemoryGb} disk=${usedDiskGb}`);
+}
+
 async function getMachine(machineId: string) {
   const { data } = await http<MachineView>(API_V2, `/machines/${machineId}`);
   return data;
@@ -492,7 +501,10 @@ async function main() {
   console.log(`E2E_BAREMETAL_HOST_IP=${TARGET_HOST_IP}`);
   console.log(`E2E_IMAGE_ID=${TARGET_IMAGE_ID ?? '(default)'}`);
   console.log(`E2E_MACHINE=${MACHINE_VCPU}vCPU/${MACHINE_RAM_GB}GB/${MACHINE_DISK_GB}GB`);
-  await ensureTargetHostRegistered();
+  const targetHost = await ensureTargetHostRegistered();
+  if (targetHost?.id) {
+    await reconcileLocalHostCapacity(targetHost.id);
+  }
   await createHarnessUser();
 
   const warmPoolState = await waitForWarmPoolReady();
@@ -614,7 +626,6 @@ async function main() {
   console.log(`[proxy-token] url=${tokenResp.data.proxy_url}`);
 
   const proxyHost = new URL(ready.connectivity.urls.proxy).host;
-  const rootProxyUrl = ready.connectivity.urls.proxy;
   const apiKeyProxyResp = await waitFor(
     'API-key proxy reachability',
     () => requestText(`https://8080--${proxyHost}`, {

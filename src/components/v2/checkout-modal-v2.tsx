@@ -23,6 +23,7 @@ import {
   ChevronDown,
   AlertTriangle,
   Globe,
+  Box,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isUnlimitedLimit } from "@/lib/account-limits";
@@ -178,6 +179,8 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
   const [ramGb, setRamGb] = useState(4);
   const [diskGb, setDiskGb] = useState(80);
   const [machineName, setMachineName] = useState("");
+  const [machineMode, setMachineMode] = useState<"vm" | "container">("vm");
+  const [dockerImage, setDockerImage] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   /* ─── Derived ─── */
@@ -203,7 +206,12 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
     !machineUnlimited && machineMax !== undefined && machineUsage >= machineMax;
 
   const canCreate = Boolean(
-    effectiveHostId && clampedVcpu >= MIN_VCPU && clampedRam >= MIN_RAM_GB && clampedDisk >= MIN_DISK_GB && !machineLimitReached,
+    effectiveHostId
+      && clampedVcpu >= MIN_VCPU
+      && clampedRam >= MIN_RAM_GB
+      && clampedDisk >= MIN_DISK_GB
+      && !machineLimitReached
+      && (machineMode !== "container" || dockerImage.trim().length > 0),
   );
 
   /* ─── Live price breakdown ─── */
@@ -235,6 +243,8 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
         region: selectedHost.region,
         name: machineName || undefined,
         host_id: effectiveHostId,
+        machine_mode: machineMode,
+        docker_image: machineMode === "container" ? dockerImage.trim() || undefined : undefined,
         vcpu: clampedVcpu,
         ram_gb: clampedRam,
         disk_gb: clampedDisk,
@@ -338,6 +348,66 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
             {/* ── Resource configuration ── */}
             {isLoggedIn && selectedHost && (
               <>
+                <div>
+                  <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                    Runtime
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMachineMode("vm")}
+                    className={cn(
+                      "rounded-xl border p-3 text-left transition-all",
+                      machineMode === "vm"
+                        ? "border-foreground/30 bg-foreground/[0.03] ring-1 ring-foreground/10"
+                        : "border-border hover:border-foreground/20 hover:bg-muted/20",
+                    )}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Server className="size-3.5" />
+                      <span className="text-sm font-medium">VM</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">Strongest isolation. Better for full machine workloads.</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMachineMode("container")}
+                    className={cn(
+                      "rounded-xl border p-3 text-left transition-all",
+                      machineMode === "container"
+                        ? "border-foreground/30 bg-foreground/[0.03] ring-1 ring-foreground/10"
+                        : "border-border hover:border-foreground/20 hover:bg-muted/20",
+                    )}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Box className="size-3.5" />
+                      <span className="text-sm font-medium">Container</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">Fast start. Bring a Docker Hub image like <code>nginx:latest</code>.</p>
+                  </button>
+                </div>
+
+                {machineMode === "container" && (
+                  <div className="space-y-2 rounded-xl border border-border/50 bg-muted/5 p-3">
+                    <div>
+                      <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                        Docker image
+                      </span>
+                    </div>
+                    <Input
+                      placeholder="nginx:latest or docker:nginx:latest"
+                      value={dockerImage}
+                      onChange={(e) => setDockerImage(e.target.value)}
+                      className="h-9 text-sm"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Pulled from Docker Hub through Incus OCI support on upgraded hosts. SSH/bootstrap tooling is not injected into arbitrary app containers.
+                    </p>
+                  </div>
+                )}
+
                 <div>
                   <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                     Configure resources

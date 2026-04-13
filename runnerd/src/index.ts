@@ -3,10 +3,16 @@ import { Hono } from 'hono';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
-import net from 'node:net';
 import type { Context } from 'hono';
 import { setTimeout as delay } from 'node:timers/promises';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { extractPrivateIpv4, inspectInstance } from './incus/inspection.js';
+import { resolveContainerImageReference, resolveVmImageReference } from './incus/images.js';
+import { waitForInstance, waitForPrivateIpv4 } from './incus/instance-wait.js';
+import { allocateStaticBridgeIpv4 } from './network/bridge-ip.js';
+import { setupContainerProxyDevices, setupProxyDevices, setupWarmClaimProxyDevices } from './network/proxy-devices.js';
+import { buildContainerCreateMetadata, buildContainerLaunchArgs } from './runtime/container/create.js';
+import { buildVmCreateMetadata, buildWarmPoolPrefix, buildWarmPoolVmCreateMetadata, buildWarmPoolVmName, checkVmAgentReady } from './runtime/vm/create.js';
 
 const execFileAsync = promisify(execFile);
 const app = new Hono();
@@ -61,7 +67,7 @@ const trackedCpuBuckets = new Set<number>(DEFAULT_CPU_BUCKETS);
 
 const WARM_POOL_PER_CPU = Number(process.env.WARM_POOL_PER_CPU || 1);
 const POOL_IMAGE = 'justavps-golden';
-const WARM_POOL_PREFIX = 'justavps-warm-cpu';
+const WARM_POOL_PREFIX = buildWarmPoolPrefix();
 const BASE_POOL_MEMORY_GIB = 1;     // memory hotplugged upward on claim
 const BASE_POOL_DISK_GIB = 10;      // filesystem expanded upward on claim
 
@@ -83,23 +89,22 @@ function getWarmBucket(cpu: number) {
 
 function poolVmName(prefix: string, cpu: number) {
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  return `${prefix}${cpu}-${id}`;
+  return buildWarmPoolVmName({ prefix, cpu, suffix: id });
 }
 
 async function isVmAgentReady(name: string): Promise<{ ready: boolean; ip: string | null }> {
-  try {
-    await runIncus(['exec', incusTarget(name), '--', 'true'], 3000);
-    const inspected = await inspectInstance(name);
-    return { ready: true, ip: inspected.privateIpv4 };
-  } catch {
-    return { ready: false, ip: null };
-  }
+  return checkVmAgentReady({
+    name,
+    runIncus,
+    incusTarget,
+    inspectInstance: ({ instanceName }) => inspectInstance({ instanceName, queryIncus }),
+  });
 }
 
 async function prepareBaseVm(name: string, cpu: number): Promise<{ ip: string } | null> {
   try {
     await retryTransient(() => runIncusPty(['init', POOL_IMAGE, incusTarget(name), '--vm'], 300000), 310000);
-    await waitForInstance(name);
+    await waitForInstance({ instanceName: name, queryIncus, delay });
     await setIncusConfig(name, 'user.justavps.role', 'warm_pool_reserve').catch(() => {});
     await setIncusConfig(name, 'user.justavps.cpu_bucket', String(cpu)).catch(() => {});
     await applyVmBootTuning(name);
@@ -211,20 +216,6 @@ async function runIncusPty(args: string[], timeoutMs = 300000) {
   return { stdout, stderr };
 }
 
-function normalizeImageAlias(image: string) {
-  return image.startsWith('images:') ? image.slice('images:'.length) : image;
-}
-
-async function resolveVmImageReference(image: string) {
-  const alias = normalizeImageAlias(image);
-  const { stdout } = await runIncus(['image', 'list', 'images:', '--format', 'csv']);
-  const lines = stdout.split('\n').map((line) => line.trim()).filter(Boolean);
-  const match = lines.find((line) => line.toLowerCase().includes(alias.toLowerCase()) && line.includes('VIRTUAL-MACHINE'));
-  if (!match) return image;
-  const fingerprint = match.split(',')[1]?.trim();
-  return fingerprint ? `images:${fingerprint}` : image;
-}
-
 async function retryBusy<T>(fn: () => Promise<T>, timeoutMs = 120000): Promise<T> {
   const started = Date.now();
   let lastError: unknown;
@@ -273,62 +264,9 @@ async function queryIncusFast<T>(path: string, timeoutMs = 5000): Promise<T> {
   return JSON.parse(stdout) as T;
 }
 
+
 async function runDetachedPublish(instanceId: string, alias: string) {
   await retryTransient(() => runIncusPty(['publish', incusTarget(instanceId), '--alias', alias, '--force'], 300000), 310000);
-}
-
-async function waitForInstance(instanceName: string, timeoutMs = 180000) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    try {
-      await queryIncus(`/1.0/instances/${encodeURIComponent(instanceName)}`);
-      return;
-    } catch {
-      await delay(1000);
-    }
-  }
-  throw new Error(`Timed out waiting for instance ${instanceName} to appear`);
-}
-
-async function waitForPrivateIpv4(instanceName: string, timeoutMs = 120000) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    const inspected = await inspectInstance(instanceName);
-    if (inspected.privateIpv4) return inspected;
-    await delay(1000);
-  }
-  throw new Error(`Timed out waiting for private IPv4 on ${instanceName}`);
-}
-
-async function waitForTcpListener(host: string, port: number, timeoutMs = 10_000, intervalMs = 250) {
-  const deadline = Date.now() + timeoutMs;
-  let lastError: string | null = null;
-
-  while (Date.now() < deadline) {
-    const ready = await new Promise<boolean>((resolve) => {
-      const socket = net.createConnection({ host, port });
-      socket.setTimeout(Math.min(intervalMs, 1_000));
-      socket.once('connect', () => {
-        socket.destroy();
-        resolve(true);
-      });
-      socket.once('timeout', () => {
-        lastError = `timeout connecting to ${host}:${port}`;
-        socket.destroy();
-        resolve(false);
-      });
-      socket.once('error', (error) => {
-        lastError = error instanceof Error ? error.message : String(error);
-        socket.destroy();
-        resolve(false);
-      });
-    });
-
-    if (ready) return;
-    await delay(intervalMs);
-  }
-
-  throw new Error(`timed out waiting for tcp listener ${host}:${port}${lastError ? ` (${lastError})` : ''}`);
 }
 
 async function waitForCloudInit(instanceName: string, timeoutMs = 300000) {
@@ -418,80 +356,6 @@ function resolveExplicitPort(value: unknown, fallback: number) {
 }
 
 /**
- * Set up host port → VM NAT forwarding via Incus proxy devices.
- *
- * Creates three devices:
- * 1. `eth0` — overrides the NIC with a static IP (NAT requires this)
- * 2. `ssh`  — forwards host:sshPort → vm:22
- * 3. `http` — forwards host:httpPort → vm:80 (daemon proxy)
- *
- * Idempotent: removes existing devices first if present.
- */
-async function setupProxyDevices(instanceName: string, vmIp: string, sshPort: number, httpPort: number) {
-  if (!RUNNERD_PUBLIC_IPV4) throw new Error('RUNNERD_PUBLIC_IPV4 not set');
-
-  // Remove existing devices if present (idempotent)
-  for (const dev of ['ssh', 'http', 'eth0']) {
-    try {
-      await runIncus(['config', 'device', 'remove', incusTarget(instanceName), dev], 5000);
-    } catch {
-      // device may not exist — ignore
-    }
-  }
-
-  // Pin eth0 to the DHCP-assigned IP so NAT proxy has a stable target
-  await runIncus([
-    'config', 'device', 'add', incusTarget(instanceName), 'eth0', 'nic',
-    'name=eth0', 'nictype=bridged', 'parent=incusbr0', `ipv4.address=${vmIp}`,
-  ], 10000);
-
-  // SSH NAT: host:sshPort → vm:22
-  await runIncus([
-    'config', 'device', 'add', incusTarget(instanceName), 'ssh', 'proxy',
-    'nat=true',
-    `listen=tcp:${RUNNERD_PUBLIC_IPV4}:${sshPort}`,
-    `connect=tcp:${vmIp}:22`,
-  ], 10000);
-
-  // HTTP NAT: host:httpPort → vm:80 (daemon proxy inside VM)
-  await runIncus([
-    'config', 'device', 'add', incusTarget(instanceName), 'http', 'proxy',
-    'nat=true',
-    `listen=tcp:${RUNNERD_PUBLIC_IPV4}:${httpPort}`,
-    `connect=tcp:${vmIp}:80`,
-  ], 10000);
-
-  await waitForTcpListener(RUNNERD_PUBLIC_IPV4, sshPort);
-  await waitForTcpListener(RUNNERD_PUBLIC_IPV4, httpPort);
-}
-
-async function setupWarmClaimProxyDevices(instanceName: string, vmIp: string, sshPort: number, httpPort: number) {
-  if (!RUNNERD_PUBLIC_IPV4) throw new Error('RUNNERD_PUBLIC_IPV4 not set');
-
-  for (const dev of ['ssh', 'http']) {
-    try {
-      await runIncus(['config', 'device', 'remove', incusTarget(instanceName), dev], 5000);
-    } catch {
-      // device may not exist — ignore
-    }
-  }
-
-  await runIncus([
-    'config', 'device', 'add', incusTarget(instanceName), 'ssh', 'proxy',
-    'nat=true',
-    `listen=tcp:${RUNNERD_PUBLIC_IPV4}:${sshPort}`,
-    `connect=tcp:${vmIp}:22`,
-  ], 10000);
-
-  await runIncus([
-    'config', 'device', 'add', incusTarget(instanceName), 'http', 'proxy',
-    'nat=true',
-    `listen=tcp:${RUNNERD_PUBLIC_IPV4}:${httpPort}`,
-    `connect=tcp:${vmIp}:80`,
-  ], 10000);
-}
-
-/**
  * Regenerate the nginx VM map file and reload nginx.
  * Called after VM create/delete so the host reverse proxy stays in sync.
  *
@@ -536,27 +400,6 @@ async function regenerateNginxMap() {
   }
 }
 
-async function inspectInstance(instanceName: string) {
-  const state = await queryIncus<{
-    status: string;
-    network?: Record<string, { addresses?: Array<{ family?: string; scope?: string; address?: string }> }>;
-  }>(`/1.0/instances/${encodeURIComponent(instanceName)}/state`);
-  const network = state?.network ?? {};
-  let privateIpv4: string | null = null;
-  for (const iface of Object.values(network)) {
-    const addresses = iface.addresses ?? [];
-    const ipv4 = addresses.find((addr) => addr.family === 'inet' && addr.scope === 'global');
-    if (ipv4?.address) {
-      privateIpv4 = ipv4.address;
-      break;
-    }
-  }
-  return {
-    privateIpv4,
-    status: state.status || null,
-  };
-}
-
 async function listInstanceSnapshots(instanceName: string) {
   const parsed = await queryIncus<Array<{ name: string; created_at?: string }>>(`/1.0/instances/${encodeURIComponent(instanceName)}/snapshots?recursion=1`);
   return parsed.map((snapshot) => ({
@@ -594,15 +437,7 @@ async function listInstancesDetailed() {
   }>>('/1.0/instances?recursion=1');
 
   return parsed.map((instance) => {
-    const network = instance.state?.network ?? {};
-    let privateIpv4: string | null = null;
-    for (const iface of Object.values(network)) {
-      const ipv4 = (iface.addresses ?? []).find((addr) => addr.family === 'inet' && addr.scope === 'global');
-      if (ipv4?.address) {
-        privateIpv4 = ipv4.address;
-        break;
-      }
-    }
+      const privateIpv4 = extractPrivateIpv4(instance.state?.network);
 
     const rootDevice = instance.devices?.root ?? instance.expanded_devices?.root ?? {};
     return {
@@ -683,10 +518,65 @@ app.post('/v1/instances', async (c) => {
   const vcpu = Number(body.vcpu);
   const memoryGb = Number(body.memoryGb);
   const cloudInitUserData = String(body.cloudInitUserData || '');
+  const machineMode = String(body.machineMode || 'vm') === 'container' ? 'container' : 'vm';
+  const containerIpv4Address = typeof body.containerIpv4Address === 'string' && body.containerIpv4Address.trim()
+    ? body.containerIpv4Address.trim()
+    : null;
   const requestedSshPort = resolveExplicitPort(body.sshPort, sshPortForInstance(instanceName));
   const requestedHttpPort = resolveExplicitPort(body.httpPort, httpPortForInstance(instanceName));
 
   try {
+    if (machineMode === 'container') {
+      const startTs = Date.now();
+      const stageTimings: Record<string, number> = {};
+      const resolvedImage = await resolveContainerImageReference(image, { runIncus });
+      const requestedStaticIpv4 = containerIpv4Address ?? await allocateStaticBridgeIpv4({ queryIncus });
+      stageTimings.resolve_image_ms = Date.now() - startTs;
+      await retryTransient(() => runIncusPty(['delete', incusTarget(instanceName), '--force'], 20000).catch(() => ({ stdout: '', stderr: '' })), 20000);
+      const launchArgs = buildContainerLaunchArgs({
+        resolvedImage,
+        instanceName,
+        vcpu,
+        memoryGb,
+        diskGb,
+        staticIpv4: requestedStaticIpv4,
+        cloudInitUserData,
+        incusTarget,
+      });
+      await retryTransient(() => runIncusPty(launchArgs, 300000), 310000);
+      stageTimings.launch_ms = Date.now() - startTs;
+      await waitForInstance({ instanceName, queryIncus, delay });
+      stageTimings.instance_visible_ms = Date.now() - startTs;
+      const inspected = await waitForPrivateIpv4({ instanceName, inspectInstance: (target) => inspectInstance({ instanceName: target, queryIncus }), delay, timeoutMs: 120000, intervalMs: 100 });
+      stageTimings.ip_ready_ms = Date.now() - startTs;
+      stageTimings.hardening_ms = stageTimings.launch_ms;
+      stageTimings.config_ms = stageTimings.launch_ms;
+      stageTimings.start_ms = stageTimings.launch_ms;
+      const sshPort = requestedSshPort;
+      const httpPort = requestedHttpPort;
+      if (inspected.privateIpv4 && RUNNERD_PUBLIC_IPV4) {
+        await setupContainerProxyDevices({ instanceName, containerIp: inspected.privateIpv4, sshPort, httpPort, publicIpv4: RUNNERD_PUBLIC_IPV4, runIncus, incusTarget }).catch((err) =>
+          console.warn(`[runnerd] container proxy setup failed for ${instanceName}: ${err instanceof Error ? err.message : err}`)
+        );
+      }
+      stageTimings.proxy_ms = Date.now() - startTs;
+      regenerateNginxMap().catch(() => {});
+      console.log(`[runnerd] container ready ${instanceName} total=+${Date.now() - startTs}ms stages=${JSON.stringify(stageTimings)} image=${resolvedImage}`);
+      return c.json({
+        instanceId: instanceName,
+        hostIpv4: RUNNERD_PUBLIC_IPV4,
+        hostIpv6: RUNNERD_PUBLIC_IPV6,
+        privateIpv4: inspected.privateIpv4,
+        sshPort,
+        httpPort,
+        metadata: buildContainerCreateMetadata({
+          status: inspected.status,
+          requestedStaticIpv4,
+          totalMs: Date.now() - startTs,
+          stageTimings,
+        }),
+      }, 201);
+    }
     const isGoldenImage = image === 'justavps-golden' || image.startsWith('justavps-golden');
     console.log(`[runnerd] create ${instanceName} from ${image}${isGoldenImage ? ' (golden fast-path)' : ''}`);
 
@@ -710,7 +600,7 @@ app.post('/v1/instances', async (c) => {
         // listener/device state from the reserve lifecycle before exposing the
         // claimed machine publicly.
         if (warmVM.privateIpv4 && RUNNERD_PUBLIC_IPV4) {
-          await setupWarmClaimProxyDevices(claimedName, warmVM.privateIpv4, sshPort, httpPort);
+          await setupWarmClaimProxyDevices({ instanceName: claimedName, vmIp: warmVM.privateIpv4, sshPort, httpPort, publicIpv4: RUNNERD_PUBLIC_IPV4, runIncus, incusTarget });
           console.log(`[runnerd] proxies ready +${Date.now() - startTs}ms ssh:${sshPort} http:${httpPort}`);
         }
 
@@ -734,7 +624,7 @@ app.post('/v1/instances', async (c) => {
           privateIpv4: warmVM.privateIpv4,
           sshPort,
           httpPort,
-          metadata: { incus_status: 'Running', warm_pool: true },
+          metadata: buildWarmPoolVmCreateMetadata({ machineMode, totalMs: Date.now() - startTs }),
         }, 201);
       }
 
@@ -742,10 +632,10 @@ app.post('/v1/instances', async (c) => {
       console.log(`[runnerd] cold boot ${instanceName} (warm pool empty)`);
 
       // Last resort: full cold boot from image alias.
-      const resolvedImage = await resolveVmImageReference(image);
+      const resolvedImage = await resolveVmImageReference(image, { runIncus });
       await retryTransient(() => runIncusPty(['delete', incusTarget(instanceName), '--force'], 20000).catch(() => ({ stdout: '', stderr: '' })), 20000);
       await retryTransient(() => runIncusPty(['init', resolvedImage, incusTarget(instanceName), '--vm'], 300000), 310000);
-      await waitForInstance(instanceName);
+      await waitForInstance({ instanceName, queryIncus, delay });
       await applyVmBootTuning(instanceName);
       await ensureRootDiskSize(instanceName, diskGb);
       await setIncusConfig(instanceName, 'limits.cpu', String(vcpu));
@@ -754,7 +644,7 @@ app.post('/v1/instances', async (c) => {
 
       await retryBusy(() => runIncus(['start', incusTarget(instanceName)]));
       console.log(`[runnerd] started ${instanceName} +${Date.now() - startTs}ms`);
-      const inspected = await waitForPrivateIpv4(instanceName);
+      const inspected = await waitForPrivateIpv4({ instanceName, inspectInstance: (target) => inspectInstance({ instanceName: target, queryIncus }), delay });
       console.log(`[runnerd] ip ready ${instanceName} +${Date.now() - startTs}ms ip=${inspected.privateIpv4 ?? 'none'}`);
 
       // Wait for incus agent
@@ -782,7 +672,7 @@ app.post('/v1/instances', async (c) => {
 
       // Set up proxies
       if (inspected.privateIpv4 && RUNNERD_PUBLIC_IPV4) {
-        await setupProxyDevices(instanceName, inspected.privateIpv4, sshPort, httpPort).catch((err) =>
+        await setupProxyDevices({ instanceName, vmIp: inspected.privateIpv4, sshPort, httpPort, publicIpv4: RUNNERD_PUBLIC_IPV4, runIncus, incusTarget }).catch((err) =>
           console.warn(`[runnerd] proxy setup failed for ${instanceName}: ${err instanceof Error ? err.message : err}`)
         );
         console.log(`[runnerd] proxies ready ${instanceName} +${Date.now() - startTs}ms ssh:${sshPort} http:${httpPort}`);
@@ -797,15 +687,15 @@ app.post('/v1/instances', async (c) => {
         privateIpv4: inspected.privateIpv4,
         sshPort,
         httpPort,
-        metadata: { incus_status: inspected.status },
+        metadata: buildVmCreateMetadata({ status: inspected.status, machineMode, scenario: 'cold_create', totalMs: Date.now() - startTs }),
       }, 201);
     }
 
     // Standard cloud-init path (raw images — non-golden)
-    const resolvedImageStd = await resolveVmImageReference(image);
+    const resolvedImageStd = await resolveVmImageReference(image, { runIncus });
     await retryTransient(() => runIncusPty(['delete', incusTarget(instanceName), '--force'], 20000).catch(() => ({ stdout: '', stderr: '' })), 20000);
     await retryTransient(() => runIncusPty(['init', resolvedImageStd, incusTarget(instanceName), '--vm'], 300000), 310000);
-    await waitForInstance(instanceName);
+    await waitForInstance({ instanceName, queryIncus, delay });
     await applyVmBootTuning(instanceName);
     await ensureRootDiskSize(instanceName, diskGb);
     await setIncusConfig(instanceName, 'limits.cpu', String(vcpu));
@@ -815,14 +705,14 @@ app.post('/v1/instances', async (c) => {
     }
     await retryBusy(() => runIncus(['start', incusTarget(instanceName)]));
     console.log(`[runnerd] started ${instanceName}`);
-    const inspected = await waitForPrivateIpv4(instanceName);
+    const inspected = await waitForPrivateIpv4({ instanceName, inspectInstance: (target) => inspectInstance({ instanceName: target, queryIncus }), delay });
     await waitForCloudInit(instanceName);
     console.log(`[runnerd] inspected ${instanceName} privateIpv4=${inspected.privateIpv4 ?? 'none'} status=${inspected.status ?? 'unknown'}`);
 
     const sshPort = requestedSshPort;
     const httpPort = requestedHttpPort;
     if (inspected.privateIpv4 && RUNNERD_PUBLIC_IPV4) {
-      await setupProxyDevices(instanceName, inspected.privateIpv4, sshPort, httpPort).catch((err) =>
+      await setupProxyDevices({ instanceName, vmIp: inspected.privateIpv4, sshPort, httpPort, publicIpv4: RUNNERD_PUBLIC_IPV4, runIncus, incusTarget }).catch((err) =>
         console.warn(`[runnerd] proxy setup failed for ${instanceName}: ${err instanceof Error ? err.message : err}`)
       );
       console.log(`[runnerd] proxies ready ${instanceName} ssh:${sshPort} http:${httpPort}`);
@@ -836,7 +726,7 @@ app.post('/v1/instances', async (c) => {
       privateIpv4: inspected.privateIpv4,
       sshPort,
       httpPort,
-      metadata: { incus_status: inspected.status },
+      metadata: buildVmCreateMetadata({ status: inspected.status, machineMode, scenario: 'user_image_cold_create', totalMs: null }),
     }, 201);
   } catch (error) {
     return c.json({ error: error instanceof Error ? error.message : 'failed to create instance' }, 500);

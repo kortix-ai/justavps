@@ -198,6 +198,7 @@ export interface RunnerCreateInstanceInput {
   diskGb: number;
   sshPort?: number | null;
   httpPort?: number | null;
+  machineMode?: 'vm' | 'container';
   labels?: Record<string, string>;
 }
 

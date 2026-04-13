@@ -284,6 +284,7 @@ export class BaremetalProvider implements ComputeProvider {
       instanceName: opts.name,
       machineSlug: slug,
       image: opts.image,
+      machineMode: opts.machineMode ?? 'vm',
       region: opts.region,
       serverType: opts.serverType,
       cloudInitUserData: opts.userData,

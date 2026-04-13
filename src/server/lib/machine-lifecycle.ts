@@ -1,4 +1,5 @@
 import { eq, inArray, and } from 'drizzle-orm';
+import net from 'node:net';
 import { nanoid } from 'nanoid';
 import { db } from '../db';
 import { accounts, machines, users, sshKeys, subscriptions } from '../db/schema';
@@ -13,6 +14,8 @@ import { releaseMachinePortAllocations } from './baremetal/port-allocations';
 import { getHostCapacityReservationForMachine, releaseHostCapacityReservation } from './baremetal/reservations';
 import { updateProviderMeta } from './provider-meta';
 import { resolvePlanForDisplay, STARTING_MONTHLY_PRICE, marketForRegion } from '@/lib/plan-catalog';
+import { shouldMarkReadyFromHttpProbe } from '@/server/domains/machine/readiness';
+import { deriveMachineRuntimeKind } from '@/server/domains/machine/types';
 
 interface ProvisionProviderMeta {
   create_action_id?: string | null;
@@ -27,6 +30,28 @@ interface ProvisionProviderMeta {
   last_probe_at?: string | null;
   ready_via?: 'heartbeat' | 'probe' | null;
   daemon_reachable_at?: string | null;
+  requested_image_kind?: 'golden' | 'catalog' | 'docker' | null;
+  requested_image_ref?: string | null;
+}
+
+async function canConnect(host: string | null | undefined, port: number | null | undefined, timeoutMs = 1500) {
+  if (!host || !port) return false;
+  return new Promise<boolean>((resolve) => {
+    const socket = net.createConnection({ host, port });
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once('timeout', () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.once('error', () => {
+      socket.destroy();
+      resolve(false);
+    });
+  });
 }
 
 export async function generateMachineIdentity() {
@@ -286,11 +311,19 @@ interface CreateMachineInput {
   slug: string;
   name: string;
   provider: string;
+  machineMode?: 'vm' | 'container';
+  requestedImageKind?: 'golden' | 'catalog' | 'docker' | null;
+  requestedImageRef?: string | null;
   imageId: string | null;
   serverType: string;
   region: string;
   baremetalHostId?: string | null;
   ip: string | null;
+  publicIpv4?: string | null;
+  publicIpv6?: string | null;
+  sshPort?: number | null;
+  httpPort?: number | null;
+  readyVia?: 'heartbeat' | 'probe' | null;
   providerServerId: string | null;
   machineToken: string;
   sshPublicKey: string | null;
@@ -304,6 +337,9 @@ export async function createMachineRecord(input: CreateMachineInput) {
   const { executor = db, ...values } = input;
   const [machine] = await executor.insert(machines).values({
     ...values,
+    machineMode: input.machineMode ?? 'vm',
+    requestedImageKind: input.requestedImageKind ?? 'golden',
+    requestedImageRef: input.requestedImageRef ?? null,
     sshPublicKey: input.sshPublicKey ?? '',
     backupsEnabled: input.backupsEnabled ?? true,
     // Encrypt secrets at rest — decrypted on read via decryptSecret()
@@ -444,10 +480,10 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
         });
 
         if (nextIp !== machine.ip) {
-          await db.update(machines).set({ ip: nextIp }).where(eq(machines.id, machine.id));
+          await db.update(machines).set({ ip: nextIp, publicIpv4: network.publicIpv4 ?? null, publicIpv6: network.publicIpv6 ?? null }).where(eq(machines.id, machine.id));
         }
 
-        machine = { ...machine, ip: nextIp, providerMeta: nextMeta };
+        machine = { ...machine, ip: nextIp, publicIpv4: network.publicIpv4 ?? null, publicIpv6: network.publicIpv6 ?? null, providerMeta: nextMeta };
 
         if (config.isCloudflareConfigured() && nextIp) {
           await syncMachineRoutingState({
@@ -485,6 +521,35 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
       provisioningStage: machine.provisioningStage ?? 'services_ready',
     }).where(eq(machines.id, machine.id));
     return { ...machine, status: 'ready' as const, readyAt: now };
+  }
+
+  const requestedImageKind = machine.requestedImageKind ?? (typeof meta.requested_image_kind === 'string' ? meta.requested_image_kind : null);
+  const requestedImageRef = machine.requestedImageRef ?? (typeof meta.requested_image_ref === 'string' ? meta.requested_image_ref : null);
+  const runtimeKind = deriveMachineRuntimeKind({
+    machineMode: (machine.machineMode as 'vm' | 'container') ?? 'vm',
+    requestedImageKind: requestedImageKind === 'catalog' || requestedImageKind === 'docker' ? requestedImageKind : 'golden',
+  });
+  const host = machine.publicIpv4 ?? (typeof meta.public_ipv4 === 'string' ? meta.public_ipv4 : machine.ip);
+  const port = machine.httpPort ?? (typeof meta.http_port === 'number' ? meta.http_port : null);
+  const shouldProbeReady = shouldMarkReadyFromHttpProbe({ runtimeKind, host, port })
+    || (requestedImageKind === 'docker' || /^(docker|oci):/i.test(requestedImageRef ?? ''));
+  if (shouldProbeReady) {
+    if (await canConnect(host, port)) {
+      const now = new Date();
+      const nextMeta = await updateProviderMeta(machine.id, {
+        last_probe_at: now.toISOString(),
+        ready_via: 'probe',
+        daemon_reachable_at: now.toISOString(),
+      });
+      await db.update(machines).set({
+        status: 'ready',
+        readyAt: now,
+        readyVia: 'probe',
+        provisioningStage: 'services_ready',
+        providerMeta: nextMeta,
+      }).where(eq(machines.id, machine.id));
+      return { ...machine, status: 'ready' as const, readyAt: now, readyVia: 'probe' as const, provisioningStage: 'services_ready', providerMeta: nextMeta };
+    }
   }
 
   // ── Provisioning timeout ─────────────────────────────────────────────────
