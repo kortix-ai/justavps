@@ -315,7 +315,9 @@ export class HetznerProvider implements ComputeProvider {
       firewalls: [{ firewall: firewallId }],
     };
 
-    if (opts.enableBackups) body.enable_backup = true;
+    // Note: Hetzner's POST /servers does NOT accept an `enable_backup` field.
+    // Backups must be enabled via a separate action endpoint after the server
+    // exists (see below, after createServer succeeds).
     if (opts.sshKeyIds.length > 0) body.ssh_keys = opts.sshKeyIds.map(Number);
 
     const result = await hetznerFetch<{ server: HetznerServer; action?: HetznerAction }>('/servers', {
@@ -361,6 +363,14 @@ export class HetznerProvider implements ComputeProvider {
     }).catch((err) => {
       console.warn(`[hetzner] Failed to enable protection for server ${serverId}:`, err);
     });
+
+    // Enable backups if requested (Hetzner requires a separate action — see note above).
+    // Fire-and-forget: the action queues and takes effect once the server is available.
+    if (opts.enableBackups) {
+      hetznerFetch(`/servers/${serverId}/actions/enable_backup`, { method: 'POST' })
+        .then(() => console.log(`[hetzner] Enabled backups for server ${serverId}`))
+        .catch((err) => console.error(`[hetzner] Failed to enable backups for server ${serverId}:`, err));
+    }
 
     return {
       serverId: String(serverId),
