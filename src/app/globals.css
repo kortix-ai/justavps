@@ -168,6 +168,7 @@
   html {
     @apply font-sans;
     scroll-behavior: smooth;
+    scroll-padding-top: 5.5rem;
     font-size: 105%;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;

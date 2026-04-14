@@ -13,23 +13,23 @@
 const ITEMS = [
   {
     q: "What if I don't like it?",
-    a: "Cancel anytime. No contracts, no lock-in. Your data is yours — download it and walk away whenever you want.",
+    a: "Cancel anytime. No contracts, no lock-in. Your data is yours — download it and leave whenever you want.",
   },
   {
     q: "Is it really cheaper?",
-    a: "Do the math yourself. Per-second providers charge roughly $0.05/h per vCPU and $0.016/h per GiB of RAM. Run that 24/7 for a month and compare. We land at 8–10x less, every time.",
+    a: "Do the math yourself. Daytona, E2B, Modal and others charge per-second — $0.05+/h per vCPU, $0.016+/h per GiB RAM. Run that 24/7 for a month and compare. We're 8–10x cheaper, every time.",
   },
   {
     q: "How fast can I get started?",
-    a: "A couple of minutes. Pick a plan, we provision your machine, you SSH in. No credit card hoops, no onboarding calls.",
+    a: "A couple of minutes. Pick a plan, we provision your machine, you SSH in. That's it.",
   },
   {
     q: "What about security?",
-    a: "Zero open ports by default. Every port is fronted by an authenticated proxy. SSH uses keys, not passwords. API keys and session auth are both supported out of the box.",
+    a: "Browser access is gated by the authenticated proxy, and SSH uses keys instead of passwords. API keys and session-based access are both supported.",
   },
   {
     q: "Which agents can I run?",
-    a: "Claude Code, Codex, OpenCode, PI Coding, Cursor workflows, and anything else that runs on Linux. It's a persistent Linux machine — install whatever you need.",
+    a: "Claude Code, Codex, OpenCode, PI Coding agents, Cursor workflows, and any other Linux-based agent. It's a persistent Linux machine — install what you want, run it 24/7.",
   },
 ];
 
@@ -43,7 +43,7 @@ export function Faq() {
             FAQ
           </p>
           <h2 className="text-3xl md:text-4xl lg:text-[2.75rem] font-medium tracking-[-0.03em] leading-[1.05] text-foreground">
-            Common questions
+            Still on the fence?
           </h2>
           <p className="text-sm md:text-[15px] text-muted-foreground mt-5 max-w-sm leading-relaxed">
             Can&apos;t find what you&apos;re looking for?{" "}

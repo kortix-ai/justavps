@@ -15,13 +15,7 @@ export function InfinityGlyph() {
 export function PowerGlyph() {
   return (
     <span className="inline-block align-middle mx-1 sm:mx-1.5">
-      <AlarmClockIcon
-        className="size-[0.85em] text-brand"
-        style={{
-          filter:
-            "drop-shadow(0 0 10px var(--brand))",
-        }}
-      />
+      <AlarmClockIcon className="size-[0.85em] text-brand" />
     </span>
   );
 }

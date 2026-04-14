@@ -257,7 +257,7 @@ export default function DocsPage() {
       <div className="max-w-3xl mx-auto px-6 py-8 lg:px-10">
 
         <div className="mb-10">
-          <h1 className="text-3xl font-bold tracking-tight mb-3">JustAVPS Docs</h1>
+          <h1 className="text-3xl font-medium tracking-tight mb-3">JustAVPS Docs</h1>
           <P>24/7 always-on sandboxes for AI agents. Use it as your personal dev machine, or provision sandboxes programmatically as infrastructure.</P>
         </div>
 

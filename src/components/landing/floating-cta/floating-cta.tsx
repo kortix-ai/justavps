@@ -22,7 +22,7 @@ export function FloatingCta({
   return (
     <div
       className={cn(
-        "fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-2 pl-5 py-2 rounded-full border border-white/[0.08] bg-background/90 backdrop-blur-xl shadow-2xl shadow-black/20 transition-all duration-500",
+        "fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-2 pl-5 py-2 rounded-full border border-border bg-background/95 backdrop-blur-xl transition-all duration-500",
         visible ? "translate-y-0 opacity-100" : "translate-y-20 opacity-0 pointer-events-none",
       )}
     >

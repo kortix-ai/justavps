@@ -8,6 +8,7 @@ import { Hero } from "@/components/landing/hero/hero";
 import { SupportedAgents } from "@/components/landing/sections/supported-agents";
 import { Infrastructure } from "@/components/landing/sections/infrastructure";
 import { UseCases } from "@/components/landing/sections/use-cases";
+import { SecureDefault } from "@/components/landing/sections/secure-default";
 import { ApiOverview } from "@/components/landing/sections/api-overview";
 import { Pricing } from "@/components/landing/sections/pricing";
 import { About } from "@/components/landing/sections/about";
@@ -32,11 +33,13 @@ export default function Home() {
       <PageFrame>
         <Hero onDeploy={openCheckout} startingPrice={startingPrice} />
         <SectionDivider />
-        <SupportedAgents />
+        <UseCases onDeploy={openCheckout} />
         <SectionDivider />
+        {/* <SupportedAgents />
+        <SectionDivider /> */}
         <Infrastructure />
         <SectionDivider />
-        <UseCases onDeploy={openCheckout} />
+        <SecureDefault />
         <SectionDivider />
         <ApiOverview />
         <SectionDivider />

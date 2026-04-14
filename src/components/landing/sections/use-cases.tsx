@@ -32,7 +32,7 @@ const PLATFORM_CAPABILITIES = [
   { label: "Agents API", desc: "OpenCode, Codex, more" },
 ];
 
-export function UseCases({ onDeploy: _onDeploy }: { onDeploy: () => void }) {
+export function UseCases({ onDeploy }: { onDeploy: () => void }) {
   return (
     <section className="relative">
       <Reveal>
@@ -103,6 +103,18 @@ export function UseCases({ onDeploy: _onDeploy }: { onDeploy: () => void }) {
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* Mid-page CTA — catch momentum */}
+          <div className="bg-background col-span-1 md:col-span-2 px-8 py-10 md:py-12 flex flex-col items-center justify-center gap-3">
+            <button
+              onClick={onDeploy}
+              className="h-11 px-6 rounded-full bg-foreground text-background text-sm font-medium inline-flex items-center gap-2 hover:bg-foreground/90 transition-colors"
+            >
+              Get your machine
+              <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+            </button>
+            <p className="text-[11px] text-muted-foreground">Deploys in minutes</p>
           </div>
         </div>
       </Reveal>

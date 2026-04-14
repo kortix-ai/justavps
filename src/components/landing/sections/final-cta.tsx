@@ -22,19 +22,14 @@ export function FinalCta({
   startingPrice: number;
 }) {
   return (
-    <section className="relative overflow-hidden">
-      {/* Ambient glow */}
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute bottom-[-20%] left-1/2 -translate-x-1/2 w-[900px] h-[500px] rounded-full bg-gradient-to-t from-brand/[0.08] via-brand/[0.02] to-transparent blur-3xl" />
-      </div>
-
+    <section className="relative">
       <div className="relative px-6 py-24 md:py-32 lg:py-36 text-center">
         <p className="text-[11px] text-brand uppercase tracking-[0.24em] mb-6 font-medium">
           Deploy
         </p>
 
         <h2 className="text-[clamp(2.25rem,6vw,4.5rem)] font-medium tracking-[-0.04em] leading-[0.95] text-foreground max-w-3xl mx-auto">
-          Deploy your machine.
+          Get a machine.
         </h2>
 
         <p className="mt-6 text-sm md:text-base text-muted-foreground">
@@ -48,7 +43,7 @@ export function FinalCta({
             className="group relative h-12 px-7 rounded-full bg-foreground text-background hover:bg-foreground/90"
           >
             <span className="flex items-center gap-2">
-              Deploy a machine
+              Deploy now
               <ArrowRight className="size-4" />
             </span>
           </Button>
