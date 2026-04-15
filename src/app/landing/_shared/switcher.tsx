@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-export type VariantId = "ascii" | "blueprint" | "live";
+export type VariantId = "ascii" | "blueprint" | "live" | "signature";
 
 export const VARIANTS: {
   id: VariantId;
@@ -11,9 +11,10 @@ export const VARIANTS: {
   sub: string;
   swatch: [string, string, string];
 }[] = [
-  { id: "ascii",     num: "01", name: "ASCII",     sub: "README · b&w terminal",    swatch: ["#0A0A0A", "#F4F1EB", "#8A8A8A"] },
-  { id: "blueprint", num: "02", name: "Blueprint", sub: "cobalt · schematic",       swatch: ["#F2F4F8", "#0B1220", "#2E5AFF"] },
-  { id: "live",      num: "03", name: "Live",      sub: "ink · bone · ember",       swatch: ["#0A0A0B", "#F0ECE0", "#E04E1B"] },
+  { id: "ascii",     num: "01", name: "ASCII",     sub: "README · b&w terminal",     swatch: ["#0A0A0A", "#F4F1EB", "#8A8A8A"] },
+  { id: "blueprint", num: "02", name: "Blueprint", sub: "cobalt · schematic",        swatch: ["#F2F4F8", "#0B1220", "#2E5AFF"] },
+  { id: "live",      num: "03", name: "Live",      sub: "ink · bone · ember",        swatch: ["#0A0A0B", "#F0ECE0", "#E04E1B"] },
+  { id: "signature", num: "04", name: "Signature", sub: "paper · receipt · gauge",   swatch: ["#FAFAF7", "#0A0A0B", "#E04E1B"] },
 ];
 
 const KEY = "justavps.landing.variant";
