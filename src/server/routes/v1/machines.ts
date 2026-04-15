@@ -83,6 +83,28 @@ function shouldSyncMachineStatusForList(machine: typeof machines.$inferSelect) {
   return machine.status === 'error' && machine.provisioningStage === 'timeout';
 }
 
+function normalizeBackupDescription(description?: string): string | undefined {
+  if (!description) return undefined;
+  const normalized = description
+    .normalize('NFKD')
+    .replace(/[^\x20-\x7E]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return normalized ? normalized.slice(0, 120) : undefined;
+}
+
+function logBackupRouteContext(label: string, context: Record<string, unknown>, err: unknown) {
+  console.error(`[MACHINES][BACKUPS] ${label}`, {
+    ...context,
+    error: err instanceof Error ? {
+      name: err.name,
+      message: err.message,
+      stack: err.stack,
+      cause: err.cause,
+    } : err,
+  });
+}
+
 function serializeMachine(
   m: typeof machines.$inferSelect,
   sub?: typeof subscriptions.$inferSelect | null,
@@ -1231,19 +1253,28 @@ machinesApp.openapi(listBackupsRoute, async (c) => {
   const { id } = c.req.valid('param');
   const accountId = c.get('accountId');
 
-  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
-  if (owned.response) return owned.response as any;
+  try {
+    const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+    if (owned.response) return owned.response as any;
 
-  const machine = owned.resource;
-  if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
+    const machine = owned.resource;
+    if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
 
-  const lookup = requireProvider(c, machine.provider);
-  if (lookup.response) return lookup.response as any;
+    const lookup = requireProvider(c, machine.provider);
+    if (lookup.response) return lookup.response as any;
 
-  const provider = lookup.provider as HetznerProvider;
-  const backups = await provider.listBackups(machine.providerServerId);
+    const provider = lookup.provider as HetznerProvider;
+    const backups = await provider.listBackups(machine.providerServerId);
 
-  return c.json({ backups, backups_enabled: machine.backupsEnabled }, 200);
+    return c.json({ backups, backups_enabled: machine.backupsEnabled }, 200);
+  } catch (err) {
+    logBackupRouteContext('listBackups failed', {
+      machineId: id,
+      accountId,
+      route: c.req.path,
+    }, err);
+    throw err;
+  }
 });
 
 // ─── POST /:id/backups — Create manual backup ──────────────────────────────
@@ -1275,20 +1306,38 @@ machinesApp.openapi(createBackupRoute, async (c) => {
   const { id } = c.req.valid('param');
   const accountId = c.get('accountId');
 
-  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
-  if (owned.response) return owned.response as any;
+  try {
+    const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+    if (owned.response) return owned.response as any;
 
-  const machine = owned.resource;
-  if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
+    const machine = owned.resource;
+    if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
 
-  const lookup = requireProvider(c, machine.provider);
-  if (lookup.response) return lookup.response as any;
+    const lookup = requireProvider(c, machine.provider);
+    if (lookup.response) return lookup.response as any;
 
-  const body = await c.req.json().catch(() => ({}));
-  const provider = lookup.provider as HetznerProvider;
-  const result = await provider.createBackup(machine.providerServerId, body?.description);
+    const body = await c.req.json().catch(() => ({}));
+    const normalizedDescription = normalizeBackupDescription(body?.description);
+    if (body?.description && normalizedDescription && body.description !== normalizedDescription) {
+      console.info('[MACHINES][BACKUPS] normalized backup description', {
+        machineId: id,
+        originalDescription: body.description,
+        normalizedDescription,
+      });
+    }
 
-  return c.json({ backup_id: result.id, status: 'creating' }, 202);
+    const provider = lookup.provider as HetznerProvider;
+    const result = await provider.createBackup(machine.providerServerId, normalizedDescription);
+
+    return c.json({ backup_id: result.id, status: 'creating' }, 202);
+  } catch (err) {
+    logBackupRouteContext('createBackup failed', {
+      machineId: id,
+      accountId,
+      route: c.req.path,
+    }, err);
+    throw err;
+  }
 });
 
 // ─── POST /:id/backups/enable — Enable automatic backups ────────────────────
@@ -1433,24 +1482,34 @@ machinesApp.openapi(restoreBackupRoute, async (c) => {
   const { id, backupId } = c.req.valid('param');
   const accountId = c.get('accountId');
 
-  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
-  if (owned.response) return owned.response as any;
+  try {
+    const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+    if (owned.response) return owned.response as any;
 
-  const machine = owned.resource;
-  if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
+    const machine = owned.resource;
+    if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
 
-  const lookup = requireProvider(c, machine.provider);
-  if (lookup.response) return lookup.response as any;
+    const lookup = requireProvider(c, machine.provider);
+    if (lookup.response) return lookup.response as any;
 
-  const provider = lookup.provider as HetznerProvider;
+    const provider = lookup.provider as HetznerProvider;
 
-  const backups = await provider.listBackups(machine.providerServerId);
-  const backupExists = backups.some((b) => b.id === backupId);
-  if (!backupExists) return errorResponse(c, 404, 'Backup not found for this machine') as any;
+    const backups = await provider.listBackups(machine.providerServerId);
+    const backupExists = backups.some((b) => b.id === backupId);
+    if (!backupExists) return errorResponse(c, 404, 'Backup not found for this machine') as any;
 
-  await provider.restoreBackup(machine.providerServerId, backupId);
+    await provider.restoreBackup(machine.providerServerId, backupId);
 
-  return c.json({ action: 'restore_backup', status: 'initiated' }, 200);
+    return c.json({ action: 'restore_backup', status: 'initiated' }, 200);
+  } catch (err) {
+    logBackupRouteContext('restoreBackup failed', {
+      machineId: id,
+      backupId,
+      accountId,
+      route: c.req.path,
+    }, err);
+    throw err;
+  }
 });
 
 // ─── DELETE /:id/backups/:backupId — Delete a backup ────────────────────────
@@ -1481,24 +1540,34 @@ machinesApp.openapi(deleteBackupRoute, async (c) => {
   const { id, backupId } = c.req.valid('param');
   const accountId = c.get('accountId');
 
-  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
-  if (owned.response) return owned.response as any;
+  try {
+    const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+    if (owned.response) return owned.response as any;
 
-  const machine = owned.resource;
-  if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
+    const machine = owned.resource;
+    if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
 
-  const lookup = requireProvider(c, machine.provider);
-  if (lookup.response) return lookup.response as any;
+    const lookup = requireProvider(c, machine.provider);
+    if (lookup.response) return lookup.response as any;
 
-  const provider = lookup.provider as HetznerProvider;
+    const provider = lookup.provider as HetznerProvider;
 
-  const backups = await provider.listBackups(machine.providerServerId);
-  const backupExists = backups.some((b) => b.id === backupId);
-  if (!backupExists) return errorResponse(c, 404, 'Backup not found for this machine') as any;
+    const backups = await provider.listBackups(machine.providerServerId);
+    const backupExists = backups.some((b) => b.id === backupId);
+    if (!backupExists) return errorResponse(c, 404, 'Backup not found for this machine') as any;
 
-  await provider.deleteBackup(backupId);
+    await provider.deleteBackup(backupId);
 
-  return c.json({ action: 'delete_backup', status: 'completed' }, 200);
+    return c.json({ action: 'delete_backup', status: 'completed' }, 200);
+  } catch (err) {
+    logBackupRouteContext('deleteBackup failed', {
+      machineId: id,
+      backupId,
+      accountId,
+      route: c.req.path,
+    }, err);
+    throw err;
+  }
 });
 
 // ─── POST /:id/exec — Execute command on machine ────────────────────────────

@@ -41,7 +41,19 @@ export function requireProvider(c: Context, providerName: string): ProviderResul
 }
 
 export function handleRouteError(c: Context, err: unknown, label: string) {
-  console.error(`[${label}] error:`, err);
+  console.error(`[${label}] error:`, {
+    method: c.req.method,
+    path: c.req.path,
+    query: c.req.query(),
+    accountId: c.get('accountId'),
+    userId: c.get('userId'),
+    error: err instanceof Error ? {
+      name: err.name,
+      message: err.message,
+      stack: err.stack,
+      cause: err.cause,
+    } : err,
+  });
   const message = err instanceof Error ? err.message : `Failed to process ${label.toLowerCase()}`;
   return errorResponse(c, 500, message);
 }
