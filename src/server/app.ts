@@ -216,10 +216,11 @@ app.get(
 // ─── Error Handling ─────────────────────────────────────────────────────────
 
 app.onError((err, c) => {
+  const ctx = c as typeof c & { get: (key: string) => unknown };
   console.error(`[API ERROR] ${c.req.method} ${c.req.path}`, {
     query: c.req.query(),
-    accountId: c.get('accountId'),
-    userId: c.get('userId'),
+    accountId: ctx.get('accountId'),
+    userId: ctx.get('userId'),
     requestId: c.req.header('x-request-id') ?? c.res.headers.get('x-request-id') ?? null,
     error: err instanceof Error ? {
       name: err.name,
