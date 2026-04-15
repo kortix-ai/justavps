@@ -608,12 +608,38 @@ export class HetznerProvider implements ComputeProvider {
 
   async createBackup(serverId: string, description?: string): Promise<{ id: string }> {
     const defaultDesc = `Backup ${new Date().toISOString().replace('T', ' ').slice(0, 19)}`;
-    const result = await hetznerFetch<{ image: { id: number } }>(`/servers/${serverId}/actions/create_image`, {
-      method: 'POST',
-      body: { type: 'backup', description: description || defaultDesc },
-    });
-    console.log(`[hetzner] Created backup for server ${serverId}: image ${result.image.id}`);
-    return { id: String(result.image.id) };
+    const requestedDescription = description || defaultDesc;
+
+    try {
+      const result = await hetznerFetch<{ image: { id: number } }>(`/servers/${serverId}/actions/create_image`, {
+        method: 'POST',
+        body: { type: 'backup', description: requestedDescription },
+      });
+      console.log(`[hetzner] Created backup for server ${serverId}: image ${result.image.id}`);
+      return { id: String(result.image.id) };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const isLocked = message.includes('423') || message.includes('resource is locked') || message.includes('"code": "locked"');
+      if (!isLocked) throw err;
+
+      console.warn(`[hetzner] Backup create locked for server ${serverId}; checking for an in-progress backup`);
+      const backups = await this.listBackups(serverId);
+      const now = Date.now();
+      const recent = backups.find((backup) => {
+        const createdAt = Date.parse(backup.created);
+        const isRecent = !Number.isNaN(createdAt) && now - createdAt < 30 * 60 * 1000;
+        const statusOk = backup.status === 'creating' || backup.status === 'available';
+        const descriptionMatches = backup.description === requestedDescription;
+        return statusOk && (descriptionMatches || isRecent);
+      });
+
+      if (recent) {
+        console.warn(`[hetzner] Reusing recent backup ${recent.id} for server ${serverId} after lock (${recent.status})`);
+        return { id: recent.id };
+      }
+
+      throw err;
+    }
   }
 
   async enableBackups(serverId: string): Promise<void> {
