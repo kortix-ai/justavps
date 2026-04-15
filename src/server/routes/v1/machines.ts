@@ -1273,7 +1273,7 @@ machinesApp.openapi(listBackupsRoute, async (c) => {
       accountId,
       route: c.req.path,
     }, err);
-    throw err;
+    return handleRouteError(c, err, 'MACHINES.BACKUPS.list');
   }
 });
 
@@ -1336,7 +1336,7 @@ machinesApp.openapi(createBackupRoute, async (c) => {
       accountId,
       route: c.req.path,
     }, err);
-    throw err;
+    return handleRouteError(c, err, 'MACHINES.BACKUPS.create');
   }
 });
 
@@ -1508,7 +1508,7 @@ machinesApp.openapi(restoreBackupRoute, async (c) => {
       accountId,
       route: c.req.path,
     }, err);
-    throw err;
+    return handleRouteError(c, err, 'MACHINES.BACKUPS.restore');
   }
 });
 
@@ -1566,7 +1566,7 @@ machinesApp.openapi(deleteBackupRoute, async (c) => {
       accountId,
       route: c.req.path,
     }, err);
-    throw err;
+    return handleRouteError(c, err, 'MACHINES.BACKUPS.delete');
   }
 });
 
