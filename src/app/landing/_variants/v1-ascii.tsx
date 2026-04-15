@@ -2,7 +2,10 @@
 
 /* ═══════════════════════════════════════════════════════════════════
  *  V1 · "ASCII"   —   monochrome monospace
- *  Same content depth as V3/V2, terminal-document treatment.
+ *
+ *  Same first-principles 9-chapter spine as V3 Live, dressed as a
+ *  developer document. Hero = `cat /etc/justavps/rate.conf`. Counter
+ *  rendered top(1)-style. # § NN section labels.
  * ═══════════════════════════════════════════════════════════════════ */
 
 import Image from "next/image";
@@ -10,7 +13,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   bestFitShape,
   fmtHourly,
-  getStartingPrice,
   justavpsHourly,
   justavpsMonthly,
   vendorHourly,
@@ -18,9 +20,8 @@ import {
   JUSTAVPS_RATES,
   VENDOR_RATES,
   type VendorKey,
-  SHAPES,
 } from "../_shared/plan-data";
-import { AsciiSlider, Reveal } from "../_shared/interactive";
+import { AsciiSlider, CountUp, Reveal, useGuiltCounter } from "../_shared/interactive";
 
 const BG = "#0A0A0A";
 const FG = "#F3EFE3";
@@ -29,36 +30,36 @@ const MUT = "#5B5850";
 const SOFT = "#1A1915";
 
 export function V1Ascii({ onDeploy }: { onDeploy: () => void }) {
-  const start = getStartingPrice();
   return (
     <div
       className="min-h-screen"
       style={{ background: BG, color: FG, fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}
     >
       <Nav onDeploy={onDeploy} />
-      <Hero onDeploy={onDeploy} start={start} />
-      <Tax />
-      <Calculator onDeploy={onDeploy} />
-      <UseCases onDeploy={onDeploy} />
-      <SecureBanner />
-      <PricingTable onDeploy={onDeploy} />
-      <WhenToUse />
-      <About />
-      <Faq />
-      <Closer onDeploy={onDeploy} start={start} />
+      <Ch1Hero onDeploy={onDeploy} />
+      <Ch2Top />
+      <Ch3SameDifferent />
+      <Ch4Calculator onDeploy={onDeploy} />
+      <Ch5HowItWorks />
+      <Ch6WhenNot />
+      <Ch7Kortix />
+      <Ch8Faq />
+      <Ch9Deploy onDeploy={onDeploy} />
       <Footer />
-      <FloatingCta onDeploy={onDeploy} start={start} />
+      <FloatingCta onDeploy={onDeploy} />
     </div>
   );
 }
 
-function Highlight({ children }: { children: React.ReactNode }) {
+function SectionHead({ n, eyebrow }: { n: string; eyebrow: string }) {
   return (
-    <span className="relative inline-block">
-      <span aria-hidden className="absolute inset-x-[-4px] bottom-[10%] h-[40%] -z-0"
-            style={{ background: `${FG}30`, borderRadius: 2 }} />
-      <span className="relative">{children}</span>
-    </span>
+    <div className="flex items-center justify-center gap-3 text-[10.5px] uppercase tracking-[0.3em]" style={{ color: DIM }}>
+      <span className="block h-px w-8" style={{ background: SOFT }} />
+      <span style={{ color: FG }}># § {n}</span>
+      <span className="block h-px w-2" style={{ background: SOFT }} />
+      <span>{eyebrow}</span>
+      <span className="block h-px w-8" style={{ background: SOFT }} />
+    </div>
   );
 }
 
@@ -74,7 +75,7 @@ function Nav({ onDeploy }: { onDeploy: () => void }) {
           <span>just a vps</span>
         </a>
         <nav className="hidden gap-7 md:flex" style={{ color: DIM }}>
-          {[["./tax", "#tax"], ["./calc", "#calc"], ["./pricing", "#pricing"], ["./faq", "#faq"]].map(([l, h]) => (
+          {[["./calc", "#calc"], ["./how", "#how"], ["./faq", "#faq"], ["./docs", "/docs"]].map(([l, h]) => (
             <a key={l} href={h} className="hover:text-[color:var(--f)]" style={{ ["--f" as string]: FG }}>{l}</a>
           ))}
         </nav>
@@ -87,65 +88,71 @@ function Nav({ onDeploy }: { onDeploy: () => void }) {
   );
 }
 
-/* ══════ HERO ═══════════════════════════════════════════════════ */
-function Hero({ onDeploy, start }: { onDeploy: () => void; start: number }) {
-  const logos = [
-    { src: "/logos/ai-coding-agent-logos/claude-code-icon.png", alt: "claude code", invert: false },
-    { src: "/logos/ai-coding-agent-logos/codex-openai-icon.png", alt: "codex" },
-    { src: "/logos/ai-coding-agent-logos/opencode-logo-dark.png", alt: "opencode", invert: true },
-    { src: "/logos/ai-coding-agent-logos/cursor-icon.png", alt: "cursor" },
-    { src: "/logos/ai-coding-agent-logos/vscode-icon.png", alt: "vs code" },
-    { src: "/logos/ai-coding-agent-logos/pi-coding-agent-icon-dark.png", alt: "pi coding", invert: true },
-    { src: "/logos/ai-coding-agent-logos/docker-icon.png", alt: "docker" },
-  ];
+/* ══════ CH 1 · cat /etc/justavps/rate.conf ════════════════════ */
+function Ch1Hero({ onDeploy }: { onDeploy: () => void }) {
   return (
     <section id="top" className="border-b" style={{ borderColor: SOFT }}>
-      <div className="mx-auto max-w-[980px] px-5 pt-24 pb-20 text-center sm:pt-32">
+      <div className="mx-auto max-w-[980px] px-5 pt-28 pb-24 sm:pt-32">
         <Reveal>
-          <div className="inline-flex items-center gap-2 text-[10.5px] uppercase tracking-[0.28em]" style={{ color: DIM }}>
+          <div className="flex items-center justify-center gap-3 text-[10.5px] uppercase tracking-[0.28em]" style={{ color: DIM }}>
             <span className="block h-px w-10" style={{ background: DIM }} />
-            per-second metered · ~10× cheaper than sandboxes
+            <span style={{ color: FG }}>just a vps</span>
+            <span>· per-second metered</span>
             <span className="block h-px w-10" style={{ background: DIM }} />
           </div>
-        </Reveal>
-        <Reveal delay={80}>
-          <h1 className="mx-auto mt-7 max-w-[860px] text-[58px] font-semibold leading-[0.96] tracking-[-0.03em] sm:text-[84px] lg:text-[96px]">
-            Just a VPS.
-          </h1>
-        </Reveal>
-        <Reveal delay={160}>
-          <p className="mx-auto mt-7 max-w-[600px] text-[19px] leading-[1.55] sm:text-[21px]" style={{ color: "rgba(243,239,227,0.85)" }}>
-            A dedicated Linux machine for AI agents that run 24/7 — same metered model
-            as Daytona / E2B / Modal, at <Highlight>~10× the price per CPU-hour</Highlight>.
-          </p>
-        </Reveal>
-        <Reveal delay={240}>
-          <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
-            <button onClick={onDeploy} className="inline-flex h-11 items-center gap-2 border px-5 text-[13px]" style={{ borderColor: FG, background: FG, color: BG }}>
-              deploy a box →
-            </button>
-            <a href="#calc" className="inline-flex h-11 items-center gap-2 border px-5 text-[13px]" style={{ borderColor: FG, color: FG }}>
-              see the math
-            </a>
-          </div>
-          <p className="mt-3 text-[10.5px] uppercase tracking-[0.22em]" style={{ color: MUT }}>
-            from ${start}/mo at 24/7 · billed by the second · cancel anytime
-          </p>
         </Reveal>
 
-        <Reveal delay={320}>
-          <div className="mt-14 flex flex-col items-center gap-5">
-            <span className="text-[10.5px] uppercase tracking-[0.26em]" style={{ color: MUT }}>
-              # home to your favourite agent harness
-            </span>
-            <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-3">
-              {logos.map((l) => (
-                <div key={l.alt} className="inline-flex items-center gap-2 border px-2.5 py-1.5" style={{ borderColor: SOFT }}>
-                  <Image src={l.src} alt={l.alt} width={14} height={14} className={`size-[14px] object-contain ${l.invert ? "invert" : ""}`} />
-                  <span className="text-[11px]" style={{ color: DIM }}>{l.alt}</span>
-                </div>
-              ))}
+        <Reveal delay={120}>
+          {/* terminal containing the rate file */}
+          <div className="mx-auto mt-10 max-w-[860px] overflow-hidden border-2" style={{ borderColor: FG }}>
+            <div className="flex items-center gap-2 border-b px-4 py-2 text-[10.5px] uppercase tracking-[0.22em]" style={{ borderColor: SOFT, color: DIM }}>
+              <span className="size-2 rounded-full" style={{ background: "#FF5F57" }} />
+              <span className="size-2 rounded-full" style={{ background: "#FEBC2E" }} />
+              <span className="size-2 rounded-full" style={{ background: "#28C840" }} />
+              <span className="ml-3">marko@home ~ · /etc/justavps/rate.conf</span>
             </div>
+            <pre className="overflow-x-auto px-6 py-7 text-[12.5px] leading-[1.85] sm:px-10 sm:py-9">
+<span style={{ color: DIM }}>$ </span>cat /etc/justavps/rate.conf
+
+<span style={{ color: DIM }}># just a vps · billing rates · per resource · per hour</span>
+<span style={{ color: DIM }}># revision: a · 04/2026</span>
+
+<span>vCPU         = </span><span className="inline-block px-1" style={{ background: FG, color: BG }}>${JUSTAVPS_RATES.vPerVcpu.toFixed(3)}</span><span>{" "}per hour</span>
+<span>memory       = </span><span style={{ color: FG }}>${JUSTAVPS_RATES.vPerGb.toFixed(4)}</span><span>{" "}per GB-hour</span>
+<span>storage      = </span><span style={{ color: FG }}>${(JUSTAVPS_RATES.vPerStorage * 730).toFixed(3)}</span><span>{" "}per GB-month</span>
+
+<span style={{ color: DIM }}># for reference, the same shop charges:</span>
+<span style={{ color: DIM }}>#   daytona vCPU = </span><span style={{ color: DIM, textDecoration: "line-through" }}>${VENDOR_RATES.daytona.vPerVcpu.toFixed(4)}</span><span style={{ color: DIM }}>{"  ← 10x"}</span>
+<span style={{ color: DIM }}>#   modal   vCPU = </span><span style={{ color: DIM, textDecoration: "line-through" }}>${VENDOR_RATES.modal.vPerVcpu.toFixed(4)}</span><span style={{ color: DIM }}>{"  ← 28x"}</span>
+
+<span style={{ color: DIM }}># EOF</span>
+            </pre>
+          </div>
+        </Reveal>
+
+        <Reveal delay={300}>
+          <div className="mx-auto mt-10 max-w-[640px] text-center">
+            <h1 className="text-[42px] font-semibold leading-[1] tracking-[-0.025em] sm:text-[60px]">
+              Just a VPS.
+            </h1>
+            <p className="mt-5 text-[16px] leading-[1.6]" style={{ color: "rgba(243,239,227,0.85)" }}>
+              Same per-second metered model as Daytona, E2B, Modal — at roughly one-tenth the price per CPU-hour.
+            </p>
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+              <button onClick={onDeploy} className="inline-flex h-11 items-center gap-2 border px-5 text-[13px]" style={{ borderColor: FG, background: FG, color: BG }}>
+                deploy a box →
+              </button>
+              <a href="#calc" className="inline-flex h-11 items-center gap-2 border px-5 text-[13px]" style={{ borderColor: FG, color: FG }}>
+                see your savings
+              </a>
+            </div>
+          </div>
+        </Reveal>
+
+        <Reveal delay={500}>
+          <div className="mt-20 flex flex-col items-center gap-2 text-[10.5px] uppercase tracking-[0.28em]" style={{ color: MUT }}>
+            <span>scroll · the math</span>
+            <span aria-hidden className="block h-6 w-px animate-pulse" style={{ background: FG }} />
           </div>
         </Reveal>
       </div>
@@ -153,79 +160,136 @@ function Hero({ onDeploy, start }: { onDeploy: () => void; start: number }) {
   );
 }
 
-/* ══════ TAX · annotated invoice ═══════════════════════════════ */
-function Tax() {
-  const sandboxMonthly = vendorMonthly("daytona", 4, 8, 24);
-  const usMonthly = justavpsMonthly(4, 8, 160);
-  const yearLoss = (sandboxMonthly - usMonthly) * 12;
+/* ══════ CH 2 · top(1) GUILT COUNTER ═══════════════════════════ */
+function Ch2Top() {
+  const dayHr = vendorHourly("daytona", 4, 8);
+  const vpsHr = justavpsHourly(4, 8, 160);
+  const dayPerSec = dayHr / 3600;
+  const vpsPerSec = vpsHr / 3600;
+  const dayMo = vendorMonthly("daytona", 4, 8, 24);
+  const vpsMo = justavpsMonthly(4, 8, 160);
+  const yearlySaved = (dayMo - vpsMo) * 12;
+
+  const { seconds, daytona, vps, saved } = useGuiltCounter(dayPerSec, vpsPerSec);
+
+  // format an mm:ss-style elapsed string
+  const t = Math.floor(seconds);
+  const elapsed = `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+
   return (
-    <section id="tax" className="border-b" style={{ borderColor: SOFT }}>
+    <section className="border-b" style={{ borderColor: SOFT, background: "#050505" }}>
       <div className="mx-auto max-w-[980px] px-5 py-24">
-        <Reveal>
-          <div className="text-center">
-            <div className="text-[10.5px] uppercase tracking-[0.28em]" style={{ color: DIM }}>
-              # § 01 · the sandbox tax
+        <Reveal><SectionHead n="01" eyebrow="the guilt counter" /></Reveal>
+
+        <Reveal delay={100}>
+          <h2 className="mx-auto mt-8 max-w-[720px] text-center text-[30px] font-semibold leading-[1.15] tracking-[-0.02em] sm:text-[42px]">
+            While you&apos;ve been here,
+            <br />
+            <span style={{ color: DIM }}>your agent has cost you this much.</span>
+          </h2>
+        </Reveal>
+
+        <Reveal delay={200}>
+          {/* top(1)-style live process display */}
+          <div className="mx-auto mt-12 max-w-[920px] overflow-hidden border" style={{ borderColor: SOFT }}>
+            <div className="flex items-center justify-between border-b px-4 py-2 text-[10.5px] uppercase tracking-[0.22em]" style={{ borderColor: SOFT, color: DIM }}>
+              <span>top · live · agent-prod · 4 vCPU / 8 GB</span>
+              <span className="flex items-center gap-3"><span style={{ color: FG }}>elapsed {elapsed}</span></span>
             </div>
-            <h2 className="mx-auto mt-4 max-w-[760px] text-[32px] font-semibold leading-[1.15] tracking-[-0.02em] sm:text-[44px]">
-              Imagine your agent on Daytona.
-              <br />
-              <span style={{ color: DIM }}>30 days later, the invoice arrives.</span>
-            </h2>
+            <pre className="overflow-x-auto px-5 py-5 text-[12.5px] leading-[1.95]">
+<span style={{ color: DIM }}>{`PROCESS              RATE/sec           ACCRUED            DELTA
+─────────────────────────────────────────────────────────────────`}</span>{"\n"}
+<span>{`agent-prod (daytona) `}</span><span>{` $${dayPerSec.toFixed(7)}   $${daytona.toFixed(8)}      —`}</span>{"\n"}
+<span style={{ color: FG }}>{`agent-prod (just-vps) `}<span className="inline-block px-1" style={{ background: FG, color: BG }}>{`$${vpsPerSec.toFixed(7)}`}</span>{`  $${vps.toFixed(8)}      `}<span style={{ color: BG, background: FG, padding: "0 4px" }}>{`-$${saved.toFixed(8)}`}</span></span>{"\n"}
+<span style={{ color: DIM }}>{"─".repeat(65)}</span>{"\n"}
+<span>{`                                       saved · so far  · `}</span><span style={{ color: FG }}>{`$${saved.toFixed(8)}`}</span>
+            </pre>
           </div>
         </Reveal>
 
-        <div className="mt-14 grid gap-5 lg:grid-cols-[1fr_0.9fr]">
-          <Reveal delay={120}>
-            <div className="border" style={{ borderColor: FG }}>
-              <pre className="overflow-x-auto p-5 text-[12.5px] leading-[1.85]">
-{`# INVOICE · DAYTONA · APRIL 2026
-# acct · agent-prod · paid
-
-  cpu  · 4 vCPU × 730 h ............. $${(VENDOR_RATES.daytona.vPerVcpu * 4 * 730).toFixed(2).padStart(7)}
-  ram  · 8 GB   × 730 h ............. $${(VENDOR_RATES.daytona.vPerGb * 8 * 730).toFixed(2).padStart(7)}
-  disk · 160 GB · bundled ........... $   0.00
-  ─────────────────────────────────────────────
-`}<span style={{ color: FG }}>{`  TOTAL  ─────────────────────  ▶  $${sandboxMonthly}.42`}</span>
-{`
-
-  ← for one machine. one agent. one month.`}
-              </pre>
+        <Reveal delay={300}>
+          <div className="mx-auto mt-8 max-w-[920px] border p-6 text-center sm:p-8" style={{ borderColor: FG, background: "rgba(243,239,227,0.02)" }}>
+            <div className="text-[10.5px] uppercase tracking-[0.22em]" style={{ color: DIM }}>
+              extrapolate · 1 year of always-on, per agent
             </div>
-          </Reveal>
+            <div className="mt-3 text-[44px] font-semibold leading-none tracking-[-0.03em] sm:text-[64px]">
+              <CountUp target={yearlySaved} prefix="$" /> <span style={{ color: DIM, fontSize: "0.5em" }}>/ yr</span>
+            </div>
+            <p className="mt-4 text-[13px]" style={{ color: "rgba(243,239,227,0.7)" }}>
+              that&apos;s the gap between daytona and us, on this exact 4 vCPU / 8 GB box. multiply by your agents.
+            </p>
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
 
+/* ══════ CH 3 · SAME LINUX. DIFFERENT BILL. ════════════════════ */
+function Ch3SameDifferent() {
+  const dayMo = vendorMonthly("daytona", 4, 8, 24);
+  const vpsMo = justavpsMonthly(4, 8, 160);
+  return (
+    <section className="border-b" style={{ borderColor: SOFT }}>
+      <div className="mx-auto max-w-[980px] px-5 py-24">
+        <Reveal><SectionHead n="02" eyebrow="anatomy of the box" /></Reveal>
+        <Reveal delay={100}>
+          <h2 className="mt-8 text-center text-[32px] font-semibold leading-[1.15] tracking-[-0.02em] sm:text-[44px]">
+            Same Linux. <span style={{ color: DIM }}>Different bill.</span>
+          </h2>
+        </Reveal>
+
+        <div className="relative mt-12 grid items-stretch gap-3 lg:grid-cols-[1fr_auto_1fr]">
+          <Reveal delay={140}><SpecCard label="Daytona" sub="sandbox · per-sec" mo={dayMo} muted /></Reveal>
           <Reveal delay={200}>
-            <div className="flex h-full flex-col justify-between gap-5 border p-6" style={{ borderColor: SOFT, background: "rgba(243,239,227,0.02)" }}>
-              <div>
-                <div className="text-[10.5px] uppercase tracking-[0.22em]" style={{ color: DIM }}>
-                  # same shape · same hours · just a vps
-                </div>
-                <div className="mt-3 text-[64px] font-semibold leading-none tracking-[-0.03em] sm:text-[80px]">
-                  ${usMonthly}
-                </div>
-                <div className="mt-1 text-[11px] uppercase tracking-[0.22em]" style={{ color: DIM }}>
-                  4 vCPU · 8 GB · 160 GB · 24/7
-                </div>
-              </div>
-              <pre className="border-t pt-4 text-[12.5px] leading-[1.95]" style={{ borderColor: SOFT }}>
-{`save / month .... $${(sandboxMonthly - usMonthly).toString().padStart(4)}
-save / year  .... $${((sandboxMonthly - usMonthly) * 12).toString().padStart(4)}
-× 10  agents .... $${(yearLoss * 10).toLocaleString().padStart(8)}/yr
-× 100 agents .... $${(yearLoss * 100).toLocaleString().padStart(8)}/yr`}
-              </pre>
-              <p className="text-[13px] leading-[1.65]" style={{ color: "rgba(243,239,227,0.78)" }}>
-                Same metered model as the sandboxes — pay for cpu-seconds, gb-hours of ram,
-                gb of disk. We just charge <Highlight>a fraction</Highlight> per unit.
-              </p>
+            <div className="hidden items-center justify-center lg:flex">
+              <div className="text-[60px] font-semibold leading-none" style={{ color: DIM }}>=</div>
             </div>
           </Reveal>
+          <Reveal delay={260}><SpecCard label="just a vps" sub="dedicated · per-sec" mo={vpsMo} accent /></Reveal>
+        </div>
+
+        <Reveal delay={360}>
+          <p className="mx-auto mt-10 max-w-[640px] text-center text-[14px] leading-[1.7]" style={{ color: DIM }}>
+            a vCPU is a vCPU. a gb of ram is a gb of ram. the kernel is the same kernel. we just don&apos;t charge sandbox markup.
+          </p>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
+function SpecCard({ label, sub, mo, accent, muted }: { label: string; sub: string; mo: number; accent?: boolean; muted?: boolean }) {
+  return (
+    <div className="border-2" style={{ borderColor: accent ? FG : SOFT }}>
+      <div className="flex items-baseline justify-between border-b px-5 py-3" style={{ borderColor: SOFT }}>
+        <div className="text-[15px] font-semibold" style={{ color: accent ? FG : FG }}>{label}</div>
+        <div className="text-[10px] uppercase tracking-[0.22em]" style={{ color: DIM }}>{sub}</div>
+      </div>
+      <pre className="overflow-x-auto px-5 py-4 text-[12.5px] leading-[1.85]">
+{`kernel  Linux 6.1
+arch    x86_64
+vCPU    4 cores
+memory  8 GB
+disk    160 GB SSD
+uptime  24 / 7`}
+      </pre>
+      <div className="border-t px-5 py-4" style={{ borderColor: SOFT, background: accent ? "rgba(243,239,227,0.04)" : "transparent" }}>
+        <div className="text-[10.5px] uppercase tracking-[0.22em]" style={{ color: DIM }}>monthly · 24/7</div>
+        <div className="mt-1 flex items-baseline gap-2">
+          <span className="text-[40px] font-semibold leading-none tracking-[-0.02em] tabular-nums sm:text-[52px]"
+                style={{ color: accent ? FG : FG, textDecoration: muted ? "line-through" : "none", textDecorationThickness: muted ? "2px" : undefined, opacity: muted ? 0.7 : 1 }}>
+            ${mo}
+          </span>
+          <span className="text-[12px]" style={{ color: DIM }}>/ mo</span>
         </div>
       </div>
-    </section>
+    </div>
   );
 }
 
-/* ══════ CALCULATOR ═════════════════════════════════════════════ */
-function Calculator({ onDeploy }: { onDeploy: () => void }) {
+/* ══════ CH 4 · CALCULATOR ═════════════════════════════════════ */
+function Ch4Calculator({ onDeploy }: { onDeploy: () => void }) {
   const [vcpu, setVcpu] = useState(4);
   const [ram, setRam] = useState(8);
   const [storage, setStorage] = useState(80);
@@ -254,18 +318,14 @@ function Calculator({ onDeploy }: { onDeploy: () => void }) {
   return (
     <section id="calc" className="border-b" style={{ borderColor: SOFT }}>
       <div className="mx-auto max-w-[980px] px-5 py-24">
-        <Reveal>
-          <div className="text-center">
-            <div className="text-[10.5px] uppercase tracking-[0.28em]" style={{ color: DIM }}>
-              # § 02 · run the math yourself
-            </div>
-            <h2 className="mt-4 text-[32px] font-semibold leading-[1.15] tracking-[-0.02em] sm:text-[44px]">
-              Shape the box. Compare side by side.
-            </h2>
-          </div>
+        <Reveal><SectionHead n="03" eyebrow="run the numbers yourself" /></Reveal>
+        <Reveal delay={100}>
+          <h2 className="mt-8 text-center text-[32px] font-semibold leading-[1.15] tracking-[-0.02em] sm:text-[44px]">
+            Your shape. <span style={{ color: DIM }}>Your savings.</span>
+          </h2>
         </Reveal>
 
-        <Reveal delay={120}>
+        <Reveal delay={200}>
           <div className="mt-12 grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
             <div className="space-y-3">
               <div className="border p-5" style={{ borderColor: SOFT }}>
@@ -280,16 +340,14 @@ function Calculator({ onDeploy }: { onDeploy: () => void }) {
                 </div>
               </div>
               <div className="border p-5" style={{ borderColor: FG, background: "rgba(243,239,227,0.03)" }}>
-                <div className="text-[10.5px] uppercase tracking-[0.22em]" style={{ color: FG }}>
-                  just a vps · billed by the second
-                </div>
+                <div className="text-[10.5px] uppercase tracking-[0.22em]" style={{ color: FG }}>just a vps · billed by the second</div>
                 <pre className="mt-3 text-[12.5px] leading-[1.95]">
 {`per sec   $${(usHr / 3600).toFixed(7)}
 per hour  ${fmtHourly(usHr)}
 24/7 mo   $${usMo}`}
                 </pre>
                 <p className="mt-3 text-[11.5px] leading-[1.65]" style={{ color: DIM }}>
-                  &gt; you only pay for the seconds your agent uses CPU, the gb-hours of ram it touches, and the gb of disk it stores.
+                  &gt; you only pay for the seconds your agent uses cpu, the gb-hours of ram it touches, and the gb of disk it stores.
                 </p>
                 <button onClick={onDeploy} className="mt-4 block w-full border px-3 py-2 text-left text-[12.5px] hover:bg-[color:var(--f)] hover:text-[color:var(--b)]"
                         style={{ borderColor: FG, ["--f" as string]: FG, ["--b" as string]: BG }}>
@@ -322,13 +380,13 @@ per hour  ${fmtHourly(usHr)}
 ))}
               </pre>
               <div className="border-t px-5 py-3 text-center text-[11.5px] uppercase tracking-[0.22em]" style={{ borderColor: SOFT, color: DIM }}>
-                ≈ <b style={{ color: FG }}>{multiple}× cheaper</b> than the average sandbox at this shape
+                ≈ <b style={{ color: FG }}>{multiple}× cheaper</b> than the average sandbox
               </div>
             </div>
           </div>
         </Reveal>
 
-        <Reveal delay={240}>
+        <Reveal delay={300}>
           <p className="mt-5 text-center text-[11px]" style={{ color: MUT }}>
             our rates · ${JUSTAVPS_RATES.vPerVcpu.toFixed(3)}/vCPU·h · ${JUSTAVPS_RATES.vPerGb.toFixed(4)}/GB-RAM·h · ${(JUSTAVPS_RATES.vPerStorage * 730).toFixed(3)}/GB-storage·month
           </p>
@@ -338,212 +396,77 @@ per hour  ${fmtHourly(usHr)}
   );
 }
 
-/* ══════ USE CASES ═════════════════════════════════════════════ */
-function UseCases({ onDeploy }: { onDeploy: () => void }) {
+/* ══════ CH 5 · HOW IT WORKS ═══════════════════════════════════ */
+function Ch5HowItWorks() {
+  const cards = [
+    { n: "01", t: "we don't run microvms.", b: "we provision boring, dedicated vms from hetzner / ovh / contabo. real linux. real disk. same kernel as the sandboxes." },
+    { n: "02", t: "we add what they don't.", b: "authenticated port proxy on every port. ssh key fleet. snapshots. 1-click agent templates. the wrapper sandbox vendors built — minus the markup." },
+    { n: "03", t: "we bill per-second.", b: "cpu-seconds, gb-hours of ram, gb-hours of disk. same model the sandboxes use. we just don't markup compute 10×." },
+  ];
   return (
-    <section className="border-b" style={{ borderColor: SOFT }}>
+    <section id="how" className="border-b" style={{ borderColor: SOFT }}>
       <div className="mx-auto max-w-[980px] px-5 py-24">
-        <Reveal>
-          <div className="text-center">
-            <div className="text-[10.5px] uppercase tracking-[0.28em]" style={{ color: DIM }}>
-              # § 03 · two ways to use it
-            </div>
-            <h2 className="mt-4 text-[32px] font-semibold leading-[1.15] tracking-[-0.02em] sm:text-[44px]">
-              Personal box, or sandboxes-as-a-service.
-            </h2>
-          </div>
+        <Reveal><SectionHead n="04" eyebrow="how is this even possible" /></Reveal>
+        <Reveal delay={100}>
+          <h2 className="mt-8 text-center text-[32px] font-semibold leading-[1.15] tracking-[-0.02em] sm:text-[44px]">
+            no magic. <span style={{ color: DIM }}>just the right stack.</span>
+          </h2>
         </Reveal>
-
-        <div className="mt-12 grid gap-5 md:grid-cols-2">
-          <Reveal delay={120}>
-            <UseCard tag="personal" title="Your dev machine in the cloud" body="ssh in or connect your IDE — it's just a Linux box. close your laptop, your agents keep going. come back tomorrow, everything's still there." terminal />
-          </Reveal>
-          <Reveal delay={200}>
-            <UseCard tag="service" title="Sandboxes as infrastructure" body="spin up machines, manage files, run bash, launch coding agents — all from one API. give every user (and their agents) a sandbox of their own." capabilities />
-          </Reveal>
-        </div>
-
-        <div className="mt-10 text-center">
-          <button onClick={onDeploy} className="inline-flex h-11 items-center gap-2 border px-5 text-[13px]" style={{ borderColor: FG, background: FG, color: BG }}>
-            get your machine →
-          </button>
-          <p className="mt-2 text-[10.5px] uppercase tracking-[0.22em]" style={{ color: DIM }}>
-            ssh ready in ~10 seconds
-          </p>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function UseCard({ tag, title, body, terminal, capabilities }: { tag: string; title: string; body: string; terminal?: boolean; capabilities?: boolean }) {
-  return (
-    <div className="flex h-full flex-col border" style={{ borderColor: SOFT }}>
-      <div className="flex-1 p-5">
-        <div className="flex items-center justify-between">
-          <h3 className="text-[16px] font-semibold">{title}</h3>
-          <span className="border px-2 py-0.5 text-[9.5px] uppercase tracking-[0.22em]" style={{ borderColor: FG, color: FG }}>{tag}</span>
-        </div>
-        <p className="mt-3 text-[13px] leading-[1.65]" style={{ color: DIM }}>{body}</p>
-      </div>
-      <div className="border-t p-4" style={{ borderColor: SOFT }}>
-        {terminal && (
-          <pre className="text-[12px] leading-[1.7]">
-<span style={{ color: DIM }}># Connect from Cursor, VS Code, or terminal{"\n"}</span>
-<span style={{ color: FG }}>$</span> ssh root@95.217.x.x{"\n"}
-<span style={{ color: FG }}>$</span> opencode{"\n"}
-<span style={{ color: DIM }}>› Open the machine URL in your browser</span>
-          </pre>
-        )}
-        {capabilities && (
-          <div className="grid grid-cols-2 gap-2 text-[11.5px]">
-            {[
-              ["machines", "create, list, resize, delete"],
-              ["filesystem", "read, write, search, upload"],
-              ["process", "exec, stream, kill"],
-              ["agents", "OpenCode, Codex, Claude…"],
-            ].map(([l, d]) => (
-              <div key={l} className="border p-2" style={{ borderColor: SOFT }}>
-                <div style={{ color: FG }}>{l}</div>
-                <div className="text-[10px]" style={{ color: DIM }}>{d}</div>
+        <Reveal delay={200}>
+          <div className="mt-12 grid gap-3 md:grid-cols-3">
+            {cards.map((c) => (
+              <div key={c.n} className="border p-5" style={{ borderColor: SOFT }}>
+                <div className="text-[10.5px] uppercase tracking-[0.28em]" style={{ color: FG }}>step {c.n}</div>
+                <h3 className="mt-3 text-[17px] font-semibold leading-[1.25]">{c.t}</h3>
+                <p className="mt-3 text-[13px] leading-[1.65]" style={{ color: DIM }}>{c.b}</p>
               </div>
             ))}
           </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ══════ SECURE BANNER ═════════════════════════════════════════ */
-function SecureBanner() {
-  return (
-    <section className="border-b" style={{ borderColor: SOFT }}>
-      <div className="mx-auto max-w-[980px] px-5 py-16">
-        <Reveal>
-          <div className="border" style={{ borderColor: SOFT }}>
-            <div className="flex flex-col gap-5 px-6 py-6 sm:flex-row sm:items-center sm:gap-6">
-              <div className="flex size-10 shrink-0 items-center justify-center border" style={{ borderColor: FG }}>
-                <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke={FG} strokeWidth="1.5"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0110 0v4" /></svg>
-              </div>
-              <div className="flex-1">
-                <h3 className="text-[16px] font-semibold">Secure by default. Zero config.</h3>
-                <p className="mt-1 text-[13.5px] leading-[1.6]" style={{ color: DIM }}>
-                  browser traffic flows through an authenticated proxy. ssh uses keys, not passwords. bind a port — get a password-locked HTTPS URL.
-                </p>
-              </div>
-              <div className="hidden flex-wrap items-center gap-2 sm:flex">
-                {["auth proxy", "ssh keys", "api keys", "sessions"].map((c) => (
-                  <span key={c} className="border px-2 py-1 text-[10.5px] uppercase tracking-[0.2em]" style={{ borderColor: FG, color: FG }}>
-                    {c}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <pre className="overflow-x-auto border-t px-6 py-3 text-[12px] leading-[1.7]" style={{ borderColor: SOFT, background: "#050505" }}>
-<span style={{ color: FG }}>$</span> curl https://8000-box-7f3.justavps.cloud -H <span style={{ color: "#FFB454" }}>&quot;Authorization: Bearer sk_live_…&quot;</span>
-            </pre>
-          </div>
         </Reveal>
       </div>
     </section>
   );
 }
 
-/* ══════ PRICING TABLE ════════════════════════════════════════ */
-function PricingTable({ onDeploy }: { onDeploy: () => void }) {
-  const rows = SHAPES.map((s) => {
-    const ourMo = justavpsMonthly(s.vcpu, s.memory, s.disk);
-    const dayMo = vendorMonthly("daytona", s.vcpu, s.memory, 24);
-    return { ...s, ourMo, dayMo, saves: Math.max(1, Math.round(dayMo / Math.max(1, ourMo))) };
-  });
-  return (
-    <section id="pricing" className="border-b" style={{ borderColor: SOFT }}>
-      <div className="mx-auto max-w-[980px] px-5 py-24">
-        <Reveal>
-          <div className="text-center">
-            <div className="text-[10.5px] uppercase tracking-[0.28em]" style={{ color: DIM }}>
-              # § 04 · pricing
-            </div>
-            <h2 className="mt-4 text-[32px] font-semibold leading-[1.15] tracking-[-0.02em] sm:text-[44px]">
-              You&apos;re paying <Highlight>10× too much</Highlight> for always-on agents.
-            </h2>
-            <p className="mx-auto mt-4 max-w-[600px] text-[14px] leading-[1.65]" style={{ color: DIM }}>
-              per-second billing sounds cheap — until your agent runs 24/7. here&apos;s what a month of continuous usage actually costs.
-            </p>
-          </div>
-        </Reveal>
-
-        <Reveal delay={120}>
-          <div className="mt-12 border" style={{ borderColor: SOFT }}>
-            <pre className="overflow-x-auto p-5 text-[12.5px] leading-[2]">
-<span style={{ color: DIM }}>
-{`shape         daytona/e2b *    just a vps    save\n${"─".repeat(56)}\n`}
-</span>
-{rows.map((r, i) => {
-  const recommend = i === 2;
-  return (
-    <span key={r.id} style={recommend ? { color: FG } : {}}>
-      {(recommend ? "▸ " : "  ") + r.label.padEnd(10)}
-      <span style={{ color: DIM, textDecoration: "line-through" }}>{("$" + r.dayMo + "/mo").padStart(11)}</span>
-      {"     "}
-      {("$" + r.ourMo + "/mo").padEnd(11)}
-      {"  "}
-      {r.saves}×{"\n"}
-    </span>
-  );
-})}
-            </pre>
-          </div>
-          <p className="mt-3 text-[11px]" style={{ color: MUT }}>
-            * based on daytona / e2b published per-second cpu + ram rates × 730 h continuous. eu shape shown.
-          </p>
-          <div className="mt-6 text-center">
-            <button onClick={onDeploy} className="inline-flex h-11 items-center gap-2 border px-5 text-[13px]" style={{ borderColor: FG, background: FG, color: BG }}>
-              get a machine →
-            </button>
-          </div>
-        </Reveal>
-      </div>
-    </section>
-  );
-}
-
-/* ══════ WHEN TO USE ═══════════════════════════════════════════ */
-function WhenToUse() {
+/* ══════ CH 6 · WHEN NOT TO USE US ═════════════════════════════ */
+function Ch6WhenNot() {
   return (
     <section className="border-b" style={{ borderColor: SOFT }}>
       <div className="mx-auto max-w-[980px] px-5 py-20">
-        <Reveal>
-          <h2 className="text-center text-[26px] font-semibold leading-[1.15] tracking-[-0.02em] sm:text-[34px]">
-            We&apos;re not for every workload. <span style={{ color: DIM }}>Here&apos;s when to use what.</span>
+        <Reveal><SectionHead n="05" eyebrow="we are not for everyone" /></Reveal>
+        <Reveal delay={100}>
+          <h2 className="mt-8 text-center text-[28px] font-semibold leading-[1.15] tracking-[-0.02em] sm:text-[40px]">
+            when you should <span style={{ color: FG }}>stick with sandboxes</span>.
           </h2>
         </Reveal>
-        <div className="mt-10 grid gap-4 md:grid-cols-2">
-          <Reveal delay={120}>
+        <div className="mt-10 grid gap-3 md:grid-cols-2">
+          <Reveal delay={140}>
             <div className="relative border-2 p-5" style={{ borderColor: FG }}>
-              <span className="absolute -top-2.5 left-4 px-2 py-0.5 text-[10px] uppercase tracking-[0.22em]" style={{ background: FG, color: BG }}>recommended</span>
+              <span className="absolute -top-2.5 left-4 px-2 py-0.5 text-[10px] uppercase tracking-[0.22em]" style={{ background: FG, color: BG }}>use us</span>
               <h3 className="mt-1 flex items-center gap-2 text-[15px] font-semibold">
                 <span className="border px-1.5" style={{ borderColor: FG, color: FG }}>✓</span>
-                use just a vps when
+                long-running process
               </h3>
               <ul className="mt-4 space-y-2 text-[13px] leading-[1.55]" style={{ color: "rgba(243,239,227,0.85)" }}>
-                <li>your agents run <b>24/7</b>, not minutes.</li>
-                <li>you need <b>persistent state</b> — files, docker, dbs.</li>
-                <li>you want <b>predictable cost</b>, no bill shock.</li>
+                <li>runs <b>24/7</b>, not minutes.</li>
+                <li>has <b>persistent state</b> on disk.</li>
+                <li>reboots maybe once a month.</li>
+                <li>you want a <b>predictable bill</b>.</li>
               </ul>
             </div>
           </Reveal>
-          <Reveal delay={200}>
+          <Reveal delay={220}>
             <div className="border p-5" style={{ borderColor: SOFT }}>
-              <h3 className="flex items-center gap-2 text-[15px] font-semibold">
+              <span className="border px-2 py-0.5 text-[10px] uppercase tracking-[0.22em]" style={{ borderColor: SOFT, color: DIM }}>stick with sandboxes</span>
+              <h3 className="mt-3 flex items-center gap-2 text-[15px] font-semibold">
                 <span className="border px-1.5" style={{ borderColor: SOFT, color: DIM }}>→</span>
-                stick with sandboxes when
+                bursty workload
               </h3>
               <ul className="mt-4 space-y-2 text-[13px] leading-[1.55]" style={{ color: DIM }}>
-                <li>sandboxes only live <b style={{ color: FG }}>minutes</b>, not months.</li>
-                <li>you need <b style={{ color: FG }}>sub-second spin-up</b> per request.</li>
-                <li>you only pay when code is <b style={{ color: FG }}>actively running</b>.</li>
+                <li>sandboxes live <b style={{ color: FG }}>seconds</b>, not days.</li>
+                <li>you spawn <b style={{ color: FG }}>thousands</b> per day.</li>
+                <li>you need <b style={{ color: FG }}>sub-second cold start</b>.</li>
+                <li>fresh env per request is the point.</li>
               </ul>
             </div>
           </Reveal>
@@ -553,8 +476,8 @@ function WhenToUse() {
   );
 }
 
-/* ══════ ABOUT ═════════════════════════════════════════════════ */
-function About() {
+/* ══════ CH 7 · KORTIX ═════════════════════════════════════════ */
+function Ch7Kortix() {
   return (
     <section className="border-b" style={{ borderColor: SOFT }}>
       <div className="mx-auto max-w-[980px] px-5 py-20">
@@ -566,16 +489,14 @@ function About() {
                 <div aria-hidden className="absolute inset-0" style={{ background: "linear-gradient(180deg, transparent 0%, rgba(10,10,10,0.6) 100%)" }} />
               </div>
               <div className="flex flex-col justify-center gap-4 p-6 sm:p-8">
-                <div className="text-[10.5px] uppercase tracking-[0.28em]" style={{ color: DIM }}>
-                  # § 05 · why we built this
-                </div>
-                <h3 className="text-[24px] font-semibold leading-[1.2] tracking-[-0.02em] sm:text-[28px]">
-                  We hit the sandbox tax ourselves.
+                <SectionHead n="06" eyebrow="who built this" />
+                <h3 className="text-[22px] font-semibold leading-[1.2] tracking-[-0.02em] sm:text-[28px]">
+                  we ran <span style={{ color: FG }}>3+ million sandboxes</span>. then we hit the ceiling.
                 </h3>
                 <p className="text-[13.5px] leading-[1.65]" style={{ color: "rgba(243,239,227,0.78)" }}>
-                  we ran <Highlight>3+ million sandboxes</Highlight> on incumbent providers building{" "}
+                  we&apos;re the team behind{" "}
                   <a href="https://kortix.com" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:opacity-80" style={{ color: FG }}>kortix</a> — the autonomous company OS.
-                  we hit the cost ceiling. so we rebuilt the infrastructure we needed for ourselves.
+                  we burned through a lot of incumbent-sandbox bills running real agents. when the math stopped working, we built our own.
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                   <a href="https://kortix.com" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 border px-3 py-1.5 text-[11px]" style={{ borderColor: SOFT, color: DIM }}>kortix.com ↗</a>
@@ -590,27 +511,26 @@ function About() {
   );
 }
 
-/* ══════ FAQ ═══════════════════════════════════════════════════ */
-function Faq() {
+/* ══════ CH 8 · FAQ ════════════════════════════════════════════ */
+function Ch8Faq() {
   const items = [
-    { q: "what if i don't like it?", a: "cancel anytime. no contracts, no lock-in. your data is yours — download it and leave whenever you want." },
-    { q: "is it really cheaper?", a: "do the math yourself in the calculator above. daytona, e2b, modal and others charge per-second — $0.05+/h per vCPU, $0.016+/h per GiB RAM. run that 24/7 for a month and compare. we're 8–10× cheaper, every time." },
-    { q: "how fast can i get started?", a: "a couple of minutes. pick a shape, we provision your machine, you ssh in. that's it." },
-    { q: "what about security?", a: "browser access is gated by an authenticated proxy, and ssh uses keys instead of passwords. api keys and session-based auth are both supported." },
-    { q: "which agents can i run?", a: "claude code, codex, opencode, pi coding agents, cursor workflows, and any other linux-based agent. it's a persistent linux machine — install what you want, run it 24/7." },
+    { q: "what if i hate it?", a: "cancel anytime. no contracts. your data is yours — download it and leave whenever." },
+    { q: "is it really cheaper, or is there a catch?", a: "no catch. run the calculator. daytona / e2b / modal charge ~$0.05/vCPU·h. we charge ~$0.005. same model, different markup." },
+    { q: "why is it ~10× cheaper?", a: "we don't use microvms. dedicated vms are an order of magnitude cheaper at the substrate, and we don't take the same margin sandbox vendors do on top." },
+    { q: "what about cold-start?", a: "first boot is ~10 seconds. after that the machine is on — no per-request cold start. that's the point of a vps." },
+    { q: "which agents can i run?", a: "claude code, codex, opencode, pi coding agents, cursor workflows. anything that runs on linux." },
+    { q: "how secure is it?", a: "ssh uses keys, not passwords. every public port is gated by an authenticated proxy. api + session auth supported." },
   ];
   return (
     <section id="faq" className="border-b" style={{ borderColor: SOFT }}>
       <div className="mx-auto max-w-[760px] px-5 py-24">
-        <Reveal>
-          <div className="text-[10.5px] uppercase tracking-[0.28em]" style={{ color: DIM }}>
-            # still on the fence?
-          </div>
-          <h2 className="mt-4 text-[32px] font-semibold leading-[1.15] tracking-[-0.02em] sm:text-[44px]">
-            The honest answers.
+        <Reveal><SectionHead n="07" eyebrow="the honest answers" /></Reveal>
+        <Reveal delay={100}>
+          <h2 className="mt-8 text-center text-[32px] font-semibold leading-[1.15] tracking-[-0.02em] sm:text-[42px]">
+            six objections. answered.
           </h2>
         </Reveal>
-        <Reveal delay={120}>
+        <Reveal delay={200}>
           <div className="mt-10 space-y-2">
             {items.map((it, i) => <FaqItem key={i} q={it.q} a={it.a} />)}
           </div>
@@ -635,25 +555,34 @@ function FaqItem({ q, a }: { q: string; a: string }) {
   );
 }
 
-/* ══════ CLOSER ═════════════════════════════════════════════════ */
-function Closer({ onDeploy, start }: { onDeploy: () => void; start: number }) {
+/* ══════ CH 9 · DEPLOY ═════════════════════════════════════════ */
+function Ch9Deploy({ onDeploy }: { onDeploy: () => void }) {
   return (
     <section className="border-b" style={{ borderColor: SOFT }}>
       <div className="mx-auto max-w-[980px] px-5 py-32 text-center">
         <Reveal>
-          <h2 className="text-[48px] font-semibold leading-[0.95] tracking-[-0.025em] sm:text-[80px]">
-            Get a machine.
-          </h2>
+          <div className="text-[10.5px] uppercase tracking-[0.28em]" style={{ color: DIM }}>
+            $ cat /etc/justavps/rate.conf | head -1
+          </div>
         </Reveal>
-        <Reveal delay={120}>
-          <p className="mx-auto mt-6 max-w-[420px] text-[15px]" style={{ color: "rgba(243,239,227,0.78)" }}>
-            from ${start}/mo at 24/7 · billed by the second · cancel anytime.
-          </p>
+        <Reveal delay={100}>
+          <div className="mt-3 font-semibold leading-[0.86] tracking-[-0.04em]"
+               style={{ fontSize: "clamp(72px, 14vw, 168px)" }}>
+            ${JUSTAVPS_RATES.vPerVcpu.toFixed(3)}
+          </div>
         </Reveal>
         <Reveal delay={200}>
-          <button onClick={onDeploy} className="mt-10 inline-flex h-12 items-center gap-2 border px-6 text-[14px]" style={{ borderColor: FG, background: FG, color: BG }}>
+          <div className="text-[12px] uppercase tracking-[0.28em]" style={{ color: DIM }}>per vCPU · per hour</div>
+        </Reveal>
+        <Reveal delay={300}>
+          <button onClick={onDeploy} className="mt-12 inline-flex h-12 items-center gap-2 border px-7 text-[14px]" style={{ borderColor: FG, background: FG, color: BG }}>
             $ deploy now →
           </button>
+        </Reveal>
+        <Reveal delay={380}>
+          <p className="mt-5 text-[10.5px] uppercase tracking-[0.22em]" style={{ color: DIM }}>
+            ~10 s to ssh · billed per second · cancel anytime
+          </p>
         </Reveal>
       </div>
     </section>
@@ -668,6 +597,7 @@ function Footer() {
         <span>just a vps · © {new Date().getFullYear()} · by <a href="https://kortix.com" target="_blank" rel="noopener noreferrer" className="hover:text-[color:var(--f)]" style={{ ["--f" as string]: FG }}>kortix</a></span>
         <div className="flex flex-wrap gap-5">
           <a href="#calc" className="hover:text-[color:var(--f)]" style={{ ["--f" as string]: FG }}>./pricing</a>
+          <a href="#how" className="hover:text-[color:var(--f)]" style={{ ["--f" as string]: FG }}>./how</a>
           <a href="#faq" className="hover:text-[color:var(--f)]" style={{ ["--f" as string]: FG }}>./faq</a>
           <a href="/docs" className="hover:text-[color:var(--f)]" style={{ ["--f" as string]: FG }}>./docs</a>
           <a href="/login" className="hover:text-[color:var(--f)]" style={{ ["--f" as string]: FG }}>./login</a>
@@ -679,7 +609,7 @@ function Footer() {
 }
 
 /* ══════ FLOATING CTA ═══════════════════════════════════════════ */
-function FloatingCta({ onDeploy, start }: { onDeploy: () => void; start: number }) {
+function FloatingCta({ onDeploy }: { onDeploy: () => void }) {
   const [show, setShow] = useState(false);
   useEffect(() => {
     const on = () => setShow(window.scrollY > 600);
@@ -692,7 +622,7 @@ function FloatingCta({ onDeploy, start }: { onDeploy: () => void; start: number 
       style={{ borderColor: FG, background: "rgba(10,10,10,0.92)" }}
     >
       <span className="hidden text-[12px] sm:inline" style={{ color: DIM }}>
-        from <b style={{ color: FG }}>${start}/mo</b>
+        <b style={{ color: FG }}>${JUSTAVPS_RATES.vPerVcpu.toFixed(3)}/vCPU·h</b>
       </span>
       <button onClick={onDeploy} className="border px-3 py-1.5 text-[12px] hover:bg-[color:var(--f)] hover:text-[color:var(--b)]"
               style={{ borderColor: FG, ["--f" as string]: FG, ["--b" as string]: BG }}>
