@@ -2,7 +2,10 @@
 
 /* ═══════════════════════════════════════════════════════════════════
  *  V2 · "Blueprint"   —   ice · ink · cobalt
- *  Same content depth as V3, schematic-engineering visual treatment.
+ *
+ *  Same first-principles 9-chapter spine as V3 Live, dressed as an
+ *  engineering report. Hero = annotated rate spec sheet. Live counter
+ *  rendered as a "monthly burn" chart. Fig.NN labels throughout.
  * ═══════════════════════════════════════════════════════════════════ */
 
 import Image from "next/image";
@@ -10,7 +13,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   bestFitShape,
   fmtHourly,
-  getStartingPrice,
   justavpsHourly,
   justavpsMonthly,
   vendorHourly,
@@ -18,9 +20,8 @@ import {
   JUSTAVPS_RATES,
   VENDOR_RATES,
   type VendorKey,
-  SHAPES,
 } from "../_shared/plan-data";
-import { Reveal } from "../_shared/interactive";
+import { CountUp, Reveal, useGuiltCounter } from "../_shared/interactive";
 
 const BG = "#F2F4F8";
 const PAPER = "#FFFFFF";
@@ -30,23 +31,21 @@ const COBALT = "#2E5AFF";
 const HAIR = "#D7DEEA";
 
 export function V2Blueprint({ onDeploy }: { onDeploy: () => void }) {
-  const start = getStartingPrice();
   return (
     <div className="relative min-h-screen" style={{ background: BG, color: INK }}>
       <GridPaper />
       <Nav onDeploy={onDeploy} />
-      <Hero onDeploy={onDeploy} start={start} />
-      <Tax />
-      <Calculator onDeploy={onDeploy} />
-      <UseCases onDeploy={onDeploy} />
-      <SecureBanner />
-      <PricingTable onDeploy={onDeploy} />
-      <WhenToUse />
-      <About />
-      <Faq />
-      <Closer onDeploy={onDeploy} start={start} />
+      <Ch1Hero onDeploy={onDeploy} />
+      <Ch2Burn />
+      <Ch3SameDifferent />
+      <Ch4Calculator onDeploy={onDeploy} />
+      <Ch5HowItWorks />
+      <Ch6WhenNot />
+      <Ch7Kortix />
+      <Ch8Faq />
+      <Ch9Deploy onDeploy={onDeploy} />
       <Footer />
-      <FloatingCta onDeploy={onDeploy} start={start} />
+      <FloatingCta onDeploy={onDeploy} />
     </div>
   );
 }
@@ -61,13 +60,26 @@ function GridPaper() {
   );
 }
 
-function Highlight({ children }: { children: React.ReactNode }) {
+function Mark() {
   return (
-    <span className="relative inline-block">
-      <span aria-hidden className="absolute inset-x-[-4px] bottom-[8%] h-[42%] -z-0 -skew-y-[1deg]"
-            style={{ background: `${COBALT}33`, borderRadius: 3 }} />
-      <span className="relative">{children}</span>
-    </span>
+    <svg viewBox="0 0 28 28" width="22" height="22" aria-hidden>
+      <rect x="0" y="0" width="28" height="28" rx="6" fill={INK} />
+      <rect x="5" y="5" width="18" height="18" rx="3" fill={COBALT} />
+      <path d="M9 11 L14 14 L9 17" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <rect x="16" y="16" width="5" height="1.8" rx="0.5" fill="#fff" />
+    </svg>
+  );
+}
+
+function FigHead({ n, eyebrow }: { n: string; eyebrow: string }) {
+  return (
+    <div className="flex items-center justify-center gap-3 font-mono text-[10.5px] uppercase tracking-[0.3em]" style={{ color: COBALT }}>
+      <span className="block h-px w-8" style={{ background: HAIR }} />
+      <span>fig. {n}</span>
+      <span className="block h-px w-2" style={{ background: HAIR }} />
+      <span style={{ color: MUT }}>{eyebrow}</span>
+      <span className="block h-px w-8" style={{ background: HAIR }} />
+    </div>
   );
 }
 
@@ -81,7 +93,7 @@ function Nav({ onDeploy }: { onDeploy: () => void }) {
           <span className="font-mono text-[13px]">just a vps</span>
         </a>
         <nav className="hidden gap-7 md:flex">
-          {[["the math", "#calc"], ["pricing", "#pricing"], ["faq", "#faq"], ["docs", "/docs"]].map(([l, h]) => (
+          {[["the math", "#calc"], ["how", "#how"], ["faq", "#faq"], ["docs", "/docs"]].map(([l, h]) => (
             <a key={l} href={h} className="text-[13px] transition-colors hover:text-[color:var(--c)]" style={{ color: INK, ["--c" as string]: COBALT }}>{l}</a>
           ))}
         </nav>
@@ -93,189 +105,308 @@ function Nav({ onDeploy }: { onDeploy: () => void }) {
   );
 }
 
-function Mark() {
+/* ══════ CH 1 · ANNOTATED RATE SPEC ════════════════════════════ */
+function Ch1Hero({ onDeploy }: { onDeploy: () => void }) {
   return (
-    <svg viewBox="0 0 28 28" width="22" height="22" aria-hidden>
-      <rect x="0" y="0" width="28" height="28" rx="6" fill={INK} />
-      <rect x="5" y="5" width="18" height="18" rx="3" fill={COBALT} />
-      <path d="M9 11 L14 14 L9 17" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      <rect x="16" y="16" width="5" height="1.8" rx="0.5" fill="#fff" />
-    </svg>
-  );
-}
-
-/* ══════ HERO ═══════════════════════════════════════════════════ */
-function Hero({ onDeploy, start }: { onDeploy: () => void; start: number }) {
-  const logos = [
-    { src: "/logos/ai-coding-agent-logos/claude-code-icon.png", alt: "Claude Code" },
-    { src: "/logos/ai-coding-agent-logos/codex-openai-icon.png", alt: "Codex" },
-    { src: "/logos/ai-coding-agent-logos/opencode-logo-dark.png", alt: "OpenCode" },
-    { src: "/logos/ai-coding-agent-logos/cursor-icon.png", alt: "Cursor" },
-    { src: "/logos/ai-coding-agent-logos/vscode-icon.png", alt: "VS Code" },
-    { src: "/logos/ai-coding-agent-logos/pi-coding-agent-icon-dark.png", alt: "PI Coding" },
-    { src: "/logos/ai-coding-agent-logos/docker-icon.png", alt: "Docker" },
-  ];
-  return (
-    <section id="top" className="border-b" style={{ borderColor: HAIR }}>
-      <div className="mx-auto max-w-[1080px] px-6 pt-28 pb-20 text-center sm:pt-36">
-        <Reveal>
-          <span className="inline-flex items-center gap-2 rounded-full border bg-white px-3 py-1.5 font-mono text-[10.5px] uppercase tracking-[0.24em]" style={{ borderColor: HAIR, color: COBALT }}>
-            <span className="inline-block size-[6px] rounded-full" style={{ background: COBALT }} />
-            per-second metered · ~10× cheaper than sandboxes
-          </span>
-        </Reveal>
-        <Reveal delay={80}>
-          <h1 className="mx-auto mt-7 max-w-[860px] font-heading text-[60px] font-semibold leading-[0.96] tracking-[-0.04em] sm:text-[88px] lg:text-[104px]">
-            Just a VPS.
-          </h1>
-        </Reveal>
-        <Reveal delay={160}>
-          <p className="mx-auto mt-6 max-w-[600px] text-[19px] leading-[1.5] sm:text-[21px]" style={{ color: "#2a3446" }}>
-            A dedicated Linux machine for AI agents that run 24/7 — same metered model
-            as Daytona / E2B / Modal, at <Highlight>~10× the price per CPU-hour</Highlight>.
-          </p>
-        </Reveal>
-        <Reveal delay={240}>
-          <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
-            <button onClick={onDeploy} className="inline-flex h-12 items-center gap-2 rounded-[8px] px-6 text-[14.5px] font-medium text-white" style={{ background: COBALT, boxShadow: `0 8px 24px -8px ${COBALT}88` }}>
-              Deploy a box →
-            </button>
-            <a href="#calc" className="inline-flex h-12 items-center gap-2 rounded-[8px] border bg-white px-5 text-[14px]" style={{ borderColor: HAIR }}>
-              See the math
-            </a>
-          </div>
-          <p className="mt-3 font-mono text-[10.5px] uppercase tracking-[0.22em]" style={{ color: MUT }}>
-            from ${start}/mo at 24/7 · billed by the second · cancel anytime
-          </p>
-        </Reveal>
-
-        <Reveal delay={320}>
-          <div className="mt-14 flex flex-col items-center gap-5">
-            <span className="font-mono text-[10.5px] uppercase tracking-[0.26em]" style={{ color: MUT }}>
-              home to your favourite agent harness
-            </span>
-            <div className="flex flex-wrap items-center justify-center gap-x-7 gap-y-3">
-              {logos.map((l) => (
-                <div key={l.alt} className="inline-flex items-center gap-2 rounded-full border bg-white px-3 py-1.5" style={{ borderColor: HAIR }}>
-                  <Image src={l.src} alt={l.alt} width={16} height={16} className="size-4 object-contain" />
-                  <span className="font-mono text-[11px]" style={{ color: MUT }}>{l.alt}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </Reveal>
-      </div>
-    </section>
-  );
-}
-
-/* ══════ TAX · annotated invoice ══════════════════════════════ */
-function Tax() {
-  const sandboxMonthly = vendorMonthly("daytona", 4, 8, 24);
-  const usMonthly = justavpsMonthly(4, 8, 160);
-  const yearLoss = (sandboxMonthly - usMonthly) * 12;
-  return (
-    <section className="border-b py-24 lg:py-32" style={{ borderColor: HAIR }}>
-      <div className="mx-auto max-w-[1080px] px-6">
+    <section id="top" className="relative">
+      <div className="mx-auto max-w-[1080px] px-6 pt-32 pb-24 sm:pt-40">
         <Reveal>
           <div className="text-center">
-            <div className="font-mono text-[10.5px] uppercase tracking-[0.28em]" style={{ color: COBALT }}>
-              fig.01 · the sandbox tax
-            </div>
-            <h2 className="mx-auto mt-4 max-w-[760px] font-heading text-[36px] font-semibold leading-[1.1] tracking-[-0.025em] sm:text-[52px]">
-              Imagine your agent on Daytona.
-              <br />
-              <span style={{ color: MUT }}>30 days later, the invoice arrives.</span>
-            </h2>
+            <span className="inline-flex items-center gap-2 rounded-full border bg-white px-3 py-1.5 font-mono text-[10.5px] uppercase tracking-[0.24em]" style={{ borderColor: HAIR, color: COBALT }}>
+              <span className="inline-block size-[6px] rounded-full" style={{ background: COBALT }} />
+              just a vps · per-second metered
+            </span>
           </div>
         </Reveal>
 
-        <div className="mt-14 grid gap-6 lg:grid-cols-[1fr_0.9fr]">
-          <Reveal delay={120}>
-            <div className="relative overflow-hidden rounded-2xl border-2 bg-white shadow-2xl shadow-[#0B1220]/15" style={{ borderColor: INK }}>
-              <div className="flex items-center justify-between border-b border-[#0B1220]/10 px-6 py-4">
-                <div>
-                  <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#0B1220]/55">invoice</div>
-                  <div className="mt-0.5 font-heading text-[15px] font-semibold">DAYTONA — APRIL 2026</div>
-                </div>
-                <div className="text-right font-mono text-[10px] uppercase tracking-[0.22em] text-[#0B1220]/55">acct · agent-prod · paid</div>
+        <Reveal delay={120}>
+          <div className="mt-12 grid items-stretch gap-0 sm:grid-cols-[0.9fr_1.1fr] lg:gap-8">
+            {/* Left: title + intro */}
+            <div className="flex flex-col justify-center pr-0 sm:pr-6">
+              <div className="font-mono text-[10.5px] uppercase tracking-[0.28em]" style={{ color: MUT }}>
+                fig. 00 · pricing schematic
               </div>
-              <div className="px-6 py-5">
-                <div className="space-y-2.5">
-                  {[
-                    ["CPU usage · 4 vCPU × 730 h",     `$${(VENDOR_RATES.daytona.vPerVcpu * 4 * 730).toFixed(2)}`],
-                    ["RAM usage · 8 GB × 730 h",       `$${(VENDOR_RATES.daytona.vPerGb * 8 * 730).toFixed(2)}`],
-                    ["Storage · 160 GB · bundled",     "$0.00"],
-                    ["Sandbox tier · always-on",       "—"],
-                  ].map(([k, v]) => (
-                    <div key={k} className="flex items-baseline justify-between border-b border-dashed border-[#0B1220]/15 pb-2 text-[13.5px]">
-                      <span className="text-[#0B1220]/75">{k}</span>
-                      <span className="font-mono tabular-nums text-[#0B1220]/85">{v}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-5 flex items-baseline justify-between">
-                  <span className="font-mono text-[10.5px] uppercase tracking-[0.22em] text-[#0B1220]/60">total</span>
-                  <span className="relative font-heading text-[44px] font-semibold tabular-nums">
-                    ${sandboxMonthly}.42
-                    <svg aria-hidden className="absolute -inset-3 -bottom-2" viewBox="0 0 200 80" style={{ pointerEvents: "none" }}>
-                      <ellipse cx="100" cy="40" rx="92" ry="34" fill="none" stroke={COBALT} strokeWidth="2.4" strokeLinecap="round" transform="rotate(-3 100 40)" />
-                    </svg>
-                  </span>
-                </div>
-              </div>
-              <div className="border-t border-[#0B1220]/10 px-6 py-3 text-[12px] text-[#0B1220]/65">
-                ← for one machine. one agent. one month.
-              </div>
-            </div>
-          </Reveal>
-
-          <Reveal delay={200}>
-            <div className="flex h-full flex-col justify-between gap-6 rounded-2xl border p-7 shadow-sm sm:p-8" style={{ borderColor: HAIR, background: PAPER }}>
-              <div>
-                <div className="font-mono text-[10.5px] uppercase tracking-[0.22em]" style={{ color: MUT }}>
-                  same shape · same hours · just a vps
-                </div>
-                <div className="mt-3 font-heading text-[64px] font-semibold leading-none tracking-[-0.03em] sm:text-[80px]" style={{ color: COBALT }}>
-                  ${usMonthly}
-                </div>
-                <div className="mt-1 font-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: MUT }}>
-                  4 vCPU · 8 GB · 160 GB · 24/7
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3 border-t pt-5" style={{ borderColor: HAIR }}>
-                <Stat k="you save" v={`$${sandboxMonthly - usMonthly}/mo`} accent />
-                <Stat k="per year" v={`$${(sandboxMonthly - usMonthly) * 12}`} accent />
-                <Stat k="10 agents" v={`$${(yearLoss * 10).toLocaleString()}`} sub="/yr" />
-                <Stat k="100 agents" v={`$${(yearLoss * 100).toLocaleString()}`} sub="/yr" />
-              </div>
-              <p className="text-[14px] leading-[1.6]" style={{ color: "#2a3446" }}>
-                Same metered model as the sandboxes — pay for the CPU-seconds,
-                GB-hours of RAM, GB of disk your agent uses. We just charge
-                <Highlight> a fraction </Highlight>per unit.
+              <h1 className="mt-4 font-heading font-semibold leading-[0.94] tracking-[-0.04em] text-[56px] sm:text-[72px]">
+                Just a VPS.
+              </h1>
+              <p className="mt-5 max-w-[440px] text-[17px] leading-[1.55]" style={{ color: "#2a3446" }}>
+                Same per-second metered model as Daytona, E2B, Modal —
+                at roughly one-tenth the price per CPU-hour.
               </p>
+              <div className="mt-6 flex flex-wrap items-center gap-3">
+                <button onClick={onDeploy} className="inline-flex h-12 items-center gap-2 rounded-[8px] px-6 text-[14.5px] font-medium text-white" style={{ background: COBALT, boxShadow: `0 8px 24px -8px ${COBALT}88` }}>
+                  Deploy a box →
+                </button>
+                <a href="#calc" className="inline-flex h-12 items-center gap-2 rounded-[8px] border bg-white px-5 text-[14px]" style={{ borderColor: HAIR }}>
+                  See the math
+                </a>
+              </div>
             </div>
-          </Reveal>
-        </div>
+
+            {/* Right: annotated rate spec */}
+            <RateSpec />
+          </div>
+        </Reveal>
       </div>
     </section>
   );
 }
 
-function Stat({ k, v, sub, accent }: { k: string; v: string; sub?: string; accent?: boolean }) {
+function RateSpec() {
+  // render an annotated SVG: big rate value, with leader lines & callouts
   return (
-    <div>
-      <div className="font-mono text-[10px] uppercase tracking-[0.22em]" style={{ color: MUT }}>{k}</div>
-      <div className="mt-1 flex items-baseline gap-1.5 font-heading text-[20px] font-semibold tabular-nums" style={accent ? { color: COBALT } : {}}>
-        {v}
-        {sub && <span className="font-mono text-[10px]" style={{ color: MUT }}>{sub}</span>}
+    <div className="relative mt-10 overflow-hidden rounded-2xl border-2 bg-white shadow-xl shadow-[#0B1220]/15 sm:mt-0" style={{ borderColor: INK }}>
+      {/* spec header */}
+      <div className="flex items-center justify-between border-b border-[#0B1220]/10 px-5 py-3">
+        <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-[#0B1220]/55">
+          spec · rate.conf · rev. a
+        </div>
+        <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-[#0B1220]/55">
+          eu · 04/2026
+        </div>
+      </div>
+
+      {/* the rate */}
+      <div className="relative px-6 py-10 sm:py-14">
+        <div className="relative inline-block">
+          <div className="font-heading font-semibold leading-[0.86] tracking-[-0.05em]"
+               style={{ fontSize: "clamp(80px, 14vw, 156px)", color: INK }}>
+            $0.005
+          </div>
+
+          {/* leader line + callout · top right */}
+          <svg aria-hidden className="pointer-events-none absolute -right-28 top-1 hidden sm:block" width="180" height="60" viewBox="0 0 180 60">
+            <line x1="0" y1="32" x2="80" y2="32" stroke={COBALT} strokeWidth="1.2" />
+            <circle cx="0" cy="32" r="2.5" fill={COBALT} />
+            <text x="86" y="22" fill={INK} fontSize="11" fontFamily="var(--font-mono, monospace)">our rate</text>
+            <text x="86" y="38" fill={MUT} fontSize="10" fontFamily="var(--font-mono, monospace)">per vCPU · per hour</text>
+          </svg>
+        </div>
+        <div className="mt-2 font-mono text-[12px] uppercase tracking-[0.28em]" style={{ color: MUT }}>
+          / vCPU · / hour
+        </div>
+
+        {/* sub-rates as a small spec table */}
+        <dl className="mt-8 grid grid-cols-3 gap-3 border-t pt-5" style={{ borderColor: HAIR }}>
+          {[
+            ["vCPU", `$${JUSTAVPS_RATES.vPerVcpu.toFixed(3)}/h`],
+            ["RAM", `$${JUSTAVPS_RATES.vPerGb.toFixed(4)}/h·GB`],
+            ["disk", `$${(JUSTAVPS_RATES.vPerStorage * 730).toFixed(3)}/mo·GB`],
+          ].map(([k, v]) => (
+            <div key={k}>
+              <dt className="font-mono text-[10px] uppercase tracking-[0.2em]" style={{ color: MUT }}>{k}</dt>
+              <dd className="mt-1 font-heading text-[15px] font-semibold tabular-nums">{v}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+
+      {/* compare strip */}
+      <div className="border-t bg-[#FAFBFE] px-6 py-3.5" style={{ borderColor: HAIR }}>
+        <div className="flex items-baseline justify-between font-mono text-[11.5px]">
+          <span style={{ color: MUT }}>daytona / e2b · vCPU·h</span>
+          <span className="tabular-nums" style={{ color: INK, textDecoration: "line-through", textDecorationThickness: 1.5 }}>
+            ${VENDOR_RATES.daytona.vPerVcpu.toFixed(4)}
+          </span>
+        </div>
       </div>
     </div>
   );
 }
 
-/* ══════ CALCULATOR ═════════════════════════════════════════════ */
-function Calculator({ onDeploy }: { onDeploy: () => void }) {
+/* ══════ CH 2 · MONTHLY BURN CHART ═════════════════════════════ */
+function Ch2Burn() {
+  const dayHr = vendorHourly("daytona", 4, 8);
+  const vpsHr = justavpsHourly(4, 8, 160);
+  const dayPerSec = dayHr / 3600;
+  const vpsPerSec = vpsHr / 3600;
+  const dayMo = vendorMonthly("daytona", 4, 8, 24);
+  const vpsMo = justavpsMonthly(4, 8, 160);
+  const yearlySaved = (dayMo - vpsMo) * 12;
+  const { seconds, daytona, vps, saved } = useGuiltCounter(dayPerSec, vpsPerSec);
+
+  // chart constants
+  const w = 740, h = 220, padL = 60, padR = 80, padT = 20, padB = 36;
+  const innerW = w - padL - padR;
+  const innerH = h - padT - padB;
+  // simulate burn over 30 days for both
+  const days = 30;
+  const dayLine = `M ${padL} ${padT + innerH} L ${padL + innerW} ${padT + innerH - (dayMo / dayMo) * innerH}`;
+  const vpsLine = `M ${padL} ${padT + innerH} L ${padL + innerW} ${padT + innerH - (vpsMo / dayMo) * innerH}`;
+  // shaded gap
+  const gap = `M ${padL} ${padT + innerH} L ${padL + innerW} ${padT + innerH - (dayMo / dayMo) * innerH} L ${padL + innerW} ${padT + innerH - (vpsMo / dayMo) * innerH} Z`;
+
+  return (
+    <section className="border-y" style={{ borderColor: HAIR, background: PAPER }}>
+      <div className="mx-auto max-w-[1080px] px-6 py-24 lg:py-32">
+        <Reveal><FigHead n="01" eyebrow="the burn graph" /></Reveal>
+
+        <Reveal delay={100}>
+          <h2 className="mx-auto mt-8 max-w-[820px] text-center font-heading text-[34px] font-semibold leading-[1.1] tracking-[-0.025em] sm:text-[48px]">
+            One agent. <span style={{ color: MUT }}>30 days. Two bills.</span>
+          </h2>
+        </Reveal>
+
+        <Reveal delay={200}>
+          <div className="mx-auto mt-12 max-w-[920px] overflow-hidden rounded-2xl border-2 bg-white shadow-sm" style={{ borderColor: INK }}>
+            <div className="flex items-center justify-between border-b px-5 py-3 font-mono text-[10.5px] uppercase tracking-[0.22em]" style={{ borderColor: HAIR, color: MUT }}>
+              <span>fig. 01a · monthly burn · 4 vCPU / 8 GB / 160 GB · always-on</span>
+              <span>$ accrued</span>
+            </div>
+
+            <div className="p-5">
+              <svg viewBox={`0 0 ${w} ${h}`} className="w-full">
+                {/* y grid */}
+                <g stroke={HAIR} strokeWidth="0.8">
+                  {[0, 0.25, 0.5, 0.75, 1].map((y) => (
+                    <line key={y} x1={padL} x2={w - padR} y1={padT + innerH - y * innerH} y2={padT + innerH - y * innerH} />
+                  ))}
+                </g>
+                {/* axis labels */}
+                <g fontFamily="var(--font-mono, monospace)" fontSize="10" fill={MUT}>
+                  {[0, 0.5, 1].map((y) => (
+                    <text key={y} x={padL - 8} y={padT + innerH - y * innerH + 3} textAnchor="end">${Math.round(dayMo * y)}</text>
+                  ))}
+                  {[0, days * 0.5, days].map((d) => (
+                    <text key={d} x={padL + (d / days) * innerW} y={h - padB + 14} textAnchor="middle">d{Math.round(d)}</text>
+                  ))}
+                </g>
+                {/* shaded gap */}
+                <path d={gap} fill={COBALT} fillOpacity="0.08" />
+                {/* daytona line */}
+                <path d={dayLine} stroke={INK} strokeWidth="2.2" fill="none" strokeDasharray="6 5" />
+                {/* vps line */}
+                <path d={vpsLine} stroke={COBALT} strokeWidth="2.4" fill="none" />
+                {/* end labels */}
+                <g fontFamily="var(--font-mono, monospace)" fontSize="11">
+                  <circle cx={padL + innerW} cy={padT + innerH - (dayMo / dayMo) * innerH} r="4" fill={INK} />
+                  <text x={padL + innerW + 8} y={padT + innerH - (dayMo / dayMo) * innerH + 4} fill={INK}>daytona ${dayMo}</text>
+                  <circle cx={padL + innerW} cy={padT + innerH - (vpsMo / dayMo) * innerH} r="4" fill={COBALT} />
+                  <text x={padL + innerW + 8} y={padT + innerH - (vpsMo / dayMo) * innerH + 4} fill={COBALT}>vps ${vpsMo}</text>
+                </g>
+              </svg>
+
+              {/* legend */}
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t pt-3 font-mono text-[10.5px] uppercase tracking-[0.22em]" style={{ borderColor: HAIR, color: MUT }}>
+                <span><span className="mr-2 inline-block h-[2px] w-5 align-middle" style={{ background: INK, borderTop: `2px dashed ${INK}` }} />daytona</span>
+                <span><span className="mr-2 inline-block h-[2px] w-5 align-middle" style={{ background: COBALT }} />just a vps</span>
+                <span style={{ color: COBALT }}>shaded · the gap you keep</span>
+              </div>
+            </div>
+          </div>
+        </Reveal>
+
+        {/* Live mini-counter */}
+        <Reveal delay={300}>
+          <div className="mx-auto mt-6 grid max-w-[920px] gap-px overflow-hidden rounded-2xl border bg-[#FAFBFE] sm:grid-cols-3" style={{ borderColor: HAIR }}>
+            <div className="bg-white p-5">
+              <div className="font-mono text-[10px] uppercase tracking-[0.22em]" style={{ color: MUT }}>
+                fig. 01b · ticking · daytona since you arrived
+              </div>
+              <div className="mt-2 font-heading text-[22px] font-semibold tabular-nums">${daytona.toFixed(6)}</div>
+            </div>
+            <div className="bg-white p-5">
+              <div className="font-mono text-[10px] uppercase tracking-[0.22em]" style={{ color: COBALT }}>
+                ticking · just a vps
+              </div>
+              <div className="mt-2 font-heading text-[22px] font-semibold tabular-nums" style={{ color: COBALT }}>${vps.toFixed(6)}</div>
+            </div>
+            <div className="bg-white p-5">
+              <div className="font-mono text-[10px] uppercase tracking-[0.22em]" style={{ color: MUT }}>
+                you would have saved · in {seconds.toFixed(1)} s
+              </div>
+              <div className="mt-2 font-heading text-[22px] font-semibold tabular-nums">${saved.toFixed(6)}</div>
+            </div>
+          </div>
+        </Reveal>
+
+        <Reveal delay={400}>
+          <div className="mx-auto mt-8 max-w-[820px] rounded-2xl border-2 p-6 text-center sm:p-8" style={{ borderColor: COBALT, background: "rgba(46,90,255,0.04)" }}>
+            <div className="font-mono text-[10.5px] uppercase tracking-[0.22em]" style={{ color: MUT }}>
+              extrapolated · 1 year of always-on, per agent
+            </div>
+            <div className="mt-3 font-heading text-[44px] font-semibold leading-none tracking-[-0.03em] sm:text-[68px]" style={{ color: COBALT }}>
+              <CountUp target={yearlySaved} prefix="$" /> <span style={{ color: MUT, fontSize: "0.5em" }}>/ yr</span>
+            </div>
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
+/* ══════ CH 3 · SAME LINUX. DIFFERENT BILL. ════════════════════ */
+function Ch3SameDifferent() {
+  const dayMo = vendorMonthly("daytona", 4, 8, 24);
+  const vpsMo = justavpsMonthly(4, 8, 160);
+  return (
+    <section className="border-b py-24 lg:py-32" style={{ borderColor: HAIR }}>
+      <div className="mx-auto max-w-[1080px] px-6">
+        <Reveal><FigHead n="02" eyebrow="anatomy of the box" /></Reveal>
+        <Reveal delay={100}>
+          <h2 className="mt-8 text-center font-heading text-[36px] font-semibold leading-[1.1] tracking-[-0.025em] sm:text-[52px]">
+            Same Linux. <span style={{ color: MUT }}>Different bill.</span>
+          </h2>
+        </Reveal>
+
+        <div className="relative mt-14 grid items-stretch gap-4 lg:grid-cols-[1fr_auto_1fr]">
+          <Reveal delay={140}><SpecCard label="Daytona" sub="sandbox · per-sec" mo={dayMo} muted /></Reveal>
+          <Reveal delay={200}>
+            <div className="hidden items-center justify-center lg:flex">
+              <div className="font-heading text-[64px] font-semibold leading-none" style={{ color: MUT }}>=</div>
+            </div>
+          </Reveal>
+          <Reveal delay={260}><SpecCard label="just a vps" sub="dedicated · per-sec" mo={vpsMo} accent /></Reveal>
+        </div>
+
+        <Reveal delay={360}>
+          <p className="mx-auto mt-10 max-w-[640px] text-center text-[15px] leading-[1.65]" style={{ color: "#2a3446" }}>
+            A vCPU is a vCPU. A gigabyte of RAM is a gigabyte of RAM. The kernel is the same kernel.
+            We just don&apos;t charge sandbox markup.
+          </p>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
+function SpecCard({ label, sub, mo, accent, muted }: { label: string; sub: string; mo: number; accent?: boolean; muted?: boolean }) {
+  return (
+    <div className="overflow-hidden rounded-2xl border-2 bg-white shadow-sm" style={{ borderColor: accent ? COBALT : HAIR }}>
+      <div className="flex items-baseline justify-between px-6 pt-5">
+        <div className="font-heading text-[18px] font-semibold" style={{ color: accent ? COBALT : INK }}>{label}</div>
+        <div className="font-mono text-[10px] uppercase tracking-[0.22em]" style={{ color: MUT }}>{sub}</div>
+      </div>
+      <dl className="px-6 pt-5">
+        {[
+          ["kernel", "Linux 6.1"],
+          ["arch", "x86_64"],
+          ["vCPU", "4 cores"],
+          ["memory", "8 GB"],
+          ["disk", "160 GB SSD"],
+          ["uptime", "24 / 7"],
+        ].map(([k, v]) => (
+          <div key={k} className="grid grid-cols-2 items-baseline border-b py-2 text-[13.5px] last:border-b-0" style={{ borderColor: HAIR }}>
+            <dt className="font-mono text-[10.5px] uppercase tracking-[0.22em]" style={{ color: MUT }}>{k}</dt>
+            <dd className="font-mono tabular-nums" style={{ color: muted ? MUT : INK }}>{v}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="border-t px-6 py-5" style={{ borderColor: HAIR, background: accent ? "rgba(46,90,255,0.06)" : "transparent" }}>
+        <div className="font-mono text-[10.5px] uppercase tracking-[0.22em]" style={{ color: MUT }}>monthly · 24/7</div>
+        <div className="mt-1 flex items-baseline gap-2">
+          <span className="font-heading text-[44px] font-semibold leading-none tracking-[-0.03em] tabular-nums sm:text-[56px]" style={{ color: accent ? COBALT : INK, textDecoration: muted ? "line-through" : "none", textDecorationThickness: muted ? "2px" : undefined }}>
+            ${mo}
+          </span>
+          <span className="font-mono text-[12px]" style={{ color: MUT }}>/ mo</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════ CH 4 · CALCULATOR ═════════════════════════════════════ */
+function Ch4Calculator({ onDeploy }: { onDeploy: () => void }) {
   const [vcpu, setVcpu] = useState(4);
   const [ram, setRam] = useState(8);
   const [storage, setStorage] = useState(80);
@@ -298,20 +429,16 @@ function Calculator({ onDeploy }: { onDeploy: () => void }) {
   const maxMo = Math.max(...competitors.map((c) => c.mo), usMo);
 
   return (
-    <section id="calc" className="border-b py-24 lg:py-32" style={{ borderColor: HAIR }}>
+    <section id="calc" className="border-b py-24 lg:py-32" style={{ borderColor: HAIR, background: PAPER }}>
       <div className="mx-auto max-w-[1080px] px-6">
-        <Reveal>
-          <div className="text-center">
-            <div className="font-mono text-[10.5px] uppercase tracking-[0.28em]" style={{ color: COBALT }}>
-              fig.02 · run the math yourself
-            </div>
-            <h2 className="mt-4 font-heading text-[36px] font-semibold leading-[1.1] tracking-[-0.025em] sm:text-[48px]">
-              Shape the box. Compare side by side.
-            </h2>
-          </div>
+        <Reveal><FigHead n="03" eyebrow="run the numbers yourself" /></Reveal>
+        <Reveal delay={100}>
+          <h2 className="mt-8 text-center font-heading text-[36px] font-semibold leading-[1.1] tracking-[-0.025em] sm:text-[48px]">
+            Your shape. <span style={{ color: MUT }}>Your savings.</span>
+          </h2>
         </Reveal>
 
-        <Reveal delay={120}>
+        <Reveal delay={200}>
           <div className="mt-12 grid gap-4 lg:grid-cols-12">
             <div className="space-y-3 lg:col-span-5">
               <div className="rounded-xl border bg-white p-6 shadow-sm" style={{ borderColor: HAIR }}>
@@ -343,7 +470,7 @@ function Calculator({ onDeploy }: { onDeploy: () => void }) {
                 </dl>
                 <p className="mt-3 text-[12px] leading-[1.55] opacity-90">
                   You only pay for the seconds your agent uses CPU, the GB-hours of
-                  RAM it touches, and the GB of disk it stores.
+                  RAM it touches, the GB of disk it stores.
                 </p>
                 <button onClick={onDeploy} className="mt-4 inline-flex h-10 w-full items-center justify-center rounded-[8px] px-3 font-mono text-[12.5px] font-medium" style={{ background: "#fff", color: COBALT }}>
                   Deploy this box →
@@ -366,7 +493,7 @@ function Calculator({ onDeploy }: { onDeploy: () => void }) {
                   <BpRow name="just a vps" hr={usHr} mo={usMo} max={maxMo} usMo={Math.max(1, usMo)} us />
                 </div>
                 <div className="px-5 py-3 text-center font-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: MUT, background: "rgba(46,90,255,0.04)" }}>
-                  ≈ <b style={{ color: COBALT }}>{multiple}× cheaper</b> than the average sandbox at this shape
+                  ≈ <b style={{ color: COBALT }}>{multiple}× cheaper</b> than the average sandbox
                 </div>
               </div>
               <p className="mt-3 text-center text-[11px]" style={{ color: MUT }}>
@@ -431,233 +558,77 @@ function BpRow({ name, hr, mo, max, usMo, us }: { name: string; hr: number; mo: 
   );
 }
 
-/* ══════ USE CASES ═════════════════════════════════════════════ */
-function UseCases({ onDeploy }: { onDeploy: () => void }) {
+/* ══════ CH 5 · HOW IT WORKS ═══════════════════════════════════ */
+function Ch5HowItWorks() {
+  const cards = [
+    { n: "01", t: "We don't run microVMs.", b: "We provision boring, dedicated VMs from Hetzner / OVH / Contabo. Real Linux. Real disk. Same kernel as the sandboxes." },
+    { n: "02", t: "We add what they don't have.", b: "Authenticated port proxy on every port. SSH key fleet. Snapshots. 1-click agent templates. The wrapper sandbox vendors built — minus the markup." },
+    { n: "03", t: "We bill per-second.", b: "CPU-seconds, GB-hours of RAM, GB-hours of disk. Same model the sandboxes use. We just don't markup compute 10×." },
+  ];
   return (
-    <section className="border-b py-24" style={{ borderColor: HAIR }}>
+    <section id="how" className="border-b py-24 lg:py-32" style={{ borderColor: HAIR }}>
       <div className="mx-auto max-w-[1080px] px-6">
-        <Reveal>
-          <div className="text-center">
-            <div className="font-mono text-[10.5px] uppercase tracking-[0.28em]" style={{ color: COBALT }}>
-              fig.03 · two ways to use it
-            </div>
-            <h2 className="mt-4 font-heading text-[36px] font-semibold leading-[1.1] tracking-[-0.025em] sm:text-[48px]">
-              Personal box, or sandboxes-as-a-service.
-            </h2>
-          </div>
-        </Reveal>
-
-        <div className="mt-14 grid gap-5 md:grid-cols-2">
-          <Reveal delay={120}>
-            <UseCard
-              tag="personal"
-              title="Your dev machine in the cloud"
-              body="SSH in or connect your IDE — it's just a Linux box. Close your laptop, your agents keep going. Come back tomorrow, everything's still there."
-              terminal={[
-                { kind: "comment", t: "# Connect from Cursor, VS Code, or your terminal" },
-                { kind: "cmd", t: "ssh root@95.217.x.x" },
-                { kind: "cmd", t: "opencode" },
-                { kind: "out", t: "Open the machine URL in your browser" },
-              ]}
-            />
-          </Reveal>
-          <Reveal delay={200}>
-            <UseCard
-              tag="service"
-              title="Sandboxes as infrastructure"
-              body="Spin up machines, manage files, run bash, launch coding agents — all from one API. Give every user (and their agents) a sandbox of their own."
-              capabilities
-            />
-          </Reveal>
-        </div>
-
-        <div className="mt-10 text-center">
-          <button onClick={onDeploy} className="inline-flex h-11 items-center gap-2 rounded-[8px] px-5 text-[14px] font-medium text-white" style={{ background: COBALT }}>
-            Get your machine →
-          </button>
-          <p className="mt-2 font-mono text-[10.5px] uppercase tracking-[0.22em]" style={{ color: MUT }}>
-            ssh ready in ~10 seconds
-          </p>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function UseCard({ tag, title, body, terminal, capabilities }: {
-  tag: string; title: string; body: string;
-  terminal?: { kind: "cmd" | "comment" | "out"; t: string }[];
-  capabilities?: boolean;
-}) {
-  return (
-    <div className="flex h-full flex-col overflow-hidden rounded-2xl border bg-white shadow-sm" style={{ borderColor: HAIR }}>
-      <div className="flex-1 p-6 sm:p-7">
-        <div className="flex items-center justify-between">
-          <h3 className="font-heading text-[18px] font-semibold">{title}</h3>
-          <span className="rounded-full px-2.5 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.22em]" style={{ background: "rgba(46,90,255,0.12)", color: COBALT }}>
-            {tag}
-          </span>
-        </div>
-        <p className="mt-3 text-[14px] leading-[1.65]" style={{ color: "#2a3446" }}>{body}</p>
-      </div>
-      <div className="border-t px-5 py-4 font-mono text-[12px] leading-[1.7]" style={{ borderColor: HAIR, background: INK, color: "rgba(255,255,255,0.85)" }}>
-        {terminal && terminal.map((l, i) => (
-          <div key={i} className={l.kind === "comment" ? "text-white/40" : ""}>
-            {l.kind === "cmd" && <span style={{ color: COBALT }}>$</span>} {l.kind === "out" && <span style={{ color: COBALT }}>›</span>} <span>{l.t}</span>
-          </div>
-        ))}
-        {capabilities && (
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { l: "Machines", d: "create, list, resize, delete" },
-              { l: "Filesystem", d: "read, write, search, upload" },
-              { l: "Process", d: "exec, stream, kill" },
-              { l: "Agents", d: "OpenCode, Codex, Claude…" },
-            ].map((c) => (
-              <div key={c.l} className="rounded-md bg-white/5 px-3 py-2">
-                <div className="text-[12px] text-white/85">{c.l}</div>
-                <div className="text-[10px] text-white/45">{c.d}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ══════ SECURE BANNER ═════════════════════════════════════════ */
-function SecureBanner() {
-  return (
-    <section className="border-b py-16" style={{ borderColor: HAIR }}>
-      <div className="mx-auto max-w-[1080px] px-6">
-        <Reveal>
-          <div className="overflow-hidden rounded-2xl border bg-white shadow-sm" style={{ borderColor: HAIR }}>
-            <div className="flex flex-col gap-5 px-6 py-6 sm:flex-row sm:items-center sm:gap-6 sm:px-8">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-xl" style={{ background: "rgba(46,90,255,0.1)" }}>
-                <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke={COBALT} strokeWidth="1.6"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0110 0v4" /></svg>
-              </div>
-              <div className="flex-1">
-                <h3 className="font-heading text-[18px] font-semibold">Secure by default. Zero config.</h3>
-                <p className="mt-1 text-[14px] leading-[1.6]" style={{ color: "#2a3446" }}>
-                  Browser traffic flows through an authenticated proxy. SSH uses keys, not passwords.
-                  Bind a port — get a password-locked HTTPS URL.
-                </p>
-              </div>
-              <div className="hidden flex-wrap items-center gap-2 sm:flex">
-                {["Auth Proxy", "SSH Keys", "API Keys", "Sessions"].map((c) => (
-                  <span key={c} className="rounded-full border px-2.5 py-1 font-mono text-[10.5px] uppercase tracking-[0.2em]" style={{ borderColor: HAIR, color: COBALT }}>
-                    {c}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div className="border-t px-6 py-3.5 font-mono text-[12px] leading-[1.7] sm:px-8" style={{ borderColor: HAIR, background: "#0B1220", color: "rgba(255,255,255,0.85)" }}>
-              <span style={{ color: COBALT }}>$</span> <span>curl https://8000-box-7f3.justavps.cloud</span> -H <span style={{ color: "#93C5FD" }}>&quot;Authorization: Bearer sk_live_…&quot;</span>
-            </div>
-          </div>
-        </Reveal>
-      </div>
-    </section>
-  );
-}
-
-/* ══════ PRICING TABLE ════════════════════════════════════════ */
-function PricingTable({ onDeploy }: { onDeploy: () => void }) {
-  const rows = SHAPES.map((s) => {
-    const ourMo = justavpsMonthly(s.vcpu, s.memory, s.disk);
-    const dayMo = vendorMonthly("daytona", s.vcpu, s.memory, 24);
-    return { ...s, ourMo, dayMo, saves: Math.max(1, Math.round(dayMo / Math.max(1, ourMo))) };
-  });
-  return (
-    <section id="pricing" className="border-b py-24 lg:py-32" style={{ borderColor: HAIR }}>
-      <div className="mx-auto max-w-[1080px] px-6">
-        <Reveal>
-          <div className="text-center">
-            <div className="font-mono text-[10.5px] uppercase tracking-[0.28em]" style={{ color: COBALT }}>
-              fig.04 · pricing
-            </div>
-            <h2 className="mt-4 font-heading text-[36px] font-semibold leading-[1.1] tracking-[-0.025em] sm:text-[48px]">
-              You&apos;re paying <Highlight>10× too much</Highlight> for always-on agents.
-            </h2>
-            <p className="mx-auto mt-4 max-w-[600px] text-[15px] leading-[1.65]" style={{ color: "#2a3446" }}>
-              Per-second billing sounds cheap — until your agent runs 24/7.
-              Here&apos;s what a month of continuous usage actually costs.
-            </p>
-          </div>
-        </Reveal>
-
-        <Reveal delay={120}>
-          <div className="mt-12 overflow-hidden rounded-2xl border bg-white shadow-sm" style={{ borderColor: HAIR }}>
-            <div className="grid grid-cols-[1.4fr_0.7fr_0.7fr_0.6fr_60px] items-center gap-3 border-b px-5 py-3 font-mono text-[10px] uppercase tracking-[0.22em] sm:grid-cols-[1.4fr_0.9fr_0.9fr_0.6fr_80px]" style={{ borderColor: HAIR, color: MUT, background: "#FAFBFE" }}>
-              <span>shape</span>
-              <span className="text-right">daytona / e2b *</span>
-              <span className="text-right">just a vps</span>
-              <span className="text-right">save</span>
-              <span />
-            </div>
-            {rows.map((r, i) => (
-              <div key={r.id} className="grid grid-cols-[1.4fr_0.7fr_0.7fr_0.6fr_60px] items-center gap-3 border-b px-5 py-4 last:border-b-0 sm:grid-cols-[1.4fr_0.9fr_0.9fr_0.6fr_80px]" style={{ borderColor: HAIR, background: i === 2 ? "rgba(46,90,255,0.04)" : "transparent" }}>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-heading text-[15px] font-semibold">{r.label}</span>
-                    {i === 2 && <span className="rounded-full px-1.5 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.22em] text-white" style={{ background: COBALT }}>recommended</span>}
-                  </div>
-                  <div className="font-mono text-[11px]" style={{ color: MUT }}>{r.vcpu} vCPU · {r.memory} GB · {r.disk} GB</div>
-                </div>
-                <div className="text-right font-mono text-[14px] tabular-nums" style={{ color: MUT, textDecoration: "line-through" }}>${r.dayMo}/mo</div>
-                <div className="text-right font-heading text-[18px] font-semibold tabular-nums" style={{ color: COBALT }}>${r.ourMo}/mo</div>
-                <div className="text-right font-mono text-[11px] uppercase tracking-[0.18em]" style={{ color: COBALT }}>{r.saves}×</div>
-                <div className="hidden text-right sm:block">
-                  <button onClick={onDeploy} className="rounded-full border px-3 py-1 font-mono text-[11px]" style={{ borderColor: HAIR }}>boot →</button>
-                </div>
-              </div>
-            ))}
-          </div>
-          <p className="mt-3 text-[11px]" style={{ color: MUT }}>
-            * Based on Daytona / E2B published per-second CPU + RAM rates × 730 h continuous. EU shape shown.
-          </p>
-        </Reveal>
-      </div>
-    </section>
-  );
-}
-
-/* ══════ WHEN TO USE ═══════════════════════════════════════════ */
-function WhenToUse() {
-  return (
-    <section className="border-b py-20" style={{ borderColor: HAIR }}>
-      <div className="mx-auto max-w-[1080px] px-6">
-        <Reveal>
-          <h2 className="text-center font-heading text-[28px] font-semibold leading-[1.15] tracking-[-0.02em] sm:text-[36px]">
-            We&apos;re not for every workload. <span style={{ color: MUT }}>Here&apos;s when to use what.</span>
+        <Reveal><FigHead n="04" eyebrow="how is this even possible" /></Reveal>
+        <Reveal delay={100}>
+          <h2 className="mt-8 text-center font-heading text-[36px] font-semibold leading-[1.1] tracking-[-0.025em] sm:text-[48px]">
+            No magic. <span style={{ color: MUT }}>Just the right stack.</span>
           </h2>
         </Reveal>
-        <div className="mt-10 grid gap-4 md:grid-cols-2">
-          <Reveal delay={120}>
+        <Reveal delay={200}>
+          <div className="mt-12 grid gap-4 md:grid-cols-3">
+            {cards.map((c) => (
+              <div key={c.n} className="rounded-2xl border bg-white p-6 shadow-sm" style={{ borderColor: HAIR }}>
+                <div className="font-mono text-[10.5px] uppercase tracking-[0.28em]" style={{ color: COBALT }}>step {c.n}</div>
+                <h3 className="mt-3 font-heading text-[19px] font-semibold leading-[1.25]">{c.t}</h3>
+                <p className="mt-3 text-[14px] leading-[1.65]" style={{ color: "#2a3446" }}>{c.b}</p>
+              </div>
+            ))}
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
+/* ══════ CH 6 · WHEN NOT TO USE US ═════════════════════════════ */
+function Ch6WhenNot() {
+  return (
+    <section className="border-b py-24" style={{ borderColor: HAIR, background: PAPER }}>
+      <div className="mx-auto max-w-[1080px] px-6">
+        <Reveal><FigHead n="05" eyebrow="we are not for everyone" /></Reveal>
+        <Reveal delay={100}>
+          <h2 className="mt-8 text-center font-heading text-[34px] font-semibold leading-[1.1] tracking-[-0.025em] sm:text-[44px]">
+            When you should <span style={{ color: COBALT }}>stick with sandboxes</span>.
+          </h2>
+        </Reveal>
+        <div className="mt-12 grid gap-4 md:grid-cols-2">
+          <Reveal delay={140}>
             <div className="relative rounded-2xl border-2 bg-white p-6 shadow-sm" style={{ borderColor: COBALT }}>
-              <span className="absolute -top-3 left-5 rounded-full px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.22em] text-white" style={{ background: COBALT }}>recommended</span>
+              <span className="absolute -top-3 left-5 rounded-full px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.22em] text-white" style={{ background: COBALT }}>use us</span>
               <h3 className="mt-1 flex items-center gap-2 font-heading text-[16px] font-semibold">
                 <span className="inline-flex size-5 items-center justify-center rounded-full text-[11px] text-white" style={{ background: COBALT }}>✓</span>
-                Use just a vps when
+                Long-running process
               </h3>
               <ul className="mt-4 space-y-2.5 text-[14px] leading-[1.55]">
-                <li>Your agents run <b>24/7</b>, not minutes.</li>
-                <li>You need <b>persistent state</b> — files, Docker, DBs.</li>
-                <li>You want <b>predictable cost</b>, no bill shock.</li>
+                <li>Runs <b>24/7</b>, not minutes.</li>
+                <li>Has <b>persistent state</b> on disk.</li>
+                <li>Reboots maybe once a month.</li>
+                <li>You want a <b>predictable bill</b>.</li>
               </ul>
             </div>
           </Reveal>
-          <Reveal delay={200}>
+          <Reveal delay={220}>
             <div className="rounded-2xl border bg-white p-6 shadow-sm" style={{ borderColor: HAIR }}>
-              <h3 className="flex items-center gap-2 font-heading text-[16px] font-semibold">
+              <span className="rounded-full border px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.22em]" style={{ borderColor: HAIR, color: MUT }}>stick with sandboxes</span>
+              <h3 className="mt-3 flex items-center gap-2 font-heading text-[16px] font-semibold">
                 <span className="inline-flex size-5 items-center justify-center rounded-full text-[11px]" style={{ background: HAIR, color: MUT }}>→</span>
-                Stick with sandboxes when
+                Bursty workload
               </h3>
               <ul className="mt-4 space-y-2.5 text-[14px] leading-[1.55]" style={{ color: "#2a3446" }}>
-                <li>Sandboxes only live <b>minutes</b>, not months.</li>
-                <li>You need <b>sub-second spin-up</b> per request.</li>
-                <li>You only pay when code is <b>actively running</b>.</li>
+                <li>Sandboxes live <b>seconds</b>, not days.</li>
+                <li>You spawn <b>thousands</b> per day.</li>
+                <li>You need <b>sub-second cold start</b>.</li>
+                <li>Fresh env per request is the point.</li>
               </ul>
             </div>
           </Reveal>
@@ -667,10 +638,10 @@ function WhenToUse() {
   );
 }
 
-/* ══════ ABOUT ═════════════════════════════════════════════════ */
-function About() {
+/* ══════ CH 7 · KORTIX ═════════════════════════════════════════ */
+function Ch7Kortix() {
   return (
-    <section className="border-b py-20" style={{ borderColor: HAIR }}>
+    <section className="border-b py-24" style={{ borderColor: HAIR }}>
       <div className="mx-auto max-w-[1080px] px-6">
         <Reveal>
           <div className="overflow-hidden rounded-2xl border bg-white shadow-sm" style={{ borderColor: HAIR }}>
@@ -679,16 +650,15 @@ function About() {
                 <Image src="/team.png" alt="Kortix team" fill className="object-cover" />
               </div>
               <div className="flex flex-col justify-center gap-4 p-7 sm:p-9">
-                <div className="font-mono text-[10.5px] uppercase tracking-[0.28em]" style={{ color: COBALT }}>
-                  fig.05 · why we built this
-                </div>
-                <h3 className="font-heading text-[24px] font-semibold leading-[1.2] tracking-[-0.02em] sm:text-[30px]">
-                  We hit the sandbox tax ourselves.
+                <FigHead n="06" eyebrow="who built this" />
+                <h3 className="font-heading text-[26px] font-semibold leading-[1.2] tracking-[-0.02em] sm:text-[32px]">
+                  We ran <span style={{ color: COBALT }}>3+ million sandboxes</span>. Then we hit the ceiling.
                 </h3>
                 <p className="text-[14.5px] leading-[1.65]" style={{ color: "#2a3446" }}>
-                  We ran <Highlight>3+ million sandboxes</Highlight> on incumbent providers building{" "}
-                  <a href="https://kortix.com" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:opacity-70" style={{ color: INK }}>Kortix</a> — the Autonomous Company OS.
-                  We hit the cost ceiling. So we rebuilt the infrastructure we needed for ourselves.
+                  We&apos;re the team behind{" "}
+                  <a href="https://kortix.com" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:opacity-70" style={{ color: INK }}>Kortix</a> —
+                  the Autonomous Company OS. We burned through a lot of incumbent-sandbox bills running real agents.
+                  When the math stopped working, we built our own.
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                   <a href="https://kortix.com" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 font-mono text-[11px]" style={{ borderColor: HAIR, color: MUT }}>kortix.com ↗</a>
@@ -703,25 +673,26 @@ function About() {
   );
 }
 
-/* ══════ FAQ ═══════════════════════════════════════════════════ */
-function Faq() {
+/* ══════ CH 8 · FAQ ════════════════════════════════════════════ */
+function Ch8Faq() {
   const items = [
-    { q: "What if I don't like it?", a: "Cancel anytime. No contracts, no lock-in. Your data is yours — download it and leave whenever you want." },
-    { q: "Is it really cheaper?", a: "Do the math yourself in the calculator above. Daytona, E2B, Modal and others charge per-second — $0.05+/h per vCPU, $0.016+/h per GiB RAM. Run that 24/7 for a month and compare. We're 8–10× cheaper, every time." },
-    { q: "How fast can I get started?", a: "A couple of minutes. Pick a shape, we provision your machine, you SSH in. That's it." },
-    { q: "What about security?", a: "Browser access is gated by an authenticated proxy, and SSH uses keys instead of passwords. API keys and session-based auth are both supported." },
-    { q: "Which agents can I run?", a: "Claude Code, Codex, OpenCode, PI Coding agents, Cursor workflows, and any other Linux-based agent. It's a persistent Linux machine — install what you want, run it 24/7." },
+    { q: "What if I hate it?", a: "Cancel anytime. No contracts. Your data is yours — download it and leave whenever." },
+    { q: "Is it really cheaper, or is there a catch?", a: "No catch. Run the calculator. Daytona / E2B / Modal charge ~$0.05/vCPU·h. We charge ~$0.005. Same model, different markup." },
+    { q: "Why is it ~10× cheaper?", a: "We don't use microVMs. Dedicated VMs are an order of magnitude cheaper at the substrate, and we don't take the same margin sandbox vendors do on top." },
+    { q: "What about cold-start?", a: "First boot is ~10 seconds. After that the machine is on — no per-request cold start. That's the point of a VPS." },
+    { q: "Which agents can I run?", a: "Claude Code, Codex, OpenCode, PI Coding agents, Cursor workflows. Anything that runs on Linux." },
+    { q: "How secure is it?", a: "SSH uses keys, not passwords. Every public port is gated by an authenticated proxy. API + session auth supported." },
   ];
   return (
-    <section id="faq" className="border-b py-24" style={{ borderColor: HAIR }}>
+    <section id="faq" className="border-b py-24" style={{ borderColor: HAIR, background: PAPER }}>
       <div className="mx-auto max-w-[760px] px-6">
-        <Reveal>
-          <div className="font-mono text-[10.5px] uppercase tracking-[0.28em]" style={{ color: COBALT }}>still on the fence?</div>
-          <h2 className="mt-4 font-heading text-[36px] font-semibold leading-[1.1] tracking-[-0.025em] sm:text-[48px]">
-            The honest answers.
+        <Reveal><FigHead n="07" eyebrow="the honest answers" /></Reveal>
+        <Reveal delay={100}>
+          <h2 className="mt-8 text-center font-heading text-[36px] font-semibold leading-[1.1] tracking-[-0.025em] sm:text-[48px]">
+            Six objections. Answered.
           </h2>
         </Reveal>
-        <Reveal delay={120}>
+        <Reveal delay={200}>
           <div className="mt-10 space-y-2">
             {items.map((it, i) => <FaqItem key={i} q={it.q} a={it.a} />)}
           </div>
@@ -746,25 +717,34 @@ function FaqItem({ q, a }: { q: string; a: string }) {
   );
 }
 
-/* ══════ CLOSER ═════════════════════════════════════════════════ */
-function Closer({ onDeploy, start }: { onDeploy: () => void; start: number }) {
+/* ══════ CH 9 · DEPLOY ═════════════════════════════════════════ */
+function Ch9Deploy({ onDeploy }: { onDeploy: () => void }) {
   return (
     <section className="border-b py-32" style={{ borderColor: HAIR }}>
       <div className="mx-auto max-w-[1080px] px-6 text-center">
         <Reveal>
-          <h2 className="font-heading font-semibold tracking-[-0.04em] leading-[0.92] text-[52px] sm:text-[88px] lg:text-[104px]">
-            Get a machine.
-          </h2>
+          <div className="font-mono text-[10.5px] uppercase tracking-[0.28em]" style={{ color: MUT }}>
+            our rate · spec sheet
+          </div>
         </Reveal>
-        <Reveal delay={120}>
-          <p className="mx-auto mt-6 max-w-[420px] text-[16px]" style={{ color: "#2a3446" }}>
-            From ${start}/mo at 24/7 · billed by the second · cancel anytime.
-          </p>
+        <Reveal delay={100}>
+          <div className="mt-3 font-heading font-semibold leading-[0.86] tracking-[-0.04em]"
+               style={{ fontSize: "clamp(80px, 16vw, 200px)", color: COBALT }}>
+            ${JUSTAVPS_RATES.vPerVcpu.toFixed(3)}
+          </div>
         </Reveal>
         <Reveal delay={200}>
-          <button onClick={onDeploy} className="mt-10 inline-flex h-14 items-center gap-2 rounded-[8px] px-7 text-[15px] font-medium text-white" style={{ background: COBALT, boxShadow: `0 12px 30px -10px ${COBALT}aa` }}>
-            Deploy now →
+          <div className="font-mono text-[12px] uppercase tracking-[0.28em]" style={{ color: MUT }}>per vCPU · per hour</div>
+        </Reveal>
+        <Reveal delay={300}>
+          <button onClick={onDeploy} className="mt-12 inline-flex h-14 items-center gap-2 rounded-[8px] px-8 text-[15px] font-medium text-white" style={{ background: COBALT, boxShadow: `0 12px 30px -10px ${COBALT}aa` }}>
+            Deploy a box →
           </button>
+        </Reveal>
+        <Reveal delay={380}>
+          <p className="mt-5 font-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: MUT }}>
+            ~10 s to ssh · billed per second · cancel anytime
+          </p>
         </Reveal>
       </div>
     </section>
@@ -779,6 +759,7 @@ function Footer() {
         <div className="inline-flex items-center gap-2.5"><Mark /><span className="font-mono text-[12.5px]">just a vps</span><span className="font-mono text-[11px]" style={{ color: MUT }}>· by <a href="https://kortix.com" target="_blank" rel="noopener noreferrer" className="hover:text-[color:var(--i)]" style={{ ["--i" as string]: INK }}>Kortix</a></span></div>
         <div className="flex flex-wrap gap-5 font-mono text-[12px]" style={{ color: MUT }}>
           <a href="#calc" className="hover:text-[color:var(--i)]" style={{ ["--i" as string]: INK }}>pricing</a>
+          <a href="#how" className="hover:text-[color:var(--i)]" style={{ ["--i" as string]: INK }}>how</a>
           <a href="#faq" className="hover:text-[color:var(--i)]" style={{ ["--i" as string]: INK }}>faq</a>
           <a href="/docs" className="hover:text-[color:var(--i)]" style={{ ["--i" as string]: INK }}>docs</a>
           <a href="/login" className="hover:text-[color:var(--i)]" style={{ ["--i" as string]: INK }}>sign in</a>
@@ -791,7 +772,7 @@ function Footer() {
 }
 
 /* ══════ FLOATING CTA ═══════════════════════════════════════════ */
-function FloatingCta({ onDeploy, start }: { onDeploy: () => void; start: number }) {
+function FloatingCta({ onDeploy }: { onDeploy: () => void }) {
   const [show, setShow] = useState(false);
   useEffect(() => {
     const on = () => setShow(window.scrollY > 600);
@@ -804,7 +785,7 @@ function FloatingCta({ onDeploy, start }: { onDeploy: () => void; start: number 
       style={{ borderColor: HAIR }}
     >
       <span className="hidden text-[12.5px] sm:inline" style={{ color: MUT }}>
-        From <b style={{ color: INK }}>${start}/mo</b>
+        <b style={{ color: INK }}>${JUSTAVPS_RATES.vPerVcpu.toFixed(3)}/vCPU·h</b>
       </span>
       <button onClick={onDeploy} className="inline-flex h-9 items-center gap-1.5 rounded-full px-4 font-mono text-[12.5px] font-medium text-white" style={{ background: COBALT }}>
         DEPLOY →
