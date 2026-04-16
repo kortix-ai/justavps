@@ -102,6 +102,19 @@ export async function uploadSSHKeyToProvider(
       // If the key already exists (409/conflict or "already added"), try with a unique suffix
       if (err instanceof Error && (err.message.includes('already') || err.message.includes('409') || err.message.includes('uniqueness_error'))) {
         try {
+          const { HetznerProvider } = await import('./providers/hetzner');
+          if (provider instanceof HetznerProvider) {
+            const existingKeyId = await provider.findSSHKeyByPublicKey(publicKey);
+            if (existingKeyId) {
+              console.log(`[MACHINES] Reusing existing Hetzner SSH key ${existingKeyId} for ${slug}`);
+              return existingKeyId;
+            }
+          }
+        } catch (lookupErr: unknown) {
+          lastError = lookupErr instanceof Error ? lookupErr : new Error(String(lookupErr));
+        }
+
+        try {
           const result = await provider.uploadSSHKey(`justavps-${slug}-${Date.now()}`, publicKey);
           return result.keyId;
         } catch (retryErr: unknown) {
