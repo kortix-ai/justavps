@@ -74,7 +74,7 @@ const SnapshotInventorySchema = z.object({
 snapshotsV2App.openapi(createRoute({
   method: 'get',
   path: '/{machineId}',
-  tags: ['Snapshots V2'],
+  tags: ['Snapshots'],
   summary: 'List machine snapshots',
   request: { params: z.object({ machineId: z.string().uuid() }) },
   responses: { 200: { description: 'Snapshots', content: { 'application/json': { schema: SnapshotInventorySchema } } } },
@@ -90,7 +90,7 @@ snapshotsV2App.openapi(createRoute({
 snapshotsV2App.openapi(createRoute({
   method: 'post',
   path: '/{machineId}',
-  tags: ['Snapshots V2'],
+  tags: ['Snapshots'],
   summary: 'Create machine snapshot',
   request: {
     params: z.object({ machineId: z.string().uuid() }),
@@ -114,7 +114,7 @@ snapshotsV2App.openapi(createRoute({
 snapshotsV2App.openapi(createRoute({
   method: 'post',
   path: '/{machineId}/{snapshotId}/restore',
-  tags: ['Snapshots V2'],
+  tags: ['Snapshots'],
   summary: 'Restore machine snapshot',
   request: { params: z.object({ machineId: z.string().uuid(), snapshotId: z.string() }) },
   responses: { 200: { description: 'Restored', content: { 'application/json': { schema: z.object({ ok: z.boolean(), restore_execution_id: z.string().uuid() }) } } } },
@@ -131,7 +131,7 @@ snapshotsV2App.openapi(createRoute({
 snapshotsV2App.openapi(createRoute({
   method: 'delete',
   path: '/{machineId}/{snapshotId}',
-  tags: ['Snapshots V2'],
+  tags: ['Snapshots'],
   summary: 'Delete machine snapshot',
   request: { params: z.object({ machineId: z.string().uuid(), snapshotId: z.string() }) },
   responses: { 200: { description: 'Deleted', content: { 'application/json': { schema: z.object({ ok: z.boolean() }) } } } },

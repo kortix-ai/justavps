@@ -94,7 +94,7 @@ const MachineCreateV2Schema = z.object({
 machinesV2App.openapi(createRoute({
   method: 'get',
   path: '/',
-  tags: ['Machines V2'],
+  tags: ['Machines'],
   security: bearerSecurity,
   summary: 'List machines',
   responses: {
@@ -112,7 +112,7 @@ machinesV2App.openapi(createRoute({
 machinesV2App.openapi(createRoute({
   method: 'post',
   path: '/',
-  tags: ['Machines V2'],
+  tags: ['Machines'],
   security: bearerSecurity,
   summary: 'Create machine',
   request: { body: { required: true, content: { 'application/json': { schema: MachineCreateV2Schema } } } },
@@ -140,7 +140,7 @@ machinesV2App.openapi(createRoute({
 machinesV2App.openapi(createRoute({
   method: 'get',
   path: '/{id}',
-  tags: ['Machines V2'],
+  tags: ['Machines'],
   security: bearerSecurity,
   summary: 'Get machine',
   request: { params: z.object({ id: z.string().uuid() }) },
@@ -158,7 +158,7 @@ for (const action of ['start', 'stop', 'reboot'] as const) {
   machinesV2App.openapi(createRoute({
     method: 'post',
     path: `/{id}/${action}`,
-    tags: ['Machines V2'],
+    tags: ['Machines'],
     security: bearerSecurity,
     summary: `${action} machine`,
     request: { params: z.object({ id: z.string().uuid() }) },
@@ -175,7 +175,7 @@ for (const action of ['start', 'stop', 'reboot'] as const) {
 machinesV2App.openapi(createRoute({
   method: 'delete',
   path: '/{id}',
-  tags: ['Machines V2'],
+  tags: ['Machines'],
   security: bearerSecurity,
   summary: 'Delete machine',
   request: { params: z.object({ id: z.string().uuid() }) },
@@ -191,7 +191,7 @@ machinesV2App.openapi(createRoute({
 machinesV2App.openapi(createRoute({
   method: 'post',
   path: '/{id}/cancel',
-  tags: ['Machines V2'],
+  tags: ['Machines'],
   security: bearerSecurity,
   summary: 'Cancel machine subscription',
   request: { params: z.object({ id: z.string().uuid() }) },
@@ -207,7 +207,7 @@ machinesV2App.openapi(createRoute({
 machinesV2App.openapi(createRoute({
   method: 'post',
   path: '/{id}/reactivate',
-  tags: ['Machines V2'],
+  tags: ['Machines'],
   security: bearerSecurity,
   summary: 'Reactivate machine subscription',
   request: { params: z.object({ id: z.string().uuid() }) },

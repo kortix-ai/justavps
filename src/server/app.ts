@@ -350,16 +350,40 @@ app.get('/docs/openapi-v2.json', (c) => {
   if (!config.FEATURE_V2_ENABLED) {
     return c.json({ error: true, message: 'V2 API is not enabled in this environment', status: 404 }, 404);
   }
+  // Filter first, then enrich as v2 — so tag groups only reference v2 tags.
   const rawSpec = app.getOpenAPI31Document(openAPIConfig);
-  const enriched = enrichOpenAPISpec(rawSpec);
-  const filtered = filterOpenApiDocumentForPrefix(enriched as OpenApiDoc, '/api/v2');
-  const info = (filtered.info as Record<string, unknown> | undefined) ?? {};
+  const filtered = filterOpenApiDocumentForPrefix(rawSpec as unknown as OpenApiDoc, '/api/v2');
+  const enriched = enrichOpenAPISpec(filtered, 'v2');
+  const info = (enriched.info as Record<string, unknown> | undefined) ?? {};
   return c.json({
-    ...filtered,
+    ...enriched,
     info: {
       ...info,
       title: 'JustAVPS API V2',
       version: '2.0.0',
+      description: `The JustAVPS V2 API — the next-generation machine platform.
+
+**Status:** gated behind the \`FEATURE_V2_ENABLED\` flag. Production runs v1-only today. V2 is for new integrations with finer-grained resources, snapshots, and admin fleet control.
+
+## Authentication
+
+Bearer token: \`Authorization: Bearer sk_live_xxx\`. Create keys in the [dashboard](https://justavps.com/settings).
+
+## Base URL
+
+\`\`\`
+https://justavps.com/api/v2
+\`\`\`
+
+## What's different from v1
+
+- **Resources-first pricing** — machines are created with explicit \`vcpu\`, \`ram_gb\`, \`disk_gb\` instead of fixed server_type tiers.
+- **Native snapshots** — \`POST /snapshots/{machineId}\` captures disk state. Images are published artifacts; snapshots are lightweight, per-machine.
+- **Catalog endpoints** — \`/catalog/pricing\`, \`/catalog/recommendations\`, \`/catalog/regions\`, \`/catalog/hosts\` for dynamic resource discovery.
+- **Admin fleet surface** — \`/admin/fleet/*\` for host procurement, cell admission, and control-plane service state (operator-only).
+- **No per-machine Stripe subscriptions** — billing is handled outside v2 machine lifecycle.
+- **Minimal cloud-init** — v2 uses pre-built golden images; cloud-init only injects machine identity (~5s boot).
+`,
     },
     servers: [
       { url: '/api/v2', description: 'Current V2' },

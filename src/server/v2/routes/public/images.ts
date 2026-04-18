@@ -24,7 +24,7 @@ const ImageV2Schema = z.object({
 imagesV2App.openapi(createRoute({
   method: 'get',
   path: '/',
-  tags: ['Images V2'],
+  tags: ['Images'],
   summary: 'List images',
   responses: { 200: { description: 'Image list', content: { 'application/json': { schema: z.object({ images: z.array(ImageV2Schema) }) } } } },
 }), (async (c: unknown) => {
@@ -39,7 +39,7 @@ imagesV2App.openapi(createRoute({
 imagesV2App.openapi(createRoute({
   method: 'post',
   path: '/',
-  tags: ['Images V2'],
+  tags: ['Images'],
   summary: 'Create image from machine',
   request: { body: { required: true, content: { 'application/json': { schema: z.object({ machine_id: z.string().uuid(), name: z.string().min(1).max(128) }) } } } },
   responses: { 202: { description: 'Image creation started', content: { 'application/json': { schema: ImageV2Schema } } } },
@@ -65,7 +65,7 @@ imagesV2App.openapi(createRoute({
 imagesV2App.openapi(createRoute({
   method: 'delete',
   path: '/{id}',
-  tags: ['Images V2'],
+  tags: ['Images'],
   summary: 'Delete image',
   request: { params: z.object({ id: z.string() }) },
   responses: { 200: { description: 'Deleted', content: { 'application/json': { schema: z.object({ ok: z.boolean() }) } } } },

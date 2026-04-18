@@ -392,11 +392,29 @@ for p in processes:
   ],
 };
 
+const TAG_GROUPS_V1 = [
+  { name: 'Machines & Infrastructure', tags: ['Machines', 'Images', 'Server Types'] },
+  { name: 'Toolbox', tags: ['Toolbox: Filesystem', 'Toolbox: Process'] },
+  { name: 'Authentication & Access', tags: ['API Keys', 'Proxy Tokens', 'SSH Keys'] },
+  { name: 'Integrations', tags: ['Webhooks'] },
+  { name: 'Account', tags: ['Account'] },
+  { name: 'Internal', tags: ['Internal'] },
+] as const;
+
+const TAG_GROUPS_V2 = [
+  { name: 'Machines & Infrastructure', tags: ['Machines', 'Images', 'Snapshots', 'Catalog'] },
+  { name: 'Billing', tags: ['Billing'] },
+  { name: 'Admin', tags: ['Admin Bare Metal'] },
+] as const;
+
 /**
  * Enriches the OpenAPI spec with SDK code samples, installation instructions,
  * tag groups, and hides internal endpoints.
+ *
+ * `variant` selects the tag-group layout. Pass 'v2' when rendering the
+ * v2-filtered spec so the sidebar groups match what's actually in the spec.
  */
-export function enrichOpenAPISpec(spec: any): any {
+export function enrichOpenAPISpec(spec: any, variant: 'v1' | 'v2' = 'v1'): any {
   // 1. Add SDK installation instructions
   spec.info['x-scalar-sdk-installation'] = [
     {
@@ -411,15 +429,8 @@ export function enrichOpenAPISpec(spec: any): any {
     },
   ];
 
-  // 2. Group tags
-  spec['x-tagGroups'] = [
-    { name: 'Machines & Infrastructure', tags: ['Machines', 'Images', 'Server Types'] },
-    { name: 'Toolbox', tags: ['Toolbox: Filesystem', 'Toolbox: Process'] },
-    { name: 'Authentication & Access', tags: ['API Keys', 'Proxy Tokens', 'SSH Keys'] },
-    { name: 'Integrations', tags: ['Webhooks'] },
-    { name: 'Account', tags: ['Account'] },
-    { name: 'Internal', tags: ['Internal'] },
-  ];
+  // 2. Group tags — v1 and v2 have different tag vocabularies
+  spec['x-tagGroups'] = variant === 'v2' ? TAG_GROUPS_V2 : TAG_GROUPS_V1;
 
   // 3. Hide Internal tag
   if (spec.tags) {

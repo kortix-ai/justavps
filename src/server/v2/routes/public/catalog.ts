@@ -13,7 +13,7 @@ export const catalogV2App = new OpenAPIHono<{ Variables: AuthVariables }>();
 catalogV2App.openapi(createRoute({
   method: 'get',
   path: '/pricing',
-  tags: ['Catalog V2'],
+  tags: ['Catalog'],
   summary: 'Resource pricing rates',
   description: 'Returns per-resource monthly rates. Use these to compute the price for any custom configuration.',
   responses: {
@@ -38,7 +38,7 @@ catalogV2App.openapi(createRoute({
 catalogV2App.openapi(createRoute({
   method: 'get',
   path: '/recommendations',
-  tags: ['Catalog V2'],
+  tags: ['Catalog'],
   summary: 'Preset machine size recommendations',
   description: 'UI-only size presets that pre-fill resource sliders. Not required for machine creation.',
   responses: {
@@ -65,7 +65,7 @@ catalogV2App.openapi(createRoute({
 catalogV2App.openapi(createRoute({
   method: 'get',
   path: '/regions',
-  tags: ['Catalog V2'],
+  tags: ['Catalog'],
   summary: 'List public regions',
   responses: {
     200: { description: 'Public regions', content: { 'application/json': { schema: z.object({ regions: z.array(z.object({ id: z.string(), name: z.string(), country: z.string(), city: z.string() })) }) } } },
@@ -84,7 +84,7 @@ catalogV2App.use('/hosts', apiGuard);
 catalogV2App.openapi(createRoute({
   method: 'get',
   path: '/hosts',
-  tags: ['Catalog V2'],
+  tags: ['Catalog'],
   security: [{ Bearer: [] }],
   summary: 'List available hosts with free capacity',
   description: 'Returns active baremetal hosts with real-time free capacity for the resource sliders.',

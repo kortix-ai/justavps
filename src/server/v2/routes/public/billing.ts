@@ -10,7 +10,7 @@ billingV2App.use('*', apiGuard);
 billingV2App.openapi(createRoute({
   method: 'get',
   path: '/overview',
-  tags: ['Billing V2'],
+  tags: ['Billing'],
   summary: 'Get billing overview',
   responses: {
     200: { description: 'Billing overview', content: { 'application/json': { schema: z.object({
@@ -32,7 +32,7 @@ billingV2App.openapi(createRoute({
 billingV2App.openapi(createRoute({
   method: 'get',
   path: '/compare',
-  tags: ['Billing V2'],
+  tags: ['Billing'],
   summary: 'Compare JustAVPS monthly pricing to competitor monthly equivalents',
   request: { query: z.object({ plan: z.string(), hours_per_day: z.coerce.number().min(0).max(24).default(24) }) },
   responses: {
