@@ -44,6 +44,12 @@ export const config = {
   APP_URL: (process.env.NEXT_PUBLIC_APP_URL || 'https://justavps.com').trim(),
   API_URL: (process.env.NEXT_PUBLIC_API_URL || 'https://justavps.com/api').trim(),
   LEGACY_PLATFORM_PROXY_ENABLED: (process.env.LEGACY_PLATFORM_PROXY_ENABLED || 'false').trim().toLowerCase() === 'true',
+  // v2 is gated behind this flag. Prod runs v1-only by default; dev defaults
+  // to on. Flip FEATURE_V2_ENABLED=true in Vercel once v2 is ready to ship.
+  FEATURE_V2_ENABLED: (process.env.FEATURE_V2_ENABLED ?? (process.env.NODE_ENV === 'production' ? 'false' : 'true')).trim().toLowerCase() === 'true',
+  // Public-facing mirror so client-side code (middleware, pages) can make
+  // routing decisions. Must be kept in sync with FEATURE_V2_ENABLED.
+  NEXT_PUBLIC_FEATURE_V2_ENABLED: (process.env.NEXT_PUBLIC_FEATURE_V2_ENABLED ?? (process.env.NODE_ENV === 'production' ? 'false' : 'true')).trim().toLowerCase() === 'true',
   // Public callback URL embedded into new machines for /api/v1/internal/* callbacks.
   // Must be reachable from the public Internet; localhost will not work for remote VPSes.
   MACHINE_CALLBACK_URL: (process.env.MACHINE_CALLBACK_URL || '').trim(),

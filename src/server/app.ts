@@ -183,7 +183,15 @@ app.get('/readyz', async (c) => {
 });
 
 app.route('/v1', v1);
-app.route('/v2', v2);
+// v2 is gated behind FEATURE_V2_ENABLED. Prod runs v1-only by default;
+// flip the env var to expose /api/v2/* once v2 is ready to ship.
+if (config.FEATURE_V2_ENABLED) {
+  app.route('/v2', v2);
+} else {
+  app.all('/v2/*', (c) =>
+    c.json({ error: true, message: 'V2 API is not enabled in this environment', status: 404 }, 404),
+  );
+}
 
 // ─── Security Scheme Registration ─────────────────────────────────────────
 
@@ -339,6 +347,9 @@ app.get('/docs/openapi.json', (c) => {
 });
 
 app.get('/docs/openapi-v2.json', (c) => {
+  if (!config.FEATURE_V2_ENABLED) {
+    return c.json({ error: true, message: 'V2 API is not enabled in this environment', status: 404 }, 404);
+  }
   const rawSpec = app.getOpenAPI31Document(openAPIConfig);
   const enriched = enrichOpenAPISpec(rawSpec);
   const filtered = filterOpenApiDocumentForPrefix(enriched as OpenApiDoc, '/api/v2');
@@ -357,19 +368,17 @@ app.get('/docs/openapi-v2.json', (c) => {
   });
 });
 
+const DOCS_SCALAR_SOURCES = [
+  { title: 'JustAVPS API', url: '/api/docs/openapi.json' },
+  ...(config.FEATURE_V2_ENABLED
+    ? [{ title: 'JustAVPS API V2', url: '/api/docs/openapi-v2.json' }]
+    : []),
+];
+
 app.get(
   '/docs',
   Scalar({
-    sources: [
-      {
-        title: 'JustAVPS API',
-        url: '/api/docs/openapi.json',
-      },
-      {
-        title: 'JustAVPS API V2',
-        url: '/api/docs/openapi-v2.json',
-      },
-    ],
+    sources: DOCS_SCALAR_SOURCES,
     theme: 'kepler',
     hiddenClients: true,
     defaultHttpClient: {
@@ -379,18 +388,20 @@ app.get(
   }),
 );
 
-app.get(
-  '/docs/v2',
-  Scalar({
-    url: '/api/docs/openapi-v2.json',
-    theme: 'kepler',
-    hiddenClients: true,
-    defaultHttpClient: {
-      targetKey: 'shell',
-      clientKey: 'curl',
-    },
-  }),
-);
+if (config.FEATURE_V2_ENABLED) {
+  app.get(
+    '/docs/v2',
+    Scalar({
+      url: '/api/docs/openapi-v2.json',
+      theme: 'kepler',
+      hiddenClients: true,
+      defaultHttpClient: {
+        targetKey: 'shell',
+        clientKey: 'curl',
+      },
+    }),
+  );
+}
 
 // ─── Error Handling ─────────────────────────────────────────────────────────
 
