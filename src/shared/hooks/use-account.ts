@@ -1,0 +1,230 @@
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { api, apiV2 } from "@/shared/hooks/api-client";
+import type {
+  AccountUsage,
+  AccountLimits,
+  BillingPortal,
+  BillingSetup,
+  AccountProfile,
+  CurrentUserContext,
+  AccountMembershipSummary,
+  AccountInvitation,
+  AccountMember,
+  PendingInvitation,
+} from "@/shared/lib/types";
+
+const accountKeys = {
+  profile: ["account", "profile"] as const,
+  usage: ["account", "usage"] as const,
+  billing: ["account", "billing"] as const,
+  billingV2: ["account", "billing-v2"] as const,
+  billingCompareV2: (plan: string, hoursPerDay: number) => ["account", "billing-v2-compare", plan, hoursPerDay] as const,
+  limits: ["account", "limits"] as const,
+  me: ["account", "me"] as const,
+  memberships: ["account", "memberships"] as const,
+  members: ["account", "members"] as const,
+  invitations: ["account", "invitations"] as const,
+  myInvitations: ["account", "me", "invitations"] as const,
+};
+
+export function useAccount() {
+  return useQuery({
+    queryKey: accountKeys.profile,
+    queryFn: () => api.get<AccountProfile>("/account"),
+  });
+}
+
+export function useUsage() {
+  return useQuery({
+    queryKey: accountKeys.usage,
+    queryFn: () => api.get<AccountUsage>("/account/usage"),
+  });
+}
+
+export function useMe() {
+  return useQuery({
+    queryKey: accountKeys.me,
+    queryFn: () => api.get<CurrentUserContext>("/account/me"),
+  });
+}
+
+function useAccountMemberships() {
+  return useQuery({
+    queryKey: accountKeys.memberships,
+    queryFn: async () => {
+      const data = await api.get<{ memberships: AccountMembershipSummary[] }>("/account/memberships");
+      return data.memberships;
+    },
+  });
+}
+
+export function useAccountMembers(enabled = true) {
+  return useQuery({
+    queryKey: accountKeys.members,
+    queryFn: async () => {
+      const data = await api.get<{ members: AccountMember[] }>("/account/members");
+      return data.members;
+    },
+    enabled,
+  });
+}
+
+export function useAccountInvitations(enabled = true) {
+  return useQuery({
+    queryKey: accountKeys.invitations,
+    queryFn: async () => {
+      const data = await api.get<{ invitations: AccountInvitation[] }>("/account/invitations");
+      return data.invitations;
+    },
+    enabled,
+  });
+}
+
+export function useBillingPortal() {
+  return useQuery({
+    queryKey: accountKeys.billing,
+    queryFn: () => api.get<BillingPortal>("/account/billing"),
+  });
+}
+
+export function useBillingOverviewV2() {
+  return useQuery({
+    queryKey: accountKeys.billingV2,
+    queryFn: () => apiV2.get<{
+      modes: Array<{ id: string; available: boolean; default: boolean; description: string }>;
+      current_period: { machines: number; estimated_cost: number };
+      usage: { compute_seconds: number; storage_gb_seconds: number };
+      plans: Array<{ id: string; price_monthly: number }>;
+    }>("/billing/overview"),
+  });
+}
+
+export function useBillingComparisonV2(plan: string, hoursPerDay: number) {
+  return useQuery({
+    queryKey: accountKeys.billingCompareV2(plan, hoursPerDay),
+    queryFn: () => apiV2.get<{
+      plan: string;
+      monthly_price: number;
+      hours_per_day: number;
+      competitors: { e2b_monthly_equivalent: number; daytona_monthly_equivalent: number };
+    }>(`/billing/compare?plan=${plan}&hours_per_day=${hoursPerDay}`),
+    enabled: !!plan,
+  });
+}
+
+export function useAccountLimits(enabled = true) {
+  return useQuery({
+    queryKey: accountKeys.limits,
+    queryFn: () => api.get<AccountLimits>("/account/limits"),
+    enabled,
+  });
+}
+
+/**
+ * Mutation to create a Stripe Checkout session for adding a payment method.
+ * On success, redirects the browser to the Stripe Checkout page.
+ */
+export function useSetupPaymentMethod() {
+  return useMutation({
+    mutationFn: () => api.post<BillingSetup>("/account/billing/setup"),
+    onSuccess: (data) => {
+      if (data.checkout_url) {
+        window.location.href = data.checkout_url;
+      }
+    },
+  });
+}
+
+export function useSetAccountPassword() {
+  return useMutation({
+    mutationFn: (password: string) => api.post<{ ok: true }>("/account/password", { password }),
+  });
+}
+
+export function useSwitchAccount() {
+  return useMutation({
+    mutationFn: (accountId: string) => api.post<{ ok: true; account_id: string }>("/account/switch", { account_id: accountId }),
+  });
+}
+
+export function useCreateOrganization() {
+  return useMutation({
+    mutationFn: (name: string) => api.post<{ id: string; name: string; slug: string }>("/account/organizations", { name }),
+  });
+}
+
+export function useUpdateOrganization() {
+  return useMutation({
+    mutationFn: (name: string) => api.patch<AccountProfile>("/account", { name }),
+  });
+}
+
+export function useLeaveOrganization() {
+  return useMutation({
+    mutationFn: () => api.delete<{ ok: true; account_id: string }>("/account/members/me"),
+  });
+}
+
+export function useDeleteOrganization() {
+  return useMutation({
+    mutationFn: () => api.delete<{ ok: true; account_id: string }>("/account"),
+  });
+}
+
+export function useInviteAccountMember() {
+  return useMutation({
+    mutationFn: (input: { email: string; role: "owner" | "admin" | "member" }) =>
+      api.post<{ id: string; email: string; role: string; expires_at: string }>("/account/invitations", input),
+  });
+}
+
+export function useRedeemInvitation() {
+  return useMutation({
+    mutationFn: (token: string) => api.post<{ ok: true; account_id: string; redirect_to: string }>("/account/invitations/redeem", { token }),
+  });
+}
+
+export function useUpdateMemberRole() {
+  return useMutation({
+    mutationFn: (input: { membershipId: string; role: "owner" | "admin" | "member" }) =>
+      api.patch<{ ok: true }>(`/account/members/${input.membershipId}`, { role: input.role }),
+  });
+}
+
+export function useRemoveMember() {
+  return useMutation({
+    mutationFn: (membershipId: string) => api.delete(`/account/members/${membershipId}`),
+  });
+}
+
+export function useRevokeInvitation() {
+  return useMutation({
+    mutationFn: (invitationId: string) => api.delete(`/account/invitations/${invitationId}`),
+  });
+}
+
+// ─── Incoming invitations for current user (sidebar) ────────────────────────
+
+export function useMyPendingInvitations() {
+  return useQuery({
+    queryKey: accountKeys.myInvitations,
+    queryFn: async () => {
+      const data = await api.get<{ invitations: PendingInvitation[] }>("/account/me/invitations");
+      return data.invitations;
+    },
+  });
+}
+
+export function useAcceptMyInvitation() {
+  return useMutation({
+    mutationFn: (invitationId: string) =>
+      api.post<{ ok: true; account_id: string }>(`/account/me/invitations/${invitationId}/accept`),
+  });
+}
+
+export function useDeclineMyInvitation() {
+  return useMutation({
+    mutationFn: (invitationId: string) =>
+      api.post<{ ok: true }>(`/account/me/invitations/${invitationId}/decline`),
+  });
+}
