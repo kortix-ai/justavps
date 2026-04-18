@@ -18,13 +18,24 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 ENV_FILE="$PROJECT_DIR/.env"
+ENV_LOCAL_FILE="$PROJECT_DIR/.env.local"
 WEBHOOK_URL="http://localhost:4100/api/v1/stripe/webhooks"
 EVENTS="checkout.session.completed,invoice.payment_failed,customer.subscription.deleted,customer.subscription.updated"
 
+# Source .env first, then .env.local — local overrides win (matches Next.js
+# env priority). Without .env.local here, DATABASE_URL from .env (prod Neon)
+# would leak into the shell env and Next.js would use that instead of the
+# local Postgres override, silently querying prod.
 if [ -f "$ENV_FILE" ]; then
   set -a
   # shellcheck disable=SC1090
   . "$ENV_FILE"
+  set +a
+fi
+if [ -f "$ENV_LOCAL_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_LOCAL_FILE"
   set +a
 fi
 
