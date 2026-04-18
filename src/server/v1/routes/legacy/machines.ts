@@ -9,18 +9,17 @@ import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { eq, and, desc, inArray, ne } from 'drizzle-orm';
 import { db } from '@/server/db';
 import { accounts, machines, images, users, subscriptions } from '@/server/db/schema';
-import { config } from "@/server/core/config";
-import { DEFAULT_TEMPLATE_NAME, resolveRequestedProviderImage } from "@/server/core/image-catalog";
-import { serializeMachineV1 } from "@/server/v1/routes/legacy/serializers/machines";
+import { config } from '@/server/core/config';
+import { DEFAULT_TEMPLATE_NAME, resolveRequestedProviderImage } from '@/server/core/image-catalog';
 
 type Machine = typeof machines.$inferSelect;
-import { apiGuard, type AuthVariables } from "@/server/auth/api-guard";
-import { stripeClient } from "@/server/v1/services/stripe";
-import { requireAccountResource, requireProvider, errorResponse, handleRouteError } from "@/server/core/route-helpers";
-import { checkMachineLimit, checkImageLimit } from "@/server/auth/account-limits";
-import { isBackupCapableProvider } from "@/server/platform/providers/index";
-import { planTierIndex as getPlanTierIndex, backupSurcharge } from '@/shared/lib/plan-catalog';
-import { eventBus } from "@/server/core/event-bus";
+import { apiGuard, type AuthVariables } from '@/server/auth/api-guard';
+import { stripeClient } from '@/server/v1/services/stripe';
+import { requireAccountResource, requireProvider, errorResponse, handleRouteError } from '@/server/core/route-helpers';
+import { checkMachineLimit, checkImageLimit } from '@/server/auth/account-limits';
+import { HetznerProvider } from '@/server/platform/providers/hetzner';
+import { planTierIndex as getPlanTierIndex, backupSurcharge, planIdFromProviderSku, resolvePlanForDisplay } from '@/shared/lib/plan-catalog';
+import { eventBus } from '@/server/core/event-bus';
 import { after } from 'next/server';
 import {
   generateMachineIdentity,
@@ -34,8 +33,8 @@ import {
   syncMachineStatus,
   autoGenerateAndSaveSSHKey,
   resolveSSHKeyPublicKeys,
-} from "@/server/v1/services/machine-lifecycle";
-import { decryptSecret } from "@/server/core/crypto";
+} from '@/server/v1/services/machine-lifecycle';
+import { decryptSecret } from '@/server/core/crypto';
 import {
   CreateMachineSchema,
   ResizeMachineSchema,
@@ -51,12 +50,32 @@ import {
   ErrorResponseSchema,
 } from '@/shared/lib/schemas';
 import { createHmac } from 'crypto';
-import { requirePermission, requireMachineAccess } from "@/server/auth/api-guard";
+import { requirePermission, requireMachineAccess } from '@/server/auth/api-guard';
 
 export const machinesApp = new OpenAPIHono<{ Variables: AuthVariables }>();
 
 machinesApp.use('*', apiGuard);
 
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/** Safely convert a Date to ISO string, returning null for invalid/missing dates */
+function safeISO(d?: Date | null) {
+  if (!d) return null;
+  const iso = d.toISOString?.();
+  return iso && !iso.includes('Invalid') ? iso : null;
+}
+
+function readProvisionMeta(meta: Record<string, unknown> | null | undefined) {
+  const value = (meta ?? {}) as Record<string, unknown>;
+  const fallbackCallback = resolveMachineCallbackConfig();
+  return {
+    providerProgress: typeof value.create_progress === 'number' ? value.create_progress : null,
+    providerStatus: typeof value.create_status === 'string' ? value.create_status : null,
+    callbackExpected: typeof value.callback_expected === 'boolean' ? value.callback_expected : fallbackCallback.callbackExpected,
+    callbackUrl: typeof value.callback_url === 'string' ? value.callback_url : fallbackCallback.url,
+  };
+}
 
 function shouldSyncMachineStatusForList(machine: typeof machines.$inferSelect) {
   if (!machine.providerServerId) return false;
@@ -64,16 +83,121 @@ function shouldSyncMachineStatusForList(machine: typeof machines.$inferSelect) {
   return machine.status === 'error' && machine.provisioningStage === 'timeout';
 }
 
-function requireBackupProvider(c: any, provider: any) {
-  if (!isBackupCapableProvider(provider)) {
-    return errorResponse(c, 400, `Provider '${provider.name}' does not support backups`);
+function normalizeBackupDescription(description?: string): string | undefined {
+  if (!description) return undefined;
+  const normalized = description
+    .normalize('NFKD')
+    .replace(/[^\x20-\x7E]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return normalized ? normalized.slice(0, 120) : undefined;
+}
+
+function logBackupRouteContext(label: string, context: Record<string, unknown>, err: unknown) {
+  console.error(`[MACHINES][BACKUPS] ${label}`, {
+    ...context,
+    error: err instanceof Error ? {
+      name: err.name,
+      message: err.message,
+      stack: err.stack,
+      cause: err.cause,
+    } : err,
+  });
+}
+
+function serializeMachine(
+  m: typeof machines.$inferSelect,
+  sub?: typeof subscriptions.$inferSelect | null,
+  options?: { includeSensitive?: boolean },
+) {
+  const includeSensitive = options?.includeSensitive ?? true;
+  const proxyDomain = config.PROXY_DOMAIN;
+  const sshKeyPath = `~/.ssh/justavps_${m.slug}`;
+
+  // Decrypt SSH private key from DB (may be encrypted at rest).
+  // If decryption fails (wrong key, corrupted data), degrade gracefully —
+  // the machine still shows up in the list, just without SSH key access.
+  let sshPrivateKeyPlain: string | null = null;
+  if (includeSensitive && m.sshPrivateKey) {
+    try {
+      sshPrivateKeyPlain = decryptSecret(m.sshPrivateKey);
+    } catch (err) {
+      console.warn(`[MACHINES] Failed to decrypt SSH key for ${m.slug}: ${err instanceof Error ? err.message : err}`);
+    }
   }
-  return null;
+
+  const setupCommand = sshPrivateKeyPlain && m.ip
+    ? `mkdir -p ~/.ssh && echo '${sshPrivateKeyPlain.replace(/'/g, "'\\''")}' > ${sshKeyPath} && chmod 600 ${sshKeyPath} && ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${m.ip}`
+    : null;
+
+  const sshCommand = m.ip ? `ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no root@${m.ip}` : null;
+
+  const provisionMeta = readProvisionMeta(m.providerMeta);
+
+  // Resolve stored server type (may be legacy provider SKU) to our plan ID
+  const planId = planIdFromProviderSku(m.serverType) ?? m.serverType;
+  const planMeta = resolvePlanForDisplay(m.serverType);
+
+  return {
+    id: m.id,
+    slug: m.slug,
+    name: m.name,
+    status: m.status,
+    provisioning_stage: m.provisioningStage ?? null,
+    provisioning_stage_updated_at: m.provisioningStageUpdatedAt?.toISOString() ?? null,
+    provider: m.provider,
+    image_id: m.imageId,
+    server_type: planId,
+    plan_label: planMeta?.label ?? null,
+    region: m.region,
+    ip: m.ip,
+    provider_progress: provisionMeta.providerProgress,
+    provider_status: provisionMeta.providerStatus,
+    callback_expected: provisionMeta.callbackExpected,
+    callback_url: provisionMeta.callbackUrl,
+    price_monthly: m.priceMonthly || null,
+    backups_enabled: m.backupsEnabled,
+    created_at: m.createdAt.toISOString(),
+    ready_at: m.readyAt?.toISOString() ?? null,
+    urls: m.ip ? {
+      proxy: `https://${m.slug}.${proxyDomain}`,
+      terminal: `https://${m.slug}.${proxyDomain}/_terminal`,
+      port_template: `https://{port}--${m.slug}.${proxyDomain}`,
+    } : null,
+    ssh: sshCommand,
+    ssh_key: sshPrivateKeyPlain ? {
+      private_key: sshPrivateKeyPlain,
+      public_key: m.sshPublicKey,
+      setup_command: setupCommand,
+      key_path: sshKeyPath,
+    } : null,
+    connect: {
+      ssh_command: sshCommand,
+      setup_command: setupCommand,
+      vscode_url: `https://${m.slug}.${proxyDomain}`,
+      cursor_ssh: m.ip ? `ssh -i ${sshKeyPath} root@${m.ip}` : null,
+    },
+    source: m.source || 'user',
+    kortix_sandbox_id: m.kortixSandboxId ?? null,
+    created_by_api_key_id: m.createdByApiKeyId ?? null,
+    created_by_api_key_name: m.createdByApiKeyName ?? null,
+    created_by_api_key_prefix: m.createdByApiKeyPrefix ?? null,
+    daemon_version: m.daemonVersion ?? null,
+    subscription: sub ? {
+      status: sub.status,
+      cancel_at_period_end: sub.cancelAtPeriodEnd,
+      cancel_at: safeISO(sub.cancelAt),
+      cancelled_at: safeISO(sub.cancelledAt),
+      current_period_end: safeISO(sub.currentPeriodEnd),
+    } : null,
+    health: m.lastHeartbeat ? {
+      ...m.lastHeartbeat,
+      last_heartbeat_at: m.lastHeartbeatAt?.toISOString() ?? null,
+    } : null,
+  };
 }
 
 const bearerSecurity = [{ bearerAuth: [] as string[] }, { cookieAuth: [] as string[] }] as Record<string, string[]>[];
-
-const serializeMachine = serializeMachineV1;
 
 // ─── POST / — Create Machine ────────────────────────────────────────────────
 
@@ -123,6 +247,9 @@ machinesApp.openapi(createMachineRoute, async (c) => {
   const userId = c.get('userId');
   const accountId = c.get('accountId');
   const isAdmin = c.get('isAdmin');
+  const apiKeyId = c.get('apiKeyId');
+  const apiKeyName = c.get('apiKeyName');
+  const apiKeyPrefix = c.get('apiKeyPrefix');
 
   // 0. Check account machine limit
   const machineLimit = await checkMachineLimit(accountId, userId, isAdmin);
@@ -162,38 +289,27 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       .orderBy(desc(images.createdAt))
       .limit(1);
 
-    if (!baseImage) {
-      resolvedImage = 'ubuntu-24.04';
-      machineImageId = null;
-    } else {
-      const resolved = resolveRequestedProviderImage({
-        fallbackPublicImage: baseImage,
-      });
+    const resolved = resolveRequestedProviderImage({
+      fallbackPublicImage: baseImage,
+    });
 
-      if (!resolved.ok) {
-        return errorResponse(c, resolved.status, resolved.message) as any;
-      }
-
-      resolvedImage = resolved.selection.providerImage;
-      machineImageId = resolved.selection.machineImageId;
+    if (!resolved.ok) {
+      return errorResponse(c, resolved.status, resolved.message) as any;
     }
+
+    resolvedImage = resolved.selection.providerImage;
+    machineImageId = resolved.selection.machineImageId;
   }
 
   if (resolvedImage !== 'ubuntu-24.04') {
     const imageExists = await provider.validateImage(resolvedImage);
     if (!imageExists) {
-      const isExplicitImageSelection = typeof data.image_id === 'string' && !!data.image_id;
-      if (!isExplicitImageSelection) {
-        console.warn(`[MACHINES] Default template image ${resolvedImage} is unavailable on provider ${provider.name}; falling back to ubuntu-24.04`);
-        resolvedImage = 'ubuntu-24.04';
-        machineImageId = null;
-      } else {
-        return errorResponse(
-          c,
-          400,
-          'selected image is no longer available on the provider. Choose a different image.',
-        ) as any;
-      }
+      const imageLabel = machineImageId ? 'selected image' : 'default template image';
+      return errorResponse(
+        c,
+        400,
+        `${imageLabel} is no longer available on the provider. Reseed the template snapshots or choose a different image.`,
+      ) as any;
     }
   }
 
@@ -348,6 +464,9 @@ machinesApp.openapi(createMachineRoute, async (c) => {
       sshPrivateKey: autoKey.privateKey,
       priceMonthly,
       backupsEnabled: wantBackups,
+      createdByApiKeyId: apiKeyId ?? null,
+      createdByApiKeyName: apiKeyName ?? null,
+      createdByApiKeyPrefix: apiKeyPrefix ?? null,
     });
 
     if (stripeSubId) {
@@ -402,13 +521,6 @@ machinesApp.openapi(createMachineRoute, async (c) => {
 
         await db.update(machines).set({
           ip: server.publicIpv4 ?? server.publicIpv6 ?? server.publicIp,
-          publicIpv4: server.publicIpv4 ?? null,
-          publicIpv6: server.publicIpv6 ?? null,
-          providerProgress: 1,
-          providerStatus: 'running',
-          createActionId: server.createActionId ?? null,
-          callbackExpected: callbackConfig.callbackExpected,
-          callbackUrl: callbackConfig.url,
           providerServerId: server.serverId,
           providerMeta: {
             callback_expected: callbackConfig.callbackExpected,
@@ -418,7 +530,6 @@ machinesApp.openapi(createMachineRoute, async (c) => {
             create_progress: 1,
             public_ipv4: server.publicIpv4 ?? null,
             public_ipv6: server.publicIpv6 ?? null,
-            ...(server.metadata ?? {}),
           },
         }).where(eq(machines.id, machine.id));
 
@@ -475,7 +586,8 @@ const listMachinesRoute = createRoute({
   },
 });
 
-machinesApp.openapi(listMachinesRoute, (async (c: any) => {
+// @ts-expect-error — DB returns string status, schema expects enum; runtime values are always valid
+machinesApp.openapi(listMachinesRoute, async (c) => {
   const accountId = c.get('accountId');
   const result = await db.select().from(machines).where(
     and(eq(machines.accountId, accountId), ne(machines.status, 'deleted')),
@@ -495,7 +607,7 @@ machinesApp.openapi(listMachinesRoute, (async (c: any) => {
   return c.json({
     machines: synced.map((m) => serializeMachine(m, subsByMachineId.get(m.id) ?? null, { includeSensitive: false })),
   }, 200);
-}) as any);
+});
 
 // ─── GET /:id — Get Machine ────────────────────────────────────────────────
 
@@ -1072,7 +1184,7 @@ machinesApp.openapi(createImageFromMachineRoute, async (c) => {
   (async () => {
     try {
       const result = await lookup.provider.createImage(
-        machine.providerServerId!,
+        String(machine.providerServerId),
         `justavps-img-${name.replace(/[^a-z0-9-]/gi, '-').slice(0, 50)}`,
       );
       await db.update(images).set({
@@ -1141,21 +1253,28 @@ machinesApp.openapi(listBackupsRoute, async (c) => {
   const { id } = c.req.valid('param');
   const accountId = c.get('accountId');
 
-  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
-  if (owned.response) return owned.response as any;
+  try {
+    const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+    if (owned.response) return owned.response as any;
 
-  const machine = owned.resource;
-  if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
+    const machine = owned.resource;
+    if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
 
-  const lookup = requireProvider(c, machine.provider);
-  if (lookup.response) return lookup.response as any;
-  const backupProviderError = requireBackupProvider(c, lookup.provider);
-  if (backupProviderError) return backupProviderError as any;
+    const lookup = requireProvider(c, machine.provider);
+    if (lookup.response) return lookup.response as any;
 
-  const provider = lookup.provider as import("@/server/platform/providers/index").BackupCapableProvider;
-  const backups = await provider.listBackups(machine.providerServerId);
+    const provider = lookup.provider as HetznerProvider;
+    const backups = await provider.listBackups(machine.providerServerId);
 
-  return c.json({ backups, backups_enabled: machine.backupsEnabled }, 200);
+    return c.json({ backups, backups_enabled: machine.backupsEnabled }, 200);
+  } catch (err) {
+    logBackupRouteContext('listBackups failed', {
+      machineId: id,
+      accountId,
+      route: c.req.path,
+    }, err);
+    return handleRouteError(c, err, 'MACHINES.BACKUPS.list');
+  }
 });
 
 // ─── POST /:id/backups — Create manual backup ──────────────────────────────
@@ -1187,22 +1306,38 @@ machinesApp.openapi(createBackupRoute, async (c) => {
   const { id } = c.req.valid('param');
   const accountId = c.get('accountId');
 
-  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
-  if (owned.response) return owned.response as any;
+  try {
+    const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+    if (owned.response) return owned.response as any;
 
-  const machine = owned.resource;
-  if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
+    const machine = owned.resource;
+    if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
 
-  const lookup = requireProvider(c, machine.provider);
-  if (lookup.response) return lookup.response as any;
-  const backupProviderError = requireBackupProvider(c, lookup.provider);
-  if (backupProviderError) return backupProviderError as any;
+    const lookup = requireProvider(c, machine.provider);
+    if (lookup.response) return lookup.response as any;
 
-  const body = await c.req.json().catch(() => ({}));
-  const provider = lookup.provider as import("@/server/platform/providers/index").BackupCapableProvider;
-  const result = await provider.createBackup(machine.providerServerId, body?.description);
+    const body = await c.req.json().catch(() => ({}));
+    const normalizedDescription = normalizeBackupDescription(body?.description);
+    if (body?.description && normalizedDescription && body.description !== normalizedDescription) {
+      console.info('[MACHINES][BACKUPS] normalized backup description', {
+        machineId: id,
+        originalDescription: body.description,
+        normalizedDescription,
+      });
+    }
 
-  return c.json({ backup_id: result.id, status: 'creating' }, 202);
+    const provider = lookup.provider as HetznerProvider;
+    const result = await provider.createBackup(machine.providerServerId, normalizedDescription);
+
+    return c.json({ backup_id: result.id, status: 'creating' }, 202);
+  } catch (err) {
+    logBackupRouteContext('createBackup failed', {
+      machineId: id,
+      accountId,
+      route: c.req.path,
+    }, err);
+    return handleRouteError(c, err, 'MACHINES.BACKUPS.create');
+  }
 });
 
 // ─── POST /:id/backups/enable — Enable automatic backups ────────────────────
@@ -1237,12 +1372,10 @@ machinesApp.openapi(enableBackupsRoute, async (c) => {
 
   const lookup = requireProvider(c, machine.provider);
   if (lookup.response) return lookup.response as any;
-  const backupProviderError = requireBackupProvider(c, lookup.provider);
-  if (backupProviderError) return backupProviderError as any;
 
   // 1. Enable on provider
-  const provider = lookup.provider as import("@/server/platform/providers/index").BackupCapableProvider;
-  await provider.enableBackups(machine.providerServerId).catch((err: unknown) => {
+  const provider = lookup.provider as HetznerProvider;
+  await provider.enableBackups(machine.providerServerId).catch((err) => {
     console.error('[MACHINES] Provider backup enable failed, continuing with billing state update:', err);
   });
 
@@ -1296,12 +1429,10 @@ machinesApp.openapi(disableBackupsRoute, async (c) => {
 
   const lookup = requireProvider(c, machine.provider);
   if (lookup.response) return lookup.response as any;
-  const backupProviderError = requireBackupProvider(c, lookup.provider);
-  if (backupProviderError) return backupProviderError as any;
 
   // 1. Disable on provider
-  const provider = lookup.provider as import("@/server/platform/providers/index").BackupCapableProvider;
-  await provider.disableBackups(machine.providerServerId).catch((err: unknown) => {
+  const provider = lookup.provider as HetznerProvider;
+  await provider.disableBackups(machine.providerServerId).catch((err) => {
     console.error('[MACHINES] Provider backup disable failed, continuing with billing state update:', err);
   });
 
@@ -1351,26 +1482,34 @@ machinesApp.openapi(restoreBackupRoute, async (c) => {
   const { id, backupId } = c.req.valid('param');
   const accountId = c.get('accountId');
 
-  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
-  if (owned.response) return owned.response as any;
+  try {
+    const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+    if (owned.response) return owned.response as any;
 
-  const machine = owned.resource;
-  if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
+    const machine = owned.resource;
+    if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
 
-  const lookup = requireProvider(c, machine.provider);
-  if (lookup.response) return lookup.response as any;
-  const backupProviderError = requireBackupProvider(c, lookup.provider);
-  if (backupProviderError) return backupProviderError as any;
+    const lookup = requireProvider(c, machine.provider);
+    if (lookup.response) return lookup.response as any;
 
-  const provider = lookup.provider as import("@/server/platform/providers/index").BackupCapableProvider;
+    const provider = lookup.provider as HetznerProvider;
 
-  const backups = await provider.listBackups(machine.providerServerId);
-  const backupExists = backups.some((b: { id: string }) => b.id === backupId);
-  if (!backupExists) return errorResponse(c, 404, 'Backup not found for this machine') as any;
+    const backups = await provider.listBackups(machine.providerServerId);
+    const backupExists = backups.some((b) => b.id === backupId);
+    if (!backupExists) return errorResponse(c, 404, 'Backup not found for this machine') as any;
 
-  await provider.restoreBackup(machine.providerServerId, backupId);
+    await provider.restoreBackup(machine.providerServerId, backupId);
 
-  return c.json({ action: 'restore_backup', status: 'initiated' }, 200);
+    return c.json({ action: 'restore_backup', status: 'initiated' }, 200);
+  } catch (err) {
+    logBackupRouteContext('restoreBackup failed', {
+      machineId: id,
+      backupId,
+      accountId,
+      route: c.req.path,
+    }, err);
+    return handleRouteError(c, err, 'MACHINES.BACKUPS.restore');
+  }
 });
 
 // ─── DELETE /:id/backups/:backupId — Delete a backup ────────────────────────
@@ -1401,26 +1540,34 @@ machinesApp.openapi(deleteBackupRoute, async (c) => {
   const { id, backupId } = c.req.valid('param');
   const accountId = c.get('accountId');
 
-  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
-  if (owned.response) return owned.response as any;
+  try {
+    const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+    if (owned.response) return owned.response as any;
 
-  const machine = owned.resource;
-  if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
+    const machine = owned.resource;
+    if (!machine.providerServerId) return errorResponse(c, 404, 'Machine has no provider server') as any;
 
-  const lookup = requireProvider(c, machine.provider);
-  if (lookup.response) return lookup.response as any;
-  const backupProviderError = requireBackupProvider(c, lookup.provider);
-  if (backupProviderError) return backupProviderError as any;
+    const lookup = requireProvider(c, machine.provider);
+    if (lookup.response) return lookup.response as any;
 
-  const provider = lookup.provider as import("@/server/platform/providers/index").BackupCapableProvider;
+    const provider = lookup.provider as HetznerProvider;
 
-  const backups = await provider.listBackups(machine.providerServerId);
-  const backupExists = backups.some((b: { id: string }) => b.id === backupId);
-  if (!backupExists) return errorResponse(c, 404, 'Backup not found for this machine') as any;
+    const backups = await provider.listBackups(machine.providerServerId);
+    const backupExists = backups.some((b) => b.id === backupId);
+    if (!backupExists) return errorResponse(c, 404, 'Backup not found for this machine') as any;
 
-  await provider.deleteBackup(backupId);
+    await provider.deleteBackup(backupId);
 
-  return c.json({ action: 'delete_backup', status: 'completed' }, 200);
+    return c.json({ action: 'delete_backup', status: 'completed' }, 200);
+  } catch (err) {
+    logBackupRouteContext('deleteBackup failed', {
+      machineId: id,
+      backupId,
+      accountId,
+      route: c.req.path,
+    }, err);
+    return handleRouteError(c, err, 'MACHINES.BACKUPS.delete');
+  }
 });
 
 // ─── POST /:id/exec — Execute command on machine ────────────────────────────

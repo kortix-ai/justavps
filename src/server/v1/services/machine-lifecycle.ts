@@ -1,21 +1,16 @@
 import { eq, inArray, and } from 'drizzle-orm';
-import net from 'node:net';
 import { nanoid } from 'nanoid';
-import { db } from "@/server/db/index";
-import { machines, sshKeys, subscriptions } from "@/server/db/schema";
-import { generateMachineToken, fingerprintSSHKey, encryptSecret } from "@/server/core/crypto";
-import { generateSSHKeyPair } from "@/server/core/ssh-keygen";
-import { buildCloudInit } from "@/server/v1/services/cloud-init";
-import { config } from "@/server/core/config";
-import { stripeClient, type MachineSpecs } from "@/server/v1/services/stripe";
-import { getProvider, type ComputeProvider } from "@/server/platform/providers/index";
-import { syncMachineRoutingState } from "@/server/platform/control-plane/routing-state";
-import { releaseMachinePortAllocations } from "@/server/platform/baremetal/port-allocations";
-import { getHostCapacityReservationForMachine, releaseHostCapacityReservation } from "@/server/platform/baremetal/reservations";
-import { updateProviderMeta } from "@/server/platform/provider-meta";
+import { db } from '@/server/db';
+import { accounts, machines, users, sshKeys, subscriptions } from '@/server/db/schema';
+import { generateMachineToken, fingerprintSSHKey, encryptSecret } from '@/server/core/crypto';
+import { generateSSHKeyPair } from '@/server/core/ssh-keygen';
+import { buildCloudInit } from '@/server/v1/services/cloud-init';
+import { config } from '@/server/core/config';
+import { cloudflareClient, type MachineRoutingKVRecord } from '@/server/platform/cloudflare';
+import { stripeClient, type MachineSpecs } from '@/server/v1/services/stripe';
+import { getProvider, type ComputeProvider } from '@/server/platform/providers';
+import { updateProviderMeta } from '@/server/platform/provider-meta';
 import { resolvePlanForDisplay, STARTING_MONTHLY_PRICE, marketForRegion } from '@/shared/lib/plan-catalog';
-import { shouldMarkReadyFromHttpProbe } from "@/server/v2/domains/machine/readiness";
-import { deriveMachineRuntimeKind } from "@/server/v2/domains/machine/types";
 
 interface ProvisionProviderMeta {
   create_action_id?: string | null;
@@ -23,35 +18,12 @@ interface ProvisionProviderMeta {
   create_status?: string | null;
   public_ipv4?: string | null;
   public_ipv6?: string | null;
-  http_port?: number | null;
   callback_expected?: boolean;
   callback_url?: string | null;
   last_callback_at?: string | null;
   last_probe_at?: string | null;
   ready_via?: 'heartbeat' | 'probe' | null;
   daemon_reachable_at?: string | null;
-  requested_image_kind?: 'golden' | 'catalog' | 'docker' | null;
-  requested_image_ref?: string | null;
-}
-
-async function canConnect(host: string | null | undefined, port: number | null | undefined, timeoutMs = 1500) {
-  if (!host || !port) return false;
-  return new Promise<boolean>((resolve) => {
-    const socket = net.createConnection({ host, port });
-    socket.setTimeout(timeoutMs);
-    socket.once('connect', () => {
-      socket.destroy();
-      resolve(true);
-    });
-    socket.once('timeout', () => {
-      socket.destroy();
-      resolve(false);
-    });
-    socket.once('error', () => {
-      socket.destroy();
-      resolve(false);
-    });
-  });
 }
 
 export async function generateMachineIdentity() {
@@ -82,6 +54,8 @@ function isPublicCallbackOrigin(origin: string): boolean {
 }
 
 export function resolveMachineCallbackConfig(requestUrl?: string): { url: string; callbackExpected: boolean } {
+  // Explicit MACHINE_CALLBACK_URL is authoritative — used for local e2e where
+  // the platform is reachable via ngrok/tunnel on a private origin.
   if (config.MACHINE_CALLBACK_URL) {
     return { url: config.MACHINE_CALLBACK_URL, callbackExpected: true };
   }
@@ -133,6 +107,19 @@ export async function uploadSSHKeyToProvider(
       // If the key already exists (409/conflict or "already added"), try with a unique suffix
       if (err instanceof Error && (err.message.includes('already') || err.message.includes('409') || err.message.includes('uniqueness_error'))) {
         try {
+          const { HetznerProvider } = await import('@/server/platform/providers/hetzner');
+          if (provider instanceof HetznerProvider) {
+            const existingKeyId = await provider.findSSHKeyByPublicKey(publicKey);
+            if (existingKeyId) {
+              console.log(`[MACHINES] Reusing existing Hetzner SSH key ${existingKeyId} for ${slug}`);
+              return existingKeyId;
+            }
+          }
+        } catch (lookupErr: unknown) {
+          lastError = lookupErr instanceof Error ? lookupErr : new Error(String(lookupErr));
+        }
+
+        try {
           const result = await provider.uploadSSHKey(`justavps-${slug}-${Date.now()}`, publicKey);
           return result.keyId;
         } catch (retryErr: unknown) {
@@ -145,7 +132,7 @@ export async function uploadSSHKeyToProvider(
         didGC = true;
         console.warn(`[MACHINES] SSH key limit reached — running GC to prune orphaned keys...`);
         try {
-          const { HetznerProvider } = await import("@/server/platform/providers/hetzner");
+          const { HetznerProvider } = await import('@/server/platform/providers/hetzner');
           if (provider instanceof HetznerProvider) {
             const gc = await provider.gcSSHKeys();
             console.log(`[MACHINES] SSH key GC complete: ${gc.deleted} deleted, ${gc.total} total`);
@@ -199,12 +186,26 @@ export function buildMachineUserData(
   });
 }
 
+function buildMachineRoutingKVData(input: {
+  machineId: string;
+  slug: string;
+  accountId: string;
+  ip: string;
+  status: string;
+  serverType: string;
+}): MachineRoutingKVRecord {
+  return {
+    machine_id: input.machineId,
+    account_id: input.accountId,
+    ip: input.ip,
+    status: input.status,
+    server_type: input.serverType,
+  };
+}
+
 /**
- * Register machine in Cloudflare:
- * - Writes machine:{slug} to KV for Worker auth/routing (HTTP proxy)
- * - Creates unproxied A record at `origin-{slug}.<PROXY_DOMAIN>` so SSH can
- *   reach the baremetal host via a pretty hostname instead of the raw IP.
- *   The host's Incus proxy device NATs the per-machine SSH port to the VM.
+ * Register machine in Cloudflare KV for Worker auth/routing.
+ * - Writes machine:{slug} to KV for Worker auth
  */
 export async function setupProxyDNS(
   machineId: string,
@@ -212,23 +213,21 @@ export async function setupProxyDNS(
   addresses: { ipv4?: string | null; ipv6?: string | null },
   accountId: string,
   serverType: string,
-  options?: { routingIp?: string | null; routingPort?: number | null },
 ) {
-  const primaryIp = options?.routingIp ?? addresses.ipv4 ?? addresses.ipv6;
-  await syncMachineRoutingState({
+  if (!config.isCloudflareConfigured()) return;
+
+  const primaryIp = addresses.ipv4 ?? addresses.ipv6;
+  if (!primaryIp) return;
+
+  await cloudflareClient.writeKVMachine(slug, buildMachineRoutingKVData({
     machineId,
+    slug,
     accountId,
-    machineSlug: slug,
-    machineStatus: 'provisioning',
+    ip: primaryIp,
+    status: 'provisioning',
     serverType,
-    desiredIp: primaryIp,
-    desiredOriginPort: options?.routingPort ?? null,
-    publicIpv4: addresses.ipv4 ?? null,
-    publicIpv6: addresses.ipv6 ?? null,
-    originHostname: `origin-${slug}.${config.PROXY_DOMAIN}`,
-    source: 'machine_setup_proxy_dns',
-  }).catch((err: unknown) => {
-    console.warn(`[ROUTING] Failed to sync routing state for ${slug}:`, err);
+  })).catch((err: unknown) => {
+    console.warn(`[CF KV] Failed to write machine:${slug}:`, err);
   });
 }
 
@@ -311,43 +310,72 @@ interface CreateMachineInput {
   slug: string;
   name: string;
   provider: string;
-  machineMode?: 'vm' | 'container';
-  requestedImageKind?: 'golden' | 'catalog' | 'docker' | null;
-  requestedImageRef?: string | null;
   imageId: string | null;
   serverType: string;
   region: string;
-  baremetalHostId?: string | null;
   ip: string | null;
-  publicIpv4?: string | null;
-  publicIpv6?: string | null;
-  sshPort?: number | null;
-  httpPort?: number | null;
-  readyVia?: 'heartbeat' | 'probe' | null;
   providerServerId: string | null;
   machineToken: string;
-  sshPublicKey: string | null;
-  sshPrivateKey: string | null;
+  sshPublicKey: string;
+  sshPrivateKey: string;
   priceMonthly: number | null;
   backupsEnabled?: boolean;
-  executor?: Pick<typeof db, 'insert'>;
+  createdByApiKeyId?: string | null;
+  createdByApiKeyName?: string | null;
+  createdByApiKeyPrefix?: string | null;
 }
 
 export async function createMachineRecord(input: CreateMachineInput) {
-  const { executor = db, ...values } = input;
-  const [machine] = await executor.insert(machines).values({
-    ...values,
-    machineMode: input.machineMode ?? 'vm',
-    requestedImageKind: input.requestedImageKind ?? 'golden',
-    requestedImageRef: input.requestedImageRef ?? null,
-    sshPublicKey: input.sshPublicKey ?? '',
+  const [machine] = await db.insert(machines).values({
+    ...input,
     backupsEnabled: input.backupsEnabled ?? true,
     // Encrypt secrets at rest — decrypted on read via decryptSecret()
     machineToken: encryptSecret(input.machineToken),
-    sshPrivateKey: input.sshPrivateKey ? encryptSecret(input.sshPrivateKey) : '',
+    sshPrivateKey: encryptSecret(input.sshPrivateKey),
     codeServerPassword: '',
   }).returning();
   return machine;
+}
+
+export async function createStripeSubscription(
+  ownerId: string,
+  accountId: string,
+  machineId: string,
+  slug: string,
+  priceMonthly: number,
+  serverType: string,
+  specs?: MachineSpecs,
+  isAdmin = false,
+) {
+  if (!stripeClient.isConfigured()) return;
+  try {
+    const [account] = await db.select().from(accounts).where(eq(accounts.id, accountId));
+    const [user] = await db.select().from(users).where(eq(users.id, ownerId));
+    if (!account || !user) return;
+
+    const customerId = await stripeClient.getOrCreateCustomer(accountId, account.billingEmail || user.email, account.stripeCustomerId);
+    if (!account.stripeCustomerId) {
+      await db.update(accounts).set({ stripeCustomerId: customerId }).where(eq(accounts.id, accountId));
+    }
+
+    const createSub = isAdmin
+      ? stripeClient.createAdminMachineSubscription
+      : stripeClient.createMachineSubscription;
+
+    const { subscriptionId, subscriptionItemId } = await createSub.call(
+      stripeClient, customerId, machineId, slug, priceMonthly, serverType, specs,
+    );
+    await db.insert(subscriptions).values({
+      machineId,
+      ownerId,
+      accountId,
+      stripeSubscriptionId: subscriptionId,
+      stripeSubscriptionItemId: subscriptionItemId,
+      status: 'active',
+    });
+  } catch (err) {
+    console.error('[MACHINES] Stripe subscription creation failed (non-fatal):', err);
+  }
 }
 
 export async function cleanupMachineResources(
@@ -361,28 +389,13 @@ export async function cleanupMachineResources(
     return;
   }
 
-  const providerServerId = machine.providerServerId
-    ?? (machine.provider === 'baremetal' ? `justavps-${machine.slug}` : null);
-
-  if (providerServerId) {
-    await provider.deleteServer(providerServerId);
+  if (machine.providerServerId) {
+    await provider.deleteServer(machine.providerServerId);
   }
 
   if (config.isCloudflareConfigured()) {
-    const meta = readProviderMeta(machine);
-    await syncMachineRoutingState({
-      machineId: machine.id,
-      accountId: machine.accountId ?? machine.ownerId,
-      machineSlug: machine.slug,
-      machineStatus: 'deleted',
-      serverType: machine.serverType,
-      desiredIp: null,
-      desiredOriginPort: typeof meta.http_port === 'number' ? meta.http_port : null,
-      publicIpv4: typeof meta.public_ipv4 === 'string' ? meta.public_ipv4 : null,
-      publicIpv6: typeof meta.public_ipv6 === 'string' ? meta.public_ipv6 : null,
-      originHostname: `origin-${machine.slug}.${config.PROXY_DOMAIN}`,
-      source: 'machine_cleanup',
-    }).catch(() => {});
+    await cloudflareClient.removeMachineDNS(machine.slug).catch(() => {});
+    await cloudflareClient.deleteKVMachine(machine.slug);
   }
 
   if (stripeClient.isConfigured()) {
@@ -390,20 +403,6 @@ export async function cleanupMachineResources(
     if (sub) {
       await stripeClient.cancelMachineSubscription(sub.stripeSubscriptionId).catch(() => {});
     }
-  }
-
-  if (machine.provider === 'baremetal') {
-    const reservation = await getHostCapacityReservationForMachine(machine.id).catch(() => null);
-    if (reservation && ['reserved', 'committed'].includes(reservation.state)) {
-      await releaseHostCapacityReservation({
-        reservationId: reservation.id,
-        metadata: {
-          ...(reservation.metadata ?? {}),
-          released_by: 'machine_cleanup',
-        },
-      }).catch(() => {});
-    }
-    await releaseMachinePortAllocations(machine.id).catch(() => {});
   }
 
   await db.update(machines)
@@ -439,26 +438,21 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
         });
 
         if (nextIp !== machine.ip) {
-          await db.update(machines).set({ ip: nextIp, publicIpv4: network.publicIpv4 ?? null, publicIpv6: network.publicIpv6 ?? null }).where(eq(machines.id, machine.id));
+          await db.update(machines).set({ ip: nextIp }).where(eq(machines.id, machine.id));
         }
 
-        machine = { ...machine, ip: nextIp, publicIpv4: network.publicIpv4 ?? null, publicIpv6: network.publicIpv6 ?? null, providerMeta: nextMeta };
+        machine = { ...machine, ip: nextIp, providerMeta: nextMeta };
 
         if (config.isCloudflareConfigured() && nextIp) {
-          await syncMachineRoutingState({
+          await cloudflareClient.writeKVMachine(machine.slug, buildMachineRoutingKVData({
             machineId: machine.id,
+            slug: machine.slug,
             accountId: machine.accountId ?? machine.ownerId,
-            machineSlug: machine.slug,
-            machineStatus: machine.status,
+            ip: nextIp,
+            status: machine.status,
             serverType: machine.serverType,
-            desiredIp: nextIp,
-            desiredOriginPort: typeof nextMeta.http_port === 'number' ? nextMeta.http_port : null,
-            publicIpv4: typeof nextMeta.public_ipv4 === 'string' ? nextMeta.public_ipv4 : null,
-            publicIpv6: typeof nextMeta.public_ipv6 === 'string' ? nextMeta.public_ipv6 : null,
-            originHostname: `origin-${machine.slug}.${config.PROXY_DOMAIN}`,
-            source: 'machine_network_refresh',
-          }).catch((err) => {
-            console.warn(`[MACHINES] Failed to sync routing state for ${machine.slug}:`, err);
+          })).catch((err) => {
+            console.warn(`[MACHINES] Failed to sync KV for ${machine.slug}:`, err);
           });
         }
       }
@@ -482,35 +476,6 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
     return { ...machine, status: 'ready' as const, readyAt: now };
   }
 
-  const requestedImageKind = machine.requestedImageKind ?? (typeof meta.requested_image_kind === 'string' ? meta.requested_image_kind : null);
-  const requestedImageRef = machine.requestedImageRef ?? (typeof meta.requested_image_ref === 'string' ? meta.requested_image_ref : null);
-  const runtimeKind = deriveMachineRuntimeKind({
-    machineMode: (machine.machineMode as 'vm' | 'container') ?? 'vm',
-    requestedImageKind: requestedImageKind === 'catalog' || requestedImageKind === 'docker' ? requestedImageKind : 'golden',
-  });
-  const host = machine.publicIpv4 ?? (typeof meta.public_ipv4 === 'string' ? meta.public_ipv4 : machine.ip);
-  const port = machine.httpPort ?? (typeof meta.http_port === 'number' ? meta.http_port : null);
-  const shouldProbeReady = shouldMarkReadyFromHttpProbe({ runtimeKind, host, port })
-    || (requestedImageKind === 'docker' || /^(docker|oci):/i.test(requestedImageRef ?? ''));
-  if (shouldProbeReady) {
-    if (await canConnect(host, port)) {
-      const now = new Date();
-      const nextMeta = await updateProviderMeta(machine.id, {
-        last_probe_at: now.toISOString(),
-        ready_via: 'probe',
-        daemon_reachable_at: now.toISOString(),
-      });
-      await db.update(machines).set({
-        status: 'ready',
-        readyAt: now,
-        readyVia: 'probe',
-        provisioningStage: 'services_ready',
-        providerMeta: nextMeta,
-      }).where(eq(machines.id, machine.id));
-      return { ...machine, status: 'ready' as const, readyAt: now, readyVia: 'probe' as const, provisioningStage: 'services_ready', providerMeta: nextMeta };
-    }
-  }
-
   // ── Provisioning timeout ─────────────────────────────────────────────────
   if (Date.now() - machine.createdAt.getTime() > PROVISION_TIMEOUT_MS) {
     console.warn(`[MACHINES] Provisioning timeout for ${machine.slug} (${Math.round((Date.now() - machine.createdAt.getTime()) / 1000)}s elapsed, no heartbeat)`);
@@ -518,7 +483,7 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
       status: 'error',
       provisioningStage: 'timeout',
     }).where(eq(machines.id, machine.id));
-    const { eventBus } = await import("@/server/core/event-bus");
+    const { eventBus } = await import('@/server/core/event-bus');
     await eventBus.emitStatusChange(machine.id, machine.accountId ?? machine.ownerId, 'error', 'Provisioning timed out');
     return { ...machine, status: 'error' as const, provisioningStage: 'timeout' };
   }

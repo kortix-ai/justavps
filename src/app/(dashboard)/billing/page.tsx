@@ -79,8 +79,8 @@ export default function BillingPage() {
 
       {/* Payment method status */}
       {!billingLoading && !hasPaymentMethod && canManageBilling && (
-        <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
-          <AlertTriangle className="size-4 text-amber-500 shrink-0 mt-0.5" />
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-brand/10 border border-brand/20">
+          <AlertTriangle className="size-4 text-brand shrink-0 mt-0.5" />
           <div className="space-y-2">
             <p className="text-sm font-medium">No payment method on file</p>
             <p className="text-xs text-muted-foreground">

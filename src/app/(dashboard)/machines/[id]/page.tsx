@@ -280,14 +280,14 @@ function BackupsPanel({ machineId, machine }: { machineId: string; machine: { pr
     <div className="space-y-3">
       {/* Paid upsell banner — only shown when disabled */}
       {!enabled && loaded && (
-        <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
-          <div className="size-7 rounded-md bg-amber-500/10 flex items-center justify-center shrink-0 mt-0.5">
-            <Shield className="size-3.5 text-amber-500" />
+        <div className="flex items-start gap-3 rounded-xl border border-brand/20 bg-brand/5 px-4 py-3">
+          <div className="size-7 rounded-md bg-brand/10 flex items-center justify-center shrink-0 mt-0.5">
+            <Shield className="size-3.5 text-brand" />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2 mb-0.5 flex-wrap">
               <p className="text-sm font-medium">Add daily backups</p>
-              <Badge variant="outline" className="text-[10px] h-4 px-1.5 border-amber-500/30 text-amber-700 dark:text-amber-400">
+              <Badge variant="outline" className="text-[10px] h-4 px-1.5 border-brand/30 text-amber-700 dark:text-amber-400">
                 +{BACKUP_SURCHARGE_PERCENT}%
               </Badge>
             </div>

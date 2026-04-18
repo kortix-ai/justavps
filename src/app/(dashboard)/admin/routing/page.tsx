@@ -242,7 +242,7 @@ export default function AdminRoutingPage() {
           {scan.data && scan.data.stale_kv.length > 0 && (
             <div className="rounded-2xl border p-5">
               <div className="mb-4 flex items-center gap-2">
-                <AlertTriangle className="size-4 text-amber-500" />
+                <AlertTriangle className="size-4 text-brand" />
                 <h2 className="font-medium">Stale KV Keys</h2>
               </div>
               <div className="space-y-2">
@@ -262,7 +262,7 @@ export default function AdminRoutingPage() {
           {scan.data && scan.data.stale_public_dns.length > 0 && (
             <div className="rounded-2xl border p-5">
               <div className="mb-4 flex items-center gap-2">
-                <AlertTriangle className="size-4 text-amber-500" />
+                <AlertTriangle className="size-4 text-brand" />
                 <h2 className="font-medium">Stale Public DNS</h2>
               </div>
               <div className="space-y-2">

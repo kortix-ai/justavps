@@ -416,7 +416,7 @@ export const roobert = localFont({
                 <p className="text-xs text-muted-foreground text-center">Warning / Provisioning</p>
               </div>
               <div className="space-y-2">
-                <div className="h-12 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+                <div className="h-12 rounded-lg bg-brand/10 border border-brand/20 flex items-center justify-center">
                   <span className="text-sm font-medium text-amber-600 dark:text-amber-400">Amber</span>
                 </div>
                 <p className="text-xs text-muted-foreground text-center">Near Limit / Caution</p>
@@ -435,7 +435,7 @@ export const roobert = localFont({
             <p className="font-medium">Color Rules</p>
             <ul className="space-y-1 text-muted-foreground text-xs">
               <li>• <strong className="text-foreground">Success/Running:</strong> emerald-500 (NOT green-500)</li>
-              <li>• <strong className="text-foreground">Warning/Provisioning:</strong> yellow-500 for status dots, amber-500 for alert banners</li>
+              <li>• <strong className="text-foreground">Warning/Provisioning:</strong> yellow-500 for status dots, brand for alert banners</li>
               <li>• <strong className="text-foreground">Error/Destructive:</strong> red-500 for dots, destructive token for text/borders</li>
               <li>• <strong className="text-foreground">Background tints:</strong> color-500/5 or /10, borders: color-500/20</li>
               <li>• <strong className="text-foreground">Dark mode text:</strong> dark:text-color-400 for readable contrast</li>
@@ -868,8 +868,8 @@ export const roobert = localFont({
       >
         <div className="space-y-3">
           {/* Warning */}
-          <div className="flex items-start gap-3 rounded-xl border p-4 border-amber-500/20 bg-amber-500/10">
-            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-500" />
+          <div className="flex items-start gap-3 rounded-xl border p-4 border-brand/20 bg-brand/10">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-brand" />
             <div className="space-y-0.5">
               <p className="text-sm font-medium">Warning alert</p>
               <p className="text-xs text-muted-foreground">
@@ -918,8 +918,8 @@ export const roobert = localFont({
 
         <CodeBlock title="Alert banner patterns" lang="tsx">{`
 {/* Warning banner */}
-<div className="flex items-start gap-3 rounded-xl border p-4 border-amber-500/20 bg-amber-500/10">
-  <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-500" />
+<div className="flex items-start gap-3 rounded-xl border p-4 border-brand/20 bg-brand/10">
+  <AlertTriangle className="mt-0.5 size-4 shrink-0 text-brand" />
   <div className="space-y-0.5">
     <p className="text-sm font-medium">Title</p>
     <p className="text-xs text-muted-foreground">Description</p>

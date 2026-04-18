@@ -20,6 +20,9 @@ const PROTECTED_ROUTES: string[] = [
  */
 const AUTH_ONLY_ROUTES: string[] = [
   '/login',
+  '/forgot-password',
+  '/reset-password',
+  '/verify-email',
 ];
 
 /**

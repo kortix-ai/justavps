@@ -57,6 +57,9 @@ export const MachineResponseSchema = z.object({
   backups_enabled: z.boolean(),
   created_at: z.string(),
   ready_at: z.string().nullable(),
+  created_by_api_key_id: z.string().uuid().nullable().optional(),
+  created_by_api_key_name: z.string().nullable().optional(),
+  created_by_api_key_prefix: z.string().nullable().optional(),
   urls: z.object({
     proxy: z.string(),
     terminal: z.string(),

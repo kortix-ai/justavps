@@ -101,11 +101,11 @@ export function RescaleDialog({ open, onOpenChange, machine }: RescaleDialogProp
         {/* ── Body ── */}
         <div className="px-5 py-4 space-y-4">
           {!canResize && (
-            <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/8 px-3.5 py-3">
-              <AlertTriangle className="size-4 text-amber-500 shrink-0 mt-0.5" />
+            <div className="flex items-start gap-2.5 rounded-lg border border-brand/30 bg-brand/8 px-3.5 py-3">
+              <AlertTriangle className="size-4 text-brand shrink-0 mt-0.5" />
               <div>
                 <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Machine must be running</p>
-                <p className="text-xs text-amber-600/80 dark:text-amber-500/80 mt-0.5">Start your machine before scaling up.</p>
+                <p className="text-xs text-amber-600/80 dark:text-brand/80 mt-0.5">Start your machine before scaling up.</p>
               </div>
             </div>
           )}

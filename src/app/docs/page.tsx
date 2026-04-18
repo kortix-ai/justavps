@@ -142,7 +142,7 @@ function Ul({ children }: { children: React.ReactNode }) { return <ul className=
 function Li({ children }: { children: React.ReactNode }) { return <li className="flex gap-2"><span className="mt-[7px] size-1.5 shrink-0 rounded-full bg-muted-foreground/40" /><span>{children}</span></li>; }
 function B({ children }: { children: React.ReactNode }) { return <strong className="font-medium text-foreground">{children}</strong>; }
 function Callout({ children, type = "info" }: { children: React.ReactNode; type?: "info" | "tip" | "warning" }) {
-  const styles = { info: cn("border-blue-400/40 bg-blue-50 text-blue-900", "dark:border-blue-500/20 dark:bg-blue-950/30 dark:text-blue-200/90"), tip: cn("border-emerald-400/40 bg-emerald-50 text-emerald-900", "dark:border-emerald-500/20 dark:bg-emerald-950/30 dark:text-emerald-200/90"), warning: cn("border-amber-400/40 bg-amber-50 text-amber-900", "dark:border-amber-500/20 dark:bg-amber-950/30 dark:text-amber-200/90") };
+  const styles = { info: cn("border-blue-400/40 bg-blue-50 text-blue-900", "dark:border-blue-500/20 dark:bg-blue-950/30 dark:text-blue-200/90"), tip: cn("border-emerald-400/40 bg-emerald-50 text-emerald-900", "dark:border-emerald-500/20 dark:bg-emerald-950/30 dark:text-emerald-200/90"), warning: cn("border-amber-400/40 bg-amber-50 text-amber-900", "dark:border-brand/20 dark:bg-amber-950/30 dark:text-amber-200/90") };
   const labels = { info: "Note", tip: "Tip", warning: "Warning" };
   return <div className={cn("my-4 rounded-lg border-l-2 px-4 py-3 text-[14px]", styles[type])}><span className="mb-1 block text-xs font-semibold uppercase tracking-wider opacity-60">{labels[type]}</span>{children}</div>;
 }
@@ -257,7 +257,7 @@ export default function DocsPage() {
       <div className="max-w-3xl mx-auto px-6 py-8 lg:px-10">
 
         <div className="mb-10">
-          <h1 className="text-3xl font-bold tracking-tight mb-3">JustAVPS Docs</h1>
+          <h1 className="text-3xl font-medium tracking-tight mb-3">JustAVPS Docs</h1>
           <P>24/7 always-on sandboxes for AI agents. Use it as your personal dev machine, or provision sandboxes programmatically as infrastructure.</P>
         </div>
 

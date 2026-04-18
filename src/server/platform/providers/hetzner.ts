@@ -19,6 +19,11 @@ const HETZNER_API = 'https://api.hetzner.cloud/v1';
 const API_TIMEOUT_MS = 30_000;
 const PROVISION_TIMEOUT_MS = 600_000;
 const POLL_INTERVAL_MS = 3_000;
+const HETZNER_RATE_LIMIT_RETRIES = 4;
+const HETZNER_RATE_LIMIT_BASE_DELAY_MS = 1_500;
+const MANAGED_FIREWALL_CACHE_TTL_MS = 5 * 60_000;
+const MANAGED_FIREWALL_RECONCILE_MIN_INTERVAL_MS = 15 * 60_000;
+const HETZNER_CREATE_CONCURRENCY = Math.max(1, Number(process.env.HETZNER_CREATE_CONCURRENCY || '3'));
 const CLOUDFLARE_IPV4_RANGES = [
   '173.245.48.0/20',
   '103.21.244.0/22',
@@ -60,6 +65,68 @@ interface HetznerFirewallRule {
   description?: string;
 }
 
+type ManagedFirewallCache = {
+  id: number;
+  rulesHash: string;
+  cachedAt: number;
+};
+
+let managedFirewallCache: ManagedFirewallCache | null = null;
+let managedFirewallPromise: Promise<number> | null = null;
+let lastManagedFirewallReconcileAt = 0;
+let activeHetznerCreates = 0;
+const pendingHetznerCreates: Array<() => void> = [];
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isHetznerRateLimitError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return error.message.includes(' 429:') || error.message.includes('rate_limit_exceeded');
+}
+
+async function withHetznerRateLimitRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  let attempt = 0;
+
+  while (true) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (!isHetznerRateLimitError(error) || attempt >= HETZNER_RATE_LIMIT_RETRIES - 1) {
+        throw error;
+      }
+
+      const backoffMs = HETZNER_RATE_LIMIT_BASE_DELAY_MS * (2 ** attempt);
+      console.warn(`[hetzner] ${label} rate-limited, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${HETZNER_RATE_LIMIT_RETRIES})`);
+      attempt += 1;
+      await delay(backoffMs);
+    }
+  }
+}
+
+function setManagedFirewallCache(id: number, rules: HetznerFirewallRule[]) {
+  managedFirewallCache = {
+    id,
+    rulesHash: normalizeFirewallRules(rules),
+    cachedAt: Date.now(),
+  };
+}
+
+async function withCreateSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (activeHetznerCreates >= HETZNER_CREATE_CONCURRENCY) {
+    await new Promise<void>((resolve) => pendingHetznerCreates.push(resolve));
+  }
+
+  activeHetznerCreates += 1;
+  try {
+    return await fn();
+  } finally {
+    activeHetznerCreates -= 1;
+    pendingHetznerCreates.shift()?.();
+  }
+}
+
 function firewallNameForDomain(domain: string): string {
   return `justavps-managed-${domain.replace(/[^a-z0-9-]+/gi, '-').toLowerCase()}`;
 }
@@ -96,32 +163,74 @@ function normalizeFirewallRules(rules: HetznerFirewallRule[]) {
 }
 
 async function getOrCreateManagedFirewall(): Promise<number> {
+  if (managedFirewallCache && Date.now() - managedFirewallCache.cachedAt < MANAGED_FIREWALL_CACHE_TTL_MS) {
+    return managedFirewallCache.id;
+  }
+
+  if (managedFirewallPromise) {
+    return managedFirewallPromise;
+  }
+
+  managedFirewallPromise = (async () => {
   const firewallName = firewallNameForDomain(config.PROXY_DOMAIN);
   const desiredRules = managedFirewallRules();
-  const existing = await hetznerFetch<{ firewalls: Array<HetznerFirewall & { rules?: HetznerFirewallRule[] }> }>('/firewalls?per_page=50');
-  const matched = existing.firewalls.find((firewall) => firewall.name === firewallName);
-  if (matched) {
-    if (normalizeFirewallRules(matched.rules ?? []) !== normalizeFirewallRules(desiredRules)) {
-      await hetznerFetch(`/firewalls/${matched.id}`, {
-        method: 'PUT',
+    const desiredRulesHash = normalizeFirewallRules(desiredRules);
+    const existing = await withHetznerRateLimitRetry(
+      'fetch managed firewall',
+      () => hetznerFetch<{ firewalls: Array<HetznerFirewall & { rules?: HetznerFirewallRule[] }> }>('/firewalls?per_page=50'),
+    );
+    const matched = existing.firewalls.find((firewall) => firewall.name === firewallName);
+    if (matched) {
+      const matchedRules = matched.rules ?? [];
+      setManagedFirewallCache(matched.id, matchedRules);
+
+      if (normalizeFirewallRules(matchedRules) !== desiredRulesHash) {
+        const now = Date.now();
+        if (now - lastManagedFirewallReconcileAt >= MANAGED_FIREWALL_RECONCILE_MIN_INTERVAL_MS) {
+          lastManagedFirewallReconcileAt = now;
+          void withHetznerRateLimitRetry(
+            'reconcile managed firewall',
+            () => hetznerFetch(`/firewalls/${matched.id}`, {
+              method: 'PUT',
+              body: {
+                name: firewallName,
+                rules: desiredRules,
+              },
+            }),
+          ).then(() => {
+            setManagedFirewallCache(matched.id, desiredRules);
+            console.log(`[hetzner] Reconciled managed firewall ${matched.id}`);
+          }).catch((error) => {
+            console.warn(`[hetzner] Managed firewall ${matched.id} reconciliation deferred:`, error);
+          });
+        } else {
+          console.log(`[hetzner] Managed firewall ${matched.id} is stale, but reconcile is rate-limited; proceeding with existing rules`);
+        }
+      }
+
+      return matched.id;
+    }
+
+    const created = await withHetznerRateLimitRetry(
+      'create managed firewall',
+      () => hetznerFetch<{ firewall: HetznerFirewall }>('/firewalls', {
+        method: 'POST',
         body: {
           name: firewallName,
           rules: desiredRules,
         },
-      });
-    }
-    return matched.id;
+      }),
+    );
+
+    setManagedFirewallCache(created.firewall.id, desiredRules);
+    return created.firewall.id;
+  })();
+
+  try {
+    return await managedFirewallPromise;
+  } finally {
+    managedFirewallPromise = null;
   }
-
-  const created = await hetznerFetch<{ firewall: HetznerFirewall }>('/firewalls', {
-    method: 'POST',
-    body: {
-      name: firewallName,
-      rules: desiredRules,
-    },
-  });
-
-  return created.firewall.id;
 }
 
 interface HetznerServer {
@@ -292,76 +401,88 @@ export class HetznerProvider implements ComputeProvider {
   }
 
   async createServer(opts: CreateServerOpts): Promise<ServerResult> {
-    // Resolve plan ID (e.g. "pro") or legacy SKU (e.g. "cpx42") → provider SKU
-    const providerSku = resolveProviderSku(opts.serverType, opts.region) || opts.serverType;
-    const firewallId = await getOrCreateManagedFirewall();
-    const body: Record<string, unknown> = {
-      name: opts.name,
-      server_type: providerSku,
-      image: isNaN(Number(opts.image)) ? opts.image : parseInt(opts.image, 10),
-      location: opts.region,
-      start_after_create: true,
-      user_data: opts.userData,
-      labels: opts.labels,
-      automount: false,
-      public_net: { enable_ipv4: true, enable_ipv6: true },
-      firewalls: [{ firewall: firewallId }],
-    };
+    return withCreateSlot(async () => {
+      // Resolve plan ID (e.g. "pro") or legacy SKU (e.g. "cpx42") → provider SKU
+      const providerSku = resolveProviderSku(opts.serverType, opts.region) || opts.serverType;
+      const firewallId = await getOrCreateManagedFirewall();
+      const body: Record<string, unknown> = {
+        name: opts.name,
+        server_type: providerSku,
+        image: isNaN(Number(opts.image)) ? opts.image : parseInt(opts.image, 10),
+        location: opts.region,
+        start_after_create: true,
+        user_data: opts.userData,
+        labels: opts.labels,
+        automount: false,
+        public_net: { enable_ipv4: true, enable_ipv6: true },
+        firewalls: [{ firewall: firewallId }],
+      };
 
-    if (opts.enableBackups) body.enable_backup = true;
-    if (opts.sshKeyIds.length > 0) body.ssh_keys = opts.sshKeyIds.map(Number);
+      // Note: Hetzner's POST /servers does NOT accept an `enable_backup` field.
+      // Backups must be enabled via a separate action endpoint after the server
+      // exists (see below, after createServer succeeds).
+      if (opts.sshKeyIds.length > 0) body.ssh_keys = opts.sshKeyIds.map(Number);
 
-    const result = await hetznerFetch<{ server: HetznerServer; action?: HetznerAction }>('/servers', {
-      method: 'POST',
-      body,
-    });
+      const result = await hetznerFetch<{ server: HetznerServer; action?: HetznerAction }>('/servers', {
+        method: 'POST',
+        body,
+      });
 
-    const serverId = result.server.id;
-    const publicIpv4 = extractIpv4(result.server.public_net.ipv4?.ip);
-    const publicIpv6 = extractIPv6(result.server.public_net.ipv6.ip);
-    const publicIp = publicIpv4 ?? publicIpv6;
+      const serverId = result.server.id;
+      const publicIpv4 = extractIpv4(result.server.public_net.ipv4?.ip);
+      const publicIpv6 = extractIPv6(result.server.public_net.ipv6.ip);
+      const publicIp = publicIpv4 ?? publicIpv6;
 
-    if (!publicIp) {
-      // Fallback: poll briefly for IP assignment (shouldn't be needed)
-      for (let i = 0; i < 5; i++) {
-        await new Promise(r => setTimeout(r, 3000));
-        const info = await hetznerFetch<{ server: HetznerServer }>(`/servers/${serverId}`);
-        const polledIpv4 = extractIpv4(info.server.public_net.ipv4?.ip);
-        const polledIpv6 = extractIPv6(info.server.public_net.ipv6.ip);
-        const polledIp = polledIpv4 ?? polledIpv6;
-        if (polledIp) {
-          console.log(`[hetzner] Created server ${opts.name} (ID: ${serverId}, IPv4: ${polledIpv4 ?? '-'}, IPv6: ${polledIpv6 ?? '-'})`);
-          return {
-            serverId: String(serverId),
-            publicIp: polledIp,
-            publicIpv4: polledIpv4,
-            publicIpv6: polledIpv6,
-            createActionId: result.action ? String(result.action.id) : null,
-          };
+      if (!publicIp) {
+        // Fallback: poll briefly for IP assignment (shouldn't be needed)
+        for (let i = 0; i < 5; i++) {
+          await delay(3000);
+          const info = await hetznerFetch<{ server: HetznerServer }>(`/servers/${serverId}`);
+          const polledIpv4 = extractIpv4(info.server.public_net.ipv4?.ip);
+          const polledIpv6 = extractIPv6(info.server.public_net.ipv6.ip);
+          const polledIp = polledIpv4 ?? polledIpv6;
+          if (polledIp) {
+            console.log(`[hetzner] Created server ${opts.name} (ID: ${serverId}, IPv4: ${polledIpv4 ?? '-'}, IPv6: ${polledIpv6 ?? '-'})`);
+            return {
+              serverId: String(serverId),
+              publicIp: polledIp,
+              publicIpv4: polledIpv4,
+              publicIpv6: polledIpv6,
+              createActionId: result.action ? String(result.action.id) : null,
+            };
+          }
         }
+        throw new Error(`[hetzner] Server ${serverId} created but no IP assigned`);
       }
-      throw new Error(`[hetzner] Server ${serverId} created but no IP assigned`);
-    }
 
-    console.log(`[hetzner] Created server ${opts.name} (ID: ${serverId}, IPv4: ${publicIpv4 ?? '-'}, IPv6: ${publicIpv6 ?? '-'})`);
+      console.log(`[hetzner] Created server ${opts.name} (ID: ${serverId}, IPv4: ${publicIpv4 ?? '-'}, IPv6: ${publicIpv6 ?? '-'})`);
 
-    // Enable delete + rebuild protection (fire-and-forget — don't block provisioning)
-    hetznerFetch(`/servers/${serverId}/actions/change_protection`, {
-      method: 'POST',
-      body: { delete: true, rebuild: true },
-    }).then(() => {
-      console.log(`[hetzner] Enabled delete/rebuild protection for server ${serverId}`);
-    }).catch((err) => {
-      console.warn(`[hetzner] Failed to enable protection for server ${serverId}:`, err);
+      // Enable delete + rebuild protection (fire-and-forget — don't block provisioning)
+      hetznerFetch(`/servers/${serverId}/actions/change_protection`, {
+        method: 'POST',
+        body: { delete: true, rebuild: true },
+      }).then(() => {
+        console.log(`[hetzner] Enabled delete/rebuild protection for server ${serverId}`);
+      }).catch((err) => {
+        console.warn(`[hetzner] Failed to enable protection for server ${serverId}:`, err);
+      });
+
+      // Enable backups if requested (Hetzner requires a separate action — see note above).
+      // Fire-and-forget: the action queues and takes effect once the server is available.
+      if (opts.enableBackups) {
+        hetznerFetch(`/servers/${serverId}/actions/enable_backup`, { method: 'POST' })
+          .then(() => console.log(`[hetzner] Enabled backups for server ${serverId}`))
+          .catch((err) => console.error(`[hetzner] Failed to enable backups for server ${serverId}:`, err));
+      }
+
+      return {
+        serverId: String(serverId),
+        publicIp,
+        publicIpv4,
+        publicIpv6,
+        createActionId: result.action ? String(result.action.id) : null,
+      };
     });
-
-    return {
-      serverId: String(serverId),
-      publicIp,
-      publicIpv4,
-      publicIpv6,
-      createActionId: result.action ? String(result.action.id) : null,
-    };
   }
 
   async getActionProgress(actionId: string): Promise<ProviderActionProgress> {
@@ -501,6 +622,22 @@ export class HetznerProvider implements ComputeProvider {
     return keys;
   }
 
+  async findSSHKeyByPublicKey(publicKey: string): Promise<string | null> {
+    let page = 1;
+    while (true) {
+      const data = await hetznerFetch<{
+        ssh_keys: Array<{ id: number; public_key?: string | null }>;
+        meta: { pagination: { next_page: number | null } };
+      }>(`/ssh_keys?per_page=50&page=${page}`);
+
+      const match = data.ssh_keys.find((key) => key.public_key === publicKey);
+      if (match) return String(match.id);
+      if (!data.meta.pagination.next_page) break;
+      page = data.meta.pagination.next_page;
+    }
+    return null;
+  }
+
   /**
    * Garbage-collect orphaned SSH keys.
    *
@@ -591,12 +728,38 @@ export class HetznerProvider implements ComputeProvider {
 
   async createBackup(serverId: string, description?: string): Promise<{ id: string }> {
     const defaultDesc = `Backup ${new Date().toISOString().replace('T', ' ').slice(0, 19)}`;
-    const result = await hetznerFetch<{ image: { id: number } }>(`/servers/${serverId}/actions/create_image`, {
-      method: 'POST',
-      body: { type: 'backup', description: description || defaultDesc },
-    });
-    console.log(`[hetzner] Created backup for server ${serverId}: image ${result.image.id}`);
-    return { id: String(result.image.id) };
+    const requestedDescription = description || defaultDesc;
+
+    try {
+      const result = await hetznerFetch<{ image: { id: number } }>(`/servers/${serverId}/actions/create_image`, {
+        method: 'POST',
+        body: { type: 'backup', description: requestedDescription },
+      });
+      console.log(`[hetzner] Created backup for server ${serverId}: image ${result.image.id}`);
+      return { id: String(result.image.id) };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const isLocked = message.includes('423') || message.includes('resource is locked') || message.includes('"code": "locked"');
+      if (!isLocked) throw err;
+
+      console.warn(`[hetzner] Backup create locked for server ${serverId}; checking for an in-progress backup`);
+      const backups = await this.listBackups(serverId);
+      const now = Date.now();
+      const recent = backups.find((backup) => {
+        const createdAt = Date.parse(backup.created);
+        const isRecent = !Number.isNaN(createdAt) && now - createdAt < 30 * 60 * 1000;
+        const statusOk = backup.status === 'creating' || backup.status === 'available';
+        const descriptionMatches = backup.description === requestedDescription;
+        return statusOk && (descriptionMatches || isRecent);
+      });
+
+      if (recent) {
+        console.warn(`[hetzner] Reusing recent backup ${recent.id} for server ${serverId} after lock (${recent.status})`);
+        return { id: recent.id };
+      }
+
+      throw err;
+    }
   }
 
   async enableBackups(serverId: string): Promise<void> {

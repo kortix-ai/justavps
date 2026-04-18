@@ -1,29 +1,96 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createHash } from 'crypto';
 import { decode } from 'next-auth/jwt';
-import { setCookie } from 'hono/cookie';
 import { createMiddleware } from 'hono/factory';
 import { eq } from 'drizzle-orm';
-import { db } from "@/server/db/index";
-import { apiKeys, users } from "@/server/db/schema";
-import { ensureAutoAdminUser } from "@/server/auth/auto-admin";
+import { db } from '@/server/db';
+import { apiKeys, users } from '@/server/db/schema';
+import { ensureAutoAdminUser } from '@/server/auth/auto-admin';
 import {
   ACCOUNT_COOKIE_NAME,
-  ensureUserAccountGraph,
   isAccountAdmin,
   isAccountOwner,
   resolveAccountForUser,
-} from "@/server/auth/accounts";
-import { validateApiKey } from "@/server/core/crypto";
+} from '@/server/auth/accounts';
+import { validateApiKey } from '@/server/core/crypto';
+
+function buildApiKeyPrefix(key: string): string {
+  return `${key.slice(0, 16)}...`;
+}
+
+/* ─── In-memory auth cache ─────────────────────────────────────────────────
+ *
+ * The auth pipeline (ensureAutoAdminUser → ensureUserAccountGraph →
+ * backfillLegacyUserResources → resolveAccountForUser → getUserMemberships)
+ * fires ~15-20 DB round-trips per request, every request. At typical
+ * cross-region Neon latency (~200ms each) that's 3-4s of auth overhead
+ * before the handler even runs.
+ *
+ * This cache memoises the resolved AuthVariables by (session-token + account-
+ * selection) or (api-key-hash + account-selection) for a short TTL. On a
+ * cache hit we apply the stored context and skip every DB call below.
+ *
+ * TTL intentionally short so permission / role changes propagate within a
+ * minute. Cache is process-local — cleared on every dev rebuild and every
+ * serverless cold-start, so staleness windows are further bounded in
+ * practice.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+type CachedAuth = {
+  expires: number;
+  context: Omit<AuthVariables, 'apiKeyScope' | 'apiKeyPermissions' | 'apiKeyMachineIds'> &
+    Pick<AuthVariables, 'apiKeyScope' | 'apiKeyPermissions' | 'apiKeyMachineIds'>;
+};
+
+const AUTH_CACHE_TTL_MS = 60_000;
+const AUTH_CACHE_MAX_ENTRIES = 2_000;
+const AUTH_CACHE = new Map<string, CachedAuth>();
+
+function authCacheGet(key: string): CachedAuth['context'] | null {
+  const entry = AUTH_CACHE.get(key);
+  if (!entry) return null;
+  if (entry.expires < Date.now()) {
+    AUTH_CACHE.delete(key);
+    return null;
+  }
+  // Move to end for LRU ordering
+  AUTH_CACHE.delete(key);
+  AUTH_CACHE.set(key, entry);
+  return entry.context;
+}
+
+function authCacheSet(key: string, context: CachedAuth['context']): void {
+  AUTH_CACHE.set(key, { expires: Date.now() + AUTH_CACHE_TTL_MS, context });
+  while (AUTH_CACHE.size > AUTH_CACHE_MAX_ENTRIES) {
+    const oldest = AUTH_CACHE.keys().next().value;
+    if (!oldest) break;
+    AUTH_CACHE.delete(oldest);
+  }
+}
+
+function applyCachedContext(c: any, context: CachedAuth['context']): void {
+  c.set('userId', context.userId);
+  c.set('accountId', context.accountId);
+  c.set('accountRole', context.accountRole);
+  c.set('isAccountOwner', context.isAccountOwner);
+  c.set('isAccountAdmin', context.isAccountAdmin);
+  c.set('isAdmin', context.isAdmin);
+  if (context.apiKeyId) c.set('apiKeyId', context.apiKeyId);
+  if (context.apiKeyName) c.set('apiKeyName', context.apiKeyName);
+  if (context.apiKeyPrefix) c.set('apiKeyPrefix', context.apiKeyPrefix);
+  if (context.apiKeyScope) c.set('apiKeyScope', context.apiKeyScope);
+  if (context.apiKeyMachineIds !== undefined) c.set('apiKeyMachineIds', context.apiKeyMachineIds);
+  if (context.apiKeyPermissions) c.set('apiKeyPermissions', context.apiKeyPermissions);
+}
+
+function buildAuthCacheKey(credential: string, accountSelection: string | null): string {
+  return `${credential}::${accountSelection ?? ''}`;
+}
 
 type Permission = 'read' | 'write' | 'delete' | 'exec' | 'proxy' | '*';
 
 function sha256(input: string): string {
   return createHash('sha256').update(input).digest('hex');
-}
-
-function buildApiKeyPrefix(key: string): string {
-  return `${key.slice(0, 16)}...`;
 }
 
 export type AuthVariables = {
@@ -33,6 +100,9 @@ export type AuthVariables = {
   isAccountOwner: boolean;
   isAccountAdmin: boolean;
   isAdmin: boolean;
+  apiKeyId?: string;
+  apiKeyName?: string;
+  apiKeyPrefix?: string;
   apiKeyScope?: string;
   apiKeyMachineIds?: string[] | null;
   apiKeyPermissions?: string[];
@@ -59,26 +129,12 @@ function extractSessionCookie(cookieHeader: string): { value: string; salt: stri
   return null;
 }
 
-function extractRequestedAccountId(c: any): { accountId: string | null; source: 'header' | 'cookie' | 'none' } {
+function extractRequestedAccountId(c: any): string | null {
   const headerAccountId = c.req.header('X-Account-Id');
-  if (headerAccountId) return { accountId: headerAccountId, source: 'header' };
+  if (headerAccountId) return headerAccountId;
 
   const cookieHeader = c.req.header('Cookie') || '';
-  const cookieAccountId = extractCookieValue(cookieHeader, ACCOUNT_COOKIE_NAME);
-  if (cookieAccountId) return { accountId: cookieAccountId, source: 'cookie' };
-
-  return { accountId: null, source: 'none' };
-}
-
-function accountCookieOptions(c: any) {
-  const url = new URL(c.req.url);
-  return {
-    path: '/',
-    httpOnly: true,
-    sameSite: 'Lax' as const,
-    secure: url.protocol === 'https:',
-    maxAge: 60 * 60 * 24 * 30,
-  };
+  return extractCookieValue(cookieHeader, ACCOUNT_COOKIE_NAME);
 }
 
 async function setResolvedContext(
@@ -86,6 +142,7 @@ async function setResolvedContext(
   user: {
     id: string;
     email: string;
+    emailVerified: Date | null;
     name: string | null;
     isAdmin: boolean;
     stripeCustomerId: string | null;
@@ -93,16 +150,20 @@ async function setResolvedContext(
   },
   options?: {
     forcedAccountId?: string;
+    apiKeyId?: string;
+    apiKeyName?: string;
+    apiKeyPrefix?: string;
     apiKeyScope?: string;
     apiKeyMachineIds?: string[] | null;
     apiKeyPermissions?: string[];
+    cacheKey?: string;
   },
 ) {
   const resolvedUser = await ensureAutoAdminUser(user);
-  await ensureUserAccountGraph(resolvedUser);
+  // NOTE: do NOT call ensureUserAccountGraph here — resolveAccountForUser
+  // calls it internally. Calling it twice was doubling the backfill work.
 
-  const requested = extractRequestedAccountId(c);
-  const requestedAccountId = requested.accountId;
+  const requestedAccountId = extractRequestedAccountId(c);
 
   if (options?.forcedAccountId && requestedAccountId && requestedAccountId !== options.forcedAccountId) {
     return c.json({ error: true, message: 'API key account mismatch', status: 403 }, 403);
@@ -116,25 +177,29 @@ async function setResolvedContext(
   }
 
   if (!options?.forcedAccountId && requestedAccountId && accountContext.active.account.id !== requestedAccountId) {
-    if (requested.source === 'header') {
-      return c.json({ error: true, message: 'Account access denied', status: 403 }, 403);
-    }
-
-    // Stale account cookie from a previous login/account switch.
-    // Heal it automatically so a valid session can continue with its resolved account.
-    setCookie(c, ACCOUNT_COOKIE_NAME, accountContext.active.account.id, accountCookieOptions(c));
+    return c.json({ error: true, message: 'Account access denied', status: 403 }, 403);
   }
 
-  c.set('userId', resolvedUser.id);
-  c.set('accountId', accountContext.active.account.id);
-  c.set('accountRole', accountContext.active.membership.role);
-  c.set('isAccountOwner', isAccountOwner(accountContext.active.membership.role));
-  c.set('isAccountAdmin', isAccountAdmin(accountContext.active.membership.role));
-  c.set('isAdmin', resolvedUser.isAdmin);
+  const context: CachedAuth['context'] = {
+    userId: resolvedUser.id,
+    accountId: accountContext.active.account.id,
+    accountRole: accountContext.active.membership.role,
+    isAccountOwner: isAccountOwner(accountContext.active.membership.role),
+    isAccountAdmin: isAccountAdmin(accountContext.active.membership.role),
+    isAdmin: resolvedUser.isAdmin,
+    apiKeyId: options?.apiKeyId,
+    apiKeyName: options?.apiKeyName,
+    apiKeyPrefix: options?.apiKeyPrefix,
+    apiKeyScope: options?.apiKeyScope,
+    apiKeyMachineIds: options?.apiKeyMachineIds,
+    apiKeyPermissions: options?.apiKeyPermissions,
+  };
 
-  if (options?.apiKeyScope) c.set('apiKeyScope', options.apiKeyScope);
-  if (options?.apiKeyMachineIds !== undefined) c.set('apiKeyMachineIds', options.apiKeyMachineIds);
-  if (options?.apiKeyPermissions) c.set('apiKeyPermissions', options.apiKeyPermissions);
+  applyCachedContext(c, context);
+
+  if (options?.cacheKey) {
+    authCacheSet(options.cacheKey, context);
+  }
 
   return null;
 }
@@ -180,11 +245,20 @@ export function requireMachineAccess() {
 
 export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(async (c, next) => {
   const authHeader = c.req.header('Authorization');
+  const accountSelection = extractRequestedAccountId(c);
 
   if (authHeader?.startsWith('Bearer sk_live_')) {
     const key = authHeader.slice(7);
     try {
       const hash = sha256(key);
+
+      // Fast path: cached auth context for this (api-key, account) pair
+      const cacheKey = buildAuthCacheKey(`ak:${hash}`, accountSelection);
+      const cached = authCacheGet(cacheKey);
+      if (cached) {
+        applyCachedContext(c, cached);
+        return next();
+      }
 
       const [match] = await db.select().from(apiKeys).where(eq(apiKeys.keySha256, hash)).limit(1);
       if (match) {
@@ -201,6 +275,7 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(async (c,
           .select({
             id: users.id,
             email: users.email,
+            emailVerified: users.emailVerified,
             name: users.name,
             isAdmin: users.isAdmin,
             stripeCustomerId: users.stripeCustomerId,
@@ -215,17 +290,22 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(async (c,
 
         const denied = await setResolvedContext(c, user, {
           forcedAccountId: match.accountId ?? undefined,
+          apiKeyId: match.id,
+          apiKeyName: match.name,
+          apiKeyPrefix: match.keyPrefix,
           apiKeyScope: match.scope,
           apiKeyMachineIds: match.machineIds,
           apiKeyPermissions: match.permissions,
+          cacheKey,
         });
         if (denied) return denied;
         return next();
       }
 
+      // Prefix-filtered lookup — avoids scanning every bcrypt hash.
       const fallbackPrefix = buildApiKeyPrefix(key);
-      const fallbackCandidates = await db.select().from(apiKeys).where(eq(apiKeys.keyPrefix, fallbackPrefix)).limit(8);
-      for (const candidate of fallbackCandidates) {
+      const allKeys = await db.select().from(apiKeys).where(eq(apiKeys.keyPrefix, fallbackPrefix)).limit(8);
+      for (const candidate of allKeys) {
         if (!(await validateApiKey(key, candidate.keyHash))) continue;
 
         if (candidate.expiresAt && candidate.expiresAt < new Date()) {
@@ -241,6 +321,7 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(async (c,
           .select({
             id: users.id,
             email: users.email,
+            emailVerified: users.emailVerified,
             name: users.name,
             isAdmin: users.isAdmin,
             stripeCustomerId: users.stripeCustomerId,
@@ -255,9 +336,13 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(async (c,
 
         const denied = await setResolvedContext(c, user, {
           forcedAccountId: candidate.accountId ?? undefined,
+          apiKeyId: candidate.id,
+          apiKeyName: candidate.name,
+          apiKeyPrefix: candidate.keyPrefix,
           apiKeyScope: candidate.scope,
           apiKeyMachineIds: candidate.machineIds,
           apiKeyPermissions: candidate.permissions,
+          cacheKey,
         });
         if (denied) return denied;
         return next();
@@ -280,6 +365,17 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(async (c,
       const session = extractSessionCookie(cookieHeader);
 
       if (session) {
+        // Fast path: cached auth context for this (session, account) pair.
+        // We hash the opaque session token before using it as a key to
+        // avoid holding the raw token in memory longer than needed.
+        const sessionHash = sha256(session.value);
+        const cacheKey = buildAuthCacheKey(`sess:${sessionHash}`, accountSelection);
+        const cached = authCacheGet(cacheKey);
+        if (cached) {
+          applyCachedContext(c, cached);
+          return next();
+        }
+
         const token = await decode({
           token: session.value,
           secret: authSecret,
@@ -291,6 +387,7 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(async (c,
             .select({
               id: users.id,
               email: users.email,
+              emailVerified: users.emailVerified,
               name: users.name,
               isAdmin: users.isAdmin,
               stripeCustomerId: users.stripeCustomerId,
@@ -300,7 +397,7 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(async (c,
             .where(eq(users.id, token.sub));
 
           if (user) {
-            const denied = await setResolvedContext(c, user);
+            const denied = await setResolvedContext(c, user, { cacheKey });
             if (denied) return denied;
             return next();
           }
@@ -318,6 +415,7 @@ export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(async (c,
         .select({
           id: users.id,
           email: users.email,
+          emailVerified: users.emailVerified,
           name: users.name,
           isAdmin: users.isAdmin,
           stripeCustomerId: users.stripeCustomerId,

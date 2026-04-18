@@ -54,6 +54,8 @@ import {
   X,
   LogOut,
   Trash2,
+  Copy,
+  Check,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -95,7 +97,7 @@ function LimitCard({
           </div>
         )}
         {isNearLimit && (
-          <div className="flex items-center gap-1 text-xs text-amber-500 font-medium">
+          <div className="flex items-center gap-1 text-xs text-brand font-medium">
             <AlertTriangle className="size-3" />
             Near limit
           </div>
@@ -108,7 +110,7 @@ function LimitCard({
       {!unlimited && (
         <Progress
           value={pct}
-          className={`h-2 ${isAtLimit ? "[&_div[data-slot=progress-indicator]]:bg-destructive" : isNearLimit ? "[&_div[data-slot=progress-indicator]]:bg-amber-500" : ""}`}
+          className={`h-2 ${isAtLimit ? "[&_div[data-slot=progress-indicator]]:bg-destructive" : isNearLimit ? "[&_div[data-slot=progress-indicator]]:bg-brand" : ""}`}
         />
       )}
     </div>
@@ -227,6 +229,42 @@ function OrganizationRenameForm({
           : "Only account owners and admins can rename this organization."}
       </p>
     </form>
+  );
+}
+
+function OrganizationIdField({ organizationId }: { organizationId: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopyOrganizationId() {
+    await navigator.clipboard.writeText(organizationId);
+    setCopied(true);
+    toast.success("Organization ID copied");
+    window.setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className="mt-4 space-y-2">
+      <Label htmlFor="organization-id-value">Organization ID</Label>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <div
+          id="organization-id-value"
+          className="flex min-h-9 flex-1 items-center rounded-md border bg-muted/40 px-3 font-mono text-xs text-muted-foreground break-all"
+        >
+          {organizationId}
+        </div>
+        <Button
+          id="copy-organization-id-button"
+          type="button"
+          variant="outline"
+          className="gap-1.5 sm:self-end"
+          onClick={() => void handleCopyOrganizationId()}
+          aria-label="Copy organization ID"
+        >
+          {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+          {copied ? "Copied" : "Copy ID"}
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -413,6 +451,9 @@ function GeneralTab() {
               activeAccount={activeAccount}
               canManageMembers={Boolean(account?.can_manage_members)}
             />
+          )}
+          {activeAccount?.type === "organization" && (
+            <OrganizationIdField organizationId={activeAccount.id} />
           )}
         </div>
       </div>

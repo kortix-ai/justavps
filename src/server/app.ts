@@ -395,7 +395,19 @@ app.get(
 // ─── Error Handling ─────────────────────────────────────────────────────────
 
 app.onError((err, c) => {
-  console.error(`[API ERROR] ${c.req.method} ${c.req.path}:`, err);
+  const ctx = c as typeof c & { get: (key: string) => unknown };
+  console.error(`[API ERROR] ${c.req.method} ${c.req.path}`, {
+    query: c.req.query(),
+    accountId: ctx.get('accountId'),
+    userId: ctx.get('userId'),
+    requestId: c.req.header('x-request-id') ?? c.res.headers.get('x-request-id') ?? null,
+    error: err instanceof Error ? {
+      name: err.name,
+      message: err.message,
+      stack: err.stack,
+      cause: err.cause,
+    } : err,
+  });
   return c.json(
     { error: true, message: 'Internal server error', status: 500 },
     500,
