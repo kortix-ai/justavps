@@ -2,6 +2,9 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { Logo } from "@/shared/components/logo";
 
+// Note: Logo renders its own <Link href="/">. Don't wrap it in another Link
+// or React will hydrate <a> inside <a>.
+
 type AuthLayoutProps = {
   eyebrow?: string;
   title: string;
@@ -15,9 +18,7 @@ export function AuthLayout({ eyebrow, title, description, footer, children }: Au
     <div className="relative min-h-screen flex flex-col bg-background text-foreground overflow-hidden">
       <header className="relative z-10 px-6 py-4">
         <div className="max-w-5xl mx-auto">
-          <Link href="/" className="inline-flex">
-            <Logo />
-          </Link>
+          <Logo />
         </div>
       </header>
 

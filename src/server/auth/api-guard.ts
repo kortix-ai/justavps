@@ -129,12 +129,19 @@ function extractSessionCookie(cookieHeader: string): { value: string; salt: stri
   return null;
 }
 
-function extractRequestedAccountId(c: any): string | null {
+function extractRequestedAccountId(c: any): { id: string | null; source: 'header' | 'cookie' | null } {
   const headerAccountId = c.req.header('X-Account-Id');
-  if (headerAccountId) return headerAccountId;
+  if (headerAccountId) return { id: headerAccountId, source: 'header' };
 
   const cookieHeader = c.req.header('Cookie') || '';
-  return extractCookieValue(cookieHeader, ACCOUNT_COOKIE_NAME);
+  const cookieValue = extractCookieValue(cookieHeader, ACCOUNT_COOKIE_NAME);
+  return { id: cookieValue, source: cookieValue ? 'cookie' : null };
+}
+
+function clearStaleAccountCookie(c: any) {
+  // Clear the __justavps_account cookie so the browser stops sending a stale id.
+  // Next request will fall back to the user's default account naturally.
+  c.header('Set-Cookie', `${ACCOUNT_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`, { append: true });
 }
 
 async function setResolvedContext(
@@ -163,21 +170,28 @@ async function setResolvedContext(
   // NOTE: do NOT call ensureUserAccountGraph here — resolveAccountForUser
   // calls it internally. Calling it twice was doubling the backfill work.
 
-  const requestedAccountId = extractRequestedAccountId(c);
+  const requested = extractRequestedAccountId(c);
 
-  if (options?.forcedAccountId && requestedAccountId && requestedAccountId !== options.forcedAccountId) {
+  if (options?.forcedAccountId && requested.id && requested.id !== options.forcedAccountId) {
     return c.json({ error: true, message: 'API key account mismatch', status: 403 }, 403);
   }
 
-  const targetAccountId = options?.forcedAccountId ?? requestedAccountId;
+  const targetAccountId = options?.forcedAccountId ?? requested.id;
   const accountContext = await resolveAccountForUser(resolvedUser, targetAccountId);
 
   if (options?.forcedAccountId && accountContext.active.account.id !== options.forcedAccountId) {
     return c.json({ error: true, message: 'API key account access denied', status: 403 }, 403);
   }
 
-  if (!options?.forcedAccountId && requestedAccountId && accountContext.active.account.id !== requestedAccountId) {
-    return c.json({ error: true, message: 'Account access denied', status: 403 }, 403);
+  if (!options?.forcedAccountId && requested.id && accountContext.active.account.id !== requested.id) {
+    // Stale __justavps_account cookie (from a prior login/session) — auto-heal
+    // by clearing the cookie and proceeding with the user's resolved default
+    // account. Explicit X-Account-Id headers are still rejected.
+    if (requested.source === 'cookie') {
+      clearStaleAccountCookie(c);
+    } else {
+      return c.json({ error: true, message: 'Account access denied', status: 403 }, 403);
+    }
   }
 
   const context: CachedAuth['context'] = {
@@ -245,7 +259,7 @@ export function requireMachineAccess() {
 
 export const apiGuard = createMiddleware<{ Variables: AuthVariables }>(async (c, next) => {
   const authHeader = c.req.header('Authorization');
-  const accountSelection = extractRequestedAccountId(c);
+  const accountSelection = extractRequestedAccountId(c).id;
 
   if (authHeader?.startsWith('Bearer sk_live_')) {
     const key = authHeader.slice(7);
