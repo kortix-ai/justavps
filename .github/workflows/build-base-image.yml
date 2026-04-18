@@ -111,7 +111,7 @@ jobs:
           DAEMON_CHANNEL: ${{ needs.resolve-context.outputs.daemon_channel }}
         run: |
           echo "Building with daemon_channel=$DAEMON_CHANNEL target=${{ needs.resolve-context.outputs.vercel_target }}"
-          npx tsx scripts/build-base-image.ts 2>&1 | tee /tmp/build-output.txt
+          npx tsx scripts/deploy/build-base-image.ts 2>&1 | tee /tmp/build-output.txt
           SNAP_ID=$(grep -oP 'Snapshot ID:\s+\K\d+' /tmp/build-output.txt)
           DISK_GB=$(grep -oP 'Disk size:\s+\K\d+' /tmp/build-output.txt)
           echo "snapshot_id=$SNAP_ID" >> "$GITHUB_OUTPUT"
@@ -130,7 +130,7 @@ jobs:
           VERCEL_ORG_ID: ${{ env.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ env.VERCEL_PROJECT_ID }}
         run: |
-          python3 scripts/vercel-update-env.py \
+          python3 scripts/ops/vercel-update-env.py \
             ${{ needs.build.outputs.snapshot_id }} \
             --target=${{ needs.resolve-context.outputs.vercel_target }}
 
@@ -147,7 +147,7 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ env.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ env.VERCEL_PROJECT_ID }}
-        run: python3 scripts/vercel-redeploy.py
+        run: python3 scripts/ops/vercel-redeploy.py
 
   seed-db:
     name: Seed DB
@@ -167,7 +167,7 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL_PROD }}
           DB_SSL: 'true'
           HETZNER_BASE_SNAPSHOT_ID: ${{ needs.build.outputs.snapshot_id }}
-        run: npx tsx scripts/seed-base-image.ts
+        run: npx tsx scripts/ops/seed-base-image.ts
 
   summary:
     name: Summary

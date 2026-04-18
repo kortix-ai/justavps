@@ -8,9 +8,10 @@ on:
     branches: [production]
     paths:
       - "src/sdk/**"
-      - "src/server/routes/**"
+      - "src/server/v1/routes/**"
+      - "src/server/v2/routes/**"
       - "src/server/app.ts"
-      - "src/server/lib/openapi-enrichment.ts"
+      - "src/server/core/openapi/enrichment.ts"
       - "src/lib/schemas.ts"
       - ".github/workflows/publish-sdks.yml"
 

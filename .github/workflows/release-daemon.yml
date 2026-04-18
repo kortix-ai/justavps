@@ -11,9 +11,9 @@ on:
   push:
     branches: [production, main]
     paths:
-      - 'daemon/**'
-      - '!daemon/cmd/broker/**'
-      - '!daemon/internal/broker/**'
+      - 'apps/daemon/**'
+      - '!apps/daemon/cmd/broker/**'
+      - '!apps/daemon/internal/broker/**'
   workflow_call:
     inputs:
       ref:
@@ -36,14 +36,14 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24'
-          cache-dependency-path: daemon/go.sum
+          cache-dependency-path: apps/daemon/go.sum
 
       - name: Test
-        working-directory: daemon
+        working-directory: apps/daemon
         run: go test -v ./...
 
       - name: Build linux/amd64
-        working-directory: daemon
+        working-directory: apps/daemon
         env:
           VERSION: ${{ github.sha }}
         run: |
@@ -76,14 +76,14 @@ jobs:
             "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/r2/buckets/justavps-releases/objects/${PREFIX}/latest/justavps-daemon-linux-amd64" \
             -H "X-Auth-Email: ${CF_EMAIL}" \
             -H "X-Auth-Key: ${CF_API_KEY}" \
-            --data-binary @daemon/bin/justavps-daemon-linux-amd64
+            --data-binary @apps/daemon/bin/justavps-daemon-linux-amd64
 
           # Upload versioned copy for rollbacks
           curl -sf -X PUT \
             "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/r2/buckets/justavps-releases/objects/${PREFIX}/${SHA}/justavps-daemon-linux-amd64" \
             -H "X-Auth-Email: ${CF_EMAIL}" \
             -H "X-Auth-Key: ${CF_API_KEY}" \
-            --data-binary @daemon/bin/justavps-daemon-linux-amd64
+            --data-binary @apps/daemon/bin/justavps-daemon-linux-amd64
 
           # Write version.txt — platform reads this to know the latest version
           echo -n "${SHA}" | curl -sf -X PUT \
