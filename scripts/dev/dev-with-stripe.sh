@@ -16,7 +16,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 ENV_FILE="$PROJECT_DIR/.env"
 WEBHOOK_URL="http://localhost:4100/api/v1/stripe/webhooks"
 EVENTS="checkout.session.completed,invoice.payment_failed,customer.subscription.deleted,customer.subscription.updated"

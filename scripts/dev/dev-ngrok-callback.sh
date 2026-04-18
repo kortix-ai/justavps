@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 ENV_LOCAL_FILE="$PROJECT_DIR/.env.local"
 PID_FILE="/tmp/justavps-ngrok-callback.pid"
 API_PORT_FILE="/tmp/justavps-ngrok-callback.api-port"
