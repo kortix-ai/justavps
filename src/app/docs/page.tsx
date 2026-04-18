@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { PLAN_PRICE_SNAPSHOT } from "@/lib/plan-catalog";
-import { cn, PROXY_DOMAIN } from "@/lib/utils";
+import { PLAN_PRICE_SNAPSHOT } from "@/shared/lib/plan-catalog";
+import { cn, PROXY_DOMAIN } from "@/shared/lib/utils";
 import {
   CreditCard, HardDrive,
   Copy, Check, Shield, Zap, Menu, X, LifeBuoy,

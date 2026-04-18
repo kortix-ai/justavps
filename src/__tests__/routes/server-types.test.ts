@@ -4,15 +4,15 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { serverTypesApp } from '@/server/api/v1/legacy/server-types';
-import * as providers from '@/server/lib/providers';
+import { serverTypesApp } from "@/server/v1/routes/legacy/server-types";
+import * as providers from "@/server/platform/providers/index";
 
 type MockedProviders = typeof providers & {
   getProvider: ReturnType<typeof vi.fn>;
   isProviderAvailable: ReturnType<typeof vi.fn>;
 };
 
-vi.mock('@/server/lib/providers', () => ({
+vi.mock('@/server/platform/providers', () => ({
   getProvider: vi.fn(),
   listCustomerVisibleProviders: vi.fn(() => [{ name: 'cloud', displayName: 'JustAVPS Cloud' }]),
   isProviderAvailable: vi.fn(() => true),

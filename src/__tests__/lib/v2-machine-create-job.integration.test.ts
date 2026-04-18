@@ -3,7 +3,7 @@ import { eq, inArray } from 'drizzle-orm';
 
 import { db } from '@/server/db';
 import { accounts, baremetalHosts, hostCapacityReservations, machines, subscriptions, users } from '@/server/db/schema';
-import { encryptSecret } from '@/server/lib/crypto';
+import { encryptSecret } from "@/server/core/crypto";
 
 const createServerMock = vi.fn();
 const deleteSSHKeyMock = vi.fn();
@@ -14,7 +14,7 @@ const resolveSSHKeyPublicKeysMock = vi.fn();
 const emitStageChangeMock = vi.fn();
 const emitStatusChangeMock = vi.fn();
 
-vi.mock('@/server/lib/providers', () => ({
+vi.mock('@/server/platform/providers', () => ({
   getProvider: vi.fn(() => ({
     name: 'baremetal',
     createServer: createServerMock,
@@ -23,7 +23,7 @@ vi.mock('@/server/lib/providers', () => ({
   })),
 }));
 
-vi.mock('@/server/lib/machine-lifecycle', () => ({
+vi.mock('@/server/v2/services/machine-lifecycle', () => ({
   autoGenerateAndSaveSSHKey: autoGenerateAndSaveSSHKeyMock,
   buildMachineUserData: vi.fn(() => '#cloud-config'),
   cleanupMachineResources: vi.fn(),
@@ -36,20 +36,20 @@ vi.mock('@/server/lib/machine-lifecycle', () => ({
   uploadSSHKeyToProvider: uploadSSHKeyToProviderMock,
 }));
 
-vi.mock('@/server/lib/event-bus', () => ({
+vi.mock('@/server/core/event-bus', () => ({
   eventBus: {
     emitStageChange: emitStageChangeMock,
     emitStatusChange: emitStatusChangeMock,
   },
 }));
 
-vi.mock('@/server/lib/stripe', () => ({
+vi.mock('@/server/v1/services/stripe', () => ({
   stripeClient: {
     isConfigured: vi.fn(() => false),
   },
 }));
 
-vi.mock('@/server/lib/cloud-init-v2', () => ({
+vi.mock('@/server/v2/services/cloud-init', () => ({
   buildCloudInitV2: vi.fn(() => '#cloud-config'),
 }));
 
@@ -197,7 +197,7 @@ describe.skipIf(!process.env.DATABASE_URL)('durable machine create job integrati
       metadata: { http_port: 18888 },
     });
 
-    const { handleMachineCreateJob } = await import('@/server/lib/v2/machines');
+    const { handleMachineCreateJob } = await import("@/server/v2/services/machines");
     const result = await handleMachineCreateJob(machine.id, {
       accountId: account.id,
       userId: user.id,
@@ -219,7 +219,7 @@ describe.skipIf(!process.env.DATABASE_URL)('durable machine create job integrati
     const { user, account, machine, reservation } = await seedMachineWithReservation();
     createServerMock.mockRejectedValue(new Error('runner create failed'));
 
-    const { handleMachineCreateJob } = await import('@/server/lib/v2/machines');
+    const { handleMachineCreateJob } = await import("@/server/v2/services/machines");
     const result = await handleMachineCreateJob(machine.id, {
       accountId: account.id,
       userId: user.id,

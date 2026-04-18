@@ -97,7 +97,7 @@ const runTelemetryRetentionServicePassMock = vi.fn(async () => ({ acquired: true
 const runWatchdogServicePassMock = vi.fn(async () => ({ acquired: true, alerts: 0, alertSummaries: [], leaseOwner: 'wd', scope: 'watchdog:global' }));
 const runFleetAuditorServicePassMock = vi.fn(async () => ({ acquired: true, hostsChecked: 1, snapshotsRecorded: 1, snapshotsPruned: 0, checkedAt: '2026-04-11T00:00:00.000Z', leaseOwner: 'fa', scope: 'fleet_auditor:baremetal' }));
 
-vi.mock('@/server/lib/api-guard', () => ({
+vi.mock('@/server/auth/api-guard', () => ({
   apiGuard: async (c: any, next: any) => {
     c.set('isAdmin', true);
     c.set('userId', '11111111-1111-1111-1111-111111111111');
@@ -105,7 +105,7 @@ vi.mock('@/server/lib/api-guard', () => ({
   },
 }));
 
-vi.mock('@/server/lib/baremetal/cell-store', () => ({
+vi.mock('@/server/platform/baremetal/cell-store', () => ({
   ensureBaremetalCellRecord: vi.fn(async () => ({
     id: hostRow.cellId,
     slug: 'hel1--general-small--gen1',
@@ -116,7 +116,7 @@ vi.mock('@/server/lib/baremetal/cell-store', () => ({
   })),
 }));
 
-vi.mock('@/server/lib/baremetal/runner-client', () => ({
+vi.mock('@/server/platform/baremetal/runner-client', () => ({
   HttpBaremetalRunnerClient: vi.fn(function HttpBaremetalRunnerClient() {
     return {
       deleteInstance: deleteInstanceMock,
@@ -124,35 +124,35 @@ vi.mock('@/server/lib/baremetal/runner-client', () => ({
   }),
 }));
 
-vi.mock('@/server/lib/baremetal/reconcile', () => ({
+vi.mock('@/server/platform/baremetal/reconcile', () => ({
   reconcileBaremetalHost: reconcileBaremetalHostMock,
 }));
 
-vi.mock('@/server/lib/control-plane/provisioner', () => ({
+vi.mock('@/server/platform/control-plane/provisioner', () => ({
   runProvisionerServicePass: runProvisionerServicePassMock,
 }));
 
-vi.mock('@/server/lib/control-plane/webhook-dispatcher', () => ({
+vi.mock('@/server/platform/control-plane/webhook-dispatcher', () => ({
   runWebhookDispatcherServicePass: runWebhookDispatcherServicePassMock,
 }));
 
-vi.mock('@/server/lib/control-plane/auth-cache', () => ({
+vi.mock('@/server/platform/control-plane/auth-cache', () => ({
   runAuthCacheServicePass: runAuthCacheServicePassMock,
 }));
 
-vi.mock('@/server/lib/control-plane/routing', () => ({
+vi.mock('@/server/platform/control-plane/routing', () => ({
   runRoutingRepairServicePass: runRoutingRepairServicePassMock,
 }));
 
-vi.mock('@/server/lib/control-plane/telemetry', () => ({
+vi.mock('@/server/platform/control-plane/telemetry', () => ({
   runTelemetryRetentionServicePass: runTelemetryRetentionServicePassMock,
 }));
 
-vi.mock('@/server/lib/control-plane/watchdog', () => ({
+vi.mock('@/server/platform/control-plane/watchdog', () => ({
   runWatchdogServicePass: runWatchdogServicePassMock,
 }));
 
-vi.mock('@/server/lib/control-plane/fleet-auditor', () => ({
+vi.mock('@/server/platform/control-plane/fleet-auditor', () => ({
   runFleetAuditorServicePass: runFleetAuditorServicePassMock,
 }));
 
@@ -188,7 +188,7 @@ describe('admin baremetal host bootstrap routes', () => {
     selectWhereMock.mockResolvedValueOnce([hostRow]);
     updateReturningMock.mockResolvedValueOnce([{ ...hostRow, runnerToken: 'runner-token-123' }]);
 
-    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
+    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const res = await adminFleetV2App.request(new Request(`http://localhost/hosts/${hostRow.id}/bootstrap-config`));
     expect(res.status).toBe(200);
     const data = await res.json();
@@ -212,7 +212,7 @@ describe('admin baremetal host bootstrap routes', () => {
       updatedAt: new Date('2026-04-02T10:10:00.000Z'),
     }]);
 
-    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
+    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const res = await adminFleetV2App.request(new Request(`http://localhost/hosts/${hostRow.id}/register`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -276,7 +276,7 @@ describe('admin baremetal host bootstrap routes', () => {
       updatedAt: new Date('2026-04-11T10:01:00.000Z'),
     }]);
 
-    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
+    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const res = await adminFleetV2App.request(new Request(`http://localhost/hosts/${hostRow.id}/validation-artifact`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -355,7 +355,7 @@ describe('admin baremetal host bootstrap routes', () => {
       updatedAt: new Date('2026-04-11T10:01:00.000Z'),
     }]);
 
-    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
+    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const res = await adminFleetV2App.request(new Request(`http://localhost/hosts/${hostRow.id}/validation-artifact`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -417,7 +417,7 @@ describe('admin baremetal host bootstrap routes', () => {
       updatedAt: new Date('2026-04-11T11:00:00.000Z'),
     }]);
 
-    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
+    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const res = await adminFleetV2App.request(new Request(`http://localhost/hosts/${hostRow.id}/operator-settings`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -456,7 +456,7 @@ describe('admin baremetal host bootstrap routes', () => {
       updatedAt: new Date('2026-04-11T11:05:00.000Z'),
     }]);
 
-    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
+    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const res = await adminFleetV2App.request(new Request(`http://localhost/hosts/${hostRow.id}/scheduler-state`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -490,7 +490,7 @@ describe('admin baremetal host bootstrap routes', () => {
       updatedAt: new Date('2026-04-02T10:20:00.000Z'),
     }]);
 
-    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
+    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const res = await adminFleetV2App.request(new Request(`http://localhost/hosts/${hostRow.id}/maintenance-state`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -512,7 +512,7 @@ describe('admin baremetal host bootstrap routes', () => {
       .mockReturnValueOnce([cellRow])
       .mockReturnValueOnce([cellAdmissionRow]);
 
-    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
+    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const res = await adminFleetV2App.request(new Request('http://localhost/hosts'));
     expect(res.status).toBe(200);
     const data = await res.json();
@@ -540,7 +540,7 @@ describe('admin baremetal host bootstrap routes', () => {
       .mockReturnValueOnce([{ ...cellAdmissionRow, admissionState: 'closed', sellabilityState: 'unsellable', reason: 'Paused' }]);
     updateReturningMock.mockResolvedValueOnce([]);
 
-    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
+    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const res = await adminFleetV2App.request(new Request(`http://localhost/cells/${cellRow.id}/admission-state`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -566,7 +566,7 @@ describe('admin baremetal host bootstrap routes', () => {
       .mockReturnValueOnce([cellAdmissionRow]);
     updateReturningMock.mockResolvedValueOnce([]);
 
-    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
+    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const res = await adminFleetV2App.request(new Request(`http://localhost/cells/${cellRow.id}/reserve-policy`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -594,7 +594,7 @@ describe('admin baremetal host bootstrap routes', () => {
       .mockReturnValueOnce([cellRow])
       .mockReturnValueOnce([cellAdmissionRow]);
 
-    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
+    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const res = await adminFleetV2App.request(new Request('http://localhost/procurement-recommendations'));
 
     expect(res.status).toBe(200);
@@ -625,7 +625,7 @@ describe('admin baremetal host bootstrap routes', () => {
       updatedAt: new Date('2026-04-11T02:00:05.000Z'),
     }]);
 
-    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
+    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const res = await adminFleetV2App.request(new Request('http://localhost/control-plane/services'));
 
     expect(res.status).toBe(200);
@@ -675,7 +675,7 @@ describe('admin baremetal host bootstrap routes', () => {
       createdAt: new Date('2026-04-11T05:00:05.000Z'),
     }]);
 
-    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
+    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const res = await adminFleetV2App.request(new Request('http://localhost/cell-capacity-snapshots?limit=1'));
 
     expect(res.status).toBe(200);
@@ -692,7 +692,7 @@ describe('admin baremetal host bootstrap routes', () => {
   it('lists startup benchmarks with timing summaries', async () => {
     selectDirectMock.mockReturnValueOnce([benchmarkRow]);
 
-    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
+    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const res = await adminFleetV2App.request(new Request('http://localhost/benchmarks?limit=10&machine_mode=vm'));
 
     expect(res.status).toBe(200);
@@ -714,7 +714,7 @@ describe('admin baremetal host bootstrap routes', () => {
   });
 
   it('runs the V2 control-plane maintenance surface', async () => {
-    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
+    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const res = await adminFleetV2App.request(new Request('http://localhost/control-plane/run', { method: 'POST' }));
 
     expect(res.status).toBe(200);
@@ -735,7 +735,7 @@ describe('admin baremetal host bootstrap routes', () => {
   });
 
   it('can run a selective control-plane maintenance pass', async () => {
-    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
+    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const res = await adminFleetV2App.request(new Request('http://localhost/control-plane/run', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -753,7 +753,7 @@ describe('admin baremetal host bootstrap routes', () => {
   it('can clear a control-plane service lease manually', async () => {
     updateReturningMock.mockResolvedValueOnce([]);
 
-    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
+    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const res = await adminFleetV2App.request(new Request('http://localhost/control-plane/reset-lease', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -766,7 +766,7 @@ describe('admin baremetal host bootstrap routes', () => {
   });
 
   it('returns a config audit summary', async () => {
-    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
+    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const res = await adminFleetV2App.request(new Request('http://localhost/config-audit'));
 
     expect(res.status).toBe(200);
@@ -785,7 +785,7 @@ describe('admin baremetal host bootstrap routes', () => {
       { ...hostRow, id: '00000000-0000-4000-8000-000000000099', name: 'bm-host-2', metadata: { scheduler: { schedulable: false, unschedulableReason: 'host quarantined after failed bootstrap validation' }, bootstrap: { drift_status: 'blocking_drift', validation_artifact: { status: 'failed' } } } },
     ]);
 
-    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
+    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const res = await adminFleetV2App.request(new Request('http://localhost/host-audit'));
 
     expect(res.status).toBe(200);
@@ -836,7 +836,7 @@ describe('admin baremetal host bootstrap routes', () => {
       .mockReturnValueOnce([cellRow])
       .mockReturnValueOnce([cellAdmissionRow]);
 
-    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
+    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const res = await adminFleetV2App.request(new Request(`http://localhost/hosts/${hostRow.id}/cleanup-orphans`, { method: 'POST' }));
 
     expect(res.status).toBe(200);

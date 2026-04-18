@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const cancelMachineMock = vi.fn();
 const reactivateMachineMock = vi.fn();
 
-vi.mock('@/server/lib/api-guard', () => ({
+vi.mock('@/server/auth/api-guard', () => ({
   apiGuard: async (c: any, next: any) => {
     c.set('userId', '11111111-1111-1111-1111-111111111111');
     c.set('accountId', '22222222-2222-2222-2222-222222222222');
@@ -13,7 +13,7 @@ vi.mock('@/server/lib/api-guard', () => ({
   },
 }));
 
-vi.mock('@/server/lib/v2/machines', () => ({
+vi.mock('@/server/v2/services/machines', () => ({
   listMachinesV2: vi.fn(),
   getMachineV2: vi.fn(),
   createMachineV2: vi.fn(),
@@ -35,7 +35,7 @@ describe('v2 billing lifecycle actions', () => {
 
   it('cancels a machine subscription via v2 route', async () => {
     cancelMachineMock.mockResolvedValueOnce({ action: 'cancel', status: 'scheduled' });
-    const { machinesV2App } = await import('@/server/api/v2/public/machines');
+    const { machinesV2App } = await import("@/server/v2/routes/public/machines");
     const res = await machinesV2App.request(new Request(`http://localhost/${machineId}/cancel`, { method: 'POST' }));
     expect(res.status).toBe(200);
     expect(cancelMachineMock).toHaveBeenCalledWith(expect.objectContaining({ machineId }));
@@ -43,7 +43,7 @@ describe('v2 billing lifecycle actions', () => {
 
   it('reactivates a machine subscription via v2 route', async () => {
     reactivateMachineMock.mockResolvedValueOnce({ action: 'reactivate', status: 'active' });
-    const { machinesV2App } = await import('@/server/api/v2/public/machines');
+    const { machinesV2App } = await import("@/server/v2/routes/public/machines");
     const res = await machinesV2App.request(new Request(`http://localhost/${machineId}/reactivate`, { method: 'POST' }));
     expect(res.status).toBe(200);
     expect(reactivateMachineMock).toHaveBeenCalledWith(expect.objectContaining({ machineId }));

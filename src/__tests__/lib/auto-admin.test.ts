@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isAutoAdminEmail } from '@/server/lib/auto-admin';
+import { isAutoAdminEmail } from "@/server/auth/auto-admin";
 
 describe('isAutoAdminEmail', () => {
   it('matches kortix.ai addresses', () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { pickBaremetalHostForPlan, pickBaremetalHostForResources, scheduleBaremetalPlacement } from '@/server/lib/baremetal/scheduler';
-import type { BaremetalHostCandidate } from '@/server/lib/baremetal/types';
+import { pickBaremetalHostForPlan, pickBaremetalHostForResources, scheduleBaremetalPlacement } from "@/server/platform/baremetal/scheduler";
+import type { BaremetalHostCandidate } from "@/server/platform/baremetal/types";
 
 type SchedulerHostFixture = BaremetalHostCandidate & {
   reservations?: {

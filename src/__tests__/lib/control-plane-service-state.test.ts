@@ -14,7 +14,7 @@ describe('control-plane service state listing', () => {
   });
 
   it('pushes service+scope filtering into the database query', async () => {
-    const { listControlPlaneServiceStates } = await import('@/server/lib/control-plane/service-state');
+    const { listControlPlaneServiceStates } = await import("@/server/platform/control-plane/service-state");
 
     await listControlPlaneServiceStates({
       service: 'auth_cache',
@@ -30,7 +30,7 @@ describe('control-plane service state listing', () => {
   it('queries all rows directly when no filter is provided', async () => {
     fromMock.mockResolvedValueOnce([{ service: 'routing', scope: 'repair' }]);
     selectMock.mockImplementationOnce(() => ({ from: fromMock }));
-    const { listControlPlaneServiceStates } = await import('@/server/lib/control-plane/service-state');
+    const { listControlPlaneServiceStates } = await import("@/server/platform/control-plane/service-state");
 
     const rows = await listControlPlaneServiceStates({ executor: { select: selectMock } as never });
 

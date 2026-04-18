@@ -2,14 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
-import { formatLimit, isUnlimitedLimit } from "@/lib/account-limits";
-import { MachineCard } from "@/components/dashboard/machine-card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { useAccountLimits } from "@/hooks/use-account";
-import { useMachines } from "@/hooks/use-machines";
+import { Button } from "@/shared/ui/button";
+import { Input } from "@/shared/ui/input";
+import { cn } from "@/shared/lib/utils";
+import { formatLimit, isUnlimitedLimit } from "@/shared/lib/account-limits";
+import { MachineCard } from "@/shared/components/dashboard/machine-card";
+import { Skeleton } from "@/shared/ui/skeleton";
+import { useAccountLimits } from "@/shared/hooks/use-account";
+import { useMachines } from "@/v1/hooks/use-machines";
 import {
   Server,
   Plus,
@@ -18,7 +18,7 @@ import {
   Activity,
   Search,
 } from "lucide-react";
-import { CheckoutModal } from "@/components/checkout-modal";
+import { CheckoutModal } from "@/v1/components/checkout-modal";
 
 export default function MachinesPage() {
   const searchParams = useSearchParams();

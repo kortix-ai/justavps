@@ -6,7 +6,7 @@ const createSnapshotMock = vi.fn();
 const restoreSnapshotMock = vi.fn();
 const deleteSnapshotMock = vi.fn();
 
-vi.mock('@/server/lib/api-guard', () => ({
+vi.mock('@/server/auth/api-guard', () => ({
   apiGuard: async (c: any, next: any) => {
     c.set('userId', '11111111-1111-1111-1111-111111111111');
     c.set('accountId', '22222222-2222-2222-2222-222222222222');
@@ -15,7 +15,7 @@ vi.mock('@/server/lib/api-guard', () => ({
   },
 }));
 
-vi.mock('@/server/lib/v2/snapshots', () => ({
+vi.mock('@/server/v2/services/snapshots', () => ({
   listSnapshotsV2: listSnapshotsMock,
   createSnapshotV2: createSnapshotMock,
   restoreSnapshotV2: restoreSnapshotMock,
@@ -58,7 +58,7 @@ describe('v2 snapshots API', () => {
         last_restore_at: new Date().toISOString(),
       },
     });
-    const { snapshotsV2App } = await import('@/server/api/v2/public/snapshots');
+    const { snapshotsV2App } = await import("@/server/v2/routes/public/snapshots");
     const res = await snapshotsV2App.request(new Request(`http://localhost/${machineId}`));
     expect(res.status).toBe(200);
     const data = await res.json();
@@ -71,7 +71,7 @@ describe('v2 snapshots API', () => {
     createSnapshotMock.mockResolvedValueOnce({ id: 'snap-1', name: 'before-upgrade', created_at: new Date().toISOString(), status: 'creating' });
     restoreSnapshotMock.mockResolvedValueOnce({ ok: true, restore_execution_id: 'restore-1' });
     deleteSnapshotMock.mockResolvedValueOnce({ ok: true });
-    const { snapshotsV2App } = await import('@/server/api/v2/public/snapshots');
+    const { snapshotsV2App } = await import("@/server/v2/routes/public/snapshots");
     const createRes = await snapshotsV2App.request(new Request(`http://localhost/${machineId}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

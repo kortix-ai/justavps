@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 describe('runnerd proxy device setup helpers', () => {
   it('adds warm claim proxy devices without eth0 override', async () => {
     const runIncus = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
-    const { setupWarmClaimProxyDevices } = await import('../../../runnerd/src/network/proxy-devices');
+    const { setupWarmClaimProxyDevices } = await import('../../../apps/runnerd/src/network/proxy-devices');
 
     await setupWarmClaimProxyDevices({
       instanceName: 'vm-1',
@@ -21,7 +21,7 @@ describe('runnerd proxy device setup helpers', () => {
 
   it('adds container proxy devices to port-forward app traffic', async () => {
     const runIncus = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
-    const { setupContainerProxyDevices } = await import('../../../runnerd/src/network/proxy-devices');
+    const { setupContainerProxyDevices } = await import('../../../apps/runnerd/src/network/proxy-devices');
 
     await setupContainerProxyDevices({
       instanceName: 'container-1',

@@ -3,12 +3,12 @@
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { AppSidebar } from "@/components/dashboard/sidebar";
+import { AppSidebar } from "@/shared/components/dashboard/sidebar";
 import {
   SidebarInset,
   SidebarProvider,
   SidebarTrigger,
-} from "@/components/ui/sidebar";
+} from "@/shared/ui/sidebar";
 
 export default function DashboardLayout({
   children,

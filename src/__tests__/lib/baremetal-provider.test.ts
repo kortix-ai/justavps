@@ -15,7 +15,7 @@ describe('BaremetalProvider', () => {
       metadata: { proxy_slug: 'abc123' },
     });
 
-    const { BaremetalProvider } = await import('@/server/lib/providers/baremetal');
+    const { BaremetalProvider } = await import("@/server/platform/providers/baremetal");
     const provider = new BaremetalProvider({
       selectHost: async () => ({
         host: {
@@ -106,7 +106,7 @@ describe('BaremetalProvider', () => {
   });
 
   it('fails clearly when there is no capacity', async () => {
-    const { BaremetalProvider } = await import('@/server/lib/providers/baremetal');
+    const { BaremetalProvider } = await import("@/server/platform/providers/baremetal");
     const provider = new BaremetalProvider({
       selectHost: async () => null,
       createRunnerClient: () => ({

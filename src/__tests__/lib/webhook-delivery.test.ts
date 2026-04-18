@@ -15,12 +15,12 @@ vi.mock('@/server/db', () => ({
   },
 }));
 
-vi.mock('@/server/lib/control-plane-jobs', () => ({
+vi.mock('@/server/v2/services/control-plane-jobs', () => ({
   enqueueControlPlaneJob: enqueueControlPlaneJobMock,
   registerControlPlaneJobHandler: registerHandlerMock,
 }));
 
-vi.mock('@/server/lib/control-plane/webhook-dispatcher', () => ({
+vi.mock('@/server/platform/control-plane/webhook-dispatcher', () => ({
   runWebhookDispatcherServicePass: runWebhookDispatcherServicePassMock,
 }));
 
@@ -63,7 +63,7 @@ describe('webhook delivery queue', () => {
     });
 
     const fetchMock = vi.spyOn(global, 'fetch');
-    const { deliverWebhooks } = await import('@/server/lib/webhook-delivery');
+    const { deliverWebhooks } = await import("@/server/platform/control-plane/webhook-delivery");
 
     await deliverWebhooks('account-1', {
       machineId: 'machine-1',
@@ -145,7 +145,7 @@ describe('webhook delivery queue', () => {
 
     vi.spyOn(global, 'fetch').mockResolvedValue(new Response('nope', { status: 500 }));
 
-    const { webhookDeliveryInternals } = await import('@/server/lib/webhook-delivery');
+    const { webhookDeliveryInternals } = await import("@/server/platform/control-plane/webhook-delivery");
     const result = await webhookDeliveryInternals.handleWebhookDeliveryJob({
       id: 'job-1',
       jobType: 'webhook_deliver',

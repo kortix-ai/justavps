@@ -5,7 +5,7 @@ import {
   deriveMachineRuntimeKind,
   type MachineImageSourceKind,
   type MachineRuntimeKind,
-} from '@/server/domains/machine/types';
+} from "@/server/v2/domains/machine/types";
 
 describe('machine domain runtime typing', () => {
   it('derives runtime kind from machine mode and requested image kind', () => {

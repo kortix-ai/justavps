@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { cn } from "@/lib/utils";
-import { buttonVariants } from "@/components/ui/button";
-import { useTheme } from "@/hooks/use-theme";
-import { Logo } from "@/components/logo";
+import { cn } from "@/shared/lib/utils";
+import { buttonVariants } from "@/shared/ui/button";
+import { useTheme } from "@/shared/hooks/use-theme";
+import { Logo } from "@/shared/components/logo";
 
 function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();

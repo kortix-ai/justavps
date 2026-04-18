@@ -4,7 +4,7 @@ import {
   formatMachineHealthPercent,
   getAdminMachinesRangeLabel,
   getAdminMachinesTotalPages,
-} from '@/lib/admin-machines';
+} from '@/v1/lib/admin-machines';
 
 describe('admin machines helpers', () => {
   it('sanitizes invalid health values before rendering', () => {

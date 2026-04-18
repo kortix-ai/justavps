@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { timeAgo, cn } from "@/lib/utils";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/shared/ui/button";
+import { Input } from "@/shared/ui/input";
+import { Label } from "@/shared/ui/label";
+import { timeAgo, cn } from "@/shared/lib/utils";
+import { Skeleton } from "@/shared/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -13,21 +13,21 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@/shared/ui/dialog";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "@/shared/ui/select";
 import { toast } from "sonner";
-import { useAccountLimits } from "@/hooks/use-account";
-import { useImages, useCreateImage, useDeleteImage } from "@/hooks/v2/use-images-v2";
-import { useMachines } from "@/hooks/v2/use-machines-v2";
-import { useConfirm } from "@/hooks/use-confirm";
-import { formatLimit, isUnlimitedLimit } from "@/lib/account-limits";
-import type { Image } from "@/lib/types";
+import { useAccountLimits } from "@/shared/hooks/use-account";
+import { useImages, useCreateImage, useDeleteImage } from "@/v2/hooks/use-images-v2";
+import { useMachines } from "@/v2/hooks/use-machines-v2";
+import { useConfirm } from "@/shared/hooks/use-confirm";
+import { formatLimit, isUnlimitedLimit } from "@/shared/lib/account-limits";
+import type { Image } from "@/shared/lib/types";
 import { HardDrive, Trash2, Container, Loader2, Plus, AlertTriangle } from "lucide-react";
 
 const statusConfig: Record<string, { label: string; dotClass: string }> = {

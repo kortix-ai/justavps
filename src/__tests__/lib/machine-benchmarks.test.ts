@@ -17,7 +17,7 @@ describe('machine benchmark parsing and persistence', () => {
   });
 
   it('parses valid start-time benchmark metadata', async () => {
-    const { parseMachineBenchmarkRecord } = await import('@/server/lib/machine-benchmarks');
+    const { parseMachineBenchmarkRecord } = await import("@/server/v2/services/machine-benchmarks");
 
     const record = parseMachineBenchmarkRecord({
       machineId: 'machine-1',
@@ -53,7 +53,7 @@ describe('machine benchmark parsing and persistence', () => {
   });
 
   it('persists valid benchmark records and ignores malformed payloads', async () => {
-    const { recordMachineBenchmark } = await import('@/server/lib/machine-benchmarks');
+    const { recordMachineBenchmark } = await import("@/server/v2/services/machine-benchmarks");
 
     const inserted = await recordMachineBenchmark({
       machineId: 'machine-1',

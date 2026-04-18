@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 async function loadLifecycle() {
   vi.resetModules();
-  return import('@/server/lib/machine-lifecycle');
+  return import("@/server/v1/services/machine-lifecycle");
 }
 
 afterEach(() => {

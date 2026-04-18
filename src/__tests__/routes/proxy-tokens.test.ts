@@ -9,7 +9,7 @@ const insertReturningMock = vi.fn();
 const syncProxyTokenToKVMock = vi.fn();
 const deleteProxyTokenFromKVMock = vi.fn();
 
-vi.mock('@/server/lib/api-guard', () => ({
+vi.mock('@/server/auth/api-guard', () => ({
   apiGuard: async (c: any, next: any) => {
     c.set('userId', '11111111-1111-1111-1111-111111111111');
     c.set('accountId', '22222222-2222-2222-2222-222222222222');
@@ -19,7 +19,7 @@ vi.mock('@/server/lib/api-guard', () => ({
   requireMachineAccess: vi.fn(),
 }));
 
-vi.mock('@/server/lib/proxy-kv', () => ({
+vi.mock('@/server/v1/services/proxy-kv', () => ({
   syncProxyTokenToKV: syncProxyTokenToKVMock,
   deleteProxyTokenFromKV: deleteProxyTokenFromKVMock,
 }));
@@ -59,7 +59,7 @@ describe('proxy token routes', () => {
     syncProxyTokenToKVMock.mockRejectedValueOnce(new Error('cf put failed'));
     deleteWhereMock.mockResolvedValueOnce(undefined);
 
-    const { proxyTokensApp } = await import('@/server/api/v1/legacy/proxy-tokens');
+    const { proxyTokensApp } = await import("@/server/v1/routes/legacy/proxy-tokens");
     const res = await proxyTokensApp.request(new Request('http://localhost/', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -84,7 +84,7 @@ describe('proxy token routes', () => {
     }]);
     deleteProxyTokenFromKVMock.mockRejectedValueOnce(new Error('cf delete failed'));
 
-    const { proxyTokensApp } = await import('@/server/api/v1/legacy/proxy-tokens');
+    const { proxyTokensApp } = await import("@/server/v1/routes/legacy/proxy-tokens");
     const res = await proxyTokensApp.request(new Request('http://localhost/11111111-1111-4111-8111-111111111111', { method: 'DELETE' }));
 
     expect(res.status).toBe(502);
@@ -112,7 +112,7 @@ describe('proxy token routes', () => {
       createdAt: new Date('2026-04-11T00:00:00.000Z'),
     }]);
 
-    const { proxyTokensApp } = await import('@/server/api/v1/legacy/proxy-tokens');
+    const { proxyTokensApp } = await import("@/server/v1/routes/legacy/proxy-tokens");
     const res = await proxyTokensApp.request(new Request('http://localhost/', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

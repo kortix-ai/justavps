@@ -8,7 +8,7 @@ const deleteWhereMock = vi.fn();
 const syncApiKeyToKVMock = vi.fn();
 const deleteApiKeyFromKVMock = vi.fn();
 
-vi.mock('@/server/lib/api-guard', () => ({
+vi.mock('@/server/auth/api-guard', () => ({
   apiGuard: async (c: any, next: any) => {
     c.set('userId', '11111111-1111-1111-1111-111111111111');
     c.set('accountId', '22222222-2222-2222-2222-222222222222');
@@ -18,7 +18,7 @@ vi.mock('@/server/lib/api-guard', () => ({
   requireMachineAccess: vi.fn(),
 }));
 
-vi.mock('@/server/lib/proxy-kv', () => ({
+vi.mock('@/server/v1/services/proxy-kv', () => ({
   syncApiKeyToKV: syncApiKeyToKVMock,
   deleteApiKeyFromKV: deleteApiKeyFromKVMock,
 }));
@@ -53,7 +53,7 @@ describe('api key routes', () => {
     syncApiKeyToKVMock.mockRejectedValueOnce(new Error('cf put failed'));
     deleteWhereMock.mockResolvedValueOnce(undefined);
 
-    const { apiKeysApp } = await import('@/server/api/v1/legacy/api-keys');
+    const { apiKeysApp } = await import("@/server/v1/routes/legacy/api-keys");
     const res = await apiKeysApp.request(new Request('http://localhost/', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -79,7 +79,7 @@ describe('api key routes', () => {
     }]);
     deleteWhereMock.mockResolvedValueOnce(undefined);
 
-    const { apiKeysApp } = await import('@/server/api/v1/legacy/api-keys');
+    const { apiKeysApp } = await import("@/server/v1/routes/legacy/api-keys");
     const res = await apiKeysApp.request(new Request('http://localhost/11111111-1111-4111-8111-111111111111', { method: 'DELETE' }));
 
     expect(res.status).toBe(204);
@@ -95,7 +95,7 @@ describe('api key routes', () => {
     }]);
     deleteApiKeyFromKVMock.mockRejectedValueOnce(new Error('cf delete failed'));
 
-    const { apiKeysApp } = await import('@/server/api/v1/legacy/api-keys');
+    const { apiKeysApp } = await import("@/server/v1/routes/legacy/api-keys");
     const res = await apiKeysApp.request(new Request('http://localhost/11111111-1111-4111-8111-111111111111', { method: 'DELETE' }));
 
     expect(res.status).toBe(502);

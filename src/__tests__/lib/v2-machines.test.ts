@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildBaremetalCellSlug, deriveBaremetalCellIdentity } from '@/server/lib/baremetal/cells';
-import { defaultPlacementImageAlias, normalizeResolvedImageForProvider } from '@/server/domains/machine/image-source';
+import { buildBaremetalCellSlug, deriveBaremetalCellIdentity } from "@/server/platform/baremetal/cells";
+import { defaultPlacementImageAlias, normalizeResolvedImageForProvider } from "@/server/v2/domains/machine/image-source";
 
 describe('normalizeResolvedImageForProvider', () => {
   it('maps default ubuntu image to an Incus image alias for baremetal', () => {

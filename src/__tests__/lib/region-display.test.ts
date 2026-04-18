@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { regionDisplay } from '@/lib/utils';
+import { regionDisplay } from '@/shared/lib/utils';
 
 describe('regionDisplay', () => {
   it('renders concrete EU region labels instead of generic EU', () => {

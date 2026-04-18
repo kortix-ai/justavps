@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { catalogV2App } from '@/server/api/v2/public/catalog';
+import { catalogV2App } from "@/server/v2/routes/public/catalog";
 
 describe('v2 catalog API', () => {
   it('returns resource pricing rates and limits', async () => {

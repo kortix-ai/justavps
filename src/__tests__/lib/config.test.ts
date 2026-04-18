@@ -4,7 +4,7 @@ const originalLegacyProxyFlag = process.env.LEGACY_PLATFORM_PROXY_ENABLED;
 
 async function loadConfig() {
   vi.resetModules();
-  return import('@/server/lib/config');
+  return import("@/server/core/config");
 }
 
 describe('config legacy proxy flag', () => {

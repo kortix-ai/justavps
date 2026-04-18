@@ -7,7 +7,7 @@ describe('runnerd instance wait helpers', () => {
       .mockResolvedValueOnce({});
     const delay = vi.fn().mockResolvedValue(undefined);
 
-    const { waitForInstance } = await import('../../../runnerd/src/incus/instance-wait');
+    const { waitForInstance } = await import('../../../apps/runnerd/src/incus/instance-wait');
     await waitForInstance({ instanceName: 'demo', queryIncus, delay, timeoutMs: 5000, intervalMs: 1 });
 
     expect(queryIncus).toHaveBeenCalledTimes(2);
@@ -20,7 +20,7 @@ describe('runnerd instance wait helpers', () => {
       .mockResolvedValueOnce({ privateIpv4: '10.0.0.5', status: 'Running' });
     const delay = vi.fn().mockResolvedValue(undefined);
 
-    const { waitForPrivateIpv4 } = await import('../../../runnerd/src/incus/instance-wait');
+    const { waitForPrivateIpv4 } = await import('../../../apps/runnerd/src/incus/instance-wait');
     const result = await waitForPrivateIpv4({ instanceName: 'demo', inspectInstance, delay, timeoutMs: 5000, intervalMs: 1 });
 
     expect(result).toEqual({ privateIpv4: '10.0.0.5', status: 'Running' });

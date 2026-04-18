@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { hostHasAvailableCapacity, projectHostUsage, summarizeReservationUsage } from '@/server/lib/baremetal/reservations';
+import { hostHasAvailableCapacity, projectHostUsage, summarizeReservationUsage } from "@/server/platform/baremetal/reservations";
 
 describe('host capacity reservations', () => {
   it('counts reserved and committed capacity separately', () => {

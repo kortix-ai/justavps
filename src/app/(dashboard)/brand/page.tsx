@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Progress } from "@/components/ui/progress";
-import { Separator } from "@/components/ui/separator";
+import { Button } from "@/shared/ui/button";
+import { Badge } from "@/shared/ui/badge";
+import { Input } from "@/shared/ui/input";
+import { Label } from "@/shared/ui/label";
+import { Skeleton } from "@/shared/ui/skeleton";
+import { Progress } from "@/shared/ui/progress";
+import { Separator } from "@/shared/ui/separator";
 import {
   Dialog,
   DialogContent,
@@ -15,7 +15,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@/shared/ui/dialog";
 import {
   Plus,
   Trash2,
@@ -33,8 +33,8 @@ import {
   ArrowUp,
   RotateCw,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { Logo } from "@/components/logo";
+import { cn } from "@/shared/lib/utils";
+import { Logo } from "@/shared/components/logo";
 import type { Highlighter } from "shiki";
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -255,7 +255,7 @@ export default function BrandPage() {
         </div>
 
         <CodeBlock title="Logo component usage" lang="tsx">{`
-import { Logo } from "@/components/logo";
+import { Logo } from "@/shared/components/logo";
 
 // Full co-branded logo (sidebar, nav)
 <Logo />

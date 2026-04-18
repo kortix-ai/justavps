@@ -9,7 +9,7 @@ vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: invalidateQueriesMock }),
 }));
 
-vi.mock('@/hooks/api-client', () => ({
+vi.mock('@/shared/hooks/api-client', () => ({
   apiV2: {
     post: vi.fn(async () => ({ host: {}, cell: {} })),
     get: vi.fn(async () => ({ hosts: [], cells: [] })),
@@ -24,7 +24,7 @@ describe('use-fleet invalidation', () => {
   });
 
   it('invalidates all fleet views after host scheduler updates', async () => {
-    const { useUpdateFleetHostSchedulerState } = await import('@/hooks/use-fleet');
+    const { useUpdateFleetHostSchedulerState } = await import('@/shared/hooks/use-fleet');
     const mutation = useUpdateFleetHostSchedulerState() as { onSuccess?: () => void };
 
     mutation.onSuccess?.();
@@ -38,7 +38,7 @@ describe('use-fleet invalidation', () => {
   });
 
   it('invalidates all fleet views after cell reserve policy updates', async () => {
-    const { useUpdateFleetCellReservePolicy } = await import('@/hooks/use-fleet');
+    const { useUpdateFleetCellReservePolicy } = await import('@/shared/hooks/use-fleet');
     const mutation = useUpdateFleetCellReservePolicy() as { onSuccess?: () => void };
 
     mutation.onSuccess?.();

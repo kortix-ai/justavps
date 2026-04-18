@@ -12,11 +12,11 @@ vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: invalidateQueriesMock }),
 }));
 
-vi.mock('@/hooks/use-account', () => ({
+vi.mock('@/shared/hooks/use-account', () => ({
   useAccount: () => ({ data: { is_admin: true }, isLoading: false }),
 }));
 
-vi.mock('@/hooks/api-client', () => ({
+vi.mock('@/shared/hooks/api-client', () => ({
   apiV2: {
     get: vi.fn(),
     post: vi.fn(),
@@ -27,15 +27,15 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock('@/components/ui/button', () => ({
+vi.mock('@/shared/ui/button', () => ({
   Button: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => <button {...props}>{children}</button>,
 }));
 
-vi.mock('@/components/ui/badge', () => ({
+vi.mock('@/shared/ui/badge', () => ({
   Badge: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
 }));
 
-vi.mock('@/components/ui/skeleton', () => ({
+vi.mock('@/shared/ui/skeleton', () => ({
   Skeleton: (props: React.HTMLAttributes<HTMLDivElement>) => <div {...props} />,
 }));
 

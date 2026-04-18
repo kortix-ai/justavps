@@ -9,7 +9,7 @@ import {
   CreateSSHKeySchema,
   CreateAPIKeySchema,
   HeartbeatSchema,
-} from '@/lib/schemas';
+} from '@/shared/lib/schemas';
 
 describe('validation schemas', () => {
   describe('CreateMachineSchema', () => {

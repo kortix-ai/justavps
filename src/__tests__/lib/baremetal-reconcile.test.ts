@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/server/lib/baremetal/cell-store', () => ({
+vi.mock('@/server/platform/baremetal/cell-store', () => ({
   ensureBaremetalHostCellAssignment: vi.fn(async ({ host }: { host: { cellId?: string | null; region: string; hostClass: string; generation?: string | null } }) => ({
     id: host.cellId ?? 'cell-generated',
     slug: `${host.region}--${host.hostClass}--${host.generation ?? 'gen1'}`,
@@ -11,7 +11,7 @@ vi.mock('@/server/lib/baremetal/cell-store', () => ({
   })),
 }));
 
-import { reconcileBaremetalFleet, summarizeHostUsage } from '@/server/lib/baremetal/reconcile';
+import { reconcileBaremetalFleet, summarizeHostUsage } from "@/server/platform/baremetal/reconcile";
 
 describe('baremetal reconciliation', () => {
   it('summarizes usage from live runner instances and flags orphans', () => {

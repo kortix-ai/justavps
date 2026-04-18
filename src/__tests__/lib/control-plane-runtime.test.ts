@@ -11,32 +11,32 @@ const runFleetAuditorServicePassMock = vi.fn(async () => ({ acquired: true }));
 const dbExecuteMock = vi.fn(async () => []);
 const resetDbConnectionMock = vi.fn(async () => undefined);
 
-vi.mock('@/server/lib/control-plane/provisioner', () => ({
+vi.mock('@/server/platform/control-plane/provisioner', () => ({
   ensureProvisionerServiceWorker: ensureProvisionerServiceWorkerMock,
   runProvisionerServicePass: runProvisionerServicePassMock,
 }));
 
-vi.mock('@/server/lib/control-plane/webhook-dispatcher', () => ({
+vi.mock('@/server/platform/control-plane/webhook-dispatcher', () => ({
   runWebhookDispatcherServicePass: runWebhookDispatcherServicePassMock,
 }));
 
-vi.mock('@/server/lib/control-plane/auth-cache', () => ({
+vi.mock('@/server/platform/control-plane/auth-cache', () => ({
   runAuthCacheServicePass: runAuthCacheServicePassMock,
 }));
 
-vi.mock('@/server/lib/control-plane/routing', () => ({
+vi.mock('@/server/platform/control-plane/routing', () => ({
   runRoutingRepairServicePass: runRoutingRepairServicePassMock,
 }));
 
-vi.mock('@/server/lib/control-plane/telemetry', () => ({
+vi.mock('@/server/platform/control-plane/telemetry', () => ({
   runTelemetryRetentionServicePass: runTelemetryRetentionServicePassMock,
 }));
 
-vi.mock('@/server/lib/control-plane/watchdog', () => ({
+vi.mock('@/server/platform/control-plane/watchdog', () => ({
   runWatchdogServicePass: runWatchdogServicePassMock,
 }));
 
-vi.mock('@/server/lib/control-plane/fleet-auditor', () => ({
+vi.mock('@/server/platform/control-plane/fleet-auditor', () => ({
   runFleetAuditorServicePass: runFleetAuditorServicePassMock,
 }));
 
@@ -60,7 +60,7 @@ describe('control-plane runtime', () => {
   });
 
   afterEach(async () => {
-    const mod = await import('@/server/lib/control-plane/runtime');
+    const mod = await import("@/server/platform/control-plane/runtime");
     mod.resetControlPlaneRuntimeForTests();
     vi.useRealTimers();
     delete process.env.CONTROL_PLANE_RUNTIME_DISABLED;
@@ -68,7 +68,7 @@ describe('control-plane runtime', () => {
   });
 
   it('starts background loops only once', async () => {
-    const mod = await import('@/server/lib/control-plane/runtime');
+    const mod = await import("@/server/platform/control-plane/runtime");
     mod.ensureControlPlaneRuntimeStarted();
     mod.ensureControlPlaneRuntimeStarted();
     await vi.advanceTimersByTimeAsync(0);
@@ -97,7 +97,7 @@ describe('control-plane runtime', () => {
 
   it('does not start when runtime is disabled', async () => {
     process.env.CONTROL_PLANE_RUNTIME_DISABLED = 'true';
-    const mod = await import('@/server/lib/control-plane/runtime');
+    const mod = await import("@/server/platform/control-plane/runtime");
     mod.ensureControlPlaneRuntimeStarted();
 
     expect(ensureProvisionerServiceWorkerMock).not.toHaveBeenCalled();
@@ -107,7 +107,7 @@ describe('control-plane runtime', () => {
   it('skips loop passes while the database probe is unavailable', async () => {
     dbExecuteMock.mockRejectedValue(new Error('db unavailable'));
 
-    const mod = await import('@/server/lib/control-plane/runtime');
+    const mod = await import("@/server/platform/control-plane/runtime");
     mod.ensureControlPlaneRuntimeStarted();
     await vi.advanceTimersByTimeAsync(5_000);
 

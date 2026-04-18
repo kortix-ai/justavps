@@ -66,7 +66,7 @@ describe('control-plane jobs runtime', () => {
       processDueControlPlaneJobs,
       registerControlPlaneJobHandler,
       resetControlPlaneJobWorkerForTests,
-    } = await import('@/server/lib/control-plane-jobs');
+    } = await import("@/server/v2/services/control-plane-jobs");
 
     const retryAt = new Date(Date.now() + 60_000);
     registerControlPlaneJobHandler('webhook_deliver', {

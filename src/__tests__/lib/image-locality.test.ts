@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { scheduleBaremetalPlacement } from '@/server/lib/baremetal/scheduler';
-import { applyExplicitImageAvailabilityToHosts, buildRequestedImageAvailabilityRefs, syncHostImageAvailabilityFromRunnerState } from '@/server/lib/baremetal/image-locality';
+import { scheduleBaremetalPlacement } from "@/server/platform/baremetal/scheduler";
+import { applyExplicitImageAvailabilityToHosts, buildRequestedImageAvailabilityRefs, syncHostImageAvailabilityFromRunnerState } from "@/server/platform/baremetal/image-locality";
 import type { BaremetalHostImageRow } from '@/server/db/schema';
-import type { BaremetalHostCandidate } from '@/server/lib/baremetal/types';
+import type { BaremetalHostCandidate } from "@/server/platform/baremetal/types";
 
 type SyncImageLocalityExecutor = NonNullable<Parameters<typeof syncHostImageAvailabilityFromRunnerState>[0]['executor']>;
 

@@ -6,9 +6,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/server/db';
 import { users } from '@/server/db/schema';
 import { eq } from 'drizzle-orm';
-import { hashPassword } from '@/server/lib/crypto';
-import { isAutoAdminEmail } from '@/server/lib/auto-admin';
-import { ensureUserAccountGraph } from '@/server/lib/accounts';
+import { hashPassword } from "@/server/core/crypto";
+import { isAutoAdminEmail } from "@/server/auth/auto-admin";
+import { ensureUserAccountGraph } from "@/server/auth/accounts";
 import { z } from 'zod';
 
 const RegisterSchema = z.object({

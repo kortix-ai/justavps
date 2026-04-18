@@ -16,7 +16,7 @@ describe('HetznerRobotClient', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const { HetznerRobotClient } = await import('@/server/lib/baremetal/vendors/hetzner-robot');
+    const { HetznerRobotClient } = await import("@/server/platform/baremetal/vendors/hetzner-robot");
     const client = new HetznerRobotClient();
     const products = await client.listServerProducts({ location: 'FSN1', maxPrice: 60 });
 
@@ -38,7 +38,7 @@ describe('HetznerRobotClient', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const { HetznerRobotClient } = await import('@/server/lib/baremetal/vendors/hetzner-robot');
+    const { HetznerRobotClient } = await import("@/server/platform/baremetal/vendors/hetzner-robot");
     const client = new HetznerRobotClient();
     const result = await client.orderServer({
       productId: 'AX41-NVMe',
@@ -73,7 +73,7 @@ describe('HetznerRobotClient', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const { HetznerRobotClient } = await import('@/server/lib/baremetal/vendors/hetzner-robot');
+    const { HetznerRobotClient } = await import("@/server/platform/baremetal/vendors/hetzner-robot");
     const client = new HetznerRobotClient();
 
     await expect(client.orderServer({
@@ -93,7 +93,7 @@ describe('HetznerRobotClient', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const { HetznerRobotClient } = await import('@/server/lib/baremetal/vendors/hetzner-robot');
+    const { HetznerRobotClient } = await import("@/server/platform/baremetal/vendors/hetzner-robot");
     const client = new HetznerRobotClient();
     const fingerprint = await client.ensureKey({ name: 'bootstrap', data: 'ssh-ed25519 AAAA existing' });
 
@@ -115,7 +115,7 @@ describe('HetznerRobotClient', () => {
       });
     vi.stubGlobal('fetch', fetchMock);
 
-    const { HetznerRobotClient } = await import('@/server/lib/baremetal/vendors/hetzner-robot');
+    const { HetznerRobotClient } = await import("@/server/platform/baremetal/vendors/hetzner-robot");
     const client = new HetznerRobotClient();
     const fingerprint = await client.ensureKey({ name: 'bootstrap', data: 'ssh-ed25519 AAAA new' });
 

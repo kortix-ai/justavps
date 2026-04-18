@@ -28,7 +28,7 @@ vi.mock('@/server/db', async () => {
   };
 });
 
-vi.mock('@/server/lib/baremetal/runner-client', () => ({
+vi.mock('@/server/platform/baremetal/runner-client', () => ({
   HttpBaremetalRunnerClient: vi.fn(function HttpBaremetalRunnerClient() {
     return {
       createSnapshot: createSnapshotMock,
@@ -37,12 +37,12 @@ vi.mock('@/server/lib/baremetal/runner-client', () => ({
   }),
 }));
 
-vi.mock('@/server/lib/providers', () => ({
+vi.mock('@/server/platform/providers', () => ({
   getProvider: vi.fn(),
   isBackupCapableProvider: vi.fn(() => false),
 }));
 
-vi.mock('@/server/lib/backup-artifacts', () => ({
+vi.mock('@/server/v2/services/backup-artifacts', () => ({
   baremetalSnapshotStorageUrl: vi.fn((hostId: string, instanceId: string, snapshotId: string) => `incus-snapshot://${hostId}/${instanceId}/${snapshotId}`),
   ensureSnapshotArtifact: ensureSnapshotArtifactMock,
   markSnapshotArtifactDeleted: markSnapshotArtifactDeletedMock,
@@ -77,7 +77,7 @@ describe('v2 snapshot backup artifacts and restore drill', () => {
     });
     ensureSnapshotArtifactMock.mockResolvedValueOnce({ id: 'artifact-1' });
 
-    const { createSnapshotV2 } = await import('@/server/lib/v2/snapshots');
+    const { createSnapshotV2 } = await import("@/server/v2/services/snapshots");
     const result = await createSnapshotV2({ accountId: 'account-1', machineId: 'machine-1', name: 'before-upgrade' });
 
     expect(result.artifact_id).toBe('artifact-1');
@@ -98,7 +98,7 @@ describe('v2 snapshot backup artifacts and restore drill', () => {
     startRestoreExecutionMock.mockResolvedValueOnce({ id: 'restore-1' });
     restoreSnapshotMock.mockResolvedValueOnce(undefined);
 
-    const { restoreSnapshotV2 } = await import('@/server/lib/v2/snapshots');
+    const { restoreSnapshotV2 } = await import("@/server/v2/services/snapshots");
     const result = await restoreSnapshotV2({
       accountId: 'account-1',
       machineId: 'machine-1',
@@ -123,7 +123,7 @@ describe('v2 snapshot backup artifacts and restore drill', () => {
   });
 
   it('marks the artifact deleted when removing a baremetal snapshot', async () => {
-    const { deleteSnapshotV2 } = await import('@/server/lib/v2/snapshots');
+    const { deleteSnapshotV2 } = await import("@/server/v2/services/snapshots");
 
     const result = await deleteSnapshotV2({ accountId: 'account-1', machineId: 'machine-1', snapshotId: 'snap-1' });
 

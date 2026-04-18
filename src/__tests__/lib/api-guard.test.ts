@@ -57,15 +57,15 @@ vi.mock('@/server/db/schema', () => ({
   },
 }));
 
-vi.mock('@/server/lib/crypto', () => ({
+vi.mock('@/server/core/crypto', () => ({
   validateApiKey: validateApiKeyMock,
 }));
 
-vi.mock('@/server/lib/auto-admin', () => ({
+vi.mock('@/server/auth/auto-admin', () => ({
   ensureAutoAdminUser: ensureAutoAdminUserMock,
 }));
 
-vi.mock('@/server/lib/accounts', () => ({
+vi.mock('@/server/auth/accounts', () => ({
   ACCOUNT_COOKIE_NAME: 'active_account_id',
   ensureUserAccountGraph: ensureUserAccountGraphMock,
   isAccountAdmin: vi.fn(() => true),
@@ -103,7 +103,7 @@ describe('apiGuard API-key fallback lookup', () => {
   });
 
   it('limits bcrypt fallback lookup to matching key prefixes instead of scanning every API key', async () => {
-    const { apiGuard } = await import('@/server/lib/api-guard');
+    const { apiGuard } = await import("@/server/auth/api-guard");
     const app = new Hono();
     app.use('*', apiGuard);
     app.get('/', (c) => c.json({ ok: true, accountId: (c as any).get('accountId') }));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { filterOpenApiDocumentForPrefix } from '@/server/lib/openapi-versioning';
+import { filterOpenApiDocumentForPrefix } from "@/server/core/openapi/versioning";
 
 describe('filterOpenApiDocumentForPrefix', () => {
   it('keeps only paths under the requested prefix and rewrites them to docs-local paths', () => {

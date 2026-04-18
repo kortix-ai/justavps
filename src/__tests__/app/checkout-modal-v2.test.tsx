@@ -14,7 +14,7 @@ vi.mock('next-auth/react', () => ({
   useSession: () => ({ data: { user: { id: 'user-1' } } }),
 }));
 
-vi.mock('@/hooks/v2/use-hosts-v2', () => ({
+vi.mock('@/v2/hooks/use-hosts-v2', () => ({
   useAvailableHosts: () => ({
     data: [{
       id: 'host-1',
@@ -38,14 +38,14 @@ vi.mock('@/hooks/v2/use-hosts-v2', () => ({
   }),
 }));
 
-vi.mock('@/hooks/v2/use-machines-v2', () => ({
+vi.mock('@/v2/hooks/use-machines-v2', () => ({
   useCreateMachine: () => ({
     mutate: mutateMock,
     isPending: false,
   }),
 }));
 
-vi.mock('@/hooks/use-account', () => ({
+vi.mock('@/shared/hooks/use-account', () => ({
   useAccountLimits: () => ({
     data: {
       usage: { machines: 0 },
@@ -54,15 +54,15 @@ vi.mock('@/hooks/use-account', () => ({
   }),
 }));
 
-vi.mock('@/components/ui/button', () => ({
+vi.mock('@/shared/ui/button', () => ({
   Button: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => <button {...props}>{children}</button>,
 }));
 
-vi.mock('@/components/ui/input', () => ({
+vi.mock('@/shared/ui/input', () => ({
   Input: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
 }));
 
-vi.mock('@/components/ui/slider', () => ({
+vi.mock('@/shared/ui/slider', () => ({
   Slider: ({ value, onValueChange }: { value?: number[]; onValueChange?: (value: number[]) => void }) => (
     <input
       type="range"
@@ -82,7 +82,7 @@ describe('CheckoutModal Docker image flow', () => {
   });
 
   it('submits container mode with a user Docker image', async () => {
-    const { CheckoutModal } = await import('@/components/v2/checkout-modal-v2');
+    const { CheckoutModal } = await import('@/v2/components/checkout-modal-v2');
 
     render(<CheckoutModal open onClose={vi.fn()} />);
 

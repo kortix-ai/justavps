@@ -12,11 +12,11 @@ vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: invalidateQueriesMock }),
 }));
 
-vi.mock('@/hooks/use-account', () => ({
+vi.mock('@/shared/hooks/use-account', () => ({
   useAccount: () => ({ data: { is_admin: true }, isLoading: false }),
 }));
 
-vi.mock('@/hooks/api-client', () => ({
+vi.mock('@/shared/hooks/api-client', () => ({
   api: {
     get: vi.fn(),
     post: vi.fn(),
@@ -33,23 +33,23 @@ vi.mock('sonner', () => ({
   },
 }));
 
-vi.mock('@/components/ui/button', () => ({
+vi.mock('@/shared/ui/button', () => ({
   Button: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => <button {...props}>{children}</button>,
 }));
 
-vi.mock('@/components/ui/badge', () => ({
+vi.mock('@/shared/ui/badge', () => ({
   Badge: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
 }));
 
-vi.mock('@/components/ui/input', () => ({
+vi.mock('@/shared/ui/input', () => ({
   Input: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
 }));
 
-vi.mock('@/components/ui/skeleton', () => ({
+vi.mock('@/shared/ui/skeleton', () => ({
   Skeleton: (props: React.HTMLAttributes<HTMLDivElement>) => <div {...props} />,
 }));
 
-vi.mock('@/components/ui/select', () => ({
+vi.mock('@/shared/ui/select', () => ({
   Select: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   SelectContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   SelectItem: ({ children, value }: { children: React.ReactNode; value: string }) => <option value={value}>{children}</option>,
@@ -57,7 +57,7 @@ vi.mock('@/components/ui/select', () => ({
   SelectValue: ({ placeholder }: { placeholder?: string }) => <span>{placeholder}</span>,
 }));
 
-vi.mock('@/components/ui/dialog', () => ({
+vi.mock('@/shared/ui/dialog', () => ({
   Dialog: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DialogContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DialogDescription: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,

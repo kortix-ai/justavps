@@ -9,7 +9,7 @@ const stopMachineMock = vi.fn();
 const rebootMachineMock = vi.fn();
 const deleteMachineMock = vi.fn();
 
-vi.mock('@/server/lib/api-guard', () => ({
+vi.mock('@/server/auth/api-guard', () => ({
   apiGuard: async (c: any, next: any) => {
     c.set('userId', '11111111-1111-1111-1111-111111111111');
     c.set('accountId', '22222222-2222-2222-2222-222222222222');
@@ -19,7 +19,7 @@ vi.mock('@/server/lib/api-guard', () => ({
   },
 }));
 
-vi.mock('@/server/lib/v2/machines', () => ({
+vi.mock('@/server/v2/services/machines', () => ({
   listMachinesV2: listMachinesMock,
   getMachineV2: getMachineMock,
   createMachineV2: createMachineMock,
@@ -59,7 +59,7 @@ describe('v2 machines API', () => {
       },
     ]);
 
-    const { machinesV2App } = await import('@/server/api/v2/public/machines');
+    const { machinesV2App } = await import("@/server/v2/routes/public/machines");
     const res = await machinesV2App.request(new Request('http://localhost/'));
     expect(res.status).toBe(200);
     const data = await res.json();
@@ -88,7 +88,7 @@ describe('v2 machines API', () => {
       ready_at: null,
     });
 
-    const { machinesV2App } = await import('@/server/api/v2/public/machines');
+    const { machinesV2App } = await import("@/server/v2/routes/public/machines");
     const res = await machinesV2App.request(new Request('http://localhost/', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -131,7 +131,7 @@ describe('v2 machines API', () => {
       ready_at: null,
     });
 
-    const { machinesV2App } = await import('@/server/api/v2/public/machines');
+    const { machinesV2App } = await import("@/server/v2/routes/public/machines");
     const res = await machinesV2App.request(new Request('http://localhost/', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -160,7 +160,7 @@ describe('v2 machines API', () => {
     rebootMachineMock.mockResolvedValueOnce({ ok: true });
     deleteMachineMock.mockResolvedValueOnce({ ok: true });
 
-    const { machinesV2App } = await import('@/server/api/v2/public/machines');
+    const { machinesV2App } = await import("@/server/v2/routes/public/machines");
 
     const startRes = await machinesV2App.request(new Request(`http://localhost/${machineId}/start`, { method: 'POST' }));
     expect(startRes.status).toBe(200);

@@ -26,7 +26,7 @@ describe('proxy KV deletion', () => {
 
   it('treats a 404 delete as already gone', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 404 }));
-    const { deleteProxyTokenFromKV } = await import('@/server/lib/proxy-kv');
+    const { deleteProxyTokenFromKV } = await import("@/server/v1/services/proxy-kv");
 
     await expect(deleteProxyTokenFromKV('pt-sha')).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -34,7 +34,7 @@ describe('proxy KV deletion', () => {
 
   it('throws when Cloudflare rejects the delete', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('boom', { status: 403 }));
-    const { deleteProxyTokenFromKV } = await import('@/server/lib/proxy-kv');
+    const { deleteProxyTokenFromKV } = await import("@/server/v1/services/proxy-kv");
 
     await expect(deleteProxyTokenFromKV('pt-sha')).rejects.toThrow('KV delete failed: 403 boom');
   });

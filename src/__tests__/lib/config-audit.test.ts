@@ -23,7 +23,7 @@ describe('config audit db recovery', () => {
       .mockRejectedValueOnce(new Error('stale connection'))
       .mockResolvedValueOnce([{ id: 'host-1', name: 'bm-host-1', status: 'active', metadata: {} }]);
 
-    const { loadFleetHostAuditSummary } = await import('@/server/lib/config-audit');
+    const { loadFleetHostAuditSummary } = await import("@/server/v2/services/config-audit");
     const result = await loadFleetHostAuditSummary();
 
     expect(result.summary.total_hosts).toBe(1);
@@ -33,7 +33,7 @@ describe('config audit db recovery', () => {
   it('marks database connectivity as failed when audit queries keep failing', async () => {
     dbSelectFromMock.mockRejectedValue(new Error('db still down'));
 
-    const { loadConfigAuditChecks } = await import('@/server/lib/config-audit');
+    const { loadConfigAuditChecks } = await import("@/server/v2/services/config-audit");
     const checks = await loadConfigAuditChecks([], { databaseReachable: true });
 
     expect(checks).toEqual(expect.arrayContaining([

@@ -15,17 +15,17 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/shared/ui/button";
+import { Badge } from "@/shared/ui/badge";
+import { Input } from "@/shared/ui/input";
+import { Skeleton } from "@/shared/ui/skeleton";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "@/shared/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -33,14 +33,14 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { api, ApiError } from "@/hooks/api-client";
-import { useAccount } from "@/hooks/use-account";
+} from "@/shared/ui/dialog";
+import { api, ApiError } from "@/shared/hooks/api-client";
+import { useAccount } from "@/shared/hooks/use-account";
 import {
   formatMachineHealthPercent,
   getAdminMachinesRangeLabel,
   getAdminMachinesTotalPages,
-} from "@/lib/admin-machines";
+} from "@/v1/lib/admin-machines";
 import { toast } from "sonner";
 
 // ─── Types ──────────────────────────────────────────────────────────────────

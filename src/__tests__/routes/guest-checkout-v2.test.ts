@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 
 const createCheckoutSessionMock = vi.fn();
 
-vi.mock('@/server/lib/stripe', () => ({
+vi.mock('@/server/v1/services/stripe', () => ({
   stripeClient: {
     isConfigured: () => true,
     createCheckoutSession: createCheckoutSessionMock,

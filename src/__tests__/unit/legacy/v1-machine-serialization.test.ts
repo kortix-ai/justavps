@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const decryptSecretMock = vi.fn((value: string) => `decrypted:${value}`);
 
-vi.mock('@/server/lib/crypto', async () => {
-  const actual = await vi.importActual<typeof import('@/server/lib/crypto')>('@/server/lib/crypto');
+vi.mock('@/server/core/crypto', async () => {
+  const actual = await vi.importActual<typeof import("@/server/core/crypto")>('@/server/core/crypto');
   return {
     ...actual,
     decryptSecret: decryptSecretMock,
@@ -16,7 +16,7 @@ describe('legacy V1 machine serialization', () => {
   });
 
   it('prefers explicit machine network and callback fields over providerMeta fallbacks', async () => {
-    const { serializeMachineV1 } = await import('@/server/api/v1/legacy/serializers/machines');
+    const { serializeMachineV1 } = await import("@/server/v1/routes/legacy/serializers/machines");
     const machine = {
       id: 'machine-1',
       slug: 'legacy-box',

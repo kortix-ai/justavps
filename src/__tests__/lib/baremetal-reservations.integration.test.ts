@@ -3,8 +3,8 @@ import { eq, inArray } from 'drizzle-orm';
 
 import { db } from '@/server/db';
 import { accounts, baremetalHosts, hostCapacityReservations, machines, users } from '@/server/db/schema';
-import { expireStaleHostCapacityReservations, leaseHostCapacity } from '@/server/lib/baremetal/reservations';
-import { reconcileBaremetalFleet } from '@/server/lib/baremetal/reconcile';
+import { expireStaleHostCapacityReservations, leaseHostCapacity } from "@/server/platform/baremetal/reservations";
+import { reconcileBaremetalFleet } from "@/server/platform/baremetal/reconcile";
 
 const createdUserIds: string[] = [];
 const createdAccountIds: string[] = [];

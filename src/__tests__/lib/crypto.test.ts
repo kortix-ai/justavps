@@ -12,7 +12,7 @@ import {
   encryptSecret,
   decryptSecret,
   isEncrypted,
-} from '@/server/lib/crypto';
+} from "@/server/core/crypto";
 
 describe('crypto utilities', () => {
   describe('generateMachineToken', () => {

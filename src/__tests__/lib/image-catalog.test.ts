@@ -5,7 +5,7 @@ import {
   getDefaultMachineLabel,
   isDefaultTemplateImage,
   resolveRequestedProviderImage,
-} from '@/server/lib/image-catalog';
+} from "@/server/core/image-catalog";
 
 describe('image catalog', () => {
   it('lists public templates before private snapshots', () => {

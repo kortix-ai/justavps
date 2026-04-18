@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 describe('runnerd inspection helpers', () => {
   it('extracts private IPv4 from instance state network', async () => {
-    const { extractPrivateIpv4, inspectInstance } = await import('../../../runnerd/src/incus/inspection');
+    const { extractPrivateIpv4, inspectInstance } = await import('../../../apps/runnerd/src/incus/inspection');
 
     expect(extractPrivateIpv4({
       eth0: { addresses: [{ family: 'inet', scope: 'global', address: '10.0.0.5' }] },

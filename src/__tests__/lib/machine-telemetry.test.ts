@@ -5,7 +5,7 @@ import {
   buildMachineTelemetryRollupRecord,
   machineTelemetryStorageSpec,
   telemetryBucketStart,
-} from '@/server/lib/machine-telemetry';
+} from "@/server/platform/control-plane/machine-telemetry";
 
 describe('machine telemetry retention modeling', () => {
   it('stores heartbeat telemetry in minute buckets with short-lived retention', () => {

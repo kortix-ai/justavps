@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { pathForVersion } from '@/lib/versioning';
+import { pathForVersion } from '@/shared/lib/versioning';
 
 describe('version switcher routing', () => {
   it('maps v1 dashboard pages to v2 namespace', () => {

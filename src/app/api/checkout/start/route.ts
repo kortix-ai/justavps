@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from '@hono/zod-openapi';
-import { CreateMachineSchema } from '@/lib/schemas';
-import { stripeClient, type BillingInterval } from '@/server/lib/stripe';
-import { config } from '@/server/lib/config';
-import { backupSurcharge } from '@/lib/hetzner-pricing';
-import { resolvePlanForDisplay } from '@/lib/plan-catalog';
+import { CreateMachineSchema } from '@/shared/lib/schemas';
+import { stripeClient, type BillingInterval } from "@/server/v1/services/stripe";
+import { config } from "@/server/core/config";
+import { backupSurcharge, resolvePlanForDisplay } from '@/shared/lib/plan-catalog';
 
 const GuestCheckoutSchema = z.object({
   plan: CreateMachineSchema.shape.server_type.optional(),

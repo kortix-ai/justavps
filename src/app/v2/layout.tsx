@@ -3,8 +3,8 @@
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { AppSidebarV2 } from "@/components/dashboard/sidebar-v2";
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { AppSidebarV2 } from "@/shared/components/dashboard/sidebar-v2";
+import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/shared/ui/sidebar";
 
 export default function V2Layout({ children }: { children: React.ReactNode }) {
   const { status } = useSession();

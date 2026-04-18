@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { backfillMachinePortAllocationsFromMachine, pruneDeletedMachinePortAllocations, releaseMachinePortAllocations, reserveMachinePortAllocations } from '@/server/lib/baremetal/port-allocations';
+import { backfillMachinePortAllocationsFromMachine, pruneDeletedMachinePortAllocations, releaseMachinePortAllocations, reserveMachinePortAllocations } from "@/server/platform/baremetal/port-allocations";
 
 type PortAllocationTestExecutor = NonNullable<Parameters<typeof reserveMachinePortAllocations>[0]['executor']>;
 

@@ -4,7 +4,7 @@ import {
   deriveMachineReadinessStrategy,
   shouldMarkReadyFromHttpProbe,
   type MachineReadinessStrategy,
-} from '@/server/domains/machine/readiness';
+} from "@/server/v2/domains/machine/readiness";
 
 describe('machine readiness domain', () => {
   it('derives readiness strategy by runtime kind', () => {

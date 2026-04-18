@@ -6,21 +6,21 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Badge } from "@/shared/ui/badge";
+import { Button } from "@/shared/ui/button";
+import { Progress } from "@/shared/ui/progress";
+import { Skeleton } from "@/shared/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
+import { Input } from "@/shared/ui/input";
+import { Label } from "@/shared/ui/label";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from "@/components/ui/dialog";
-import { ProxyTokenManager } from "@/components/dashboard/proxy-token-manager";
+} from "@/shared/ui/dialog";
+import { ProxyTokenManager } from "@/shared/components/dashboard/proxy-token-manager";
 import {
   useMachine,
   useDeleteMachine,
@@ -32,10 +32,10 @@ import {
   useCreateBackup,
   useRestoreBackup,
   useDeleteBackup,
-} from "@/hooks/v2/use-machines-v2";
-import { useCreateImage } from "@/hooks/v2/use-images-v2";
-import { useConfirm } from "@/hooks/use-confirm";
-import type { Machine } from "@/lib/types";
+} from "@/v2/hooks/use-machines-v2";
+import { useCreateImage } from "@/v2/hooks/use-images-v2";
+import { useConfirm } from "@/shared/hooks/use-confirm";
+import type { Machine } from "@/shared/lib/types";
 import {
   ArrowLeft,
   RotateCw,
@@ -69,9 +69,9 @@ import {
   EyeOff,
   Box,
 } from "lucide-react";
-import { timeAgo, cn, regionDisplay, PROXY_DOMAIN } from "@/lib/utils";
+import { timeAgo, cn, regionDisplay, PROXY_DOMAIN } from "@/shared/lib/utils";
 
-const Terminal = dynamic(() => import("@/components/dashboard/terminal"), {
+const Terminal = dynamic(() => import("@/shared/components/dashboard/terminal"), {
   ssr: false,
   loading: () => (
     <div className="h-[500px] bg-[#09090b] rounded-xl animate-pulse" />
@@ -943,7 +943,7 @@ export default function MachineDetailPage() {
                 <div>
                   <p className="text-sm font-semibold">{provisioning.label}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    First boot can take longer than a warm start.
+                    First boot takes about 60–90 seconds.
                   </p>
                 </div>
                 <span className="font-mono text-sm font-semibold tabular-nums text-foreground">

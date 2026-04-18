@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 describe('runnerd container runtime helpers', () => {
   it('builds container launch args with optional static IP and cloud-init', async () => {
-    const { buildContainerLaunchArgs } = await import('../../../runnerd/src/runtime/container/create');
+    const { buildContainerLaunchArgs } = await import('../../../apps/runnerd/src/runtime/container/create');
 
     expect(buildContainerLaunchArgs({
       resolvedImage: 'justavps-golden-container',
@@ -29,7 +29,7 @@ describe('runnerd container runtime helpers', () => {
   });
 
   it('builds container response metadata with benchmark stages', async () => {
-    const { buildContainerCreateMetadata } = await import('../../../runnerd/src/runtime/container/create');
+    const { buildContainerCreateMetadata } = await import('../../../apps/runnerd/src/runtime/container/create');
 
     expect(buildContainerCreateMetadata({
       status: 'Running',

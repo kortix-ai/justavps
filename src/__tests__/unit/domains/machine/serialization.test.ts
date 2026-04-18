@@ -14,19 +14,19 @@ vi.mock('@/server/db', () => ({
   },
 }));
 
-vi.mock('@/server/lib/baremetal/port-allocations', () => ({
+vi.mock('@/server/platform/baremetal/port-allocations', () => ({
   getMachinePortAllocations: getMachinePortAllocationsMock,
 }));
 
-vi.mock('@/server/lib/providers', () => ({
+vi.mock('@/server/platform/providers', () => ({
   getProvider: getProviderMock,
 }));
 
-vi.mock('@/server/lib/crypto', () => ({
+vi.mock('@/server/core/crypto', () => ({
   decryptSecret: decryptSecretMock,
 }));
 
-vi.mock('@/server/lib/image-catalog', () => ({
+vi.mock('@/server/core/image-catalog', () => ({
   serializeImageRow: serializeImageRowMock,
 }));
 
@@ -44,7 +44,7 @@ describe('machine serialization domain', () => {
   it('serializes SSH connectivity, image refs, and worker URLs', async () => {
     selectWhereMock.mockResolvedValueOnce([{ id: 'img-1', name: 'Golden' }]);
 
-    const { serializeMachineV2 } = await import('@/server/domains/machine/serialization');
+    const { serializeMachineV2 } = await import("@/server/v2/domains/machine/serialization");
     const machine = {
       id: 'machine-1',
       slug: 'abcd1234',
@@ -98,7 +98,7 @@ describe('machine serialization domain', () => {
   });
 
   it('falls back to legacy resource fields when machine columns are null', async () => {
-    const { serializeMachineV2 } = await import('@/server/domains/machine/serialization');
+    const { serializeMachineV2 } = await import("@/server/v2/domains/machine/serialization");
     const machine = {
       id: 'machine-2',
       slug: 'legacy123',

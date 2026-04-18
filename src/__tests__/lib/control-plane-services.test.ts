@@ -19,7 +19,7 @@ const pruneTerminalControlPlaneJobsMock = vi.fn();
 const pruneTerminalWebhookDeliveriesMock = vi.fn();
 const processDueWebhookJobsMock = processDueControlPlaneJobsMock;
 
-vi.mock('@/server/lib/control-plane-jobs', () => ({
+vi.mock('@/server/v2/services/control-plane-jobs', () => ({
   enqueueControlPlaneJob: vi.fn(),
   ensureControlPlaneJobWorker: vi.fn(),
   kickControlPlaneJobWorker: vi.fn(),
@@ -28,50 +28,50 @@ vi.mock('@/server/lib/control-plane-jobs', () => ({
   pruneTerminalControlPlaneJobs: pruneTerminalControlPlaneJobsMock,
 }));
 
-vi.mock('@/server/lib/control-plane/service-state', () => ({
+vi.mock('@/server/platform/control-plane/service-state', () => ({
   acquireControlPlaneServiceLease: acquireControlPlaneServiceLeaseMock,
   releaseControlPlaneServiceLease: releaseControlPlaneServiceLeaseMock,
   recordControlPlaneServiceCheckpoint: recordControlPlaneServiceCheckpointMock,
   buildControlPlaneServiceKey: vi.fn((target: { service: string; scope?: string }) => `${target.service}:${target.scope ?? 'global'}`),
 }));
 
-vi.mock('@/server/lib/heartbeat-state', () => ({
+vi.mock('@/server/platform/control-plane/heartbeat-state', () => ({
   upsertHeartbeatState: upsertHeartbeatStateMock,
   projectHeartbeatStateToMachine: projectHeartbeatStateToMachineMock,
 }));
 
-vi.mock('@/server/lib/event-bus', async () => {
-  const actual = await vi.importActual<typeof import('@/server/lib/event-bus')>('@/server/lib/event-bus');
+vi.mock('@/server/core/event-bus', async () => {
+  const actual = await vi.importActual<typeof import("@/server/core/event-bus")>('@/server/core/event-bus');
   return {
     ...actual,
     pruneExpiredMachineEvents: pruneExpiredMachineEventsMock,
   };
 });
 
-vi.mock('@/server/lib/machine-telemetry', () => ({
+vi.mock('@/server/platform/control-plane/machine-telemetry', () => ({
   pruneExpiredMachineTelemetryRollups: pruneExpiredMachineTelemetryRollupsMock,
 }));
 
-vi.mock('@/server/lib/routing-state', () => ({
+vi.mock('@/server/platform/control-plane/routing-state', () => ({
   repairStaleMachineRoutingStates: repairStaleMachineRoutingStatesMock,
   syncMachineRoutingState: syncMachineRoutingStateMock,
 }));
 
-vi.mock('@/server/lib/machine-watchdog', () => ({
+vi.mock('@/server/platform/control-plane/machine-watchdog', () => ({
   runWatchdog: runWatchdogMock,
 }));
 
-vi.mock('@/server/lib/baremetal/reconcile', () => ({
+vi.mock('@/server/platform/baremetal/reconcile', () => ({
   reconcileBaremetalFleet: reconcileBaremetalFleetMock,
 }));
 
-vi.mock('@/server/lib/baremetal/cell-capacity-store', () => ({
+vi.mock('@/server/platform/baremetal/cell-capacity-store', () => ({
   recordCellCapacitySnapshots: recordCellCapacitySnapshotsMock,
   pruneExpiredCellCapacitySnapshots: pruneExpiredCellCapacitySnapshotsMock,
 }));
 
-vi.mock('@/server/lib/baremetal/port-allocations', async () => {
-  const actual = await vi.importActual<typeof import('@/server/lib/baremetal/port-allocations')>('@/server/lib/baremetal/port-allocations');
+vi.mock('@/server/platform/baremetal/port-allocations', async () => {
+  const actual = await vi.importActual<typeof import("@/server/platform/baremetal/port-allocations")>('@/server/platform/baremetal/port-allocations');
   return {
     ...actual,
     pruneDeletedMachinePortAllocations: pruneDeletedMachinePortAllocationsMock,
@@ -84,7 +84,7 @@ describe('control-plane service wrappers', () => {
   });
 
   it('builds allocator placement metadata around explicit service boundaries', async () => {
-    const { buildMachinePlacementProviderMeta } = await import('@/server/lib/control-plane/allocator');
+    const { buildMachinePlacementProviderMeta } = await import("@/server/platform/control-plane/allocator");
     const metadata = buildMachinePlacementProviderMeta({
       host: {
         id: 'host-1',
@@ -157,17 +157,17 @@ describe('control-plane service wrappers', () => {
       decision: { outcome: 'placed', selectedHostId: 'host-1', summary: 'Selected host host-1', explanation: ['best score'], request: {} as never, policy: {} as never, cells: [], candidates: [] },
 }));
 
-    vi.doMock('@/server/lib/baremetal/reservations', () => ({
+    vi.doMock('@/server/platform/baremetal/reservations', () => ({
       leaseHostCapacity: leaseHostCapacityMock,
     }));
-    vi.doMock('@/server/lib/control-plane/service-state', () => ({
+    vi.doMock('@/server/platform/control-plane/service-state', () => ({
       acquireControlPlaneServiceLease: acquireControlPlaneServiceLeaseMock,
       releaseControlPlaneServiceLease: releaseControlPlaneServiceLeaseMock,
       recordControlPlaneServiceCheckpoint: recordControlPlaneServiceCheckpointMock,
       buildControlPlaneServiceKey: vi.fn((target: { service: string; scope?: string }) => `${target.service}:${target.scope ?? 'global'}`),
     }));
 
-    const { reserveCapacityForMachineCreate } = await import('@/server/lib/control-plane/allocator');
+    const { reserveCapacityForMachineCreate } = await import("@/server/platform/control-plane/allocator");
     await reserveCapacityForMachineCreate({ machineId: 'machine-1', region: 'hel1', resources: { vcpu: 2, memoryGb: 4, diskGb: 80 } });
 
     expect(recordControlPlaneServiceCheckpointMock).toHaveBeenCalledWith(expect.objectContaining({
@@ -182,7 +182,7 @@ describe('control-plane service wrappers', () => {
     acquireControlPlaneServiceLeaseMock.mockResolvedValue({ acquired: true, leaseOwner: 'lease-1', row: null });
     processDueControlPlaneJobsMock.mockResolvedValue([{ id: 'job-1' }, { id: 'job-2' }]);
 
-    const { runProvisionerServicePass } = await import('@/server/lib/control-plane/provisioner');
+    const { runProvisionerServicePass } = await import("@/server/platform/control-plane/provisioner");
     const result = await runProvisionerServicePass({ limit: 2, leaseMs: 20_000, leaseOwner: 'lease-1' });
 
     expect(processDueControlPlaneJobsMock).toHaveBeenCalledWith({
@@ -209,7 +209,7 @@ describe('control-plane service wrappers', () => {
       projectedMachinePatch: { status: 'ready' },
     });
 
-    const { ingestMachineHeartbeat } = await import('@/server/lib/control-plane/telemetry');
+    const { ingestMachineHeartbeat } = await import("@/server/platform/control-plane/telemetry");
     const heartbeatAt = new Date('2026-04-11T12:00:00.000Z');
     const result = await ingestMachineHeartbeat({
       machine: { id: 'machine-1' } as never,
@@ -235,7 +235,7 @@ describe('control-plane service wrappers', () => {
     pruneExpiredMachineEventsMock.mockResolvedValue(7);
     pruneExpiredMachineTelemetryRollupsMock.mockResolvedValue(11);
 
-    const { runTelemetryRetentionServicePass } = await import('@/server/lib/control-plane/telemetry');
+    const { runTelemetryRetentionServicePass } = await import("@/server/platform/control-plane/telemetry");
     const result = await runTelemetryRetentionServicePass({ leaseOwner: 'lease-telemetry', leaseMs: 45_000, limit: 1000 });
 
     expect(pruneExpiredMachineEventsMock).toHaveBeenCalledWith({ limit: 1000 });
@@ -253,7 +253,7 @@ describe('control-plane service wrappers', () => {
     acquireControlPlaneServiceLeaseMock.mockResolvedValue({ acquired: true, leaseOwner: 'lease-routing', row: null });
     repairStaleMachineRoutingStatesMock.mockResolvedValue(7);
 
-    const { runRoutingRepairServicePass, syncRoutingFromHeartbeatReady } = await import('@/server/lib/control-plane/routing');
+    const { runRoutingRepairServicePass, syncRoutingFromHeartbeatReady } = await import("@/server/platform/control-plane/routing");
     const result = await runRoutingRepairServicePass(25, { leaseOwner: 'lease-routing', leaseMs: 45_000 });
 
     expect(repairStaleMachineRoutingStatesMock).toHaveBeenCalledWith(25);
@@ -276,7 +276,7 @@ describe('control-plane service wrappers', () => {
       { machineId: 'machine-2', slug: 'm2', type: 'network_anomaly', details: ['network'] },
     ]);
 
-    const { runWatchdogServicePass } = await import('@/server/lib/control-plane/watchdog');
+    const { runWatchdogServicePass } = await import("@/server/platform/control-plane/watchdog");
     const result = await runWatchdogServicePass({ leaseOwner: 'lease-watchdog', leaseMs: 45_000 });
 
     expect(runWatchdogMock).toHaveBeenCalledTimes(1);
@@ -296,7 +296,7 @@ describe('control-plane service wrappers', () => {
     pruneExpiredCellCapacitySnapshotsMock.mockResolvedValue(5);
     recordCellCapacitySnapshotsMock.mockResolvedValue(3);
 
-    const { runFleetAuditorServicePass } = await import('@/server/lib/control-plane/fleet-auditor');
+    const { runFleetAuditorServicePass } = await import("@/server/platform/control-plane/fleet-auditor");
     const result = await runFleetAuditorServicePass({ leaseOwner: 'lease-fleet', leaseMs: 45_000, maxHosts: 12 });
 
     expect(reconcileBaremetalFleetMock).toHaveBeenCalledWith(undefined, expect.objectContaining({
@@ -322,15 +322,15 @@ describe('control-plane service wrappers', () => {
     processDueWebhookJobsMock.mockResolvedValue([{ id: 'job-1' }]);
     pruneTerminalControlPlaneJobsMock.mockResolvedValue(2);
     pruneTerminalWebhookDeliveriesMock.mockResolvedValue(0);
-    vi.doMock('@/server/lib/webhook-delivery', async () => {
-      const actual = await vi.importActual<typeof import('@/server/lib/webhook-delivery')>('@/server/lib/webhook-delivery');
+    vi.doMock('@/server/platform/control-plane/webhook-delivery', async () => {
+      const actual = await vi.importActual<typeof import("@/server/platform/control-plane/webhook-delivery")>('@/server/platform/control-plane/webhook-delivery');
       return {
         ...actual,
         pruneTerminalWebhookDeliveries: pruneTerminalWebhookDeliveriesMock,
       };
     });
 
-    const { runWebhookDispatcherServicePass } = await import('@/server/lib/control-plane/webhook-dispatcher');
+    const { runWebhookDispatcherServicePass } = await import("@/server/platform/control-plane/webhook-dispatcher");
     const result = await runWebhookDispatcherServicePass({ leaseOwner: 'lease-webhook', leaseMs: 20_000, limit: 5 });
 
     expect(processDueWebhookJobsMock).toHaveBeenCalledWith(expect.objectContaining({

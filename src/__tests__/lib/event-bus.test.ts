@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { pruneExpiredMachineEvents } from '@/server/lib/event-bus';
+import { pruneExpiredMachineEvents } from "@/server/core/event-bus";
 
 describe('event bus retention helpers', () => {
   it('prunes expired machine lifecycle events', async () => {

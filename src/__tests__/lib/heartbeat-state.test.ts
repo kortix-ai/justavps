@@ -5,7 +5,7 @@ import {
   buildHeartbeatMachineProjection,
   effectiveHeartbeatForMachine,
   heartbeatProjectionDue,
-} from '@/server/lib/heartbeat-state';
+} from "@/server/platform/control-plane/heartbeat-state";
 
 describe('heartbeat state', () => {
   const payload = {

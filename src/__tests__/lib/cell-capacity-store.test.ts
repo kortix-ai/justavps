@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { pruneExpiredCellCapacitySnapshots, recordCellCapacitySnapshots } from '@/server/lib/baremetal/cell-capacity-store';
+import { pruneExpiredCellCapacitySnapshots, recordCellCapacitySnapshots } from "@/server/platform/baremetal/cell-capacity-store";
 
 describe('cell capacity snapshot store', () => {
   it('persists one snapshot row per computed cell window', async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildDesiredRoutingSnapshot, buildRoutingKVRecord, routingStateNeedsRepair } from '@/server/lib/routing-state';
+import { buildDesiredRoutingSnapshot, buildRoutingKVRecord, routingStateNeedsRepair } from "@/server/platform/control-plane/routing-state";
 
 describe('routing state helpers', () => {
   it('models present routing with explicit pending artifact sync', () => {

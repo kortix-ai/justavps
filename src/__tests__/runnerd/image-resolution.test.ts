@@ -8,7 +8,7 @@ describe('runnerd image resolution helpers', () => {
   });
 
   it('resolves OCI docker refs only when remote support exists', async () => {
-    const { resolveContainerImageReference } = await import('../../../runnerd/src/incus/images');
+    const { resolveContainerImageReference } = await import('../../../apps/runnerd/src/incus/images');
 
     runIncus.mockResolvedValueOnce({ stdout: 'local,https://images.linuxcontainers.org,images,none,YES,NO,NO\n', stderr: '' });
     runIncus.mockResolvedValueOnce({ stdout: '', stderr: '' });
@@ -19,7 +19,7 @@ describe('runnerd image resolution helpers', () => {
   });
 
   it('falls back to local container golden alias when available', async () => {
-    const { resolveContainerImageReference } = await import('../../../runnerd/src/incus/images');
+    const { resolveContainerImageReference } = await import('../../../apps/runnerd/src/incus/images');
 
     runIncus.mockResolvedValueOnce({ stdout: 'justavps-golden-container,abcdef,CONTAINER\n', stderr: '' });
 
@@ -27,7 +27,7 @@ describe('runnerd image resolution helpers', () => {
   });
 
   it('maps vm aliases to VM fingerprints', async () => {
-    const { resolveVmImageReference } = await import('../../../runnerd/src/incus/images');
+    const { resolveVmImageReference } = await import('../../../apps/runnerd/src/incus/images');
 
     runIncus.mockResolvedValueOnce({ stdout: 'ubuntu/noble/cloud,deadbeef,VIRTUAL-MACHINE\n', stderr: '' });
 

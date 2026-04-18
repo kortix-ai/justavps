@@ -1,12 +1,12 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { useUsage, useBillingPortal, useSetupPaymentMethod } from "@/hooks/use-account";
-import { useMachines, useCancelMachine, useReactivateMachine } from "@/hooks/use-machines";
-import { useConfirm } from "@/hooks/use-confirm";
+import { Button } from "@/shared/ui/button";
+import { Badge } from "@/shared/ui/badge";
+import { Skeleton } from "@/shared/ui/skeleton";
+import { useUsage, useBillingPortal, useSetupPaymentMethod } from "@/shared/hooks/use-account";
+import { useMachines, useCancelMachine, useReactivateMachine } from "@/v1/hooks/use-machines";
+import { useConfirm } from "@/shared/hooks/use-confirm";
 import {
   ExternalLink,
   AlertTriangle,
@@ -18,7 +18,7 @@ import {
   Server,
   DollarSign,
 } from "lucide-react";
-import { planName, cn } from "@/lib/utils";
+import { planName, cn } from "@/shared/lib/utils";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import Link from "next/link";

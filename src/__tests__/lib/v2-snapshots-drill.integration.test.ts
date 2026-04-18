@@ -7,7 +7,7 @@ import { accounts, backupArtifacts, baremetalHosts, machines, restoreExecutions,
 const createSnapshotMock = vi.fn();
 const restoreSnapshotMock = vi.fn();
 
-vi.mock('@/server/lib/baremetal/runner-client', () => ({
+vi.mock('@/server/platform/baremetal/runner-client', () => ({
   HttpBaremetalRunnerClient: vi.fn(function HttpBaremetalRunnerClient() {
     return {
       createSnapshot: createSnapshotMock,
@@ -136,7 +136,7 @@ describe.skipIf(!process.env.DATABASE_URL)('backup artifact + restore drill inte
     });
     restoreSnapshotMock.mockResolvedValue(undefined);
 
-    const { createSnapshotV2, restoreSnapshotV2 } = await import('@/server/lib/v2/snapshots');
+    const { createSnapshotV2, restoreSnapshotV2 } = await import("@/server/v2/services/snapshots");
     const snapshot = await createSnapshotV2({ accountId: account.id, machineId: machine.id, name: 'before-upgrade', requestedByUserId: user.id });
     const restore = await restoreSnapshotV2({
       accountId: account.id,
@@ -170,7 +170,7 @@ describe.skipIf(!process.env.DATABASE_URL)('backup artifact + restore drill inte
     const { user, account, machine } = await seedBaremetalMachine();
     restoreSnapshotMock.mockRejectedValue(new Error('restore failed on runner'));
 
-    const { restoreSnapshotV2 } = await import('@/server/lib/v2/snapshots');
+    const { restoreSnapshotV2 } = await import("@/server/v2/services/snapshots");
 
     await expect(restoreSnapshotV2({
       accountId: account.id,

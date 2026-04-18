@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const listServerProductsMock = vi.fn();
 
-vi.mock('@/server/lib/api-guard', () => ({
+vi.mock('@/server/auth/api-guard', () => ({
   apiGuard: async (c: any, next: any) => {
     c.set('isAdmin', true);
     c.set('userId', '11111111-1111-1111-1111-111111111111');
@@ -19,7 +19,7 @@ vi.mock('@/server/db', () => ({
   },
 }));
 
-vi.mock('@/server/lib/baremetal/vendors/hetzner-robot', () => ({
+vi.mock('@/server/platform/baremetal/vendors/hetzner-robot', () => ({
   HetznerRobotClient: vi.fn(function HetznerRobotClient() {
     return {
       listServerProducts: listServerProductsMock,
@@ -46,7 +46,7 @@ describe('admin baremetal API', () => {
       },
     ]);
 
-    const { adminFleetV2App } = await import('@/server/api/v2/admin/fleet');
+    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const req = new Request('http://localhost/products/hetzner?location=FSN1&max_price=60');
     const res = await adminFleetV2App.request(req);
     expect(res.status).toBe(200);

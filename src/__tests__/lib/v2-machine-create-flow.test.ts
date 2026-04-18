@@ -18,15 +18,15 @@ vi.mock('@/server/db', () => ({
   },
 }));
 
-vi.mock('@/server/lib/account-limits', () => ({
+vi.mock('@/server/auth/account-limits', () => ({
   checkMachineLimit: checkMachineLimitMock,
 }));
 
-vi.mock('@/lib/v2-pricing', () => ({
+vi.mock('@/v2/lib/v2-pricing', () => ({
   computeMonthlyPrice: vi.fn(() => 20),
 }));
 
-vi.mock('@/server/lib/machine-lifecycle', () => ({
+vi.mock('@/server/v2/services/machine-lifecycle', () => ({
   createMachineRecord: createMachineRecordMock,
   generateMachineIdentity: generateMachineIdentityMock,
   resolveMachineCallbackConfig: resolveMachineCallbackConfigMock,
@@ -39,13 +39,13 @@ vi.mock('@/server/lib/machine-lifecycle', () => ({
   uploadSSHKeyToProvider: vi.fn(),
 }));
 
-vi.mock('@/server/lib/baremetal/reservations', () => ({
+vi.mock('@/server/platform/baremetal/reservations', () => ({
   getHostCapacityReservationForMachine: vi.fn(),
   commitHostCapacityReservation: vi.fn(),
   releaseHostCapacityReservation: vi.fn(),
 }));
 
-vi.mock('@/server/lib/control-plane/allocator', () => ({
+vi.mock('@/server/platform/control-plane/allocator', () => ({
   reserveCapacityForMachineCreate: reserveCapacityForMachineCreateMock,
   buildMachinePlacementProviderMeta: vi.fn((lease, resources) => ({
     baremetal_host_id: lease.host.id,
@@ -70,7 +70,7 @@ vi.mock('@/server/lib/control-plane/allocator', () => ({
   })),
 }));
 
-vi.mock('@/server/lib/control-plane/provisioner', () => ({
+vi.mock('@/server/platform/control-plane/provisioner', () => ({
   MACHINE_CREATE_JOB_TYPE: 'machine_create',
   machineCreateJobIdempotencyKey: vi.fn((machineId: string) => `machine_create:${machineId}`),
   enqueueMachineCreateJob: enqueueMachineCreateJobMock,
@@ -79,7 +79,7 @@ vi.mock('@/server/lib/control-plane/provisioner', () => ({
   registerMachineCreateJobHandler: registerMachineCreateJobHandlerMock,
 }));
 
-vi.mock('@/server/lib/providers', () => ({
+vi.mock('@/server/platform/providers', () => ({
   getProvider: vi.fn(() => ({
     name: 'baremetal',
     capabilities: { backups: false, images: true, bareMetal: true },
@@ -247,7 +247,7 @@ describe('createMachineV2 durable machine create flow', () => {
   });
 
   it('creates the machine row, reserves host capacity, then enqueues a durable create job', async () => {
-    const { createMachineV2 } = await import('@/server/lib/v2/machines');
+    const { createMachineV2 } = await import("@/server/v2/services/machines");
     const result = await createMachineV2({
       accountId: 'account-1',
       userId: 'user-1',
@@ -292,7 +292,7 @@ describe('createMachineV2 durable machine create flow', () => {
   });
 
   it('passes docker image refs through the container create flow', async () => {
-    const { createMachineV2 } = await import('@/server/lib/v2/machines');
+    const { createMachineV2 } = await import("@/server/v2/services/machines");
     await createMachineV2({
       accountId: 'account-1',
       userId: 'user-1',

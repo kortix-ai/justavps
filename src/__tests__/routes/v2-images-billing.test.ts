@@ -7,7 +7,7 @@ const deleteImageMock = vi.fn();
 const getBillingOverviewMock = vi.fn();
 const getBillingComparisonMock = vi.fn();
 
-vi.mock('@/server/lib/api-guard', () => ({
+vi.mock('@/server/auth/api-guard', () => ({
   apiGuard: async (c: any, next: any) => {
     c.set('userId', '11111111-1111-1111-1111-111111111111');
     c.set('accountId', '22222222-2222-2222-2222-222222222222');
@@ -16,13 +16,13 @@ vi.mock('@/server/lib/api-guard', () => ({
   },
 }));
 
-vi.mock('@/server/lib/v2/images', () => ({
+vi.mock('@/server/v2/services/images', () => ({
   listImagesV2: listImagesMock,
   createImageV2: createImageMock,
   deleteImageV2: deleteImageMock,
 }));
 
-vi.mock('@/server/lib/v2/billing', () => ({
+vi.mock('@/server/v2/services/billing', () => ({
   getBillingOverviewV2: getBillingOverviewMock,
   getBillingComparisonV2: getBillingComparisonMock,
 }));
@@ -49,7 +49,7 @@ describe('v2 images and billing APIs', () => {
         updated_at: new Date().toISOString(),
       },
     ]);
-    const { imagesV2App } = await import('@/server/api/v2/public/images');
+    const { imagesV2App } = await import("@/server/v2/routes/public/images");
     const res = await imagesV2App.request(new Request('http://localhost/'));
     expect(res.status).toBe(200);
     const data = await res.json();
@@ -59,7 +59,7 @@ describe('v2 images and billing APIs', () => {
   it('creates and deletes images through v2 routes', async () => {
     createImageMock.mockResolvedValueOnce({ id: 'img-1', name: 'Base Image' });
     deleteImageMock.mockResolvedValueOnce({ ok: true });
-    const { imagesV2App } = await import('@/server/api/v2/public/images');
+    const { imagesV2App } = await import("@/server/v2/routes/public/images");
     const createRes = await imagesV2App.request(new Request('http://localhost/', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -83,7 +83,7 @@ describe('v2 images and billing APIs', () => {
       monthly_price: 21,
       competitors: { e2b_monthly_equivalent: 242, daytona_monthly_equivalent: 193 },
     });
-    const { billingV2App } = await import('@/server/api/v2/public/billing');
+    const { billingV2App } = await import("@/server/v2/routes/public/billing");
     const overviewRes = await billingV2App.request(new Request('http://localhost/overview'));
     expect(overviewRes.status).toBe(200);
     const comparisonRes = await billingV2App.request(new Request('http://localhost/compare?plan=basic&hours_per_day=24'));

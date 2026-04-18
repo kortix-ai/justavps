@@ -2,10 +2,10 @@ import type { Metadata } from "next";
 import { roobert } from "./fonts/roobert";
 import { roobertMono } from "./fonts/roobert-mono";
 import "./globals.css";
-import { Toaster } from "@/components/ui/sonner";
+import { Toaster } from "@/shared/ui/sonner";
 import { SessionProvider } from "next-auth/react";
-import { Providers } from "@/hooks/query-client";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { Providers } from "@/shared/hooks/query-client";
+import { TooltipProvider } from "@/shared/ui/tooltip";
 
 export const metadata: Metadata = {
   title: "justavps.com — AI Sandbox",

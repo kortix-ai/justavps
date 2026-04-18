@@ -1,12 +1,12 @@
 "use client";
 
-import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
-import { useAccount } from "@/hooks/use-account";
-import { useApproveProcurement, useCleanupFleetHostOrphans, useFleetCellCapacitySnapshots, useFleetCells, useFleetConfigAudit, useFleetControlPlaneServices, useFleetHostAudit, useFleetHosts, useFleetProcurementRecommendations, useFleetProcurements, useSyncProcurement, useUpdateFleetCellAdmissionState, useUpdateFleetCellReservePolicy, useUpdateFleetHostMaintenanceState, useUpdateFleetHostOperatorSettings, useUpdateFleetHostSchedulerState, type FleetHostMaintenanceState } from "@/hooks/use-fleet";
-import { cn } from "@/lib/utils";
+import { Skeleton } from "@/shared/ui/skeleton";
+import { Badge } from "@/shared/ui/badge";
+import { useAccount } from "@/shared/hooks/use-account";
+import { useApproveProcurement, useCleanupFleetHostOrphans, useFleetCellCapacitySnapshots, useFleetCells, useFleetConfigAudit, useFleetControlPlaneServices, useFleetHostAudit, useFleetHosts, useFleetProcurementRecommendations, useFleetProcurements, useSyncProcurement, useUpdateFleetCellAdmissionState, useUpdateFleetCellReservePolicy, useUpdateFleetHostMaintenanceState, useUpdateFleetHostOperatorSettings, useUpdateFleetHostSchedulerState, type FleetHostMaintenanceState } from "@/shared/hooks/use-fleet";
+import { cn } from "@/shared/lib/utils";
 import { Activity, Cpu, HardDrive, Loader2, MemoryStick, RefreshCw, Server, ShieldCheck } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/shared/ui/button";
 import { toast } from "sonner";
 
 function percent(used: number, total: number | null) {

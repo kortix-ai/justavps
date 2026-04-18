@@ -2,7 +2,7 @@
  * Tests for Cloudflare client — broker DNS, route, and KV management.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { cloudflareClient } from '@/server/lib/cloudflare';
+import { cloudflareClient } from "@/server/platform/cloudflare";
 
 type MockCall = [string, { method?: string; body?: string }?];
 

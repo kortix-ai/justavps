@@ -2,17 +2,17 @@
 
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { JsonViewer } from "@/components/ui/json-viewer";
+import { Button } from "@/shared/ui/button";
+import { Badge } from "@/shared/ui/badge";
+import { Skeleton } from "@/shared/ui/skeleton";
+import { JsonViewer } from "@/shared/ui/json-viewer";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { timeAgo } from "@/lib/utils";
+} from "@/shared/ui/dialog";
+import { timeAgo } from "@/shared/lib/utils";
 import { toast } from "sonner";
 import {
   useWebhooks,
@@ -20,9 +20,9 @@ import {
   useDeleteWebhook,
   useWebhookDeliveries,
   useTestWebhook,
-} from "@/hooks/use-webhooks";
-import type { WebhookDelivery } from "@/lib/types";
-import { useConfirm } from "@/hooks/use-confirm";
+} from "@/v1/hooks/use-webhooks";
+import type { WebhookDelivery } from "@/shared/lib/types";
+import { useConfirm } from "@/shared/hooks/use-confirm";
 import {
   ArrowLeft,
   Send,

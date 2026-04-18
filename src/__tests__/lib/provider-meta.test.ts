@@ -22,7 +22,7 @@ describe('provider-meta helper', () => {
   });
 
   it('writes promoted provider fields alongside merged providerMeta', async () => {
-    const { updateProviderMeta } = await import('@/server/lib/provider-meta');
+    const { updateProviderMeta } = await import("@/server/platform/provider-meta");
 
     await updateProviderMeta('machine-1', {
       create_action_id: 'action-1',

@@ -4,7 +4,7 @@ import path from 'node:path';
 
 describe('host bootstrap phase renderer', () => {
   const root = '/Users/markokraemer/Projects/heyagi/justavps.com';
-  const renderScript = path.join(root, 'scripts/host-bootstrap/render-bootstrap-remote.sh');
+  const renderScript = path.join(root, 'scripts/deploy/host-bootstrap/render-bootstrap-remote.sh');
 
   it('renders remote bootstrap with all expected phases and doctor', () => {
     const output = execFileSync('bash', [renderScript], {

@@ -16,11 +16,11 @@ vi.mock('@/server/db', () => ({
   },
 }));
 
-vi.mock('@/server/lib/providers', () => ({
+vi.mock('@/server/platform/providers', () => ({
   getProvider: getProviderMock,
 }));
 
-vi.mock('@/server/lib/image-catalog', () => ({
+vi.mock('@/server/core/image-catalog', () => ({
   resolveRequestedProviderImage: resolveRequestedProviderImageMock,
 }));
 
@@ -35,7 +35,7 @@ describe('machine image source helpers', () => {
       defaultPlacementImageAlias,
       normalizeDockerImageRef,
       normalizeResolvedImageForProvider,
-    } = await import('@/server/domains/machine/image-source');
+    } = await import("@/server/v2/domains/machine/image-source");
 
     expect(normalizeDockerImageRef(null)).toBeNull();
     expect(normalizeDockerImageRef('')).toBeNull();
@@ -52,7 +52,7 @@ describe('machine image source helpers', () => {
   });
 
   it('resolves docker image requests without DB catalog lookup', async () => {
-    const { resolveMachineCreateImage } = await import('@/server/domains/machine/image-source');
+    const { resolveMachineCreateImage } = await import("@/server/v2/domains/machine/image-source");
 
     const result = await resolveMachineCreateImage({
       machine: { id: 'machine-1', imageId: null } as never,
@@ -78,7 +78,7 @@ describe('machine image source helpers', () => {
       },
     });
 
-    const { resolveMachineCreateImage } = await import('@/server/domains/machine/image-source');
+    const { resolveMachineCreateImage } = await import("@/server/v2/domains/machine/image-source");
 
     const result = await resolveMachineCreateImage({
       machine: { id: 'machine-1', imageId: null } as never,

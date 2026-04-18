@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildCloudInit } from '@/server/lib/cloud-init';
+import { buildCloudInit } from "@/server/v1/services/cloud-init";
 
 describe('cloud-init', () => {
   const defaultOpts = {

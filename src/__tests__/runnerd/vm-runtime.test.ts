@@ -3,7 +3,7 @@ import { vi } from 'vitest';
 
 describe('runnerd vm runtime helpers', () => {
   it('builds cold vm create metadata', async () => {
-    const { buildVmCreateMetadata } = await import('../../../runnerd/src/runtime/vm/create');
+    const { buildVmCreateMetadata } = await import('../../../apps/runnerd/src/runtime/vm/create');
 
     expect(buildVmCreateMetadata({
       status: 'Running',
@@ -21,7 +21,7 @@ describe('runnerd vm runtime helpers', () => {
   });
 
   it('builds warm-pool vm create metadata', async () => {
-    const { buildWarmPoolVmCreateMetadata } = await import('../../../runnerd/src/runtime/vm/create');
+    const { buildWarmPoolVmCreateMetadata } = await import('../../../apps/runnerd/src/runtime/vm/create');
 
     expect(buildWarmPoolVmCreateMetadata({ machineMode: 'vm', totalMs: 2162 })).toEqual({
       incus_status: 'Running',
@@ -35,7 +35,7 @@ describe('runnerd vm runtime helpers', () => {
   });
 
   it('builds deterministic warm pool prefixes and names', async () => {
-    const { buildWarmPoolPrefix, buildWarmPoolVmName } = await import('../../../runnerd/src/runtime/vm/create');
+    const { buildWarmPoolPrefix, buildWarmPoolVmName } = await import('../../../apps/runnerd/src/runtime/vm/create');
 
     expect(buildWarmPoolPrefix()).toBe('justavps-warm-cpu');
     expect(buildWarmPoolVmName({ prefix: 'justavps-warm-cpu', cpu: 4, suffix: 'abc123' })).toBe('justavps-warm-cpu4-abc123');
@@ -44,7 +44,7 @@ describe('runnerd vm runtime helpers', () => {
   it('checks vm agent readiness through exec + inspection', async () => {
     const runIncus = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
     const inspectInstance = vi.fn().mockResolvedValue({ privateIpv4: '10.0.0.5' });
-    const { checkVmAgentReady } = await import('../../../runnerd/src/runtime/vm/create');
+    const { checkVmAgentReady } = await import('../../../apps/runnerd/src/runtime/vm/create');
 
     await expect(checkVmAgentReady({
       name: 'vm-1',

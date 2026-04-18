@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { detectUiVersionFromPath, pathForVersion } from '@/lib/versioning';
+import { detectUiVersionFromPath, pathForVersion } from '@/shared/lib/versioning';
 
 describe('versioning helpers', () => {
   it('detects v1 for unversioned dashboard paths', () => {

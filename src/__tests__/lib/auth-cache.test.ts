@@ -21,13 +21,13 @@ vi.mock('@/server/db', () => ({
   },
 }));
 
-vi.mock('@/server/lib/control-plane/service-state', () => ({
+vi.mock('@/server/platform/control-plane/service-state', () => ({
   acquireControlPlaneServiceLease: acquireControlPlaneServiceLeaseMock,
   releaseControlPlaneServiceLease: releaseControlPlaneServiceLeaseMock,
   buildControlPlaneServiceKey: buildControlPlaneServiceKeyMock,
 }));
 
-vi.mock('@/server/lib/proxy-kv', () => ({
+vi.mock('@/server/v1/services/proxy-kv', () => ({
   syncApiKeyHashToKV: syncApiKeyHashToKVMock,
   deleteApiKeyFromKV: deleteApiKeyFromKVMock,
   deleteProxyTokenFromKV: deleteProxyTokenFromKVMock,
@@ -69,7 +69,7 @@ describe('auth cache control-plane service', () => {
   });
 
   it('scans expired and active API keys independently so one side does not starve the other', async () => {
-    const { runAuthCacheServicePass } = await import('@/server/lib/control-plane/auth-cache');
+    const { runAuthCacheServicePass } = await import("@/server/platform/control-plane/auth-cache");
 
     await runAuthCacheServicePass({ limit: 1 });
 
@@ -80,7 +80,7 @@ describe('auth cache control-plane service', () => {
   });
 
   it('deletes pruned proxy-token KV entries and records the deletion count', async () => {
-    const { runAuthCacheServicePass } = await import('@/server/lib/control-plane/auth-cache');
+    const { runAuthCacheServicePass } = await import("@/server/platform/control-plane/auth-cache");
 
     const result = await runAuthCacheServicePass({ leaseMs: 45_000, limit: 100 });
 
@@ -125,7 +125,7 @@ describe('auth cache control-plane service', () => {
     deleteProxyTokenFromKVMock.mockRejectedValueOnce(new Error('kv delete failed'));
     syncApiKeyHashToKVMock.mockRejectedValueOnce(new Error('kv sync failed'));
 
-    const { runAuthCacheServicePass } = await import('@/server/lib/control-plane/auth-cache');
+    const { runAuthCacheServicePass } = await import("@/server/platform/control-plane/auth-cache");
 
     const result = await runAuthCacheServicePass();
 

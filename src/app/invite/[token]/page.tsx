@@ -5,8 +5,8 @@ import { useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Loader2, CheckCircle2, XCircle, Building2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { useRedeemInvitation } from "@/hooks/use-account";
+import { Button } from "@/shared/ui/button";
+import { useRedeemInvitation } from "@/shared/hooks/use-account";
 
 export default function InviteRedeemPage() {
   const params = useParams<{ token: string }>();

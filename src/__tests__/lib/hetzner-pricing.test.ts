@@ -10,7 +10,7 @@ import {
   planIdFromProviderSku,
   resolveProviderSku,
   planTierIndex,
-} from '@/lib/plan-catalog';
+} from '@/shared/lib/plan-catalog';
 
 describe('plan catalog pricing', () => {
   it('uses a fixed 2x markup rounded up to the nearest dollar', () => {

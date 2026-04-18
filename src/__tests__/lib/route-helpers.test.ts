@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { handleRouteError } from '@/server/lib/route-helpers';
+import { handleRouteError } from "@/server/core/route-helpers";
 
 class CapacityError extends Error {
   statusCode = 409;

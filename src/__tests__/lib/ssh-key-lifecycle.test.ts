@@ -9,8 +9,8 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { uploadSSHKeyToProvider } from '@/server/lib/machine-lifecycle';
-import type { ComputeProvider, SSHKeyResult } from '@/server/lib/providers/types';
+import { uploadSSHKeyToProvider } from "@/server/v1/services/machine-lifecycle";
+import type { ComputeProvider, SSHKeyResult } from "@/server/platform/providers/types";
 
 // ─── Mock Provider ──────────────────────────────────────────────────────────
 
@@ -114,7 +114,7 @@ describe('uploadSSHKeyToProvider', () => {
 describe('HetznerProvider SSH key operations', () => {
   it('deleteSSHKey tolerates 404 (already deleted)', async () => {
     // Import the real provider to test 404 tolerance
-    const { HetznerProvider } = await import('@/server/lib/providers/hetzner');
+    const { HetznerProvider } = await import("@/server/platform/providers/hetzner");
     const provider = new HetznerProvider();
 
     // Mock fetch to return 404
@@ -129,7 +129,7 @@ describe('HetznerProvider SSH key operations', () => {
   });
 
   it('deleteSSHKey throws on non-404 errors', async () => {
-    const { HetznerProvider } = await import('@/server/lib/providers/hetzner');
+    const { HetznerProvider } = await import("@/server/platform/providers/hetzner");
     const provider = new HetznerProvider();
 
     const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValueOnce(
@@ -142,7 +142,7 @@ describe('HetznerProvider SSH key operations', () => {
   });
 
   it('gcSSHKeys deletes orphaned justavps-* keys', async () => {
-    const { HetznerProvider } = await import('@/server/lib/providers/hetzner');
+    const { HetznerProvider } = await import("@/server/platform/providers/hetzner");
     const provider = new HetznerProvider();
 
     // Mock: 3 SSH keys, 1 active server
@@ -186,7 +186,7 @@ describe('HetznerProvider SSH key operations', () => {
   });
 
   it('gcSSHKeys paginates through all SSH keys', async () => {
-    const { HetznerProvider } = await import('@/server/lib/providers/hetzner');
+    const { HetznerProvider } = await import("@/server/platform/providers/hetzner");
     const provider = new HetznerProvider();
 
     // gcSSHKeys uses Promise.all([listSSHKeys(), servers fetch])

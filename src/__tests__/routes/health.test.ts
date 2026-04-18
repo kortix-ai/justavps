@@ -6,11 +6,11 @@ const dbSelectMock = vi.fn();
 const dbSelectFromMock = vi.fn<() => Promise<Array<Record<string, unknown>>>>(() => Promise.resolve([]));
 const resetDbConnectionMock = vi.fn();
 
-vi.mock('@/server/lib/control-plane/runtime', () => ({
+vi.mock('@/server/platform/control-plane/runtime', () => ({
   ensureControlPlaneRuntimeStarted: vi.fn(),
 }));
 
-vi.mock('@/server/lib/control-plane/service-state', () => ({
+vi.mock('@/server/platform/control-plane/service-state', () => ({
   CONTROL_PLANE_SERVICE_STALE_AFTER_MS: 10 * 60 * 1000,
   CONTROL_PLANE_SERVICE_PROFILES: {
     provisioner: { critical: true, mode: 'periodic', description: 'p' },

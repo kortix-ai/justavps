@@ -2,23 +2,23 @@
 
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Badge } from "@/shared/ui/badge";
+import { Button } from "@/shared/ui/button";
+import { Progress } from "@/shared/ui/progress";
+import { Skeleton } from "@/shared/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
+import { Input } from "@/shared/ui/input";
+import { Label } from "@/shared/ui/label";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from "@/components/ui/dialog";
+} from "@/shared/ui/dialog";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
-import { ProxyTokenManager } from "@/components/dashboard/proxy-token-manager";
+import { ProxyTokenManager } from "@/shared/components/dashboard/proxy-token-manager";
 import {
   useMachine,
   useDeleteMachine,
@@ -31,11 +31,11 @@ import {
   useToggleBackups,
   useRestoreBackup,
   useDeleteBackup,
-} from "@/hooks/use-machines";
-import { useMachineSSE } from "@/hooks/use-machine-sse";
-import { useCreateImage } from "@/hooks/use-images";
-import { useConfirm } from "@/hooks/use-confirm";
-import type { Machine } from "@/lib/types";
+} from "@/v1/hooks/use-machines";
+import { useMachineSSE } from "@/v1/hooks/use-machine-sse";
+import { useCreateImage } from "@/v1/hooks/use-images";
+import { useConfirm } from "@/shared/hooks/use-confirm";
+import type { Machine } from "@/shared/lib/types";
 import {
   ArrowLeft,
   RotateCw,
@@ -68,12 +68,12 @@ import {
   Trash2,
   RotateCcw,
 } from "lucide-react";
-import { RescaleDialog } from "@/components/dashboard/rescale-dialog";
+import { RescaleDialog } from "@/shared/components/dashboard/rescale-dialog";
 import Link from "next/link";
-import { BACKUP_SURCHARGE_PERCENT, backupSurcharge } from "@/lib/plan-catalog";
-import { timeAgo, cn, regionDisplay, planName, planSpecs, PROXY_DOMAIN } from "@/lib/utils";
+import { BACKUP_SURCHARGE_PERCENT, backupSurcharge } from "@/shared/lib/plan-catalog";
+import { timeAgo, cn, regionDisplay, planName, planSpecs, PROXY_DOMAIN } from "@/shared/lib/utils";
 
-const Terminal = dynamic(() => import("@/components/dashboard/terminal"), {
+const Terminal = dynamic(() => import("@/shared/components/dashboard/terminal"), {
   ssr: false,
   loading: () => (
     <div className="h-[500px] bg-[#09090b] rounded-xl animate-pulse" />
