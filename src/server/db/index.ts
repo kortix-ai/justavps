@@ -60,5 +60,3 @@ export const db = new Proxy({} as ReturnType<typeof drizzlePostgres<typeof schem
   },
 });
 
-export type Database = ReturnType<typeof drizzlePostgres<typeof schema>>;
-export { schema };

@@ -4,14 +4,14 @@ import { logger } from 'hono/logger';
 import { prettyJSON } from 'hono/pretty-json';
 import { Scalar } from '@scalar/hono-api-reference';
 
-import { v1 } from './api/v1/legacy';
-import { v2 } from './api/v2';
-import { enrichOpenAPISpec } from './lib/openapi-enrichment';
-import { filterOpenApiDocumentForPrefix, type OpenApiDoc } from './lib/openapi-versioning';
-import { config } from './lib/config';
-import { loadConfigAuditChecks, loadFleetHostAuditSummary, summarizeConfigAudit } from './lib/config-audit';
-import { ensureControlPlaneRuntimeStarted } from './lib/control-plane/runtime';
-import { CONTROL_PLANE_SERVICE_PROFILES, isControlPlaneServiceStale, listControlPlaneServiceStates } from './lib/control-plane/service-state';
+import { v1 } from "@/server/v1/routes/index";
+import { v2 } from "@/server/v2/routes/index";
+import { enrichOpenAPISpec } from "@/server/core/openapi/enrichment";
+import { filterOpenApiDocumentForPrefix, type OpenApiDoc } from "@/server/core/openapi/versioning";
+import { config } from "@/server/core/config";
+import { loadConfigAuditChecks, loadFleetHostAuditSummary, summarizeConfigAudit } from "@/server/v2/services/config-audit";
+import { ensureControlPlaneRuntimeStarted } from "@/server/platform/control-plane/runtime";
+import { CONTROL_PLANE_SERVICE_PROFILES, isControlPlaneServiceStale, listControlPlaneServiceStates } from "@/server/platform/control-plane/service-state";
 import { db, resetDbConnection } from './db';
 
 const DB_HEALTHCHECK_TIMEOUT_MS = 5_000;
@@ -409,4 +409,4 @@ app.notFound((c) => {
   );
 });
 
-export type AppType = typeof app;
+type AppType = typeof app;
