@@ -34,8 +34,12 @@ v1.route('/account', accountApp);
 v1.route('/admin/routing', adminRoutingApp);
 v1.route('/admin/machines', adminMachinesApp);
 v1.route('/internal', internalApp);
-v1.route('/sse', sseApp);
+// SSE status stream + Toolbox mount under /machines so paths resolve as
+// /api/v1/machines/:id/status/stream and /api/v1/machines/:id/toolbox/*
+v1.route('/machines', sseApp);
+v1.route('/machines', toolboxApp);
 v1.route('/webhooks', webhooksApp);
 v1.route('/stripe/webhooks', stripeWebhooksApp);
-v1.route('/toolbox', toolboxApp);
-v1.route('/import', importKortixApp);
+// import-kortix declares absolute paths (e.g. /import/kortix/start) — mount
+// at root so final paths land under /api/v1/import/kortix/*
+v1.route('/', importKortixApp);

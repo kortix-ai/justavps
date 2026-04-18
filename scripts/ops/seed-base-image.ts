@@ -1,4 +1,9 @@
-import 'dotenv/config';
+import { config as dotenvConfig } from 'dotenv';
+// Load .env first, then .env.local overrides — matches drizzle.config.ts +
+// vitest.config.ts so the seed script respects local DB overrides.
+dotenvConfig();
+dotenvConfig({ path: '.env.local', override: true });
+
 import { db } from '../../src/server/db/index.js';
 import { images, users } from '../../src/server/db/schema.js';
 import { randomUUID } from 'crypto';
