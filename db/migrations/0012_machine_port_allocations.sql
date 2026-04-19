@@ -1,4 +1,7 @@
-CREATE TYPE "machine_port_protocol" AS ENUM('ssh', 'http');
+DO $$ BEGIN
+	CREATE TYPE "machine_port_protocol" AS ENUM('ssh', 'http');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "machine_port_allocations" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
@@ -12,9 +15,15 @@ CREATE TABLE IF NOT EXISTS "machine_port_allocations" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "machine_port_allocations" ADD CONSTRAINT "machine_port_allocations_machine_id_machines_id_fk" FOREIGN KEY ("machine_id") REFERENCES "public"."machines"("id") ON DELETE cascade ON UPDATE no action;
+DO $$ BEGIN
+	ALTER TABLE "machine_port_allocations" ADD CONSTRAINT "machine_port_allocations_machine_id_machines_id_fk" FOREIGN KEY ("machine_id") REFERENCES "public"."machines"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
-ALTER TABLE "machine_port_allocations" ADD CONSTRAINT "machine_port_allocations_host_id_baremetal_hosts_id_fk" FOREIGN KEY ("host_id") REFERENCES "public"."baremetal_hosts"("id") ON DELETE cascade ON UPDATE no action;
+DO $$ BEGIN
+	ALTER TABLE "machine_port_allocations" ADD CONSTRAINT "machine_port_allocations_host_id_baremetal_hosts_id_fk" FOREIGN KEY ("host_id") REFERENCES "public"."baremetal_hosts"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "machine_port_allocations_host_protocol_port_uidx" ON "machine_port_allocations" USING btree ("host_id","protocol","public_port");
 --> statement-breakpoint

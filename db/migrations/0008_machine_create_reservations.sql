@@ -15,9 +15,15 @@ CREATE TABLE IF NOT EXISTS "host_capacity_reservations" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "host_capacity_reservations" ADD CONSTRAINT "host_capacity_reservations_host_id_baremetal_hosts_id_fk" FOREIGN KEY ("host_id") REFERENCES "public"."baremetal_hosts"("id") ON DELETE cascade ON UPDATE no action;
+DO $$ BEGIN
+	ALTER TABLE "host_capacity_reservations" ADD CONSTRAINT "host_capacity_reservations_host_id_baremetal_hosts_id_fk" FOREIGN KEY ("host_id") REFERENCES "public"."baremetal_hosts"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
-ALTER TABLE "host_capacity_reservations" ADD CONSTRAINT "host_capacity_reservations_machine_id_machines_id_fk" FOREIGN KEY ("machine_id") REFERENCES "public"."machines"("id") ON DELETE cascade ON UPDATE no action;
+DO $$ BEGIN
+	ALTER TABLE "host_capacity_reservations" ADD CONSTRAINT "host_capacity_reservations_machine_id_machines_id_fk" FOREIGN KEY ("machine_id") REFERENCES "public"."machines"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "host_capacity_reservations_host_state_expires_idx" ON "host_capacity_reservations" USING btree ("host_id","state","expires_at");
 --> statement-breakpoint

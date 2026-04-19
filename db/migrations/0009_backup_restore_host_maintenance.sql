@@ -27,11 +27,20 @@ CREATE TABLE IF NOT EXISTS "backup_artifacts" (
 	"completed_at" timestamp
 );
 --> statement-breakpoint
-ALTER TABLE "backup_artifacts" ADD CONSTRAINT "backup_artifacts_machine_id_machines_id_fk" FOREIGN KEY ("machine_id") REFERENCES "public"."machines"("id") ON DELETE set null ON UPDATE no action;
+DO $$ BEGIN
+	ALTER TABLE "backup_artifacts" ADD CONSTRAINT "backup_artifacts_machine_id_machines_id_fk" FOREIGN KEY ("machine_id") REFERENCES "public"."machines"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
-ALTER TABLE "backup_artifacts" ADD CONSTRAINT "backup_artifacts_image_id_images_id_fk" FOREIGN KEY ("image_id") REFERENCES "public"."images"("id") ON DELETE set null ON UPDATE no action;
+DO $$ BEGIN
+	ALTER TABLE "backup_artifacts" ADD CONSTRAINT "backup_artifacts_image_id_images_id_fk" FOREIGN KEY ("image_id") REFERENCES "public"."images"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
-ALTER TABLE "backup_artifacts" ADD CONSTRAINT "backup_artifacts_source_host_id_baremetal_hosts_id_fk" FOREIGN KEY ("source_host_id") REFERENCES "public"."baremetal_hosts"("id") ON DELETE set null ON UPDATE no action;
+DO $$ BEGIN
+	ALTER TABLE "backup_artifacts" ADD CONSTRAINT "backup_artifacts_source_host_id_baremetal_hosts_id_fk" FOREIGN KEY ("source_host_id") REFERENCES "public"."baremetal_hosts"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "backup_artifacts_machine_created_idx" ON "backup_artifacts" USING btree ("machine_id","created_at" desc);
 --> statement-breakpoint
@@ -58,13 +67,25 @@ CREATE TABLE IF NOT EXISTS "restore_executions" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "restore_executions" ADD CONSTRAINT "restore_executions_artifact_id_backup_artifacts_id_fk" FOREIGN KEY ("artifact_id") REFERENCES "public"."backup_artifacts"("id") ON DELETE cascade ON UPDATE no action;
+DO $$ BEGIN
+	ALTER TABLE "restore_executions" ADD CONSTRAINT "restore_executions_artifact_id_backup_artifacts_id_fk" FOREIGN KEY ("artifact_id") REFERENCES "public"."backup_artifacts"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
-ALTER TABLE "restore_executions" ADD CONSTRAINT "restore_executions_machine_id_machines_id_fk" FOREIGN KEY ("machine_id") REFERENCES "public"."machines"("id") ON DELETE set null ON UPDATE no action;
+DO $$ BEGIN
+	ALTER TABLE "restore_executions" ADD CONSTRAINT "restore_executions_machine_id_machines_id_fk" FOREIGN KEY ("machine_id") REFERENCES "public"."machines"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
-ALTER TABLE "restore_executions" ADD CONSTRAINT "restore_executions_target_host_id_baremetal_hosts_id_fk" FOREIGN KEY ("target_host_id") REFERENCES "public"."baremetal_hosts"("id") ON DELETE set null ON UPDATE no action;
+DO $$ BEGIN
+	ALTER TABLE "restore_executions" ADD CONSTRAINT "restore_executions_target_host_id_baremetal_hosts_id_fk" FOREIGN KEY ("target_host_id") REFERENCES "public"."baremetal_hosts"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
-ALTER TABLE "restore_executions" ADD CONSTRAINT "restore_executions_requested_by_user_id_users_id_fk" FOREIGN KEY ("requested_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;
+DO $$ BEGIN
+	ALTER TABLE "restore_executions" ADD CONSTRAINT "restore_executions_requested_by_user_id_users_id_fk" FOREIGN KEY ("requested_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "restore_executions_artifact_created_idx" ON "restore_executions" USING btree ("artifact_id","created_at" desc);
 --> statement-breakpoint

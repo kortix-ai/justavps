@@ -12,9 +12,29 @@ on:
         required: true
 
 jobs:
+  migrate-prod-db:
+    name: Apply pending DB migrations (prod)
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm == 'promote'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Install psql
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Dry-run (audit pending migrations)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_PROD }}
+        run: bash scripts/ops/migrate-prod.sh --dry
+      - name: Apply migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_PROD }}
+        run: bash scripts/ops/migrate-prod.sh
+
   promote:
     name: Promote main → production
     runs-on: ubuntu-latest
+    needs: migrate-prod-db
     if: github.event.inputs.confirm == 'promote'
     steps:
       - uses: actions/checkout@v4

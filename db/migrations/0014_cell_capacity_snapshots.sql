@@ -33,7 +33,10 @@ CREATE TABLE IF NOT EXISTS "cell_capacity_snapshots" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "cell_capacity_snapshots" ADD CONSTRAINT "cell_capacity_snapshots_cell_id_cells_id_fk" FOREIGN KEY ("cell_id") REFERENCES "public"."cells"("id") ON DELETE set null ON UPDATE no action;
+DO $$ BEGIN
+	ALTER TABLE "cell_capacity_snapshots" ADD CONSTRAINT "cell_capacity_snapshots_cell_id_cells_id_fk" FOREIGN KEY ("cell_id") REFERENCES "public"."cells"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "cell_capacity_snapshots_cell_window_uidx" ON "cell_capacity_snapshots" USING btree ("cell_slug","snapshot_window_start");
 --> statement-breakpoint
