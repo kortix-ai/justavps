@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 
 describe('host bootstrap phase renderer', () => {
-  const root = '/Users/markokraemer/Projects/heyagi/justavps.com';
+  const root = process.cwd();
   const renderScript = path.join(root, 'scripts/deploy/host-bootstrap/render-bootstrap-remote.sh');
 
   it('renders remote bootstrap with all expected phases and doctor', () => {
