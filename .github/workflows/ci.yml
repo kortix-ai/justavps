@@ -30,7 +30,12 @@ jobs:
     env:
       DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?sslmode=disable
       DB_SSL: 'false'
+      # These need to be set independently — not as AUTH_SECRET fallbacks —
+      # so tests that override AUTH_SECRET='' still see the others configured.
+      # Keeps config-audit error counts predictable across environments.
       AUTH_SECRET: ci-dummy-not-sensitive
+      PROXY_AUTH_SECRET: ci-dummy-proxy-not-sensitive
+      DATA_ENCRYPTION_KEY: ci-dummy-data-encryption-key-not-sensitive
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
