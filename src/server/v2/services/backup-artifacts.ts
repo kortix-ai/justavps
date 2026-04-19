@@ -153,7 +153,10 @@ export async function markSnapshotArtifactDeleted(input: {
   await db.update(backupArtifacts).set({
     status: 'deleted',
     updatedAt: now,
-    metadata: sql`COALESCE(${backupArtifacts.metadata}, '{}'::jsonb) || jsonb_build_object('deleted_at', ${now.toISOString()})`,
+    // Explicit ::text cast — without it Postgres can't infer the parameter
+    // type for jsonb_build_object's value arg and fails with "could not
+    // determine data type of parameter".
+    metadata: sql`COALESCE(${backupArtifacts.metadata}, '{}'::jsonb) || jsonb_build_object('deleted_at', ${now.toISOString()}::text)`,
   }).where(and(
     eq(backupArtifacts.provider, input.provider),
     eq(backupArtifacts.providerArtifactId, input.providerArtifactId),
