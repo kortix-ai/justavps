@@ -199,6 +199,13 @@ export const machines = pgTable('machines', {
   createdByApiKeyName: text('created_by_api_key_name'),
   createdByApiKeyPrefix: text('created_by_api_key_prefix'),
 
+  // Which API surface created this machine. Used to keep v1 and v2
+  // fully separated at the data layer — v1 list endpoints only see v1
+  // machines, v2 list endpoints only see v2 machines. Existing rows
+  // default to 'v1' (the v1 contract has shipped to hundreds of machines;
+  // v2 is new and opt-in).
+  apiVersion: text('api_version').notNull().default('v1'),
+
   // Billing
   priceMonthly: integer('price_monthly'),
 

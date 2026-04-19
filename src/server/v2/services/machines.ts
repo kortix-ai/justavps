@@ -201,13 +201,23 @@ async function serializeMachineV2(machine: MachineRow, sub?: SubscriptionRow | n
 }
 
 async function loadOwnedMachine(machineId: string, accountId: string): Promise<MachineRow> {
-  const [machine] = await db.select().from(machines).where(and(eq(machines.id, machineId), eq(machines.accountId, accountId)));
+  // Only v2 machines are visible through v2 endpoints. Treating a v1 machine
+  // as "not found" here keeps v1 and v2 truly separate at the API surface.
+  const [machine] = await db.select().from(machines).where(and(
+    eq(machines.id, machineId),
+    eq(machines.accountId, accountId),
+    eq(machines.apiVersion, 'v2'),
+  ));
   if (!machine || machine.status === 'deleted') throw new Error('Machine not found');
   return machine;
 }
 
 export async function listMachinesV2(input: { accountId: string }) {
-  const rows = await db.select().from(machines).where(and(eq(machines.accountId, input.accountId), ne(machines.status, 'deleted')));
+  const rows = await db.select().from(machines).where(and(
+    eq(machines.accountId, input.accountId),
+    eq(machines.apiVersion, 'v2'),
+    ne(machines.status, 'deleted'),
+  ));
   const synced = await Promise.all(rows.map((machine) => syncMachineStatus(machine)));
   const machineIds = synced.map((machine) => machine.id);
   const subs = machineIds.length ? await db.select().from(subscriptions).where(inArray(subscriptions.machineId, machineIds)) : [];

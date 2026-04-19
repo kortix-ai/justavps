@@ -24,9 +24,16 @@ export async function requireAccountResource<T extends Record<string, any>>(
   idValue: string,
   accountId: string,
   label: string,
+  // Optional post-load check — lets callers scope 404 semantics beyond just
+  // accountId (e.g. filter machines by api_version so v1 handlers never see
+  // v2 rows and vice versa).
+  extraFilter?: (row: T) => boolean,
 ): Promise<OwnedResult<T>> {
   const [row] = await db.select().from(table).where(eq(idColumn, idValue));
   if (!row || row.accountId !== accountId) {
+    return { response: errorResponse(c, 404, `${label} not found`) };
+  }
+  if (extraFilter && !extraFilter(row as T)) {
     return { response: errorResponse(c, 404, `${label} not found`) };
   }
   return { resource: row as T };

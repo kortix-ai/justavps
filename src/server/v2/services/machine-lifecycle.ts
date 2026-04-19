@@ -305,6 +305,10 @@ export async function createMachineRecord(input: CreateMachineInput) {
   const { executor = db, ...values } = input;
   const [machine] = await executor.insert(machines).values({
     ...values,
+    // Pinning api_version='v2' so this row is only visible through /api/v2/*
+    // and never leaks into v1 list/get/mutation endpoints. Keeps the two
+    // API surfaces cleanly separated even though they share the machines table.
+    apiVersion: 'v2',
     machineMode: input.machineMode ?? 'vm',
     requestedImageKind: input.requestedImageKind ?? 'golden',
     requestedImageRef: input.requestedImageRef ?? null,

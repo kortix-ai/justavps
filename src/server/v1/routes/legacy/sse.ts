@@ -60,7 +60,7 @@ sseApp.openapi(streamMachineStatusRoute, async (c) => {
   return streamSSE(c, async (stream) => {
     let machine: typeof machines.$inferSelect | undefined;
     try {
-      const [row] = await db.select().from(machines).where(eq(machines.id, id));
+      const [row] = await db.select().from(machines).where(and(eq(machines.id, id), eq(machines.apiVersion, 'v1')));
       if (!row || row.accountId !== accountId) {
         await stream.writeSSE({ data: JSON.stringify({ error: 'not_found' }), event: 'error' });
         return;
@@ -150,7 +150,7 @@ sseApp.openapi(streamMachineStatusRoute, async (c) => {
           }
         }
 
-        const [current] = await db.select().from(machines).where(eq(machines.id, id));
+        const [current] = await db.select().from(machines).where(and(eq(machines.id, id), eq(machines.apiVersion, 'v1')));
         if (current) {
           machine = current;
           const snap = machineSnapshot(current);

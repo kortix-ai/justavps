@@ -590,7 +590,7 @@ const listMachinesRoute = createRoute({
 machinesApp.openapi(listMachinesRoute, async (c) => {
   const accountId = c.get('accountId');
   const result = await db.select().from(machines).where(
-    and(eq(machines.accountId, accountId), ne(machines.status, 'deleted')),
+    and(eq(machines.accountId, accountId), eq(machines.apiVersion, 'v1'), ne(machines.status, 'deleted')),
   );
 
   const synced = await Promise.all(result.map((machine) => (
@@ -635,7 +635,7 @@ machinesApp.openapi(getMachineRoute, async (c) => {
   const { id } = c.req.valid('param');
   const accountId = c.get('accountId');
 
-  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine', (m) => m.apiVersion === 'v1');
   if (owned.response) return owned.response as any;
 
   const machine = await syncMachineStatus(owned.resource);
@@ -667,7 +667,7 @@ machinesApp.openapi(destroyMachineRoute, async (c) => {
   const { id } = c.req.valid('param');
   const accountId = c.get('accountId');
 
-  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine', (m) => m.apiVersion === 'v1');
   if (owned.response) return owned.response as any;
 
   try {
@@ -708,7 +708,7 @@ machinesApp.openapi(cancelMachineRoute, async (c) => {
   const { id } = c.req.valid('param');
   const accountId = c.get('accountId');
 
-  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine', (m) => m.apiVersion === 'v1');
   if (owned.response) return owned.response as any;
 
   if (owned.resource.status === 'deleted') {
@@ -772,7 +772,7 @@ machinesApp.openapi(reactivateMachineRoute, async (c) => {
   const { id } = c.req.valid('param');
   const accountId = c.get('accountId');
 
-  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine', (m) => m.apiVersion === 'v1');
   if (owned.response) return owned.response as any;
 
   // Find the linked subscription
@@ -827,7 +827,7 @@ machinesApp.openapi(rebootMachineRoute, async (c) => {
   const { id } = c.req.valid('param');
   const accountId = c.get('accountId');
 
-  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine', (m) => m.apiVersion === 'v1');
   if (owned.response) return owned.response as any;
 
   if (!owned.resource.providerServerId) {
@@ -868,7 +868,7 @@ machinesApp.openapi(stopMachineRoute, async (c) => {
   const { id } = c.req.valid('param');
   const accountId = c.get('accountId');
 
-  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine', (m) => m.apiVersion === 'v1');
   if (owned.response) return owned.response as any;
 
   if (!owned.resource.providerServerId) {
@@ -917,7 +917,7 @@ machinesApp.openapi(startMachineRoute, async (c) => {
   const { id } = c.req.valid('param');
   const accountId = c.get('accountId');
 
-  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine', (m) => m.apiVersion === 'v1');
   if (owned.response) return owned.response as any;
 
   if (!owned.resource.providerServerId) {
@@ -973,7 +973,7 @@ machinesApp.openapi(resizeMachineRoute, async (c) => {
   const { server_type } = c.req.valid('json');
   const accountId = c.get('accountId');
 
-  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine', (m) => m.apiVersion === 'v1');
   if (owned.response) return owned.response as any;
 
   const machine = owned.resource;
@@ -1156,7 +1156,7 @@ machinesApp.openapi(createImageFromMachineRoute, async (c) => {
   const { name } = c.req.valid('json');
   const accountId = c.get('accountId');
 
-  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine', (m) => m.apiVersion === 'v1');
   if (owned.response) return owned.response as any;
 
   const machine = owned.resource;
@@ -1254,7 +1254,7 @@ machinesApp.openapi(listBackupsRoute, async (c) => {
   const accountId = c.get('accountId');
 
   try {
-    const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+    const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine', (m) => m.apiVersion === 'v1');
     if (owned.response) return owned.response as any;
 
     const machine = owned.resource;
@@ -1307,7 +1307,7 @@ machinesApp.openapi(createBackupRoute, async (c) => {
   const accountId = c.get('accountId');
 
   try {
-    const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+    const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine', (m) => m.apiVersion === 'v1');
     if (owned.response) return owned.response as any;
 
     const machine = owned.resource;
@@ -1363,7 +1363,7 @@ machinesApp.openapi(enableBackupsRoute, async (c) => {
   const { id } = c.req.valid('param');
   const accountId = c.get('accountId');
 
-  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine', (m) => m.apiVersion === 'v1');
   if (owned.response) return owned.response as any;
 
   const machine = owned.resource;
@@ -1420,7 +1420,7 @@ machinesApp.openapi(disableBackupsRoute, async (c) => {
   const { id } = c.req.valid('param');
   const accountId = c.get('accountId');
 
-  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine', (m) => m.apiVersion === 'v1');
   if (owned.response) return owned.response as any;
 
   const machine = owned.resource;
@@ -1483,7 +1483,7 @@ machinesApp.openapi(restoreBackupRoute, async (c) => {
   const accountId = c.get('accountId');
 
   try {
-    const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+    const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine', (m) => m.apiVersion === 'v1');
     if (owned.response) return owned.response as any;
 
     const machine = owned.resource;
@@ -1541,7 +1541,7 @@ machinesApp.openapi(deleteBackupRoute, async (c) => {
   const accountId = c.get('accountId');
 
   try {
-    const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+    const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine', (m) => m.apiVersion === 'v1');
     if (owned.response) return owned.response as any;
 
     const machine = owned.resource;
@@ -1605,7 +1605,7 @@ machinesApp.openapi(execRoute, async (c) => {
   const accountId = c.get('accountId');
   const { command, timeout } = c.req.valid('json');
 
-  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine');
+  const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine', (m) => m.apiVersion === 'v1');
   if (owned.response) return owned.response as any;
 
   const machine = owned.resource;

@@ -11,7 +11,7 @@
  */
 
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { db } from '@/server/db';
 import { machines } from '@/server/db/schema';
 import { apiGuard, type AuthVariables } from "@/server/auth/api-guard";
@@ -56,7 +56,7 @@ const bearerSecurity = [{ bearerAuth: [] as string[] }, { cookieAuth: [] as stri
  * Resolve machine by ID, verify ownership, ensure it's ready and has an IP.
  */
 async function resolveMachine(c: any, machineId: string, accountId: string) {
-  const [machine] = await db.select().from(machines).where(eq(machines.id, machineId));
+  const [machine] = await db.select().from(machines).where(and(eq(machines.id, machineId), eq(machines.apiVersion, 'v1')));
   if (!machine || machine.accountId !== accountId) {
     return { error: errorResponse(c, 404, 'Machine not found') };
   }
