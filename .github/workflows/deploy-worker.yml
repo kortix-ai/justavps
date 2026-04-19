@@ -1,6 +1,6 @@
 name: Deploy Worker
 
-# Deploys the Cloudflare Worker proxy whenever workers/proxy/ code changes.
+# Deploys the Cloudflare Worker proxy whenever apps/proxy-worker/ code changes.
 # main -> dev worker (*.kortix-dev.cloud)
 # production -> prod worker (*.kortix.cloud)
 
@@ -8,7 +8,7 @@ on:
   push:
     branches: [main, production]
     paths:
-      - 'workers/proxy/**'
+      - 'apps/proxy-worker/**'
   workflow_call:
     inputs:
       ref:
@@ -31,15 +31,15 @@ jobs:
         with: { node-version: 22 }
 
       - name: Install dependencies
-        working-directory: workers/proxy
+        working-directory: apps/proxy-worker
         run: npm ci
 
       - name: Type check
-        working-directory: workers/proxy
+        working-directory: apps/proxy-worker
         run: npx tsc --noEmit
 
       - name: Run tests
-        working-directory: workers/proxy
+        working-directory: apps/proxy-worker
         run: npx vitest run
 
   deploy:
@@ -57,11 +57,11 @@ jobs:
         with: { node-version: 22 }
 
       - name: Install dependencies
-        working-directory: workers/proxy
+        working-directory: apps/proxy-worker
         run: npm ci
 
       - name: Deploy Worker
-        working-directory: workers/proxy
+        working-directory: apps/proxy-worker
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
@@ -69,7 +69,7 @@ jobs:
         run: npx wrangler deploy -c $WORKER_CONFIG
 
       - name: Verify deployment
-        working-directory: workers/proxy
+        working-directory: apps/proxy-worker
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}

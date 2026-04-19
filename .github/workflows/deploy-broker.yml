@@ -92,9 +92,11 @@ jobs:
           BROKER_HOST: ${{ secrets.BROKER_HOST }}
           BROKER_USER: ${{ secrets.BROKER_USER }}
         run: |
-          scp /tmp/broker-artifact/apps/daemon/bin/kortix-broker-linux-amd64 "${BROKER_USER}@${BROKER_HOST}:/tmp/kortix-broker"
-          scp /tmp/broker-artifact/apps/broker/kortix-broker.service "${BROKER_USER}@${BROKER_HOST}:/tmp/kortix-broker.service"
-          scp /tmp/broker-artifact/apps/broker/install.sh "${BROKER_USER}@${BROKER_HOST}:/tmp/kortix-broker-install.sh"
+          # upload-artifact@v4 strips the least-common-ancestor (apps/), so
+          # contents land at daemon/... and broker/... under /tmp/broker-artifact/.
+          scp /tmp/broker-artifact/daemon/bin/kortix-broker-linux-amd64 "${BROKER_USER}@${BROKER_HOST}:/tmp/kortix-broker"
+          scp /tmp/broker-artifact/broker/kortix-broker.service "${BROKER_USER}@${BROKER_HOST}:/tmp/kortix-broker.service"
+          scp /tmp/broker-artifact/broker/install.sh "${BROKER_USER}@${BROKER_HOST}:/tmp/kortix-broker-install.sh"
 
       - name: Install and restart broker
         env:

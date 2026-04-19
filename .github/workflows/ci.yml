@@ -14,6 +14,23 @@ jobs:
   build:
     name: Build & Test
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?sslmode=disable
+      DB_SSL: 'false'
+      AUTH_SECRET: ci-dummy-not-sensitive
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -22,6 +39,8 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      - name: Apply schema to CI postgres
+        run: pnpm drizzle-kit push --url="$DATABASE_URL" --dialect=postgresql --schema=./src/server/db/schema.ts
       - run: pnpm vitest run
 
   sdk-check:
