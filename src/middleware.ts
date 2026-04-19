@@ -2,10 +2,13 @@ import NextAuth from 'next-auth';
 import { NextResponse } from 'next/server';
 import { authConfig } from '@/shared/lib/auth-config';
 
+// Default OFF in every environment — must be explicitly opted in via
+// NEXT_PUBLIC_FEATURE_V2_ENABLED=true (or FEATURE_V2_ENABLED=true). Mirrors
+// the fail-closed default in src/server/core/config.ts.
 const FEATURE_V2_ENABLED =
   (process.env.NEXT_PUBLIC_FEATURE_V2_ENABLED ??
     process.env.FEATURE_V2_ENABLED ??
-    (process.env.NODE_ENV === 'production' ? 'false' : 'true'))
+    'false')
     .trim().toLowerCase() === 'true';
 
 const { auth } = NextAuth({
