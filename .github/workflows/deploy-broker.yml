@@ -17,6 +17,13 @@ on:
       ref:
         type: string
         required: true
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch/tag to deploy (main = dev broker, production = prod broker)'
+        type: string
+        default: main
+        required: true
 
 concurrency:
   group: deploy-broker-${{ inputs.ref || github.ref_name }}
