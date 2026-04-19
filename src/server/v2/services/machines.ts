@@ -200,6 +200,11 @@ async function serializeMachineV2(machine: MachineRow, sub?: SubscriptionRow | n
   return serializeMachineViewV2(machine, sub);
 }
 
+class MachineNotFoundError extends Error {
+  statusCode = 404;
+  constructor() { super('Machine not found'); }
+}
+
 async function loadOwnedMachine(machineId: string, accountId: string): Promise<MachineRow> {
   // Only v2 machines are visible through v2 endpoints. Treating a v1 machine
   // as "not found" here keeps v1 and v2 truly separate at the API surface.
@@ -208,7 +213,7 @@ async function loadOwnedMachine(machineId: string, accountId: string): Promise<M
     eq(machines.accountId, accountId),
     eq(machines.apiVersion, 'v2'),
   ));
-  if (!machine || machine.status === 'deleted') throw new Error('Machine not found');
+  if (!machine || machine.status === 'deleted') throw new MachineNotFoundError();
   return machine;
 }
 
