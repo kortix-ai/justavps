@@ -4,11 +4,88 @@ import { logger } from 'hono/logger';
 import { prettyJSON } from 'hono/pretty-json';
 import { Scalar } from '@scalar/hono-api-reference';
 
-import { v1 } from './routes/v1';
-import { enrichOpenAPISpec } from './lib/openapi-enrichment';
-import { config } from './lib/config';
+import { v1 } from "@/server/v1/routes/index";
+import { v2 } from "@/server/v2/routes/index";
+import { enrichOpenAPISpec } from "@/server/core/openapi/enrichment";
+import { filterOpenApiDocumentForPrefix, type OpenApiDoc } from "@/server/core/openapi/versioning";
+import { config } from "@/server/core/config";
+import { loadConfigAuditChecks, loadFleetHostAuditSummary, summarizeConfigAudit } from "@/server/v2/services/config-audit";
+import { ensureControlPlaneRuntimeStarted } from "@/server/platform/control-plane/runtime";
+import { CONTROL_PLANE_SERVICE_PROFILES, isControlPlaneServiceStale, listControlPlaneServiceStates } from "@/server/platform/control-plane/service-state";
+import { db, resetDbConnection } from './db';
+
+const DB_HEALTHCHECK_TIMEOUT_MS = 5_000;
+const CONTROL_PLANE_SERVICE_TIMEOUT_MS = 5_000;
+
+function emptyFleetHostAudit() {
+  return {
+    hostRows: [],
+    summary: {
+      total_hosts: 0,
+      active_schedulable_hosts: 0,
+      bootstrapping_hosts: 0,
+      pending_validation_hosts: 0,
+      quarantined_hosts: 0,
+      warning_drift_hosts: 0,
+      blocking_drift_hosts: 0,
+    },
+    quarantined: [],
+    pendingValidation: [],
+    warningDrift: [],
+    blockingDrift: [],
+  };
+}
+
+function summarizeControlPlaneServices(rows: Awaited<ReturnType<typeof listControlPlaneServiceStates>>) {
+  return rows.map((row) => ({
+    service: row.service,
+    scope: row.scope,
+    lease_owner: row.leaseOwner,
+    last_completed_at: row.lastCompletedAt?.toISOString() ?? null,
+  }));
+}
+
+async function probeDatabase() {
+  const attempt = async () => Promise.race([
+    db.execute('select 1'),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`database probe timed out after ${DB_HEALTHCHECK_TIMEOUT_MS}ms`)), DB_HEALTHCHECK_TIMEOUT_MS)),
+  ]);
+  try {
+    await attempt();
+    return { ok: true as const, error: null };
+  } catch {
+    await resetDbConnection().catch(() => {});
+    try {
+      await attempt();
+      return { ok: true as const, error: null };
+    } catch (retryError) {
+      return { ok: false as const, error: retryError instanceof Error ? retryError.message : String(retryError) };
+    }
+  }
+}
+
+async function listControlPlaneServicesWithTimeout() {
+  const attempt = async () => Promise.race([
+    listControlPlaneServiceStates(),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`control-plane service query timed out after ${CONTROL_PLANE_SERVICE_TIMEOUT_MS}ms`)), CONTROL_PLANE_SERVICE_TIMEOUT_MS)),
+  ]);
+  try {
+    const rows = await attempt();
+    return { rows: Array.isArray(rows) ? rows : [], error: null as string | null };
+  } catch {
+    await resetDbConnection().catch(() => {});
+    try {
+      const rows = await attempt();
+      return { rows: Array.isArray(rows) ? rows : [], error: null as string | null };
+    } catch (retryError) {
+      return { rows: [] as Awaited<ReturnType<typeof listControlPlaneServiceStates>>, error: retryError instanceof Error ? retryError.message : String(retryError) };
+    }
+  }
+}
 
 export const app = new OpenAPIHono().basePath('/api');
+
+ensureControlPlaneRuntimeStarted();
 
 const corsOrigins = [
   'https://justavps.com',
@@ -32,15 +109,89 @@ app.use('*', cors({
 app.use('*', logger());
 app.use('*', prettyJSON());
 
-app.get('/health', (c) => {
+app.get('/health', async (c) => {
+  const dbProbe = await probeDatabase();
+  const dbStatus = dbProbe.ok ? 'ok' : 'error';
+  const serviceResult = dbProbe.ok ? await listControlPlaneServicesWithTimeout() : { rows: [] as Awaited<ReturnType<typeof listControlPlaneServiceStates>>, error: 'database unavailable' };
+  const services = serviceResult.rows;
+  const fleetHostAudit = dbProbe.ok ? await loadFleetHostAuditSummary().catch(() => emptyFleetHostAudit()) : emptyFleetHostAudit();
+  const configAuditChecks = await loadConfigAuditChecks(fleetHostAudit.hostRows, { databaseReachable: dbStatus === 'ok' });
+  const configAudit = { ...summarizeConfigAudit(configAuditChecks), checks: configAuditChecks };
+  const status = dbStatus === 'error'
+    ? 'degraded'
+    : configAudit.status === 'degraded'
+      ? 'degraded'
+      : configAudit.status === 'warning' || fleetHostAudit.summary.pending_validation_hosts > 0 || fleetHostAudit.summary.quarantined_hosts > 0
+        ? 'warning'
+        : 'ok';
   return c.json({
-    status: 'ok',
+    status,
     service: 'justavps-api',
     timestamp: new Date().toISOString(),
+    database: { status: dbStatus, error: dbProbe.error },
+    fleet_hosts: fleetHostAudit.summary,
+    config_audit: configAudit,
+    control_plane: {
+      error: serviceResult.error,
+      services: summarizeControlPlaneServices(services),
+    },
   });
 });
 
+app.get('/readyz', async (c) => {
+  const timestamp = new Date().toISOString();
+  const dbProbe = await probeDatabase();
+  const dbOk = dbProbe.ok;
+  const fleetHostAudit = dbOk ? await loadFleetHostAuditSummary().catch(() => emptyFleetHostAudit()) : emptyFleetHostAudit();
+  const serviceResult = dbOk ? await listControlPlaneServicesWithTimeout() : { rows: [] as Awaited<ReturnType<typeof listControlPlaneServiceStates>>, error: 'database unavailable' };
+  const services = serviceResult.rows;
+  const configAuditChecks = await loadConfigAuditChecks(fleetHostAudit.hostRows, { databaseReachable: dbOk }).catch(() => []);
+  const configAuditErrorCount = configAuditChecks.filter((check) => check.severity === 'error').length;
+  const now = Date.now();
+  const requiredServices = (Object.entries(CONTROL_PLANE_SERVICE_PROFILES)
+    .filter(([, profile]) => profile.critical)
+    .map(([service]) => service)) as Array<keyof typeof CONTROL_PLANE_SERVICE_PROFILES>;
+  const staleServices = requiredServices.filter((service) => {
+    const rows = services.filter((row) => row.service === service);
+    if (rows.length === 0) return true;
+    return rows.some((row) => isControlPlaneServiceStale(row, now));
+  });
+  const blockingDriftHosts = fleetHostAudit.summary.blocking_drift_hosts;
+  const quarantinedHosts = fleetHostAudit.summary.quarantined_hosts;
+  const ready = dbOk && staleServices.length === 0 && quarantinedHosts === 0 && blockingDriftHosts === 0 && configAuditErrorCount === 0;
+
+  return c.json({
+    status: ready ? 'ready' : 'degraded',
+    service: 'justavps-api',
+    timestamp,
+    database: { status: dbOk ? 'ok' : 'error', error: dbProbe.error },
+    fleet_hosts: fleetHostAudit.summary,
+    control_plane: {
+      error: serviceResult.error,
+      stale_services: staleServices,
+      services: summarizeControlPlaneServices(services),
+    },
+    config_audit: {
+      error_count: configAuditErrorCount,
+    },
+    blockers: {
+      quarantined_hosts: quarantinedHosts,
+      blocking_drift_hosts: blockingDriftHosts,
+      config_audit_errors: configAuditErrorCount,
+    },
+  }, ready ? 200 : 503);
+});
+
 app.route('/v1', v1);
+// v2 is gated behind FEATURE_V2_ENABLED. Prod runs v1-only by default;
+// flip the env var to expose /api/v2/* once v2 is ready to ship.
+if (config.FEATURE_V2_ENABLED) {
+  app.route('/v2', v2);
+} else {
+  app.all('/v2/*', (c) =>
+    c.json({ error: true, message: 'V2 API is not enabled in this environment', status: 404 }, 404),
+  );
+}
 
 // ─── Security Scheme Registration ─────────────────────────────────────────
 
@@ -195,15 +346,63 @@ app.get('/docs/openapi.json', (c) => {
   return c.json(enriched);
 });
 
+app.get('/docs/openapi-v2.json', (c) => {
+  if (!config.FEATURE_V2_ENABLED) {
+    return c.json({ error: true, message: 'V2 API is not enabled in this environment', status: 404 }, 404);
+  }
+  // Filter first, then enrich as v2 — so tag groups only reference v2 tags.
+  const rawSpec = app.getOpenAPI31Document(openAPIConfig);
+  const filtered = filterOpenApiDocumentForPrefix(rawSpec as unknown as OpenApiDoc, '/api/v2');
+  const enriched = enrichOpenAPISpec(filtered, 'v2');
+  const info = (enriched.info as Record<string, unknown> | undefined) ?? {};
+  return c.json({
+    ...enriched,
+    info: {
+      ...info,
+      title: 'JustAVPS API V2',
+      version: '2.0.0',
+      description: `The JustAVPS V2 API — the next-generation machine platform.
+
+**Status:** gated behind the \`FEATURE_V2_ENABLED\` flag. Production runs v1-only today. V2 is for new integrations with finer-grained resources, snapshots, and admin fleet control.
+
+## Authentication
+
+Bearer token: \`Authorization: Bearer sk_live_xxx\`. Create keys in the [dashboard](https://justavps.com/settings).
+
+## Base URL
+
+\`\`\`
+https://justavps.com/api/v2
+\`\`\`
+
+## What's different from v1
+
+- **Resources-first pricing** — machines are created with explicit \`vcpu\`, \`ram_gb\`, \`disk_gb\` instead of fixed server_type tiers.
+- **Native snapshots** — \`POST /snapshots/{machineId}\` captures disk state. Images are published artifacts; snapshots are lightweight, per-machine.
+- **Catalog endpoints** — \`/catalog/pricing\`, \`/catalog/recommendations\`, \`/catalog/regions\`, \`/catalog/hosts\` for dynamic resource discovery.
+- **Admin fleet surface** — \`/admin/fleet/*\` for host procurement, cell admission, and control-plane service state (operator-only).
+- **No per-machine Stripe subscriptions** — billing is handled outside v2 machine lifecycle.
+- **Minimal cloud-init** — v2 uses pre-built golden images; cloud-init only injects machine identity (~5s boot).
+`,
+    },
+    servers: [
+      { url: '/api/v2', description: 'Current V2' },
+      { url: 'https://justavps.com/api/v2', description: 'Production V2' },
+    ],
+  });
+});
+
+const DOCS_SCALAR_SOURCES = [
+  { title: 'JustAVPS API', url: '/api/docs/openapi.json' },
+  ...(config.FEATURE_V2_ENABLED
+    ? [{ title: 'JustAVPS API V2', url: '/api/docs/openapi-v2.json' }]
+    : []),
+];
+
 app.get(
   '/docs',
   Scalar({
-    sources: [
-      {
-        title: 'JustAVPS API',
-        url: '/api/docs/openapi.json',
-      },
-    ],
+    sources: DOCS_SCALAR_SOURCES,
     theme: 'kepler',
     hiddenClients: true,
     defaultHttpClient: {
@@ -212,6 +411,21 @@ app.get(
     },
   }),
 );
+
+if (config.FEATURE_V2_ENABLED) {
+  app.get(
+    '/docs/v2',
+    Scalar({
+      url: '/api/docs/openapi-v2.json',
+      theme: 'kepler',
+      hiddenClients: true,
+      defaultHttpClient: {
+        targetKey: 'shell',
+        clientKey: 'curl',
+      },
+    }),
+  );
+}
 
 // ─── Error Handling ─────────────────────────────────────────────────────────
 
@@ -242,4 +456,4 @@ app.notFound((c) => {
   );
 });
 
-export type AppType = typeof app;
+type AppType = typeof app;

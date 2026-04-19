@@ -1,0 +1,38 @@
+"use client";
+
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+import { AppSidebarV2 } from "@/shared/components/dashboard/sidebar-v2";
+import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/shared/ui/sidebar";
+
+export default function V2Layout({ children }: { children: React.ReactNode }) {
+  const { status } = useSession();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      router.replace("/login");
+    }
+  }, [status, router]);
+
+  if (status === "loading" || status === "unauthenticated") {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-foreground border-t-transparent" />
+      </div>
+    );
+  }
+
+  return (
+    <SidebarProvider>
+      <AppSidebarV2 />
+      <SidebarInset className="min-w-0 overflow-hidden">
+        <header className="flex h-14 shrink-0 items-center px-6">
+          <SidebarTrigger className="-ml-2" />
+        </header>
+        <main className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto p-4 md:p-8">{children}</main>
+      </SidebarInset>
+    </SidebarProvider>
+  );
+}

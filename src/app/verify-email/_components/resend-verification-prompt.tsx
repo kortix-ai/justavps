@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AuthButton } from "@/components/auth/auth-button";
+import { AuthButton } from "@/shared/components/auth/auth-button";
 
 const COOLDOWN_SECONDS = 30;
 

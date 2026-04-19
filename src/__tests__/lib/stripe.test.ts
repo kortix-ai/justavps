@@ -7,9 +7,11 @@
  * 4. Price update (resize)
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import 'dotenv/config';
 import Stripe from 'stripe';
+
+vi.setConfig({ testTimeout: 20000 });
 
 const STRIPE_KEY = process.env.STRIPE_SECRET_KEY || '';
 
@@ -210,7 +212,7 @@ describeStripe('Stripe Admin Subscription ($0 ad-hoc price)', () => {
 
 describeStripe('stripeClient.createAdminMachineSubscription + updateMachineSubscription', () => {
   // Tests the actual stripeClient methods end-to-end with real Stripe API
-  let stripeClient: Awaited<typeof import('@/server/lib/stripe')>['stripeClient'];
+  let stripeClient: Awaited<typeof import("@/server/v1/services/stripe")>['stripeClient'];
   let stripe: Stripe;
   let customerId: string;
   let subId: string;
@@ -218,7 +220,7 @@ describeStripe('stripeClient.createAdminMachineSubscription + updateMachineSubsc
 
   beforeAll(async () => {
     stripe = new Stripe(STRIPE_KEY);
-    const mod = await import('@/server/lib/stripe');
+    const mod = await import("@/server/v1/services/stripe");
     stripeClient = mod.stripeClient;
   });
 

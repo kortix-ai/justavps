@@ -15,13 +15,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/server/lib/auth';
-import { signProxyToken, buildProxyCookieHeader } from '@/server/lib/proxy-token';
-import { config } from '@/server/lib/config';
+import { auth } from "@/server/auth/nextauth";
+import { signProxyToken, buildProxyCookieHeader } from "@/server/auth/proxy-token";
+import { config } from "@/server/core/config";
 import { db } from '@/server/db';
 import { users } from '@/server/db/schema';
 import { eq } from 'drizzle-orm';
-import { ACCOUNT_COOKIE_NAME, resolveAccountForUser } from '@/server/lib/accounts';
+import { ACCOUNT_COOKIE_NAME, resolveAccountForUser } from "@/server/auth/accounts";
 
 const escapedProxyDomain = config.PROXY_DOMAIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const ALLOWED_REDIRECT_PATTERN = new RegExp(`^https:\\/\\/(?:[0-9]+--)?[a-z0-9-]+\\.${escapedProxyDomain}(?:\\/.*)?$`);

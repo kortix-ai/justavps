@@ -4,14 +4,14 @@ import Link from "next/link";
 import Image from "next/image";
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
-import { buttonVariants } from "@/components/ui/button";
-import { PLAN_PRICE_SNAPSHOT } from "@/lib/plan-catalog";
-import { cn, PROXY_DOMAIN } from "@/lib/utils";
-import { useTheme } from "@/hooks/use-theme";
-import { Logo } from "@/components/logo";
+import { buttonVariants } from "@/shared/ui/button";
+import { PLAN_PRICE_SNAPSHOT } from "@/shared/lib/plan-catalog";
+import { cn, PROXY_DOMAIN } from "@/shared/lib/utils";
+import { useTheme } from "@/shared/hooks/use-theme";
+import { Logo } from "@/shared/components/logo";
 import { TbApi } from "react-icons/tb";
 import { SiPython, SiTypescript } from "react-icons/si";
-import { CheckoutModal } from "@/components/checkout-modal";
+import { CheckoutModal } from "@/v1/components/checkout-modal";
 
 /* ═══ LOGOS ═══ */
 const LogoOpenCode = () => <Image src="/logos/ai-coding-agent-logos/opencode-logo-dark.png" alt="OpenCode" width={20} height={20} className="size-5 object-contain dark:invert-0 invert" />;

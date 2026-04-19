@@ -3,8 +3,8 @@
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
-import { AuthButton } from "@/components/auth/auth-button";
-import { AuthError, AuthField } from "@/components/auth/auth-field";
+import { AuthButton } from "@/shared/components/auth/auth-button";
+import { AuthError, AuthField } from "@/shared/components/auth/auth-field";
 
 type LoginFormProps = {
   redirectTo: string;

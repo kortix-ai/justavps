@@ -2,8 +2,8 @@ import { NextRequest } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { db } from '@/server/db';
 import { users } from '@/server/db/schema';
-import { issueAuthToken } from '@/server/lib/auth-tokens';
-import { emailClient } from '@/server/lib/email';
+import { issueAuthToken } from '@/server/auth/auth-tokens';
+import { emailClient } from '@/server/v1/services/email';
 import { ForgotPasswordSchema } from '../_schemas';
 import { badRequest, firstZodError, serverError, success } from '../_responses';
 

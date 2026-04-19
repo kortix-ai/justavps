@@ -1,4 +1,5 @@
 #!/usr/bin/env npx tsx
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-expressions */
 /**
  * JustAVPS TypeScript SDK — Comprehensive E2E Test
  *

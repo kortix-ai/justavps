@@ -9,7 +9,7 @@ vi.mock('@/server/db', () => ({
   },
 }));
 
-vi.mock('@/server/lib/auto-admin', () => ({
+vi.mock('@/server/auth/auto-admin', () => ({
   ensureAutoAdminUser: ensureAutoAdminUserMock,
 }));
 
@@ -29,7 +29,7 @@ describe('getAccountLimits', () => {
   });
 
   it('returns unlimited limits when the caller is already marked admin', async () => {
-    const { getAccountLimits, ADMIN_UNLIMITED_LIMIT } = await import('@/server/lib/account-limits');
+    const { getAccountLimits, ADMIN_UNLIMITED_LIMIT } = await import("@/server/auth/account-limits");
 
     const result = await getAccountLimits('account-1', 'user-1', true);
 
@@ -48,7 +48,7 @@ describe('getAccountLimits', () => {
     );
     ensureAutoAdminUserMock.mockResolvedValue({ id: 'user-1', email: 'marko@kortix.com', isAdmin: true });
 
-    const { getAccountLimits, ADMIN_UNLIMITED_LIMIT } = await import('@/server/lib/account-limits');
+    const { getAccountLimits, ADMIN_UNLIMITED_LIMIT } = await import("@/server/auth/account-limits");
     const result = await getAccountLimits('account-1', 'user-1', false);
 
     expect(result).toEqual({
@@ -72,7 +72,7 @@ describe('getAccountLimits', () => {
     );
     ensureAutoAdminUserMock.mockResolvedValue({ id: 'user-2', email: 'user@example.com', isAdmin: false });
 
-    const { getAccountLimits, DEFAULT_LIMITS } = await import('@/server/lib/account-limits');
+    const { getAccountLimits, DEFAULT_LIMITS } = await import("@/server/auth/account-limits");
     const result = await getAccountLimits('account-2', 'user-2', false);
 
     expect(result).toEqual(DEFAULT_LIMITS);
@@ -88,7 +88,7 @@ describe('getAccountLimits', () => {
     );
     ensureAutoAdminUserMock.mockResolvedValue({ id: 'user-3', email: 'user@example.com', isAdmin: false });
 
-    const { getAccountLimits } = await import('@/server/lib/account-limits');
+    const { getAccountLimits } = await import("@/server/auth/account-limits");
     const result = await getAccountLimits('account-3', 'user-3', false);
 
     expect(result).toEqual({ maxMachines: 12, maxImages: 34 });

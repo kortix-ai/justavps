@@ -8,8 +8,8 @@ import {
   createAccountInvitation,
   redeemAccountInvitation,
   resolveAccountForUser,
-} from '@/server/lib/accounts';
-import { hashPassword } from '@/server/lib/crypto';
+} from "@/server/auth/accounts";
+import { hashPassword } from "@/server/core/crypto";
 
 const createdUserIds: string[] = [];
 const createdAccountIds: string[] = [];

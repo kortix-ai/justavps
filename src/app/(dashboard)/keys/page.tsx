@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { cn, timeAgo, relativeTime } from "@/lib/utils";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button, buttonVariants } from "@/shared/ui/button";
+import { cn, timeAgo, relativeTime } from "@/shared/lib/utils";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -12,19 +12,19 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+} from "@/shared/ui/dialog";
+import { Input } from "@/shared/ui/input";
+import { Label } from "@/shared/ui/label";
+import { Textarea } from "@/shared/ui/textarea";
+import { Skeleton } from "@/shared/ui/skeleton";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import { toast } from "sonner";
-import { useSSHKeys, useCreateSSHKey, useDeleteSSHKey } from "@/hooks/use-ssh-keys";
-import { useAPIKeys, useCreateAPIKey, useDeleteAPIKey } from "@/hooks/use-api-keys";
-import { useMachines } from "@/hooks/use-machines";
-import { useConfirm } from "@/hooks/use-confirm";
-import { ProxyTokenManager } from "@/components/dashboard/proxy-token-manager";
-import type { ApiKeyPermission } from "@/lib/types";
+import { useSSHKeys, useCreateSSHKey, useDeleteSSHKey } from "@/v1/hooks/use-ssh-keys";
+import { useAPIKeys, useCreateAPIKey, useDeleteAPIKey } from "@/v1/hooks/use-api-keys";
+import { useMachines } from "@/v1/hooks/use-machines";
+import { useConfirm } from "@/shared/hooks/use-confirm";
+import { ProxyTokenManager } from "@/shared/components/dashboard/proxy-token-manager";
+import type { ApiKeyPermission } from "@/shared/lib/types";
 import { Plus, Trash2, Copy, Check, Key, KeyRound, Loader2, Clock, ShieldCheck, Globe, Server, AlertTriangle, Share2 } from "lucide-react";
 
 const API_KEY_EXPIRY_OPTIONS = [

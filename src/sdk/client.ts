@@ -107,6 +107,10 @@ export interface JustAVPSConfig {
   timeout?: number;
 }
 
+export interface JustAVPSV2Config extends Omit<JustAVPSConfig, 'baseUrl'> {
+  baseUrl?: string;
+}
+
 // ─── Errors ─────────────────────────────────────────────────────────────────
 
 export class JustAVPSError extends Error {
@@ -570,5 +574,14 @@ export class JustAVPS {
   /** Get a toolbox interface for a specific machine (filesystem + process APIs) */
   toolbox(machineId: string): ToolboxResource {
     return new ToolboxResource(this._http, machineId);
+  }
+}
+
+export class JustAVPSV2 extends JustAVPS {
+  constructor(config: JustAVPSV2Config) {
+    super({
+      ...config,
+      baseUrl: (config.baseUrl || 'https://justavps.com/api/v2').replace(/\/$/, ''),
+    });
   }
 }

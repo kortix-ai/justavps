@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { AuthButton } from "@/components/auth/auth-button";
-import { AuthError, AuthField } from "@/components/auth/auth-field";
+import { AuthButton } from "@/shared/components/auth/auth-button";
+import { AuthError, AuthField } from "@/shared/components/auth/auth-field";
 
 type RegisterFormProps = {
   onRegistered: (email: string) => void;

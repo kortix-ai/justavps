@@ -2,23 +2,23 @@
 
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Badge } from "@/shared/ui/badge";
+import { Button } from "@/shared/ui/button";
+import { Progress } from "@/shared/ui/progress";
+import { Skeleton } from "@/shared/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
+import { Input } from "@/shared/ui/input";
+import { Label } from "@/shared/ui/label";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from "@/components/ui/dialog";
+} from "@/shared/ui/dialog";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
-import { ProxyTokenManager } from "@/components/dashboard/proxy-token-manager";
+import { ProxyTokenManager } from "@/shared/components/dashboard/proxy-token-manager";
 import {
   useMachine,
   useDeleteMachine,
@@ -31,11 +31,11 @@ import {
   useToggleBackups,
   useRestoreBackup,
   useDeleteBackup,
-} from "@/hooks/use-machines";
-import { useMachineSSE } from "@/hooks/use-machine-sse";
-import { useCreateImage } from "@/hooks/use-images";
-import { useConfirm } from "@/hooks/use-confirm";
-import type { Machine } from "@/lib/types";
+} from "@/v1/hooks/use-machines";
+import { useMachineSSE } from "@/v1/hooks/use-machine-sse";
+import { useCreateImage } from "@/v1/hooks/use-images";
+import { useConfirm } from "@/shared/hooks/use-confirm";
+import type { Machine } from "@/shared/lib/types";
 import {
   ArrowLeft,
   RotateCw,
@@ -68,12 +68,12 @@ import {
   Trash2,
   RotateCcw,
 } from "lucide-react";
-import { RescaleDialog } from "@/components/dashboard/rescale-dialog";
+import { RescaleDialog } from "@/shared/components/dashboard/rescale-dialog";
 import Link from "next/link";
-import { BACKUP_SURCHARGE_PERCENT, backupSurcharge } from "@/lib/plan-catalog";
-import { timeAgo, cn, regionDisplay, planName, planSpecs, PROXY_DOMAIN } from "@/lib/utils";
+import { BACKUP_SURCHARGE_PERCENT, backupSurcharge } from "@/shared/lib/plan-catalog";
+import { timeAgo, cn, regionDisplay, planName, planSpecs, PROXY_DOMAIN } from "@/shared/lib/utils";
 
-const Terminal = dynamic(() => import("@/components/dashboard/terminal"), {
+const Terminal = dynamic(() => import("@/shared/components/dashboard/terminal"), {
   ssr: false,
   loading: () => (
     <div className="h-[500px] bg-[#09090b] rounded-xl animate-pulse" />
@@ -530,6 +530,9 @@ function PortForwardCard({ slug, portTemplate }: { slug: string; portTemplate?: 
 
 function provisioningHeadline(machine: Machine) {
   if (machine.provisioning_stage === "resizing") return "Scaling in progress";
+  if (machine.provisioning_stage === "server_created") return "Waiting for first heartbeat";
+  if (machine.provisioning_stage === "cloud_init_running") return "Installing runtime services";
+  if (machine.provisioning_stage === "cloud_init_done" || machine.provisioning_stage === "services_starting") return "Finishing setup";
   return "Boot progress";
 }
 
@@ -538,12 +541,32 @@ function provisioningSubcopy(machine: Machine) {
     return "Usually under 90 seconds.";
   }
   if (machine.provider_status === "success" && machine.callback_expected === false) {
-    return "Boot finished. Waiting for the control plane to catch up.";
+    return "The VM booted, but this environment is still syncing control-plane state.";
   }
   if (machine.provider_status === "success") {
-    return "Boot finished. Final checks are still running.";
+    return "The VM booted. Waiting for the first successful agent sync before tools appear.";
   }
   return "Usually 1-3 minutes.";
+}
+
+function provisioningProgress(machine: Machine) {
+  const stageProgress: Record<string, number> = {
+    server_creating: 10,
+    server_created: 35,
+    cloud_init_running: 60,
+    cloud_init_done: 78,
+    services_starting: 90,
+    services_ready: 95,
+    resizing: 55,
+  };
+
+  const stageValue = machine.provisioning_stage ? stageProgress[machine.provisioning_stage] ?? null : null;
+  const providerValue = typeof machine.provider_progress === "number" && machine.provider_progress > 1
+    ? Math.max(0, Math.min(100, machine.provider_progress))
+    : null;
+
+  if (typeof stageValue === "number" && typeof providerValue === "number") return Math.max(stageValue, providerValue);
+  return stageValue ?? providerValue;
 }
 
 function isIpv6Address(value: string | null | undefined) {
@@ -675,6 +698,8 @@ export default function MachineDetailPage() {
   const isResizing =
     machine.status === "provisioning" && machine.provisioning_stage === "resizing";
   const uptime = machine.ready_at ? timeAgo(machine.ready_at) : null;
+  const versionLabel = machine.api_version === "v2" ? "V2" : "V1";
+  const provisioningPct = provisioningProgress(machine);
 
 
   /* Health values — daemon sends 0–1 fractions, normalise to 0–100 here */
@@ -720,6 +745,9 @@ export default function MachineDetailPage() {
               >
                 <span className={cn("size-1.5 rounded-full", statusInfo.dotClass)} />
                 {statusInfo.label}
+              </Badge>
+              <Badge variant="outline" className="h-5 px-1.5 text-[10px] font-semibold tracking-wide shrink-0">
+                {versionLabel}
               </Badge>
               {machine.subscription?.cancel_at_period_end && (
                 <Badge
@@ -956,14 +984,14 @@ export default function MachineDetailPage() {
                   <p className="text-sm font-semibold">{provisioningHeadline(machine)}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">{provisioningSubcopy(machine)}</p>
                 </div>
-                {typeof machine.provider_progress === "number" && machine.provisioning_stage !== "resizing" && (
+                {typeof provisioningPct === "number" && machine.provisioning_stage !== "resizing" && (
                   <span className="font-mono text-sm font-semibold tabular-nums text-foreground">
-                    {Math.max(0, Math.min(100, machine.provider_progress))}%
+                    {provisioningPct}%
                   </span>
                 )}
               </div>
-              {typeof machine.provider_progress === "number" && machine.provisioning_stage !== "resizing" && (
-                <Progress value={machine.provider_progress} className="h-1.5" />
+              {typeof provisioningPct === "number" && machine.provisioning_stage !== "resizing" && (
+                <Progress value={provisioningPct} className="h-1.5" />
               )}
 
             </div>
@@ -1357,12 +1385,12 @@ export default function MachineDetailPage() {
               <Loader2 className="size-8 text-muted-foreground/40 animate-spin" strokeWidth={1.5} />
             </div>
             <h3 className="text-sm font-medium mb-1">
-              {machine.provider_status === "success" || machine.callback_expected === false ? "Almost there" : "Setting up your machine"}
+              {machine.provider_status === "success" ? "Waiting for the first sync" : "Setting up your machine"}
             </h3>
             <p className="text-xs text-muted-foreground max-w-xs">
-              {machine.provider_status === "success" || machine.callback_expected === false
-                ? "Terminal, SSH, and tools appear in a few seconds."
-                : "Terminal, SSH, and tools appear once the machine is ready."}
+              {machine.provider_status === "success"
+                ? "The VM is up, but terminal, SSH, and tools will appear after the next successful heartbeat."
+                : "Terminal, SSH, and tools appear once the machine is fully ready."}
             </p>
           </div>
         </div>
@@ -1377,7 +1405,7 @@ export default function MachineDetailPage() {
       <Dialog open={createImageOpen} onOpenChange={setCreateImageOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Create Snapshot</DialogTitle>
+            <DialogTitle>Create Image</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
             <Label htmlFor="image-name">Name</Label>

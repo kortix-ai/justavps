@@ -3,9 +3,9 @@
 import { Suspense, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { AuthLayout } from "@/components/auth/auth-layout";
-import { AuthButton } from "@/components/auth/auth-button";
-import { AuthError, AuthField } from "@/components/auth/auth-field";
+import { AuthLayout } from "@/shared/components/auth/auth-layout";
+import { AuthButton } from "@/shared/components/auth/auth-button";
+import { AuthError, AuthField } from "@/shared/components/auth/auth-field";
 
 type Status = "idle" | "submitting" | "success";
 

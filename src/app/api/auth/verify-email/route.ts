@@ -2,8 +2,8 @@ import { NextRequest } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { db } from '@/server/db';
 import { users } from '@/server/db/schema';
-import { consumeAuthToken } from '@/server/lib/auth-tokens';
-import { readVerificationBinding } from '@/server/lib/verification-binding';
+import { consumeAuthToken } from '@/server/auth/auth-tokens';
+import { readVerificationBinding } from '@/server/auth/verification-binding';
 import { VerifyEmailSchema } from '../_schemas';
 import { badRequest, firstZodError, serverError, success } from '../_responses';
 

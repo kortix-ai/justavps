@@ -4,8 +4,8 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
-import { AuthLayout } from "@/components/auth/auth-layout";
-import { AuthButton } from "@/components/auth/auth-button";
+import { AuthLayout } from "@/shared/components/auth/auth-layout";
+import { AuthButton } from "@/shared/components/auth/auth-button";
 
 type VerifyStatus = "verifying" | "error";
 

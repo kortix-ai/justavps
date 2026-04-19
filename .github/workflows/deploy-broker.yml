@@ -8,9 +8,9 @@ on:
   push:
     branches: [main, production]
     paths:
-      - 'broker/**'
-      - 'daemon/cmd/broker/**'
-      - 'daemon/internal/broker/**'
+      - 'apps/broker/**'
+      - 'apps/daemon/cmd/broker/**'
+      - 'apps/daemon/internal/broker/**'
       - '.github/workflows/deploy-broker.yml'
   workflow_call:
     inputs:
@@ -34,14 +34,14 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24'
-          cache-dependency-path: daemon/go.sum
+          cache-dependency-path: apps/daemon/go.sum
 
       - name: Test
-        working-directory: daemon
+        working-directory: apps/daemon
         run: go test ./...
 
       - name: Build linux/amd64 broker
-        working-directory: daemon
+        working-directory: apps/daemon
         env:
           VERSION: ${{ github.sha }}
         run: |
@@ -55,9 +55,9 @@ jobs:
         with:
           name: broker-linux-amd64
           path: |
-            daemon/bin/kortix-broker-linux-amd64
-            broker/kortix-broker.service
-            broker/install.sh
+            apps/daemon/bin/kortix-broker-linux-amd64
+            apps/broker/kortix-broker.service
+            apps/broker/install.sh
 
   deploy:
     name: Deploy Broker Host
@@ -92,9 +92,9 @@ jobs:
           BROKER_HOST: ${{ secrets.BROKER_HOST }}
           BROKER_USER: ${{ secrets.BROKER_USER }}
         run: |
-          scp /tmp/broker-artifact/daemon/bin/kortix-broker-linux-amd64 "${BROKER_USER}@${BROKER_HOST}:/tmp/kortix-broker"
-          scp /tmp/broker-artifact/broker/kortix-broker.service "${BROKER_USER}@${BROKER_HOST}:/tmp/kortix-broker.service"
-          scp /tmp/broker-artifact/broker/install.sh "${BROKER_USER}@${BROKER_HOST}:/tmp/kortix-broker-install.sh"
+          scp /tmp/broker-artifact/apps/daemon/bin/kortix-broker-linux-amd64 "${BROKER_USER}@${BROKER_HOST}:/tmp/kortix-broker"
+          scp /tmp/broker-artifact/apps/broker/kortix-broker.service "${BROKER_USER}@${BROKER_HOST}:/tmp/kortix-broker.service"
+          scp /tmp/broker-artifact/apps/broker/install.sh "${BROKER_USER}@${BROKER_HOST}:/tmp/kortix-broker-install.sh"
 
       - name: Install and restart broker
         env:

@@ -4,14 +4,14 @@ import type { ComponentType } from "react";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Avatar, AvatarFallback } from "@/shared/ui/avatar";
+import { Badge } from "@/shared/ui/badge";
+import { Button } from "@/shared/ui/button";
+import { Input } from "@/shared/ui/input";
+import { Label } from "@/shared/ui/label";
+import { Skeleton } from "@/shared/ui/skeleton";
+import { Progress } from "@/shared/ui/progress";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/shared/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +19,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@/shared/ui/dialog";
 import {
   useAccount,
   useMe,
@@ -34,9 +34,9 @@ import {
   useDeleteOrganization,
   useLeaveOrganization,
   useUpdateOrganization,
-} from "@/hooks/use-account";
-import { formatLimit, isUnlimitedLimit } from "@/lib/account-limits";
-import type { AccountInvitation, CurrentUserContext } from "@/lib/types";
+} from "@/shared/hooks/use-account";
+import { formatLimit, isUnlimitedLimit } from "@/shared/lib/account-limits";
+import type { AccountInvitation, CurrentUserContext } from "@/shared/lib/types";
 import {
   Server,
   HardDrive,
@@ -63,7 +63,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from "@/shared/ui/dropdown-menu";
 
 // ─── Limit Card ──────────────────────────────────────────────────────────────
 

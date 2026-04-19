@@ -3,7 +3,7 @@
 import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { AuthLayout } from "@/components/auth/auth-layout";
+import { AuthLayout } from "@/shared/components/auth/auth-layout";
 import { GithubButton } from "./_components/github-button";
 import { LoginForm } from "./_components/login-form";
 import { RegisterForm } from "./_components/register-form";

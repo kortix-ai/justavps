@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { cn, timeAgo } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/shared/ui/button";
+import { cn, timeAgo } from "@/shared/lib/utils";
+import { Badge } from "@/shared/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -13,19 +13,19 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
+} from "@/shared/ui/dialog";
+import { Input } from "@/shared/ui/input";
+import { Label } from "@/shared/ui/label";
+import { Skeleton } from "@/shared/ui/skeleton";
 import { toast } from "sonner";
 import {
   useWebhooks,
   useCreateWebhook,
   useDeleteWebhook,
   useUpdateWebhook,
-} from "@/hooks/use-webhooks";
-import type { CreateWebhookResponse } from "@/lib/types";
-import { useConfirm } from "@/hooks/use-confirm";
+} from "@/v1/hooks/use-webhooks";
+import type { CreateWebhookResponse } from "@/shared/lib/types";
+import { useConfirm } from "@/shared/hooks/use-confirm";
 import {
   Plus,
   Trash2,

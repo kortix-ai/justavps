@@ -1,23 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import { CheckoutModal } from "@/components/checkout-modal";
-import { PLAN_PRICE_SNAPSHOT } from "@/lib/plan-catalog";
-import { LandingNav } from "@/components/landing/nav/landing-nav";
-import { Hero } from "@/components/landing/hero/hero";
-import { SupportedAgents } from "@/components/landing/sections/supported-agents";
-import { Infrastructure } from "@/components/landing/sections/infrastructure";
-import { UseCases } from "@/components/landing/sections/use-cases";
-import { SecureDefault } from "@/components/landing/sections/secure-default";
-import { ApiOverview } from "@/components/landing/sections/api-overview";
-import { Pricing } from "@/components/landing/sections/pricing";
-import { About } from "@/components/landing/sections/about";
-import { Faq } from "@/components/landing/sections/faq";
-import { FinalCta } from "@/components/landing/sections/final-cta";
-import { LandingFooter } from "@/components/landing/footer/landing-footer";
-import { FloatingCta } from "@/components/landing/floating-cta/floating-cta";
-import { PageFrame } from "@/components/landing/shared/page-frame";
-import { SectionDivider } from "@/components/landing/shared/section-divider";
+import { CheckoutModal } from "@/v1/components/checkout-modal";
+import { PLAN_PRICE_SNAPSHOT } from "@/shared/lib/plan-catalog";
+import { LandingNav } from "@/shared/components/landing/nav/landing-nav";
+import { Hero } from "@/shared/components/landing/hero/hero";
+import { SupportedAgents } from "@/shared/components/landing/sections/supported-agents";
+import { Infrastructure } from "@/shared/components/landing/sections/infrastructure";
+import { UseCases } from "@/shared/components/landing/sections/use-cases";
+import { SecureDefault } from "@/shared/components/landing/sections/secure-default";
+import { ApiOverview } from "@/shared/components/landing/sections/api-overview";
+import { Pricing } from "@/shared/components/landing/sections/pricing";
+import { About } from "@/shared/components/landing/sections/about";
+import { Faq } from "@/shared/components/landing/sections/faq";
+import { FinalCta } from "@/shared/components/landing/sections/final-cta";
+import { LandingFooter } from "@/shared/components/landing/footer/landing-footer";
+import { FloatingCta } from "@/shared/components/landing/floating-cta/floating-cta";
+import { PageFrame } from "@/shared/components/landing/shared/page-frame";
+import { SectionDivider } from "@/shared/components/landing/shared/section-divider";
 
 export default function Home() {
   const [checkoutOpen, setCheckoutOpen] = useState(false);

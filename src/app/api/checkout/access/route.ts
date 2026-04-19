@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { encode } from 'next-auth/jwt';
 import { z } from 'zod';
-import { stripeClient } from '@/server/lib/stripe';
-import { resolveCheckoutUser } from '@/server/lib/checkout-users';
-import { authConfig } from '@/lib/auth-config';
-import { config } from '@/server/lib/config';
-import { ACCOUNT_COOKIE_NAME } from '@/server/lib/accounts';
+import { stripeClient } from "@/server/v1/services/stripe";
+import { resolveCheckoutUser } from "@/server/v1/services/checkout-users";
+import { authConfig } from '@/shared/lib/auth-config';
+import { config } from "@/server/core/config";
+import { ACCOUNT_COOKIE_NAME } from "@/server/auth/accounts";
 
 const AccessSchema = z.object({
   session_id: z.string().min(1),

@@ -1,7 +1,7 @@
 "use client";
 
-import { useTheme } from "@/hooks/use-theme";
-import { Logo } from "@/components/logo";
+import { useTheme } from "@/shared/hooks/use-theme";
+import { Logo } from "@/shared/components/logo";
 
 function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();

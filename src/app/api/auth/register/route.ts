@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { db } from '@/server/db';
 import { users } from '@/server/db/schema';
-import { hashPassword } from '@/server/lib/crypto';
-import { issueAuthToken } from '@/server/lib/auth-tokens';
-import { emailClient } from '@/server/lib/email';
-import { issueVerificationBinding } from '@/server/lib/verification-binding';
+import { hashPassword } from '@/server/core/crypto';
+import { issueAuthToken } from '@/server/auth/auth-tokens';
+import { emailClient } from '@/server/v1/services/email';
+import { issueVerificationBinding } from '@/server/auth/verification-binding';
 import { RegisterSchema } from '../_schemas';
 import { badRequest, conflict, firstZodError, serverError } from '../_responses';
 
