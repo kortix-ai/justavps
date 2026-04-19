@@ -16,3 +16,6 @@ export function pathForVersion(pathname: string, version: UiVersion): string {
   if (version === 'v1') return normalized;
   return normalized === '/' ? '/v2' : `/v2${normalized}`;
 }
+
+export const V2_ENABLED =
+  (process.env.NEXT_PUBLIC_FEATURE_V2_ENABLED || 'false').trim().toLowerCase() === 'true';

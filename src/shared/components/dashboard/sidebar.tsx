@@ -64,7 +64,7 @@ import {
 } from "@/shared/hooks/use-account";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { detectUiVersionFromPath, pathForVersion, type UiVersion } from "@/shared/lib/versioning";
+import { detectUiVersionFromPath, pathForVersion, V2_ENABLED, type UiVersion } from "@/shared/lib/versioning";
 
 const navigation = [
   { name: "Machines", href: "/machines", icon: Server },
@@ -187,29 +187,31 @@ export function AppSidebar() {
         </SidebarHeader>
         <SidebarContent>
           <nav className="space-y-0.5 px-2 pt-2">
-            <div className="mb-3 px-2.5 group-data-[collapsible=icon]:px-0">
-              <div className="flex items-center justify-between gap-2 rounded-md border border-sidebar-border bg-sidebar-accent/30 p-1 text-xs group-data-[collapsible=icon]:justify-center">
-                {versionSwitchItems.map((item) => {
-                  const active = item.version === uiVersion;
-                  const target = pathForVersion(pathname || "/machines", item.version);
-                  return (
-                    <Link
-                      key={item.version}
-                      href={target}
-                      className={cn(
-                        "flex-1 rounded px-2 py-1 text-center transition-colors group-data-[collapsible=icon]:hidden",
-                        active ? "bg-sidebar-background text-sidebar-foreground font-medium shadow-sm" : "text-sidebar-foreground/60 hover:text-sidebar-foreground"
-                      )}
-                    >
-                      {item.label}
-                    </Link>
-                  );
-                })}
-                <span className="hidden text-[10px] font-semibold uppercase tracking-wide text-sidebar-foreground/60 group-data-[collapsible=icon]:block">
-                  {uiVersion}
-                </span>
+            {V2_ENABLED ? (
+              <div className="mb-3 px-2.5 group-data-[collapsible=icon]:px-0">
+                <div className="flex items-center justify-between gap-2 rounded-md border border-sidebar-border bg-sidebar-accent/30 p-1 text-xs group-data-[collapsible=icon]:justify-center">
+                  {versionSwitchItems.map((item) => {
+                    const active = item.version === uiVersion;
+                    const target = pathForVersion(pathname || "/machines", item.version);
+                    return (
+                      <Link
+                        key={item.version}
+                        href={target}
+                        className={cn(
+                          "flex-1 rounded px-2 py-1 text-center transition-colors group-data-[collapsible=icon]:hidden",
+                          active ? "bg-sidebar-background text-sidebar-foreground font-medium shadow-sm" : "text-sidebar-foreground/60 hover:text-sidebar-foreground"
+                        )}
+                      >
+                        {item.label}
+                      </Link>
+                    );
+                  })}
+                  <span className="hidden text-[10px] font-semibold uppercase tracking-wide text-sidebar-foreground/60 group-data-[collapsible=icon]:block">
+                    {uiVersion}
+                  </span>
+                </div>
               </div>
-            </div>
+            ) : null}
             {allNavigation.map((item) => {
               if (item.name === "__admin_separator__") {
                 return (

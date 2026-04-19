@@ -79,7 +79,7 @@ const navigation = [
 
 const adminNavigationV2 = [
   { name: "All Machines", href: "/admin/machines", icon: Server },
-  { name: "Fleet", href: "/admin/fleet", icon: HardDrive },
+  { name: "Fleet", href: "/v2/admin/fleet", icon: HardDrive },
   { name: "Routing", href: "/admin/routing", icon: ShieldCheck },
 ];
 
