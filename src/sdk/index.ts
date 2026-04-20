@@ -17,4 +17,4 @@ export * from './generated';
 export { JustAVPS, JustAVPSV2, JustAVPSError } from './client';
 export type { JustAVPSConfig, JustAVPSV2Config } from './client';
 export { JustAVPSV2 as JustAVPSV2Direct, JustAVPSV2Error } from './client-v2';
-export type { JustAVPSV2Config as JustAVPSV2DirectConfig } from './client-v2';
+export type { JustAVPSV2Config as JustAVPSV2DirectConfig, JustAVPSV2ExecInput, JustAVPSV2ExecResult } from './client-v2';

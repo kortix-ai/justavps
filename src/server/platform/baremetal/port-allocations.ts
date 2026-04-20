@@ -58,13 +58,15 @@ export async function reserveMachinePortAllocations(input: {
   machineId: string;
   hostId: string;
   hostPublicIp?: string | null;
+  sshEnabled?: boolean;
   executor?: PortAllocationExecutor;
 }) {
   const executor = input.executor ?? db;
+  const sshEnabled = input.sshEnabled !== false;
   const existing = await getMachinePortAllocations(input.machineId, executor);
-  if (existing.ssh && existing.http) {
+  if ((!sshEnabled || existing.ssh) && existing.http) {
     return {
-      sshPort: existing.ssh.publicPort,
+      sshPort: sshEnabled ? (existing.ssh?.publicPort ?? null) : null,
       httpPort: existing.http.publicPort,
       allocations: existing.rows,
     };
@@ -87,15 +89,17 @@ export async function reserveMachinePortAllocations(input: {
     if (httpPort && Number.isInteger(httpPort) && httpPort > 0) usedHttpPorts.add(httpPort);
   }
 
-  const sshPort = existing.ssh?.publicPort ?? await firstAllocatablePort(usedSshPorts, SSH_PORT_RANGE, input.hostPublicIp ?? null);
+  const sshPort = sshEnabled
+    ? (existing.ssh?.publicPort ?? await firstAllocatablePort(usedSshPorts, SSH_PORT_RANGE, input.hostPublicIp ?? null))
+    : null;
   const httpPort = existing.http?.publicPort ?? await firstAllocatablePort(usedHttpPorts, HTTP_PORT_RANGE, input.hostPublicIp ?? null);
-  if (!sshPort || !httpPort) {
+  if ((sshEnabled && !sshPort) || !httpPort) {
     throw new Error(`No public ${!sshPort ? 'SSH' : 'HTTP'} ports available on host ${input.hostId}`);
   }
 
   const inserts: Array<{ machineId: string; hostId: string; protocol: 'ssh' | 'http'; publicPort: number; targetPort: number; metadata: Record<string, unknown>; createdAt: Date; updatedAt: Date }> = [];
   const now = new Date();
-  if (!existing.ssh) {
+  if (sshEnabled && !existing.ssh && sshPort) {
     inserts.push({ machineId: input.machineId, hostId: input.hostId, protocol: 'ssh', publicPort: sshPort, targetPort: SSH_PORT_RANGE.target, metadata: {}, createdAt: now, updatedAt: now });
   }
   if (!existing.http) {
@@ -106,12 +110,12 @@ export async function reserveMachinePortAllocations(input: {
   }
 
   const allocated = await getMachinePortAllocations(input.machineId, executor);
-  if (!allocated.ssh || !allocated.http) {
+  if ((sshEnabled && !allocated.ssh) || !allocated.http) {
     throw new Error(`Failed to persist machine port allocations for ${input.machineId}`);
   }
 
   return {
-    sshPort: allocated.ssh.publicPort,
+    sshPort: sshEnabled ? (allocated.ssh?.publicPort ?? null) : null,
     httpPort: allocated.http.publicPort,
     allocations: allocated.rows,
   };

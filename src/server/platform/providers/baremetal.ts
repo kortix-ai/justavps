@@ -293,6 +293,7 @@ export class BaremetalProvider implements ComputeProvider {
       diskGb,
       sshPort: opts.sshPort ?? null,
       httpPort: opts.httpPort ?? null,
+      sshProxyEnabled: opts.sshProxyEnabled ?? true,
       labels: opts.labels,
     });
 

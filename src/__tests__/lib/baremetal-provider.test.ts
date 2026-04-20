@@ -59,6 +59,7 @@ describe('BaremetalProvider', () => {
       }),
       createRunnerClient: () => ({
         createInstance: runnerCreate,
+        execInstance: vi.fn(),
         deleteInstance: vi.fn(),
         startInstance: vi.fn(),
         stopInstance: vi.fn(),
@@ -111,6 +112,7 @@ describe('BaremetalProvider', () => {
       selectHost: async () => null,
       createRunnerClient: () => ({
         createInstance: vi.fn(),
+        execInstance: vi.fn(),
         deleteInstance: vi.fn(),
         startInstance: vi.fn(),
         stopInstance: vi.fn(),

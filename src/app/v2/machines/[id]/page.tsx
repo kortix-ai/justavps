@@ -55,7 +55,6 @@ import {
   Share2,
   AlertTriangle,
   Camera,
-  Monitor,
   Archive,
   Clock,
   KeyRound,
@@ -65,8 +64,6 @@ import {
   CalendarX2,
   Trash2,
   RotateCcw,
-  Eye,
-  EyeOff,
   Box,
 } from "lucide-react";
 import { timeAgo, cn, regionDisplay, PROXY_DOMAIN } from "@/shared/lib/utils";
@@ -535,134 +532,64 @@ function PortForwardCard({ slug, portTemplate }: { slug: string; portTemplate?: 
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   SSH CONNECT PANEL
+   INSTANCE ACCESS PANEL
    ═══════════════════════════════════════════════════════════════════════ */
-function SshConnectPanel({ machine }: { machine: Machine }) {
-  const [showKey, setShowKey] = useState(false);
-  const sshHost = machine.ssh_host;
-  const sshPort = machine.ssh_port;
-  const sshCommand = machine.connect?.ssh_command ?? machine.ssh ?? null;
-  const setupCommand = machine.ssh_setup_command ?? machine.ssh_key?.setup_command ?? null;
-  const sshConfigBlock = machine.ssh_config_block ?? null;
-  const privateKey = machine.ssh_key?.private_key ?? null;
-
-  if (!sshHost || !sshPort) {
-    return (
-      <div className="rounded-xl border border-dashed p-6 text-center">
-        <KeyRound className="mx-auto size-8 text-muted-foreground/30 mb-2" />
-        <p className="text-sm text-muted-foreground">SSH not available yet</p>
-        <p className="text-[11px] text-muted-foreground/60 mt-1">
-          The host port-forward will appear once provisioning completes.
-        </p>
-      </div>
-    );
-  }
+function InstanceAccessPanel({ machine }: { machine: Machine }) {
+  const terminalUrl = machine.urls?.terminal ?? null;
+  const proxyUrl = machine.urls?.proxy ?? null;
+  const execEndpoint = machine.access?.exec_endpoint ?? `/api/v2/machines/${machine.id}/exec`;
+  const execExample = [
+    `curl -X POST "$JUSTAVPS_API${execEndpoint}" \\`,
+    `  -H "Authorization: Bearer $JUSTAVPS_API_KEY" \\`,
+    `  -H "Content-Type: application/json" \\`,
+    `  -d '${JSON.stringify({ command: "bash", args: ["-lc", "uname -a && whoami"] }, null, 2)}'`,
+  ].join("\n");
 
   return (
     <div className="space-y-3">
-      {/* Endpoint summary */}
       <div className="rounded-xl border bg-card overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-2.5 border-b">
-          <Globe className="size-3.5 text-muted-foreground" />
-          <span className="text-sm font-medium">SSH endpoint</span>
+          <TerminalIcon className="size-3.5 text-muted-foreground" />
+          <span className="text-sm font-medium">Primary access</span>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x">
-          <div className="px-4 py-3">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">SSH gateway</p>
-            <p className="text-sm font-mono">{sshHost}</p>
-          </div>
-          <div className="px-4 py-3">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Port</p>
-            <p className="text-sm font-mono">{sshPort}</p>
-          </div>
-          <div className="px-4 py-3">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">User</p>
-            <p className="text-sm font-mono">root</p>
+        <div className="p-4 space-y-3">
+          <p className="text-sm text-muted-foreground">
+            V2 instances use built-in terminal and exec API access. SSH credential issuance is not part of the V2 access model.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Web terminal</p>
+              <p className="text-xs text-muted-foreground">Browser terminal backed by the instance terminal path.</p>
+              {terminalUrl ? (
+                <div className="flex gap-2 flex-wrap">
+                  <Button size="sm" onClick={() => window.open(terminalUrl, "_blank", "noopener,noreferrer")}>Open terminal</Button>
+                  <CodeBlock text={terminalUrl} label="Terminal URL" />
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">Terminal URL will appear once the instance is ready.</p>
+              )}
+            </div>
+            <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Proxy root</p>
+              <p className="text-xs text-muted-foreground">Primary browser-accessible URL for services on the instance.</p>
+              {proxyUrl ? <CodeBlock text={proxyUrl} label="Proxy URL" /> : <p className="text-xs text-muted-foreground">Proxy URL pending.</p>}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* One-line connect (private key inline) */}
-      {setupCommand && (
-        <div className="rounded-xl border bg-card overflow-hidden">
-          <div className="flex items-center gap-2.5 px-4 py-2.5 border-b bg-muted/30">
-            <span className="size-5 rounded-full bg-foreground text-background text-[10px] font-bold flex items-center justify-center shrink-0">1</span>
-            <span className="text-sm font-medium">Connect now</span>
-            <Badge variant="outline" className="ml-auto h-4 px-1.5 text-[10px] border-amber-500/30 text-amber-600 dark:text-amber-400 gap-1">
-              <KeyRound className="size-2.5" />
-              Contains private key
-            </Badge>
-          </div>
-          <div className="p-4 space-y-2.5">
-            <p className="text-xs text-muted-foreground">
-              Paste this in your terminal — it saves your key to <code className="text-foreground font-mono">~/.ssh/justavps_{machine.slug}</code> and opens the SSH session immediately.
-            </p>
-            <CodeBlock text={setupCommand} label="Setup command" variant="green" />
-          </div>
+      <div className="rounded-xl border bg-card overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b bg-muted/30">
+          <Code2 className="size-3.5 text-muted-foreground" />
+          <span className="text-sm font-medium">Exec API</span>
         </div>
-      )}
-
-      {/* Reconnect later */}
-      {sshCommand && (
-        <div className="rounded-xl border bg-card overflow-hidden">
-          <div className="flex items-center gap-2.5 px-4 py-2.5 border-b bg-muted/30">
-            <span className="size-5 rounded-full bg-foreground text-background text-[10px] font-bold flex items-center justify-center shrink-0">2</span>
-            <span className="text-sm font-medium">Reconnect later</span>
-          </div>
-          <div className="p-4 space-y-2.5">
-            <p className="text-xs text-muted-foreground">
-              Once the key is saved, reconnect any time:
-            </p>
-            <CodeBlock text={sshCommand} label="SSH command" />
-          </div>
+        <div className="p-4 space-y-2.5">
+          <p className="text-xs text-muted-foreground">
+            For automation, agents, and CLI tooling, run commands through the V2 exec endpoint.
+          </p>
+          <CodeBlock text={execExample} label="Run a command" />
         </div>
-      )}
-
-      {/* Add to ~/.ssh/config (Cursor/VS Code Remote-SSH) */}
-      {sshConfigBlock && (
-        <div className="rounded-xl border bg-card overflow-hidden">
-          <div className="flex items-center gap-2.5 px-4 py-2.5 border-b bg-muted/30">
-            <span className="size-5 rounded-full bg-foreground text-background text-[10px] font-bold flex items-center justify-center shrink-0">3</span>
-            <Monitor className="size-3.5 text-muted-foreground" />
-            <span className="text-sm font-medium">Cursor / VS Code Remote-SSH</span>
-            <Badge className="ml-auto text-[10px] font-normal bg-primary/10 text-primary border-primary/20 h-4 px-1.5">
-              Recommended
-            </Badge>
-          </div>
-          <div className="p-4 space-y-2.5">
-            <p className="text-xs text-muted-foreground">Append this block to <code className="text-foreground font-mono">~/.ssh/config</code>:</p>
-            <CodeBlock text={sshConfigBlock} label="SSH config" />
-            <p className="text-xs text-muted-foreground">
-              Then{" "}
-              <kbd className="bg-muted px-1.5 py-0.5 rounded text-[10px] border font-mono">Cmd+Shift+P</kbd>
-              {" → "}Remote-SSH: Connect to Host{" → "}
-              <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-[11px]">{machine.slug}</code>
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Raw private key (collapsed by default) */}
-      {privateKey && (
-        <div className="rounded-xl border bg-card overflow-hidden">
-          <button
-            onClick={() => setShowKey((v) => !v)}
-            className="w-full flex items-center gap-2.5 px-4 py-2.5 border-b bg-muted/30 hover:bg-muted/50 transition-colors text-left"
-          >
-            <KeyRound className="size-3.5 text-muted-foreground" />
-            <span className="text-sm font-medium">Raw private key</span>
-            <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-              {showKey ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
-              {showKey ? "Hide" : "Reveal"}
-            </span>
-          </button>
-          {showKey && (
-            <div className="p-4">
-              <CodeBlock text={privateKey} label="Private key" />
-            </div>
-          )}
-        </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -1014,13 +941,13 @@ export default function MachineDetailPage() {
                   <div>
                     <p className="text-sm font-medium">Docker app image</p>
                     <p className="text-xs text-muted-foreground">
-                      This machine bootstrapped from <code className="font-mono text-foreground">{machine.requested_image_ref}</code>. Arbitrary Docker app containers do not get the normal SSH/bootstrap tooling injected automatically.
+                      This machine bootstrapped from <code className="font-mono text-foreground">{machine.requested_image_ref}</code>. Arbitrary Docker app containers do not get the normal JustAVPS terminal and bootstrap tooling guaranteed automatically.
                     </p>
                   </div>
                 </div>
               </div>
             ) : (
-              <SshConnectPanel machine={machine} />
+              <InstanceAccessPanel machine={machine} />
             )}
           </TabsContent>
 
@@ -1196,7 +1123,7 @@ export default function MachineDetailPage() {
             </div>
             <h3 className="text-sm font-medium mb-1">{provisioning.label}</h3>
             <p className="text-xs text-muted-foreground max-w-xs">
-              Terminal, SSH, and tools appear once the machine becomes ready.
+              Terminal, exec access, and tools appear once the machine becomes ready.
             </p>
           </div>
         </div>

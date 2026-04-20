@@ -14,13 +14,7 @@ const fakeV2Machine = {
   billing: { mode: 'flat_monthly', price_monthly: 12, current_period_end: null },
   image: null,
   connectivity: {
-    ssh_host: '135.181.129.188',
-    ssh_port: 22222,
-    ssh_command: 'ssh -i ~/.ssh/justavps_machine-v2-1 -p 22222 -o StrictHostKeyChecking=no root@135.181.129.188',
-    ssh_setup_command: 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo setup',
-    ssh_config_block: 'Host machine-v2-1\n  HostName 135.181.129.188\n  Port 22222\n  User root',
-    ssh_private_key: null,
-    ssh_public_key: null,
+    access: { mode: 'rest_exec', exec_endpoint: '/api/v2/machines/machine-v2-1/exec' },
     urls: { proxy: 'https://demo.example.com', terminal: 'https://demo.example.com/_terminal', port_template: 'https://{port}--demo.example.com' },
   },
   capabilities: { can_start: false, can_stop: true, can_reboot: true, can_resize: false, can_snapshot: true, can_create_image: true },
@@ -98,7 +92,7 @@ test.describe('V2 flow wiring', () => {
     await expect(page.getByText('VM running, waiting for daemon').first()).toBeVisible();
     await expect(page.getByText('First boot takes about 60–90 seconds.').first()).toBeVisible();
     await expect(page.locator('text=60%')).toBeVisible();
-    await expect(page.locator('text=Terminal, SSH, and tools appear once the machine becomes ready.')).toBeVisible();
+    await expect(page.locator('text=Terminal, exec access, and tools appear once the machine becomes ready.')).toBeVisible();
     await expect(page.locator('text=Terminal, SSH, and tools appear in a few seconds.')).toHaveCount(0);
     await expect(page.locator('a[href="/api/docs/v2"]')).toBeVisible();
     await expect(page.locator('h1').locator('..').getByText('V2', { exact: true })).toBeVisible();

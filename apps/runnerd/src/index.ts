@@ -20,6 +20,7 @@ const app = new Hono();
 const RUNNERD_TOKEN = process.env.RUNNERD_TOKEN || '';
 const RUNNERD_PORT = Number(process.env.RUNNERD_PORT || 7779);
 const INCUS_REMOTE = (process.env.INCUS_REMOTE || '').trim();
+const INCUS_PROJECT = (process.env.INCUS_PROJECT || '').trim();
 const RUNNERD_PUBLIC_IPV4 = (process.env.RUNNERD_PUBLIC_IPV4 || '').trim() || null;
 const RUNNERD_PUBLIC_IPV6 = (process.env.RUNNERD_PUBLIC_IPV6 || '').trim() || null;
 const RUNNERD_STATE_DIR = '/run/justavps-runnerd';
@@ -199,8 +200,12 @@ function incusTarget(name?: string) {
   return INCUS_REMOTE ? `${INCUS_REMOTE}:${name ?? ''}` : (name ?? '');
 }
 
+function withIncusContext(args: string[]) {
+  return INCUS_PROJECT ? ['--project', INCUS_PROJECT, ...args] : args;
+}
+
 async function runIncus(args: string[], timeoutMs = 15000) {
-  const { stdout, stderr } = await execFileAsync('incus', args, {
+  const { stdout, stderr } = await execFileAsync('incus', withIncusContext(args), {
     maxBuffer: 10 * 1024 * 1024,
     timeout: timeoutMs,
   });
@@ -208,12 +213,32 @@ async function runIncus(args: string[], timeoutMs = 15000) {
 }
 
 async function runIncusPty(args: string[], timeoutMs = 300000) {
-  const command = `incus ${args.map((arg) => JSON.stringify(arg)).join(' ')}`;
+  const command = `incus ${withIncusContext(args).map((arg) => JSON.stringify(arg)).join(' ')}`;
   const { stdout, stderr } = await execFileAsync('script', ['-qec', command, '/dev/null'], {
     maxBuffer: 50 * 1024 * 1024,
     timeout: timeoutMs,
   });
   return { stdout, stderr };
+}
+
+async function runIncusAllowingFailure(args: string[], timeoutMs = 300000) {
+  try {
+    const { stdout, stderr } = await execFileAsync('incus', withIncusContext(args), {
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: timeoutMs,
+    });
+    return { stdout, stderr, exitCode: 0 };
+  } catch (error) {
+    const details = error as Error & { code?: number | string; stdout?: string; stderr?: string };
+    if (typeof details.code === 'number') {
+      return {
+        stdout: details.stdout ?? '',
+        stderr: details.stderr ?? (details.message ?? ''),
+        exitCode: details.code,
+      };
+    }
+    throw error;
+  }
 }
 
 async function retryBusy<T>(fn: () => Promise<T>, timeoutMs = 120000): Promise<T> {
@@ -519,10 +544,11 @@ app.post('/v1/instances', async (c) => {
   const memoryGb = Number(body.memoryGb);
   const cloudInitUserData = String(body.cloudInitUserData || '');
   const machineMode = String(body.machineMode || 'vm') === 'container' ? 'container' : 'vm';
+  const sshProxyEnabled = body.sshProxyEnabled !== false;
   const containerIpv4Address = typeof body.containerIpv4Address === 'string' && body.containerIpv4Address.trim()
     ? body.containerIpv4Address.trim()
     : null;
-  const requestedSshPort = resolveExplicitPort(body.sshPort, sshPortForInstance(instanceName));
+  const requestedSshPort = sshProxyEnabled ? resolveExplicitPort(body.sshPort, sshPortForInstance(instanceName)) : null;
   const requestedHttpPort = resolveExplicitPort(body.httpPort, httpPortForInstance(instanceName));
 
   try {
@@ -730,6 +756,50 @@ app.post('/v1/instances', async (c) => {
     }, 201);
   } catch (error) {
     return c.json({ error: error instanceof Error ? error.message : 'failed to create instance' }, 500);
+  }
+});
+
+app.post('/v1/instances/:id/exec', async (c) => {
+  const authError = requireAuth(c);
+  if (authError) return authError;
+
+  const instanceId = c.req.param('id');
+  const body = await c.req.json();
+  const command = String(body.command || '').trim();
+  if (!command) {
+    return c.json({ error: 'command is required' }, 400);
+  }
+
+  const args = Array.isArray(body.args) ? body.args.map((value: unknown) => String(value)) : [];
+  const envVars = body.envVars && typeof body.envVars === 'object' && !Array.isArray(body.envVars)
+    ? Object.entries(body.envVars as Record<string, unknown>).filter(([, value]) => typeof value === 'string')
+    : [];
+  const execArgs = ['exec', incusTarget(instanceId)];
+
+  for (const [key, value] of envVars) {
+    execArgs.push('--env', `${key}=${value}`);
+  }
+
+  if (typeof body.cwd === 'string' && body.cwd.trim()) {
+    execArgs.push('--cwd', body.cwd.trim());
+  }
+  if (typeof body.user === 'string' && body.user.trim()) {
+    execArgs.push('--user', body.user.trim());
+  }
+  if (typeof body.group === 'string' && body.group.trim()) {
+    execArgs.push('--group', body.group.trim());
+  }
+
+  execArgs.push('--', command, ...args);
+
+  try {
+    const timeoutMs = typeof body.timeoutMs === 'number' && Number.isFinite(body.timeoutMs)
+      ? Math.max(1_000, Math.min(body.timeoutMs, 300_000))
+      : 120_000;
+    const result = await runIncusAllowingFailure(execArgs, timeoutMs);
+    return c.json(result, 200);
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : 'failed to exec in instance' }, 500);
   }
 });
 

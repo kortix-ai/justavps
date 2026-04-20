@@ -41,7 +41,7 @@ describe('machine serialization domain', () => {
     selectWhereMock.mockResolvedValue([]);
   });
 
-  it('serializes SSH connectivity, image refs, and worker URLs', async () => {
+  it('hides SSH connectivity for exec-first instances while keeping image refs and URLs', async () => {
     selectWhereMock.mockResolvedValueOnce([{ id: 'img-1', name: 'Golden' }]);
 
     const { serializeMachineV2 } = await import("@/server/v2/domains/machine/serialization");
@@ -71,6 +71,8 @@ describe('machine serialization domain', () => {
       ramGb: 8,
       diskGb: 100,
       providerMeta: {
+        access_mode: 'exec',
+        ssh_proxy_enabled: false,
         public_ipv4: '135.181.129.188',
         private_ipv4: '10.0.0.5',
       },
@@ -88,9 +90,10 @@ describe('machine serialization domain', () => {
     expect(view.machine_mode).toBe('container');
     expect(view.requested_image_kind).toBe('docker');
     expect(view.requested_image_ref).toBe('docker:nginx:latest');
-    expect(view.connectivity.ssh_host).toBe('135.181.129.188');
-    expect(view.connectivity.ssh_port).toBe(42022);
-    expect(view.connectivity.ssh_private_key).toBe('decrypted:encrypted-key');
+    expect(view.connectivity.access).toEqual({
+      mode: 'rest_exec',
+      exec_endpoint: '/api/v2/machines/machine-1/exec',
+    });
     expect(view.connectivity.urls.proxy).toBe('https://abcd1234.test.example.com');
     expect(view.provider_progress).toBe(50);
     expect(view.image).toEqual({ id: 'img-1', name: 'Golden' });
@@ -125,6 +128,6 @@ describe('machine serialization domain', () => {
 
     const view = await serializeMachineV2(machine, null);
     expect(view.resources).toEqual({ vcpu: 2, ram_gb: 4, disk_gb: 80 });
-    expect(view.connectivity.ssh_command).toBeNull();
+    expect(view.connectivity.access.exec_endpoint).toBe('/api/v2/machines/machine-2/exec');
   });
 });

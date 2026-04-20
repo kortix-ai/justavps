@@ -37,6 +37,7 @@ export interface Machine {
   ssh_key?: { public_key: string; private_key: string };
   connect?: { vscode_url: string; ssh_command: string };
   urls?: { proxy: string; terminal: string; port_template: string };
+  access?: { mode: 'rest_exec'; exec_endpoint: string; terminal_url?: string | null } | null;
   provisioning_stage?: string | null;
   requires_checkout?: boolean;
 }
@@ -109,6 +110,13 @@ export interface JustAVPSConfig {
 
 export interface JustAVPSV2Config extends Omit<JustAVPSConfig, 'baseUrl'> {
   baseUrl?: string;
+}
+
+function normalizeV2BaseUrl(input?: string) {
+  const raw = (input || 'https://justavps.com').replace(/\/$/, '');
+  if (/\/api\/v2$/i.test(raw)) return raw;
+  if (/\/api$/i.test(raw)) return `${raw}/v2`;
+  return `${raw}/api/v2`;
 }
 
 // ─── Errors ─────────────────────────────────────────────────────────────────
@@ -246,6 +254,9 @@ class MachinesResource {
   list() { return this.http.get<{ machines: Machine[] }>('/machines'); }
   get(id: string) { return this.http.get<Machine>(`/machines/${id}`); }
   create(input: CreateMachineBody) { return this.http.post<Machine>('/machines', input); }
+  exec(id: string, input: { command: string; args?: string[]; cwd?: string; env_vars?: Record<string, string>; user?: string; group?: string; timeout_ms?: number }) {
+    return this.http.post<V2ExecResult>(`/machines/${id}/exec`, input);
+  }
   delete(id: string) { return this.http.delete(`/machines/${id}`); }
   reboot(id: string) { return this.http.post<{ action: string; status: string }>(`/machines/${id}/reboot`); }
   resize(id: string, input: ResizeMachineBody) { return this.http.post<{ action: string; old_type: string; new_type: string; status: string }>(`/machines/${id}/resize`, input); }
@@ -361,6 +372,13 @@ export interface ExecResult {
   stdout: string;
   stderr: string;
   duration_ms: number;
+}
+
+export interface V2ExecResult {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+  exit_code: number;
 }
 
 export interface ProcessInfo {
@@ -581,7 +599,7 @@ export class JustAVPSV2 extends JustAVPS {
   constructor(config: JustAVPSV2Config) {
     super({
       ...config,
-      baseUrl: (config.baseUrl || 'https://justavps.com/api/v2').replace(/\/$/, ''),
+      baseUrl: normalizeV2BaseUrl(config.baseUrl),
     });
   }
 }

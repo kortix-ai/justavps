@@ -10,25 +10,23 @@ import { stripeClient } from "@/server/v1/services/stripe";
 import { eventBus } from "@/server/core/event-bus";
 import type { ControlPlaneJobHandlerResult } from "@/server/v2/services/control-plane-jobs";
 import {
-  autoGenerateAndSaveSSHKey,
   buildMachineUserData,
   cleanupMachineResources,
   createMachineRecord,
   generateMachineIdentity,
   resolveMachineCallbackConfig,
-  resolveSSHKeyPublicKeys,
   setupProxyDNS,
   syncMachineStatus,
-  uploadSSHKeyToProvider,
 } from "@/server/v2/services/machine-lifecycle";
 import { commitHostCapacityReservation, getHostCapacityReservationForMachine, releaseHostCapacityReservation } from "@/server/platform/baremetal/reservations";
 import { recordHostImageLocalityIntent } from "@/server/platform/baremetal/image-locality";
-import { releaseMachinePortAllocations, reserveMachinePortAllocations } from "@/server/platform/baremetal/port-allocations";
+import { getMachinePortAllocations, releaseMachinePortAllocations, reserveMachinePortAllocations } from "@/server/platform/baremetal/port-allocations";
 import { deriveBaremetalCellIdentity } from "@/server/platform/baremetal/cells";
 import { checkMachineLimit } from "@/server/auth/account-limits";
 import { decryptSecret } from "@/server/core/crypto";
 import { recordMachineBenchmark } from "@/server/v2/services/machine-benchmarks";
 import { buildMachinePlacementProviderMeta, reserveCapacityForMachineCreate } from "@/server/platform/control-plane/allocator";
+import { HttpBaremetalRunnerClient } from "@/server/platform/baremetal/runner-client";
 import {
   defaultPlacementImageAlias,
   normalizeDockerImageRef,
@@ -74,20 +72,10 @@ interface V2MachineView {
   };
   image: ReturnType<typeof serializeImageRow> | null;
   connectivity: {
-    /** SSH host (always the proxy domain, never the raw host IP) */
-    ssh_host: string | null;
-    /** SSH port (NAT-forwarded by Incus proxy device on host) */
-    ssh_port: number | null;
-    /** Ready-to-paste SSH command */
-    ssh_command: string | null;
-    /** One-liner: write key to ~/.ssh, fix perms, ssh in immediately */
-    ssh_setup_command: string | null;
-    /** Block to append to ~/.ssh/config */
-    ssh_config_block: string | null;
-    /** Plain-text SSH private key (PEM format). Only returned to the machine owner. */
-    ssh_private_key: string | null;
-    /** Public key (optional, useful for clients adding extra keys) */
-    ssh_public_key: string | null;
+    access: {
+      mode: 'rest_exec';
+      exec_endpoint: string;
+    };
     /** Public proxy URLs */
     urls: {
       proxy: string;
@@ -130,7 +118,6 @@ interface V2CreateMachineInput {
   docker_image?: string | null;
   env_vars?: Record<string, string>;
   cloud_init_script?: string;
-  ssh_key_ids?: string[];
   enable_backups?: boolean;
 }
 
@@ -151,8 +138,70 @@ interface MachineCreateJobPayload {
   dockerImage?: string | null;
   envVars?: Record<string, string>;
   cloudInitScript?: string;
-  sshKeyIds?: string[];
   enableBackups?: boolean;
+}
+
+interface ExecMachineV2Input {
+  command: string;
+  args?: string[];
+  cwd?: string;
+  env_vars?: Record<string, string>;
+  user?: string;
+  group?: string;
+  timeout_ms?: number;
+}
+
+interface ExecMachineV2Result {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+  exit_code: number;
+}
+
+function shellQuotePart(value: string) {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+function buildToolboxCommand(command: string, args?: string[]) {
+  const parts = [command, ...(args ?? [])].map((part) => shellQuotePart(part));
+  return parts.join(' ');
+}
+
+function isRunnerExecFallbackError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  return error.message.includes('/exec -> 404') || error.message.includes('HTTP 404') || error.message.includes('404 Not Found');
+}
+
+async function execMachineViaToolbox(machine: MachineRow, input: ExecMachineV2Input, routingIp: string, routingPort: number): Promise<ExecMachineV2Result> {
+  const reachable = await waitForTcpListener(routingIp, routingPort, 15_000, 500);
+  if (!reachable) {
+    throw new Error(`toolbox fallback port ${routingIp}:${routingPort} did not become reachable`);
+  }
+  const response = await fetch(`http://${routingIp}:${routingPort}/toolbox/process/execute`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      command: buildToolboxCommand(input.command, input.args),
+      cwd: input.cwd,
+      timeout: typeof input.timeout_ms === 'number' ? Math.max(1, Math.ceil(input.timeout_ms / 1000)) : undefined,
+      env: input.env_vars,
+      user: input.user,
+    }),
+  });
+
+  const text = await response.text();
+  const parsed = text ? JSON.parse(text) as { exit_code?: number; stdout?: string; stderr?: string } : {};
+  if (!response.ok) {
+    throw new Error(`toolbox fallback POST /toolbox/process/execute -> ${response.status}: ${text.slice(0, 300)}`);
+  }
+
+  const exitCode = typeof parsed.exit_code === 'number' ? parsed.exit_code : 1;
+  return {
+    ok: exitCode === 0,
+    stdout: typeof parsed.stdout === 'string' ? parsed.stdout : '',
+    stderr: typeof parsed.stderr === 'string' ? parsed.stderr : '',
+    exit_code: exitCode,
+  };
 }
 
 function isBenignLifecycleError(error: unknown, expected: 'stopped' | 'running') {
@@ -236,6 +285,73 @@ export async function getMachineV2(input: { accountId: string; machineId: string
   return serializeMachineV2(machine, sub ?? null);
 }
 
+class MachineExecUnavailableError extends Error {
+  statusCode = 409;
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+export async function execMachineV2(input: { accountId: string; machineId: string; exec: ExecMachineV2Input }): Promise<ExecMachineV2Result> {
+  const machine = await ensureBaremetalHostBinding(await loadOwnedMachine(input.machineId, input.accountId));
+  const execAllowed = machine.status === 'ready'
+    || (machine.status === 'provisioning' && ['server_created', 'services_ready'].includes(machine.provisioningStage ?? ''));
+  if (!execAllowed) {
+    throw new MachineExecUnavailableError('Instance must be ready before exec is available');
+  }
+  if (!machine.baremetalHostId) {
+    throw new MachineExecUnavailableError('Instance is not assigned to a bare metal host');
+  }
+
+  const [host] = await db.select().from(baremetalHosts).where(eq(baremetalHosts.id, machine.baremetalHostId));
+  if (!host?.runnerBaseUrl || !host.runnerToken) {
+    throw new MachineExecUnavailableError('Host runner is not available for this instance');
+  }
+
+  const providerServerId = inferProviderServerId(machine);
+  if (!providerServerId) {
+    throw new MachineExecUnavailableError('Instance provider ID is missing');
+  }
+
+  const runner = new HttpBaremetalRunnerClient(host.runnerBaseUrl, host.runnerToken);
+  try {
+    const result = await runner.execInstance(providerServerId, {
+      command: input.exec.command,
+      args: input.exec.args,
+      cwd: input.exec.cwd,
+      envVars: input.exec.env_vars,
+      user: input.exec.user,
+      group: input.exec.group,
+      timeoutMs: input.exec.timeout_ms,
+    });
+    return {
+      ok: result.exitCode === 0,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      exit_code: result.exitCode,
+    };
+  } catch (error) {
+    const meta = (machine.providerMeta ?? {}) as Record<string, unknown>;
+    const portAllocations = await getMachinePortAllocations(machine.id).catch(() => ({ http: null }));
+    const routingPort = machine.httpPort
+      ?? (typeof meta.http_port === 'number' ? meta.http_port : null)
+      ?? portAllocations.http?.publicPort
+      ?? null;
+    const routingIp = host.publicIpv4 ?? machine.publicIpv4 ?? null;
+    if (!routingIp || !routingPort) {
+      throw error;
+    }
+    try {
+      return await execMachineViaToolbox(machine, input.exec, routingIp, routingPort);
+    } catch (fallbackError) {
+      if (error instanceof Error && isRunnerExecFallbackError(error) && fallbackError instanceof Error) {
+        throw new Error(`${error.message}; toolbox fallback failed: ${fallbackError.message}`);
+      }
+      throw error;
+    }
+  }
+}
+
 function sanitizeJobError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -267,23 +383,6 @@ async function waitForTcpListener(host: string | null | undefined, port: number 
   }
 
   return false;
-}
-
-async function ensureMachineCreateSshKeys(machine: MachineRow, payload: MachineCreateJobPayload) {
-  if (machine.sshPublicKey && machine.sshPrivateKey) {
-    return {
-      publicKey: machine.sshPublicKey,
-      privateKey: decryptSecret(machine.sshPrivateKey),
-    };
-  }
-
-  const generated = await autoGenerateAndSaveSSHKey(payload.userId, payload.accountId, machine.slug);
-  await db.update(machines).set({
-    sshPublicKey: generated.publicKey,
-    sshPrivateKey: generated.privateKey,
-  }).where(eq(machines.id, machine.id));
-
-  return generated;
 }
 
 async function ensureMachineSubscription(machine: MachineRow, payload: MachineCreateJobPayload, specs: { vcpus: number; ramGb: number; diskGb: number; cpuType: 'dedicated' }) {
@@ -385,10 +484,6 @@ export async function handleMachineCreateJob(machineId: string, payload: Machine
   const provider = getProvider('baremetal');
   const machineToken = decryptSecret(machine.machineToken);
   const { resolvedImage } = await resolveMachineCreateImage({ machine, payload });
-  const sshKeys = await ensureMachineCreateSshKeys(machine, payload);
-  const extraSSHKeys = payload.sshKeyIds?.length
-    ? await resolveSSHKeyPublicKeys(payload.accountId, payload.sshKeyIds)
-    : [];
   const callbackConfig = payload.dockerImage
     ? { callbackExpected: false, url: null }
     : resolveMachineCallbackConfig(payload.requestUrl);
@@ -400,42 +495,35 @@ export async function handleMachineCreateJob(machineId: string, payload: Machine
     : isGoldenImage
     ? (await import("@/server/v2/services/cloud-init")).buildCloudInitV2({
         slug: machine.slug,
-        sshPublicKey: sshKeys.publicKey,
         machineToken,
         platformCallbackUrl: callbackUrl,
         proxyDomain: config.PROXY_DOMAIN,
         envVars: payload.envVars,
-        extraSSHKeys,
         cloudInitScript: payload.cloudInitScript,
       })
     : buildMachineUserData(
         machine.slug,
-        sshKeys.publicKey,
         machineToken,
         callbackUrl,
         payload.envVars,
-        extraSSHKeys,
         payload.cloudInitScript,
       );
 
   let machineForSideEffects = machine;
   let publicIpv4 = ((machine.providerMeta ?? {}) as Record<string, unknown>).public_ipv4 as string | null | undefined;
   let publicIpv6 = ((machine.providerMeta ?? {}) as Record<string, unknown>).public_ipv6 as string | null | undefined;
-  let sshPort = ((machine.providerMeta ?? {}) as Record<string, unknown>).ssh_port as number | null | undefined;
   let routingPort = ((machine.providerMeta ?? {}) as Record<string, unknown>).http_port as number | null | undefined;
 
   if (!machine.providerServerId) {
-    let providerKeyId: string | null = null;
     let createdServerId: string | null = null;
     try {
       await eventBus.emitStageChange(machine.id, payload.accountId, 'server_creating', 'Creating server...');
-      providerKeyId = await uploadSSHKeyToProvider(provider, machine.slug, sshKeys.publicKey);
       const portAllocation = await reserveMachinePortAllocations({
         machineId: machine.id,
         hostId: host.id,
         hostPublicIp: host.publicIpv4 ?? null,
+        sshEnabled: false,
       });
-      sshPort = portAllocation.sshPort;
       routingPort = portAllocation.httpPort;
       const server = await provider.createServer({
         name: `justavps-${machine.slug}`,
@@ -443,7 +531,7 @@ export async function handleMachineCreateJob(machineId: string, payload: Machine
         serverType: 'custom',
         region: machine.region,
         userData: userdata,
-        sshKeyIds: [providerKeyId],
+        sshKeyIds: [],
         enableBackups: payload.enableBackups === true,
         machineMode: payload.machineMode ?? (machine.machineMode as V2MachineMode),
         labels: { justavps: 'true', slug: machine.slug, owner: payload.userId.slice(0, 63) },
@@ -451,13 +539,12 @@ export async function handleMachineCreateJob(machineId: string, payload: Machine
         vcpu: machine.vcpu ?? 0,
         memoryGb: machine.ramGb ?? 0,
         diskGb: machine.diskGb ?? 0,
-        sshPort: sshPort ?? null,
         httpPort: routingPort ?? null,
+        sshProxyEnabled: false,
       });
       createdServerId = server.serverId;
       publicIpv4 = server.publicIpv4 ?? null;
       publicIpv6 = server.publicIpv6 ?? null;
-      sshPort = typeof server.metadata?.ssh_port === 'number' ? server.metadata.ssh_port : sshPort ?? null;
       routingPort = typeof server.metadata?.http_port === 'number' ? server.metadata.http_port : null;
 
       const nextProviderMeta = {
@@ -474,15 +561,17 @@ export async function handleMachineCreateJob(machineId: string, payload: Machine
         reservation_id: reservation.id,
         public_ipv4: publicIpv4,
         public_ipv6: publicIpv6,
-        ssh_port: sshPort ?? null,
         ...(server.metadata ?? {}),
+        access_mode: 'exec',
+        ssh_proxy_enabled: false,
+        ssh_port: null,
       };
 
       const [updatedMachine] = await db.update(machines).set({
         ip: publicIpv4 ?? publicIpv6 ?? server.publicIp,
         publicIpv4: publicIpv4 ?? null,
         publicIpv6: publicIpv6 ?? null,
-        sshPort: sshPort ?? null,
+        sshPort: null,
         httpPort: routingPort ?? null,
         providerProgress: 100,
         providerStatus: 'running',
@@ -529,9 +618,6 @@ export async function handleMachineCreateJob(machineId: string, payload: Machine
         await eventBus.emitStageChange(machine.id, payload.accountId, 'server_created', 'Server created');
       }
     } catch (error) {
-      if (providerKeyId) {
-        provider.deleteSSHKey(providerKeyId).catch(() => {});
-      }
       const message = sanitizeJobError(error);
       if (!createdServerId && jobAttempt + 1 < maxAttempts) {
         return {
@@ -543,10 +629,6 @@ export async function handleMachineCreateJob(machineId: string, payload: Machine
       }
       await markMachineCreateFailed(machine, reservation.id, message, createdServerId);
       return { status: 'dead_lettered', error: message, result: { machineId: machine.id, reservationId: reservation.id } };
-    } finally {
-      if (providerKeyId) {
-        provider.deleteSSHKey(providerKeyId).catch(() => {});
-      }
     }
   } else if (reservation.state === 'reserved') {
     await commitHostCapacityReservation({
@@ -651,8 +733,6 @@ export async function createMachineV2(input: { accountId: string; userId: string
       ip: null,
       providerServerId: null,
       machineToken,
-      sshPublicKey: null,
-      sshPrivateKey: null,
       priceMonthly: monthlyPrice,
       backupsEnabled: wantBackups,
       executor: tx,
@@ -723,7 +803,6 @@ export async function createMachineV2(input: { accountId: string; userId: string
         dockerImage,
         envVars: data.env_vars,
         cloudInitScript: data.cloud_init_script,
-        sshKeyIds: data.ssh_key_ids,
         enableBackups: wantBackups,
       },
       executor: tx,

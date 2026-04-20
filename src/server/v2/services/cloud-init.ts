@@ -5,11 +5,10 @@
  * fail2ban, UFW, systemd services, etc. pre-installed.
  *
  * This cloud-init ONLY does:
- * 1. Write SSH keys
- * 2. Write /etc/justavps/config.json (slug, token, callback URL)
- * 3. Write /etc/justavps/env (machine env vars)
- * 4. Start the daemon
- * 5. Report stage callbacks
+ * 1. Write /etc/justavps/config.json (slug, token, callback URL)
+ * 2. Write /etc/justavps/env (machine env vars)
+ * 3. Start the daemon
+ * 4. Report stage callbacks
  *
  * Target: <5 seconds of cloud-init execution time.
  */
@@ -18,12 +17,10 @@ import { config } from "@/server/core/config";
 
 interface V2CloudInitOpts {
   slug: string;
-  sshPublicKey: string;
   machineToken: string;
   platformCallbackUrl: string;
   proxyDomain: string;
   envVars?: Record<string, string>;
-  extraSSHKeys?: string[];
   cloudInitScript?: string;
 }
 
@@ -45,9 +42,6 @@ export function buildCloudInitV2(opts: V2CloudInitOpts): string {
     `-d '{"slug":"${opts.slug}","machine_token":"${opts.machineToken}","stage":"${stage}","message":"${message}"}' ` +
     `>/dev/null 2>&1 || true`;
 
-  const allKeys = [opts.sshPublicKey, ...(opts.extraSSHKeys ?? [])];
-  const keysBlock = allKeys.map((k) => `echo '${k}'`).join('\n');
-
   const brokerUfwRules = config.brokerSourceIPs()
     .map((ip) => `ufw allow from ${ip} to any port 80 proto tcp 2>/dev/null || true`)
     .join('\n');
@@ -64,13 +58,7 @@ export HOME=/root
 export DEBIAN_FRONTEND=noninteractive
 
 # ── 1. Write all files (no network needed) ────────────────────────────────
-mkdir -p /root/.ssh /home/user/.ssh /etc/justavps
-
-(${keysBlock}) > /root/.ssh/authorized_keys
-cp /root/.ssh/authorized_keys /home/user/.ssh/authorized_keys
-chmod 700 /root/.ssh /home/user/.ssh
-chmod 600 /root/.ssh/authorized_keys /home/user/.ssh/authorized_keys
-chown -R user:user /home/user/.ssh 2>/dev/null || true
+mkdir -p /etc/justavps
 
 cat > /etc/justavps/config.json << 'CONFIGEOF'
 {
@@ -132,7 +120,7 @@ cat > /opt/justavps-welcome/index.html << 'WELCOMEHTML'
 
 Then open:
 https://3000--${opts.slug}.${opts.proxyDomain}</pre>
-      <p>You can also use the built-in terminal and SSH connect flow from the dashboard.</p>
+      <p>You can also use the built-in terminal and exec flow from the dashboard or API.</p>
       <p class="muted">This page is served by the default landing app on port 3456 so the root proxy URL always has a valid upstream.</p>
     </div>
   </div>

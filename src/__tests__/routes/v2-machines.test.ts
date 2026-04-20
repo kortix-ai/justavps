@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const listMachinesMock = vi.fn();
 const getMachineMock = vi.fn();
 const createMachineMock = vi.fn();
+const execMachineMock = vi.fn();
 const startMachineMock = vi.fn();
 const stopMachineMock = vi.fn();
 const rebootMachineMock = vi.fn();
@@ -23,6 +24,7 @@ vi.mock('@/server/v2/services/machines', () => ({
   listMachinesV2: listMachinesMock,
   getMachineV2: getMachineMock,
   createMachineV2: createMachineMock,
+  execMachineV2: execMachineMock,
   startMachineV2: startMachineMock,
   stopMachineV2: stopMachineMock,
   rebootMachineV2: rebootMachineMock,
@@ -51,7 +53,7 @@ describe('v2 machines API', () => {
         plan: { id: 'starter', label: 'Starter', vcpu: 2, ram_gb: 4, disk_gb: 80, price_monthly: 12 },
         billing: { mode: 'flat_monthly', price_monthly: 12, compute_seconds: null, storage_gb: 80 },
         image: null,
-        connectivity: { public_ip: '1.2.3.4', private_ipv4: '10.0.0.2', ssh_command: 'ssh root@1.2.3.4', ssh_port: 22222, urls: null },
+        connectivity: { access: { mode: 'rest_exec', exec_endpoint: `/api/v2/machines/${machineId}/exec` }, urls: { proxy: 'https://demo.example.com', terminal: 'https://demo.example.com/_terminal', port_template: 'https://{port}--demo.example.com' } },
         capabilities: { can_start: false, can_stop: true, can_reboot: true, can_resize: true, can_snapshot: true, can_create_image: true },
         health: null,
         created_at: new Date().toISOString(),
@@ -81,7 +83,7 @@ describe('v2 machines API', () => {
       resources: { vcpu: 2, ram_gb: 4, disk_gb: 80 },
       billing: { mode: 'flat_monthly', price_monthly: 12, current_period_end: null },
       image: null,
-      connectivity: { public_ip: null, private_ipv4: null, ssh_command: null, ssh_port: null, urls: null },
+        connectivity: { access: { mode: 'rest_exec', exec_endpoint: `/api/v2/machines/${machineId}/exec` }, urls: { proxy: 'https://demo.example.com', terminal: 'https://demo.example.com/_terminal', port_template: 'https://{port}--demo.example.com' } },
       capabilities: { can_start: false, can_stop: false, can_reboot: false, can_resize: true, can_snapshot: true, can_create_image: true },
       health: null,
       created_at: new Date().toISOString(),
@@ -124,7 +126,7 @@ describe('v2 machines API', () => {
       resources: { vcpu: 2, ram_gb: 4, disk_gb: 20 },
       billing: { mode: 'flat_monthly', price_monthly: 12, current_period_end: null },
       image: null,
-      connectivity: { public_ip: null, private_ipv4: null, ssh_command: null, ssh_port: null, urls: null },
+        connectivity: { access: { mode: 'rest_exec', exec_endpoint: `/api/v2/machines/${machineId}/exec` }, urls: { proxy: 'https://demo.example.com', terminal: 'https://demo.example.com/_terminal', port_template: 'https://{port}--demo.example.com' } },
       capabilities: { can_start: false, can_stop: false, can_reboot: false, can_resize: true, can_snapshot: true, can_create_image: true },
       health: null,
       created_at: new Date().toISOString(),
@@ -177,5 +179,24 @@ describe('v2 machines API', () => {
     const deleteRes = await machinesV2App.request(new Request(`http://localhost/${machineId}`, { method: 'DELETE' }));
     expect(deleteRes.status).toBe(200);
     expect(deleteMachineMock).toHaveBeenCalledWith(expect.objectContaining({ machineId }));
+  });
+
+  it('executes commands through the v2 exec route', async () => {
+    execMachineMock.mockResolvedValueOnce({ ok: true, stdout: 'hello\n', stderr: '', exit_code: 0 });
+
+    const { machinesV2App } = await import("@/server/v2/routes/public/machines");
+    const res = await machinesV2App.request(new Request(`http://localhost/${machineId}/exec`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: 'bash', args: ['-lc', 'echo hello'] }),
+    }));
+
+    expect(res.status).toBe(200);
+    expect(execMachineMock).toHaveBeenCalledWith(expect.objectContaining({
+      accountId: '22222222-2222-2222-2222-222222222222',
+      machineId,
+      exec: { command: 'bash', args: ['-lc', 'echo hello'] },
+    }));
+    await expect(res.json()).resolves.toEqual({ ok: true, stdout: 'hello\n', stderr: '', exit_code: 0 });
   });
 });

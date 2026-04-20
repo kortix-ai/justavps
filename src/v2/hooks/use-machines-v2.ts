@@ -18,13 +18,10 @@ type V2Machine = {
   billing: { mode: string; price_monthly: number | null };
   image: { id: string } | null;
   connectivity: {
-    ssh_host: string | null;
-    ssh_port: number | null;
-    ssh_command: string | null;
-    ssh_setup_command: string | null;
-    ssh_config_block: string | null;
-    ssh_private_key: string | null;
-    ssh_public_key: string | null;
+    access: {
+      mode: 'rest_exec';
+      exec_endpoint: string;
+    };
     urls: { proxy: string; terminal: string; port_template: string };
   };
   health: Machine["health"];
@@ -68,24 +65,10 @@ function mapV2Machine(machine: V2Machine): Machine {
     ready_at: machine.ready_at,
     daemon_version: null,
     urls: c.urls,
-    ssh: c.ssh_command,
-    ssh_host: c.ssh_host,
-    ssh_port: c.ssh_port,
-    ssh_setup_command: c.ssh_setup_command,
-    ssh_config_block: c.ssh_config_block,
-    ssh_key: c.ssh_private_key
-      ? {
-          private_key: c.ssh_private_key,
-          public_key: c.ssh_public_key ?? '',
-          setup_command: c.ssh_setup_command,
-          key_path: `~/.ssh/justavps_${machine.slug}`,
-        }
-      : null,
-    connect: {
-      ssh_command: c.ssh_command,
-      setup_command: c.ssh_setup_command,
-      vscode_url: c.urls.proxy,
-      cursor_ssh: c.ssh_command,
+    access: {
+      mode: c.access.mode,
+      exec_endpoint: c.access.exec_endpoint,
+      terminal_url: c.urls.terminal,
     },
     source: 'user',
     kortix_sandbox_id: null,
@@ -135,7 +118,6 @@ interface CreateMachineInput {
   plan?: string;
   region: string;
   name?: string;
-  ssh_key_ids?: string[];
   billing_interval?: "monthly" | "yearly" | "2year";
   enable_backups?: boolean;
   /** V2 custom resource sizing */
@@ -167,7 +149,6 @@ export function useCreateMachine() {
             name: input.name,
             image_id: input.image_id,
             docker_image: input.docker_image,
-            ssh_key_ids: input.ssh_key_ids,
             billing_interval: input.billing_interval,
             billing_mode: 'flat_monthly',
             enable_backups: input.enable_backups,
@@ -243,6 +224,23 @@ export function useStartMachine() {
       qc.invalidateQueries({ queryKey: machineKeys.detail(id) });
       qc.invalidateQueries({ queryKey: machineKeys.all });
     },
+  });
+}
+
+interface ExecMachineInput {
+  id: string;
+  command: string;
+  args?: string[];
+  cwd?: string;
+  env_vars?: Record<string, string>;
+  user?: string;
+  group?: string;
+  timeout_ms?: number;
+}
+
+export function useExecMachine() {
+  return useMutation({
+    mutationFn: ({ id, ...body }: ExecMachineInput) => apiV2.post(`/machines/${id}/exec`, body),
   });
 }
 

@@ -5,6 +5,30 @@ export interface JustAVPSV2Config {
   fetch?: typeof fetch;
 }
 
+export interface JustAVPSV2ExecInput {
+  command: string;
+  args?: string[];
+  cwd?: string;
+  env_vars?: Record<string, string>;
+  user?: string;
+  group?: string;
+  timeout_ms?: number;
+}
+
+export interface JustAVPSV2ExecResult {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+  exit_code: number;
+}
+
+export function normalizeV2BaseUrl(input?: string) {
+  const raw = (input || 'https://justavps.com').replace(/\/$/, '');
+  if (/\/api\/v2$/i.test(raw)) return raw;
+  if (/\/api$/i.test(raw)) return `${raw}/v2`;
+  return `${raw}/api/v2`;
+}
+
 export class JustAVPSV2Error extends Error {
   constructor(message: string, public status?: number, public body?: unknown) {
     super(message);
@@ -20,7 +44,7 @@ class HttpClientV2 {
 
   constructor(config: JustAVPSV2Config) {
     this.apiKey = config.apiKey;
-    this.baseUrl = (config.baseUrl || 'https://justavps.com/api/v2').replace(/\/$/, '');
+    this.baseUrl = normalizeV2BaseUrl(config.baseUrl);
     this.fetchFn = config.fetch || globalThis.fetch;
     this.timeout = config.timeout || 30_000;
   }
@@ -69,6 +93,7 @@ export class JustAVPSV2 {
     list: () => this._http.get<{ machines: unknown[] }>(`/machines`),
     get: (id: string) => this._http.get<unknown>(`/machines/${id}`),
     create: (input: unknown) => this._http.post<unknown>(`/machines`, input),
+    exec: (id: string, input: JustAVPSV2ExecInput) => this._http.post<JustAVPSV2ExecResult>(`/machines/${id}/exec`, input),
     start: (id: string) => this._http.post<{ ok: boolean }>(`/machines/${id}/start`),
     stop: (id: string) => this._http.post<{ ok: boolean }>(`/machines/${id}/stop`),
     reboot: (id: string) => this._http.post<{ ok: boolean }>(`/machines/${id}/reboot`),

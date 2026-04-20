@@ -35,4 +35,22 @@ describe('runnerd proxy device setup helpers', () => {
 
     expect(runIncus).toHaveBeenCalledWith(['config', 'device', 'add', 'container-1', 'http', 'proxy', 'nat=true', 'listen=tcp:1.2.3.4:8002', 'connect=tcp:10.0.0.9:80'], 10000);
   });
+
+  it('skips SSH proxy device wiring when ssh access is disabled', async () => {
+    const runIncus = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
+    const { setupContainerProxyDevices } = await import('../../../apps/runnerd/src/network/proxy-devices');
+
+    await setupContainerProxyDevices({
+      instanceName: 'container-2',
+      containerIp: '10.0.0.10',
+      sshPort: null,
+      httpPort: 8003,
+      publicIpv4: '1.2.3.4',
+      runIncus,
+      incusTarget: (name) => name ?? '',
+    });
+
+    expect(runIncus).not.toHaveBeenCalledWith(expect.arrayContaining(['ssh', 'proxy']), 10000);
+    expect(runIncus).toHaveBeenCalledWith(['config', 'device', 'add', 'container-2', 'http', 'proxy', 'nat=true', 'listen=tcp:1.2.3.4:8003', 'connect=tcp:10.0.0.10:80'], 10000);
+  });
 });

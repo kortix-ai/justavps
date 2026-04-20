@@ -12,8 +12,9 @@ ADMIN_API_KEY="$3"
 API_BASE_URL="${4:-http://localhost:4100/api/v2/admin/fleet}"
 BOOTSTRAP_KEY_PATH="${BOOTSTRAP_KEY_PATH:-/tmp/justavps-bm-bootstrap}"
 RUNNER_PORT="${RUNNER_PORT:-7779}"
-STORAGE_DRIVER="${STORAGE_DRIVER:-dir}"
+STORAGE_DRIVER="${STORAGE_DRIVER:-zfs}"
 INCUS_CHANNEL="${INCUS_CHANNEL:-stable}"
+INCUS_PROJECT="${INCUS_PROJECT:-justavps-platform}"
 SSH_OPTS=(-i "$BOOTSTRAP_KEY_PATH" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
 
 if [[ ! -f "$BOOTSTRAP_KEY_PATH" ]]; then
@@ -22,8 +23,18 @@ if [[ ! -f "$BOOTSTRAP_KEY_PATH" ]]; then
 fi
 
 ROOT_DIR="$(pwd)"
-RUNNER_SRC_DIR="$ROOT_DIR/runnerd"
-HOST_BOOTSTRAP_DIR="$ROOT_DIR/scripts/host-bootstrap"
+RUNNER_SRC_DIR="$ROOT_DIR/apps/runnerd"
+HOST_BOOTSTRAP_DIR="$ROOT_DIR/scripts/deploy/host-bootstrap"
+
+if [[ ! -d "$RUNNER_SRC_DIR" ]]; then
+  printf 'runnerd source directory not found at %s\n' "$RUNNER_SRC_DIR" >&2
+  exit 1
+fi
+
+if [[ ! -d "$HOST_BOOTSTRAP_DIR" ]]; then
+  printf 'host bootstrap directory not found at %s\n' "$HOST_BOOTSTRAP_DIR" >&2
+  exit 1
+fi
 
 bootstrap_json="$(curl -sf -H "Authorization: Bearer ${ADMIN_API_KEY}" "${API_BASE_URL}/hosts/${HOST_ID}/bootstrap-config")"
 runner_token="$(python3 - <<'PY' "$bootstrap_json"
@@ -35,7 +46,7 @@ PY
 scp "${SSH_OPTS[@]}" -r "$RUNNER_SRC_DIR" "root@${HOST_IP}:/opt/justavps-runnerd"
 scp "${SSH_OPTS[@]}" -r "$HOST_BOOTSTRAP_DIR" "root@${HOST_IP}:/opt/justavps-host-bootstrap"
 
-remote_bootstrap_script="$(INCUS_CHANNEL="$INCUS_CHANNEL" STORAGE_DRIVER="$STORAGE_DRIVER" RUNNER_PORT="$RUNNER_PORT" bash "$HOST_BOOTSTRAP_DIR/render-bootstrap-remote.sh")"
+remote_bootstrap_script="$(INCUS_CHANNEL="$INCUS_CHANNEL" STORAGE_DRIVER="$STORAGE_DRIVER" RUNNER_PORT="$RUNNER_PORT" INCUS_PROJECT="$INCUS_PROJECT" bash "$HOST_BOOTSTRAP_DIR/render-bootstrap-remote.sh")"
 ssh "${SSH_OPTS[@]}" "root@${HOST_IP}" "$remote_bootstrap_script"
 
 ssh "${SSH_OPTS[@]}" "root@${HOST_IP}" "cat >/etc/justavps-runnerd.env" <<EOF
@@ -43,6 +54,7 @@ RUNNERD_TOKEN=${runner_token}
 RUNNERD_PORT=${RUNNER_PORT}
 RUNNERD_PUBLIC_IPV4=${HOST_IP}
 INCUS_CHANNEL=${INCUS_CHANNEL}
+INCUS_PROJECT=${INCUS_PROJECT}
 EOF
 
 ssh "${SSH_OPTS[@]}" "root@${HOST_IP}" "systemctl daemon-reload && systemctl enable --now justavps-runnerd && systemctl restart justavps-runnerd"
@@ -54,35 +66,6 @@ doctor_json="$(ssh "${SSH_OPTS[@]}" "root@${HOST_IP}" "cat /var/log/justavps-hos
 printf 'bootstrap doctor: %s\n' "$doctor_json"
 
 validation_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-version_json="$(ssh "${SSH_OPTS[@]}" "root@${HOST_IP}" "python3 - <<'PY'
-import json, subprocess
-
-def run(cmd):
-    try:
-        return subprocess.check_output(cmd, text=True).strip()
-    except Exception:
-        return None
-
-incus_version = run(['incus', 'version'])
-node_version = run(['node', '--version'])
-runnerd_version = None
-try:
-    import json as _json
-    with open('/opt/justavps-runnerd/package.json') as fh:
-        pkg = _json.load(fh)
-    runnerd_version = pkg.get('version')
-except Exception:
-    runnerd_version = None
-
-print(json.dumps({
-  'incus_version': incus_version,
-  'node_version': node_version,
-  'runnerd_version': runnerd_version,
-  'storage_driver': '${STORAGE_DRIVER}',
-  'storage_pool': 'default',
-}))
-PY")"
 
 capacity_json="$(ssh "${SSH_OPTS[@]}" "root@${HOST_IP}" "python3 - <<'PY'
 import json, os, shutil
@@ -101,10 +84,11 @@ print(json.dumps({
 }))
 PY")"
 
-register_payload="$(python3 - <<'PY' "$HOST_IP" "$RUNNER_PORT" "$capacity_json"
+register_payload="$(python3 - <<'PY' "$HOST_IP" "$RUNNER_PORT" "$capacity_json" "$doctor_json"
 import json, sys
-host_ip, runner_port, capacity_json = sys.argv[1], sys.argv[2], sys.argv[3]
+host_ip, runner_port, capacity_json, doctor_json = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 capacity = json.loads(capacity_json)
+doctor = json.loads(doctor_json)
 print(json.dumps({
   'runner_base_url': f'http://{host_ip}:{runner_port}',
   'public_ipv4': host_ip,
@@ -114,7 +98,9 @@ print(json.dumps({
   'status': 'bootstrapping',
   'metadata': {
     'bootstrap': {
-      'storage_driver': 'dir',
+      'storage_driver': doctor.get('storage_driver'),
+      'storage_pool': doctor.get('storage_pool'),
+      'incus_project': doctor.get('incus_project'),
       'runner_port': int(runner_port),
     }
   }
@@ -128,31 +114,52 @@ curl -sf -X POST "${API_BASE_URL}/hosts/${HOST_ID}/register" \
   -d "$register_payload"
 
 validation_completed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-validation_payload="$(python3 - <<'PY' "$version_json" "$validation_started_at" "$validation_completed_at"
+validation_payload="$(python3 - <<'PY' "$doctor_json" "$validation_started_at" "$validation_completed_at"
 import json, sys
 
-versions = json.loads(sys.argv[1])
+doctor = json.loads(sys.argv[1])
 started_at = sys.argv[2]
 completed_at = sys.argv[3]
 
+warnings = []
+if doctor.get('storage_driver') == 'dir':
+    warnings.append('storage driver dir is a fallback baseline; production hosts should prefer zfs')
+if doctor.get('missing_projects'):
+    warnings.append('missing baseline projects: ' + ', '.join(doctor['missing_projects']))
+if doctor.get('missing_profiles'):
+    warnings.append('missing baseline profiles: ' + ', '.join(doctor['missing_profiles']))
+
+status = 'passed' if not warnings else 'warning'
+drift_status = 'in_policy' if not warnings else 'warning_drift'
+
+notes = [
+    f"runnerd health: {doctor.get('node_version') or 'node-unknown'}",
+    'doctor report written to /var/log/justavps-host-bootstrap-doctor.json',
+    'runner registration and capacity probe succeeded',
+    f"baseline projects present: {', '.join(doctor.get('baseline_projects') or []) or 'none'}",
+    f"baseline profiles present: {', '.join(doctor.get('baseline_profiles') or []) or 'none'}",
+]
+
+if doctor.get('secure_boot_enabled') is not None:
+    notes.append(f"secure boot enabled: {doctor.get('secure_boot_enabled')}")
+if doctor.get('tpm_status'):
+    notes.append(f"tpm status: {doctor.get('tpm_status')}")
+notes.extend(warnings)
+
 print(json.dumps({
-  'status': 'passed',
+  'status': status,
   'bootstrap_version': 'bootstrap-baremetal-host.sh@v1',
-  'runnerd_version': versions.get('runnerd_version'),
-  'incus_version': versions.get('incus_version'),
-  'storage_driver': versions.get('storage_driver'),
-  'storage_pool': versions.get('storage_pool'),
+  'runnerd_version': doctor.get('runnerd_version'),
+  'incus_version': doctor.get('incus_version'),
+  'storage_driver': doctor.get('storage_driver'),
+  'storage_pool': doctor.get('storage_pool'),
   'started_at': started_at,
   'completed_at': completed_at,
   'smoke_test_result': 'passed',
   'warm_pool_result': 'passed',
-  'drift_status': 'in_policy',
+  'drift_status': drift_status,
   'triggered_by': 'bootstrap-script',
-  'notes': [
-    f"runnerd health: {versions.get('node_version') or 'node-unknown'}",
-    'doctor report written to /var/log/justavps-host-bootstrap-doctor.json',
-    'runner registration and capacity probe succeeded'
-  ]
+  'notes': notes
 }))
 PY
 )"

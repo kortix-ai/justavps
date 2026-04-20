@@ -6,6 +6,7 @@ import {
   cancelMachineV2,
   createMachineV2,
   deleteMachineV2,
+  execMachineV2,
   getMachineV2,
   listMachinesV2,
   reactivateMachineV2,
@@ -44,13 +45,10 @@ const MachineV2Schema = z.object({
   }),
   image: z.any().nullable(),
   connectivity: z.object({
-    ssh_host: z.string().nullable(),
-    ssh_port: z.number().nullable(),
-    ssh_command: z.string().nullable(),
-    ssh_setup_command: z.string().nullable(),
-    ssh_config_block: z.string().nullable(),
-    ssh_private_key: z.string().nullable(),
-    ssh_public_key: z.string().nullable(),
+    access: z.object({
+      mode: z.literal('rest_exec'),
+      exec_endpoint: z.string(),
+    }),
     urls: z.object({
       proxy: z.string(),
       terminal: z.string(),
@@ -87,8 +85,24 @@ const MachineCreateV2Schema = z.object({
   docker_image: z.string().min(1).optional().nullable(),
   env_vars: z.record(z.string(), z.string()).optional(),
   cloud_init_script: z.string().optional(),
-  ssh_key_ids: z.array(z.string().uuid()).optional(),
   enable_backups: z.boolean().optional().default(false),
+});
+
+const MachineExecV2Schema = z.object({
+  command: z.string().min(1),
+  args: z.array(z.string()).optional(),
+  cwd: z.string().optional(),
+  env_vars: z.record(z.string(), z.string()).optional(),
+  user: z.string().optional(),
+  group: z.string().optional(),
+  timeout_ms: z.number().int().min(1000).max(300000).optional(),
+});
+
+const MachineExecResultSchema = z.object({
+  ok: z.boolean(),
+  stdout: z.string(),
+  stderr: z.string(),
+  exit_code: z.number().int(),
 });
 
 machinesV2App.openapi(createRoute({
@@ -104,6 +118,32 @@ machinesV2App.openapi(createRoute({
   try {
     const machines = await listMachinesV2({ accountId: c.get('accountId') });
     return c.json({ machines });
+  } catch (err) {
+    return handleRouteError(c, err, 'MACHINES-V2') as Response;
+  }
+}) as any);
+
+machinesV2App.openapi(createRoute({
+  method: 'post',
+  path: '/{id}/exec',
+  tags: ['Machines'],
+  security: bearerSecurity,
+  summary: 'Execute a command in an instance',
+  request: {
+    params: z.object({ id: z.string().uuid() }),
+    body: { required: true, content: { 'application/json': { schema: MachineExecV2Schema } } },
+  },
+  responses: {
+    200: { description: 'Command execution result', content: { 'application/json': { schema: MachineExecResultSchema } } },
+    409: { description: 'Instance not ready for exec' },
+  },
+}), (async (c: any) => {
+  try {
+    return c.json(await execMachineV2({
+      accountId: c.get('accountId'),
+      machineId: c.req.valid('param').id,
+      exec: c.req.valid('json'),
+    }));
   } catch (err) {
     return handleRouteError(c, err, 'MACHINES-V2') as Response;
   }

@@ -1,10 +1,9 @@
-import { eq, inArray, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import net from 'node:net';
 import { nanoid } from 'nanoid';
 import { db } from "@/server/db/index";
-import { machines, sshKeys } from "@/server/db/schema";
-import { generateMachineToken, fingerprintSSHKey, encryptSecret } from "@/server/core/crypto";
-import { generateSSHKeyPair } from "@/server/core/ssh-keygen";
+import { machines } from "@/server/db/schema";
+import { generateMachineToken, encryptSecret } from "@/server/core/crypto";
 import { buildCloudInitV2 } from "@/server/v2/services/cloud-init";
 import { config } from "@/server/core/config";
 import { getProvider, type ComputeProvider } from "@/server/platform/providers/index";
@@ -112,86 +111,19 @@ function readProviderMeta(machine: typeof machines.$inferSelect): ProvisionProvi
   return (machine.providerMeta ?? {}) as ProvisionProviderMeta;
 }
 
-export async function uploadSSHKeyToProvider(
-  provider: ComputeProvider,
-  slug: string,
-  publicKey: string,
-): Promise<string> {
-  const maxRetries = 3;
-  let lastError: Error | undefined;
-  let didGC = false;
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const result = await provider.uploadSSHKey(`justavps-${slug}`, publicKey);
-      return result.keyId;
-    } catch (err: unknown) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-
-      // If the key already exists (409/conflict or "already added"), try with a unique suffix
-      if (err instanceof Error && (err.message.includes('already') || err.message.includes('409') || err.message.includes('uniqueness_error'))) {
-        try {
-          const result = await provider.uploadSSHKey(`justavps-${slug}-${Date.now()}`, publicKey);
-          return result.keyId;
-        } catch (retryErr: unknown) {
-          lastError = retryErr instanceof Error ? retryErr : new Error(String(retryErr));
-        }
-      }
-
-      // If we hit the SSH key limit, auto-GC orphaned keys and retry
-      if (!didGC && err instanceof Error && (err.message.includes('resource_limit_exceeded') || err.message.includes('ssh_key_limit') || err.message.includes('ssh_key limit'))) {
-        didGC = true;
-        console.warn(`[MACHINES] SSH key limit reached — running GC to prune orphaned keys...`);
-        try {
-          const { HetznerProvider } = await import("@/server/platform/providers/hetzner");
-          if (provider instanceof HetznerProvider) {
-            const gc = await provider.gcSSHKeys();
-            console.log(`[MACHINES] SSH key GC complete: ${gc.deleted} deleted, ${gc.total} total`);
-            if (gc.deleted > 0) {
-              // Retry immediately after GC
-              try {
-                const result = await provider.uploadSSHKey(`justavps-${slug}`, publicKey);
-                return result.keyId;
-              } catch (retryErr: unknown) {
-                lastError = retryErr instanceof Error ? retryErr : new Error(String(retryErr));
-              }
-            }
-          }
-        } catch (gcErr) {
-          console.error(`[MACHINES] SSH key GC failed:`, gcErr);
-        }
-      }
-
-      if (attempt < maxRetries) {
-        console.warn(`[MACHINES] SSH key upload attempt ${attempt}/${maxRetries} failed, retrying...`);
-        await new Promise(r => setTimeout(r, 1000 * attempt));
-      }
-    }
-  }
-
-  throw new Error(
-    `SSH key upload to ${provider.name} failed after ${maxRetries} attempts: ${lastError?.message?.slice(0, 200)}. ` +
-    `Server creation aborted — without a provider-level SSH key, the machine would require a password change on first login.`
-  );
-}
-
 export function buildMachineUserData(
   slug: string,
-  sshPublicKey: string,
   machineToken: string,
   platformCallbackUrl: string,
   envVars?: Record<string, string>,
-  extraSSHKeys?: string[],
   cloudInitScript?: string,
 ) {
   return buildCloudInitV2({
     slug,
-    sshPublicKey,
     machineToken,
     platformCallbackUrl,
     proxyDomain: config.PROXY_DOMAIN,
     envVars,
-    extraSSHKeys,
     cloudInitScript,
   });
 }
@@ -199,9 +131,8 @@ export function buildMachineUserData(
 /**
  * Register machine in Cloudflare:
  * - Writes machine:{slug} to KV for Worker auth/routing (HTTP proxy)
- * - Creates unproxied A record at `origin-{slug}.<PROXY_DOMAIN>` so SSH can
- *   reach the baremetal host via a pretty hostname instead of the raw IP.
- *   The host's Incus proxy device NATs the per-machine SSH port to the VM.
+ * - Creates unproxied A record at `origin-{slug}.<PROXY_DOMAIN>` so the access
+ *   plane can reach the host via a stable hostname instead of raw IP.
  */
 export async function setupProxyDNS(
   machineId: string,
@@ -229,50 +160,6 @@ export async function setupProxyDNS(
   });
 }
 
-/**
- * Resolve SSH key IDs to their public keys.
- * Only returns keys belonging to the specified owner.
- */
-export async function resolveSSHKeyPublicKeys(
-  accountId: string,
-  sshKeyIds: string[],
-): Promise<string[]> {
-  if (!sshKeyIds.length) return [];
-  const keys = await db.select({ publicKey: sshKeys.publicKey })
-    .from(sshKeys)
-    .where(and(eq(sshKeys.accountId, accountId), inArray(sshKeys.id, sshKeyIds)));
-  return keys.map(k => k.publicKey);
-}
-
-/**
- * Auto-generate an SSH key and save it to the user's ssh_keys table.
- * The key is named "auto-{slug}" so users can identify which machine it was created for.
- *
- * NOTE: Does NOT upload to providers here — the caller must use
- * `uploadSSHKeyToProvider()` which has retries and hard-fails on error.
- * This avoids double-uploading and ensures the key ID used in createServer
- * is always valid.
- */
-export async function autoGenerateAndSaveSSHKey(
-  ownerId: string,
-  accountId: string,
-  slug: string,
-): Promise<{ publicKey: string; privateKey: string; keyId: string }> {
-  const keyPair = generateSSHKeyPair(`${slug}@justavps`);
-  const fingerprint = fingerprintSSHKey(keyPair.publicKey);
-
-  const [saved] = await db.insert(sshKeys).values({
-    ownerId,
-    accountId,
-    name: `auto-${slug}`,
-    publicKey: keyPair.publicKey,
-    fingerprint,
-    providerKeyId: null,
-  }).returning();
-
-  return { publicKey: keyPair.publicKey, privateKey: keyPair.privateKey, keyId: saved.id };
-}
-
 interface CreateMachineInput {
   ownerId: string;
   accountId: string;
@@ -294,8 +181,6 @@ interface CreateMachineInput {
   readyVia?: 'heartbeat' | 'probe' | null;
   providerServerId: string | null;
   machineToken: string;
-  sshPublicKey: string | null;
-  sshPrivateKey: string | null;
   priceMonthly: number | null;
   backupsEnabled?: boolean;
   executor?: Pick<typeof db, 'insert'>;
@@ -312,11 +197,11 @@ export async function createMachineRecord(input: CreateMachineInput) {
     machineMode: input.machineMode ?? 'vm',
     requestedImageKind: input.requestedImageKind ?? 'golden',
     requestedImageRef: input.requestedImageRef ?? null,
-    sshPublicKey: input.sshPublicKey ?? '',
+    sshPublicKey: '',
     backupsEnabled: input.backupsEnabled ?? true,
     // Encrypt secrets at rest — decrypted on read via decryptSecret()
     machineToken: encryptSecret(input.machineToken),
-    sshPrivateKey: input.sshPrivateKey ? encryptSecret(input.sshPrivateKey) : '',
+    sshPrivateKey: '',
     codeServerPassword: '',
   }).returning();
   return machine;

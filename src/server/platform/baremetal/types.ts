@@ -198,6 +198,7 @@ export interface RunnerCreateInstanceInput {
   diskGb: number;
   sshPort?: number | null;
   httpPort?: number | null;
+  sshProxyEnabled?: boolean;
   machineMode?: 'vm' | 'container';
   labels?: Record<string, string>;
 }
@@ -210,6 +211,22 @@ export interface RunnerCreateInstanceResult {
   sshPort: number | null;
   httpPort?: number | null;
   metadata?: Record<string, unknown>;
+}
+
+export interface RunnerExecInstanceInput {
+  command: string;
+  args?: string[];
+  cwd?: string;
+  envVars?: Record<string, string>;
+  user?: string;
+  group?: string;
+  timeoutMs?: number;
+}
+
+export interface RunnerExecInstanceResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
 }
 
 export interface RunnerInstanceState {
@@ -243,6 +260,7 @@ export interface RunnerHostState {
 
 export interface BaremetalRunnerClient {
   createInstance(input: RunnerCreateInstanceInput): Promise<RunnerCreateInstanceResult>;
+  execInstance(instanceId: string, input: RunnerExecInstanceInput): Promise<RunnerExecInstanceResult>;
   deleteInstance(instanceId: string): Promise<void>;
   startInstance(instanceId: string): Promise<void>;
   stopInstance(instanceId: string): Promise<void>;

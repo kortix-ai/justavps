@@ -2,8 +2,6 @@ import { eq } from 'drizzle-orm';
 
 import { db } from '@/server/db';
 import { images } from '@/server/db/schema';
-import { getMachinePortAllocations } from "@/server/platform/baremetal/port-allocations";
-import { decryptSecret } from "@/server/core/crypto";
 import { serializeImageRow } from "@/server/core/image-catalog";
 import { getProvider } from "@/server/platform/providers/index";
 import { config } from "@/server/core/config";
@@ -26,13 +24,10 @@ interface SerializedMachineView {
   billing: { mode: 'flat_monthly'; price_monthly: number | null; current_period_end: string | null };
   image: ReturnType<typeof serializeImageRow> | null;
   connectivity: {
-    ssh_host: string | null;
-    ssh_port: number | null;
-    ssh_command: string | null;
-    ssh_setup_command: string | null;
-    ssh_config_block: string | null;
-    ssh_private_key: string | null;
-    ssh_public_key: string | null;
+    access: {
+      mode: 'rest_exec';
+      exec_endpoint: string;
+    };
     urls: { proxy: string; terminal: string; port_template: string };
   };
   capabilities: {
@@ -69,41 +64,6 @@ async function resolveImageSummary(imageId: string | null): Promise<ReturnType<t
   return img ? serializeImageRow(img) : null;
 }
 
-async function readSshAccess(machine: {
-  id: string;
-  slug: string;
-  publicIpv4?: string | null;
-  sshPort?: number | null;
-  providerMeta?: Record<string, unknown> | null;
-}) {
-  const meta = providerMeta(machine);
-  const portAllocations = await getMachinePortAllocations(machine.id).catch(() => ({ ssh: null, http: null, rows: [] }));
-  const sshPort = machine.sshPort ?? portAllocations.ssh?.publicPort ?? (typeof meta.ssh_port === 'number'
-    ? meta.ssh_port
-    : typeof meta.ssh_port === 'string' && meta.ssh_port.trim()
-      ? Number(meta.ssh_port)
-      : null);
-  const hostIp = machine.publicIpv4 ?? (typeof meta.public_ipv4 === 'string' ? meta.public_ipv4 : null);
-  const originHost = `origin-${machine.slug}.${config.PROXY_DOMAIN}`;
-  return {
-    sshHost: hostIp,
-    sshOriginHost: hostIp ? originHost : null,
-    sshHostFallbackIp: hostIp,
-    privateIpv4: typeof meta.private_ipv4 === 'string' ? meta.private_ipv4 : null,
-    sshPort,
-  };
-}
-
-function decryptSshPrivateKey(machine: { sshPrivateKey?: string | null }): string | null {
-  if (!machine.sshPrivateKey) return null;
-  if (machine.sshPrivateKey.startsWith('-----BEGIN')) return machine.sshPrivateKey;
-  try {
-    return decryptSecret(machine.sshPrivateKey);
-  } catch {
-    return null;
-  }
-}
-
 export async function serializeMachineV2(
   machine: {
     id: string;
@@ -131,8 +91,6 @@ export async function serializeMachineV2(
     ramGb?: number | null;
     diskGb?: number | null;
     providerMeta?: Record<string, unknown> | null;
-    sshPrivateKey?: string | null;
-    sshPublicKey?: string | null;
     priceMonthly?: number | null;
     lastHeartbeat?: Record<string, unknown> | null;
     lastHeartbeatAt?: Date | null;
@@ -141,7 +99,6 @@ export async function serializeMachineV2(
   },
   sub?: { currentPeriodEnd?: Date | null } | null,
 ): Promise<SerializedMachineView> {
-  const ssh = await readSshAccess(machine);
   const proxyDomain = config.PROXY_DOMAIN;
   const image = await resolveImageSummary(machine.imageId);
   const provider = getProvider(machine.provider);
@@ -153,23 +110,6 @@ export async function serializeMachineV2(
   const providerStatus = machine.providerStatus ?? (typeof meta.create_status === 'string' ? meta.create_status : null);
   const callbackExpected = machine.callbackExpected ?? (typeof meta.callback_expected === 'boolean' ? meta.callback_expected : null);
   const callbackUrl = machine.callbackUrl ?? (typeof meta.callback_url === 'string' ? meta.callback_url : null);
-  const sshPort = ssh.sshPort;
-  const sshHost = ssh.sshHost;
-  const sshKeyPath = `~/.ssh/justavps_${machine.slug}`;
-  const sshPrivateKey = decryptSshPrivateKey(machine);
-
-  const sshCommand = sshHost && sshPort
-    ? `ssh -i ${sshKeyPath} -p ${sshPort} -o StrictHostKeyChecking=no root@${sshHost}`
-    : null;
-
-  const sshSetupCommand = sshPrivateKey && sshHost && sshPort
-    ? `mkdir -p ~/.ssh && cat > ${sshKeyPath} << 'JUSTAVPSKEY'\n${sshPrivateKey.trim()}\nJUSTAVPSKEY\nchmod 600 ${sshKeyPath} && ssh -i ${sshKeyPath} -p ${sshPort} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${sshHost}`
-    : null;
-
-  const sshConfigBlock = sshHost && sshPort
-    ? `Host ${machine.slug}\n  HostName ${sshHost}\n  Port ${sshPort}\n  User root\n  IdentityFile ${sshKeyPath}\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null`
-    : null;
-
   const vcpu = machine.vcpu ?? (typeof meta.vcpu === 'number' ? meta.vcpu : 2);
   const ramGb = machine.ramGb ?? (typeof meta.ram_gb === 'number' ? meta.ram_gb : 4);
   const diskGb = machine.diskGb ?? (typeof meta.disk_gb === 'number' ? meta.disk_gb : 80);
@@ -196,13 +136,10 @@ export async function serializeMachineV2(
     },
     image,
     connectivity: {
-      ssh_host: sshHost,
-      ssh_port: sshPort,
-      ssh_command: sshCommand,
-      ssh_setup_command: sshSetupCommand,
-      ssh_config_block: sshConfigBlock,
-      ssh_private_key: sshPrivateKey,
-      ssh_public_key: machine.sshPublicKey || null,
+      access: {
+        mode: 'rest_exec',
+        exec_endpoint: `/api/v2/machines/${machine.id}/exec`,
+      },
       urls: {
         proxy: `https://${machine.slug}.${proxyDomain}`,
         terminal: `https://${machine.slug}.${proxyDomain}/_terminal`,

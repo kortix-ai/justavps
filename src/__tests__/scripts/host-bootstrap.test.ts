@@ -21,10 +21,12 @@ describe('host bootstrap phase renderer', () => {
     expect(output).toContain('00-prereqs.sh');
     expect(output).toContain('10-install-incus.sh');
     expect(output).toContain('20-configure-incus.sh');
+    expect(output).toContain('25-seed-incus-baseline.sh');
     expect(output).toContain('30-install-runnerd.sh');
     expect(output).toContain('40-install-backups.sh');
     expect(output).toContain('50-configure-oci-remotes.sh');
     expect(output).toContain('/opt/justavps-host-bootstrap/doctor.sh');
     expect(output).toContain('INCUS_CHANNEL=stable');
+    expect(output).toContain('INCUS_PROJECT=justavps-platform');
   });
 });

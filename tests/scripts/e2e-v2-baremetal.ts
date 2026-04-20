@@ -30,7 +30,10 @@ type MachineView = {
   provisioning_stage: string | null;
   ready_at: string | null;
   health: { last_heartbeat_at: string | null } | null;
-  connectivity: { public_ip: string | null; private_ipv4: string | null; ssh_port: number | null };
+  connectivity: {
+    access: { mode: 'rest_exec'; exec_endpoint: string };
+    urls: { proxy: string; terminal: string; port_template: string };
+  };
 };
 
 type SnapshotView = { id: string; name: string; status: string; created_at: string };
@@ -280,7 +283,7 @@ async function main() {
     15 * 60_000,
     10_000,
   );
-  console.log(`[machine] ready public_ip=${ready.connectivity.public_ip} private_ipv4=${ready.connectivity.private_ipv4}`);
+  console.log(`[machine] ready exec=${ready.connectivity.access.exec_endpoint} proxy=${ready.connectivity.urls.proxy}`);
   console.log(`[machine] heartbeat=${ready.health?.last_heartbeat_at}`);
 
   await http(`/machines/${state.machineId}/stop`, { method: 'POST' });

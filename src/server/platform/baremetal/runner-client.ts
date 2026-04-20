@@ -1,7 +1,7 @@
 import http from 'node:http';
 import https from 'node:https';
 
-import type { BaremetalRunnerClient, RunnerCreateInstanceInput, RunnerCreateInstanceResult, RunnerHostState } from "@/server/platform/baremetal/types";
+import type { BaremetalRunnerClient, RunnerCreateInstanceInput, RunnerCreateInstanceResult, RunnerExecInstanceInput, RunnerExecInstanceResult, RunnerHostState } from "@/server/platform/baremetal/types";
 
 const RUNNER_REQUEST_TIMEOUT_MS = 15 * 60_000;
 
@@ -65,6 +65,13 @@ export class HttpBaremetalRunnerClient implements BaremetalRunnerClient {
 
   createInstance(input: RunnerCreateInstanceInput): Promise<RunnerCreateInstanceResult> {
     return this.request('/v1/instances', { method: 'POST', body: JSON.stringify(input) });
+  }
+
+  execInstance(instanceId: string, input: RunnerExecInstanceInput): Promise<RunnerExecInstanceResult> {
+    return this.request(`/v1/instances/${encodeURIComponent(instanceId)}/exec`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
   }
 
   deleteInstance(instanceId: string): Promise<void> {

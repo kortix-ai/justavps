@@ -96,6 +96,37 @@ describe('baremetal port allocations', () => {
     expect(allocated.httpPort).toBe(42001);
   });
 
+  it('can allocate HTTP-only ports when ssh access is disabled for v2', async () => {
+    const rows: Array<{ machineId: string; hostId: string; protocol: 'ssh' | 'http'; publicPort: number; targetPort: number }> = [];
+    let selectCount = 0;
+
+    const executor = {
+      select: () => ({
+        from: () => ({
+          where: async () => {
+            selectCount += 1;
+            if (selectCount <= 3) return [];
+            return rows;
+          },
+        }),
+      }),
+      insert: () => ({
+        values: async (values: typeof rows) => {
+          rows.push(...values);
+        },
+      }),
+      delete: () => ({ where: async () => {} }),
+      execute: async () => {},
+    } as unknown as PortAllocationTestExecutor;
+
+    const allocated = await reserveMachinePortAllocations({ machineId: 'machine-http-only', hostId: 'host-1', sshEnabled: false, executor });
+    expect(allocated.sshPort).toBeNull();
+    expect(allocated.httpPort).toBe(42000);
+    expect(rows).toEqual([
+      expect.objectContaining({ machineId: 'machine-http-only', hostId: 'host-1', protocol: 'http', publicPort: 42000, targetPort: 80 }),
+    ]);
+  });
+
   it('backfills missing explicit allocations from legacy provider metadata', async () => {
     const rows: Array<{ machineId: string; hostId: string; protocol: 'ssh' | 'http'; publicPort: number; targetPort: number; metadata: Record<string, unknown> }> = [];
     let selectCount = 0;

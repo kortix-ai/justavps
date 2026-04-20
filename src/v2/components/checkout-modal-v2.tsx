@@ -403,7 +403,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                       className="h-9 text-sm"
                     />
                     <p className="text-[11px] text-muted-foreground">
-                      Pulled from Docker Hub through Incus OCI support on upgraded hosts. SSH/bootstrap tooling is not injected into arbitrary app containers.
+                      Pulled from Docker Hub through Incus OCI support on upgraded hosts. Access is provided through the JustAVPS terminal, exec API, and preview URLs.
                     </p>
                   </div>
                 )}

@@ -30,6 +30,7 @@
     "e2e:direct-checkout": "tsx -r dotenv/config tests/scripts/e2e-direct-checkout.ts",
     "e2e:v2:baremetal": "tsx -r dotenv/config tests/scripts/e2e-v2-baremetal.ts",
     "e2e:v2:runtime": "tsx -r dotenv/config tests/scripts/e2e-v2-runtime.ts",
+    "cli:v2": "tsx src/cli/v2.ts",
     "e2e:v2:cold": "tsx -r dotenv/config tests/benchmarks/e2e-v2-cold-benchmark.ts",
     "e2e:v2:startup-benchmark": "tsx -r dotenv/config tests/benchmarks/e2e-v2-startup-benchmark.ts",
     "benchmark:runner-startup": "tsx -r dotenv/config tests/benchmarks/runner-startup-benchmark.ts",

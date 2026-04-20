@@ -44,26 +44,32 @@ export interface Machine {
   created_by_api_key_prefix?: string | null;
   daemon_version: string | null;
   urls: { proxy: string; terminal: string; port_template: string } | null;
-  ssh: string | null;
-  /** V2: SSH host (gateway IP for the proxy NAT) */
+  /** Legacy/V1 SSH command; V2 should prefer `access.exec_endpoint` and terminal URLs. */
+  ssh?: string | null;
+  /** Legacy/V1 SSH host. */
   ssh_host?: string | null;
-  /** V2: SSH port forwarded by Incus proxy device */
+  /** Legacy/V1 SSH port. */
   ssh_port?: number | null;
-  /** V2: One-liner that writes the key and connects */
+  /** Legacy/V1 SSH helper command. */
   ssh_setup_command?: string | null;
-  /** V2: Block to append to ~/.ssh/config */
+  /** Legacy/V1 SSH config block. */
   ssh_config_block?: string | null;
-  ssh_key: {
+  ssh_key?: {
     private_key: string | null;
     public_key: string | null;
     setup_command: string | null;
     key_path: string;
   } | null;
-  connect: {
+  connect?: {
     ssh_command: string | null;
     setup_command: string | null;
     vscode_url: string;
     cursor_ssh: string | null;
+  } | null;
+  access?: {
+    mode: 'rest_exec';
+    exec_endpoint: string;
+    terminal_url: string | null;
   } | null;
   source: 'user' | 'kortix';
   kortix_sandbox_id: string | null;

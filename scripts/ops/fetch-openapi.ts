@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /**
- * Fetch the OpenAPI spec from the running dev server and save it to src/sdk/openapi.json.
+ * Fetch the OpenAPI specs from the running dev server and save them to:
+ * - src/sdk/openapi.json
+ * - src/sdk/openapi-v2.json (when V2 docs are enabled)
  *
  * With @hono/zod-openapi the spec is auto-generated at runtime from route definitions.
  * This script fetches it from the live server so @hey-api/openapi-ts can generate the SDK.
@@ -11,32 +13,57 @@
 
 import { writeFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
 
 const BASE_URL = process.env.SDK_URL || 'http://localhost:4100';
-const SPEC_URL = `${BASE_URL}/api/docs/openapi.json`;
-const OUT_PATH = join(process.cwd(), 'src', 'sdk', 'openapi.json');
+const SPECS = [
+  {
+    name: 'v1',
+    url: `${BASE_URL}/api/docs/openapi.json`,
+    outPath: join(process.cwd(), 'src', 'sdk', 'openapi.json'),
+  },
+  {
+    name: 'v2',
+    url: `${BASE_URL}/api/docs/openapi-v2.json`,
+    outPath: join(process.cwd(), 'src', 'sdk', 'openapi-v2.json'),
+    optional: true,
+  },
+] as const;
 
-console.log(`Fetching OpenAPI spec from ${SPEC_URL}...`);
+console.log(`Fetching OpenAPI specs from ${BASE_URL}...`);
 
 async function main() {
-  const res = await fetch(SPEC_URL);
-  if (!res.ok) {
-    console.error(`Failed to fetch spec: ${res.status} ${res.statusText}`);
-    console.error('Make sure the dev server is running: pnpm dev');
+  let wroteAny = false;
+
+  for (const specTarget of SPECS) {
+    console.log(`→ ${specTarget.name}: ${specTarget.url}`);
+    const res = await fetch(specTarget.url);
+    if (!res.ok) {
+      if ('optional' in specTarget && specTarget.optional) {
+        console.warn(`  skipping ${specTarget.name}: ${res.status} ${res.statusText}`);
+        continue;
+      }
+      console.error(`Failed to fetch ${specTarget.name} spec: ${res.status} ${res.statusText}`);
+      console.error('Make sure the dev server is running: pnpm dev');
+      process.exit(1);
+    }
+
+    const spec = await res.json();
+    mkdirSync(dirname(specTarget.outPath), { recursive: true });
+    writeFileSync(specTarget.outPath, JSON.stringify(spec, null, 2) + '\n');
+
+    const paths = Object.keys(spec.paths || {});
+    const schemas = Object.keys(spec.components?.schemas || {});
+    console.log(`  ✓ written to ${specTarget.outPath}`);
+    console.log(`    ${paths.length} paths, ${schemas.length} schemas`);
+    wroteAny = true;
+  }
+
+  if (!wroteAny) {
+    console.error('No OpenAPI specs were written');
     process.exit(1);
   }
 
-  const spec = await res.json();
-
-  mkdirSync(dirname(OUT_PATH), { recursive: true });
-  writeFileSync(OUT_PATH, JSON.stringify(spec, null, 2) + '\n');
-
-  const paths = Object.keys(spec.paths || {});
-  const schemas = Object.keys(spec.components?.schemas || {});
-  console.log(`✓ OpenAPI spec written to ${OUT_PATH}`);
-  console.log(`  ${paths.length} paths, ${schemas.length} schemas`);
-  console.log(`  📐 Spec auto-generated from @hono/zod-openapi route definitions`);
+  console.log('📐 Specs auto-generated from @hono/zod-openapi route definitions');
 }
 
 main();
