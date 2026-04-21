@@ -55,7 +55,7 @@ interface WatchdogAlert {
   machineId: string;
   slug: string;
   accountId: string;
-  type: 'heartbeat_stale' | 'heartbeat_dead' | 'security_tamper' | 'network_anomaly' | 'auto_reboot';
+  type: 'heartbeat_stale' | 'heartbeat_dead' | 'security_tamper' | 'network_anomaly' | 'auto_reboot' | 'backup_drift' | 'backup_missing';
   details: string[];
 }
 
@@ -66,6 +66,33 @@ interface HetznerMetricsResponse {
     }>;
   };
 }
+
+interface HetznerServerInfo {
+  id: number;
+  name: string;
+  backup_window: string | null;
+  created: string;
+}
+
+interface HetznerImageInfo {
+  id: number;
+  description: string | null;
+  status: string;
+  created: string;
+  created_from: { id: number; name: string } | null;
+}
+
+interface HetznerPaginatedResponse {
+  meta?: {
+    pagination?: {
+      last_page?: number;
+    };
+  };
+  [key: string]: unknown;
+}
+
+const BACKUP_GRACE_MS = 30 * 60 * 60 * 1000;
+const HETZNER_PAGE_SIZE = 100;
 
 // ─── Hetzner API Metrics ────────────────────────────────────────────────────
 
@@ -120,6 +147,154 @@ async function fetchHetznerNetworkMetrics(serverId: string): Promise<{
     console.warn(`[WATCHDOG] Failed to fetch Hetzner metrics for server ${serverId}:`, err);
     return null;
   }
+}
+
+async function fetchHetznerJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${HETZNER_API}${path}`, {
+    method: init.method ?? 'GET',
+    headers: {
+      Authorization: `Bearer ${config.HETZNER_API_KEY}`,
+      'Content-Type': 'application/json',
+      ...(init.headers ?? {}),
+    },
+    body: init.body,
+    signal: AbortSignal.timeout(20_000),
+  });
+
+  if (res.ok) return res.json() as Promise<T>;
+  const text = await res.text().catch(() => '');
+  throw new Error(`Hetzner API ${path} -> ${res.status}: ${text.slice(0, 200)}`);
+}
+
+async function fetchHetznerPages<T>(path: string, key: string): Promise<T[]> {
+  const rows: T[] = [];
+  for (let page = 1; ; page++) {
+    let data: HetznerPaginatedResponse | null = null;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        data = await fetchHetznerJson<HetznerPaginatedResponse>(`${path}${path.includes('?') ? '&' : '?'}page=${page}&per_page=${HETZNER_PAGE_SIZE}`);
+        break;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!message.includes(' 429') || attempt >= 5) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+      }
+    }
+
+    const pageRows = Array.isArray(data?.[key]) ? (data?.[key] as T[]) : [];
+    rows.push(...pageRows);
+    const lastPage = data.meta?.pagination?.last_page ?? page;
+    if (page >= lastPage) break;
+  }
+  return rows;
+}
+
+async function enableHetznerBackups(serverId: string): Promise<boolean> {
+  if (!config.HETZNER_API_KEY) return false;
+
+  try {
+    await fetchHetznerJson(`/servers/${serverId}/actions/enable_backup`, { method: 'POST' });
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('already enabled') || message.includes(' 409')) return true;
+    console.warn(`[WATCHDOG] Failed to enable backups for server ${serverId}:`, error);
+    return false;
+  }
+}
+
+async function createHetznerBackup(serverId: string, description: string): Promise<boolean> {
+  if (!config.HETZNER_API_KEY) return false;
+
+  try {
+    await fetchHetznerJson(`/servers/${serverId}/actions/create_image`, {
+      method: 'POST',
+      body: JSON.stringify({ type: 'backup', description }),
+    });
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes(' 423') || message.includes('locked')) return true;
+    console.warn(`[WATCHDOG] Failed to create backup for server ${serverId}:`, error);
+    return false;
+  }
+}
+
+async function auditHetznerBackups(activeMachines: typeof machines.$inferSelect[]): Promise<WatchdogAlert[]> {
+  const candidates = activeMachines.filter((machine) =>
+    machine.backupsEnabled
+    && machine.provider === 'cloud'
+    && typeof machine.providerServerId === 'string'
+    && /^\d+$/.test(machine.providerServerId),
+  );
+
+  if (candidates.length === 0 || !config.HETZNER_API_KEY) return [];
+
+  const [servers, backups] = await Promise.all([
+    fetchHetznerPages<HetznerServerInfo>('/servers', 'servers'),
+    fetchHetznerPages<HetznerImageInfo>('/images?type=backup', 'images'),
+  ]);
+
+  const serverById = new Map(servers.map((server) => [String(server.id), server]));
+  const backupsByServerId = new Map<string, HetznerImageInfo[]>();
+  for (const backup of backups) {
+    const serverId = backup.created_from?.id;
+    if (!serverId) continue;
+    const key = String(serverId);
+    const list = backupsByServerId.get(key) ?? [];
+    list.push(backup);
+    backupsByServerId.set(key, list);
+  }
+
+  const alerts: WatchdogAlert[] = [];
+  for (const machine of candidates) {
+    const serverId = machine.providerServerId!;
+    const server = serverById.get(serverId);
+    const machineBackups = (backupsByServerId.get(serverId) ?? []).sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime());
+    const machineAgeMs = Date.now() - new Date(machine.createdAt).getTime();
+
+    if (!server) {
+      alerts.push({
+        machineId: machine.id,
+        slug: machine.slug,
+        accountId: machine.accountId ?? machine.ownerId,
+        type: 'backup_drift',
+        details: [`Backups enabled in DB but Hetzner server ${serverId} was not found during backup audit`],
+      });
+      continue;
+    }
+
+    if (!server.backup_window) {
+      const repaired = await enableHetznerBackups(serverId);
+      alerts.push({
+        machineId: machine.id,
+        slug: machine.slug,
+        accountId: machine.accountId ?? machine.ownerId,
+        type: 'backup_drift',
+        details: [
+          'Backups enabled in DB but Hetzner automatic backups were disabled',
+          repaired ? 'Watchdog re-enabled Hetzner automatic backups' : 'Watchdog could not re-enable Hetzner automatic backups',
+        ],
+      });
+      continue;
+    }
+
+    if (machineBackups.length === 0 && machineAgeMs > BACKUP_GRACE_MS) {
+      const seeded = await createHetznerBackup(serverId, `Watchdog safety backup ${new Date().toISOString().slice(0, 10)}`);
+      alerts.push({
+        machineId: machine.id,
+        slug: machine.slug,
+        accountId: machine.accountId ?? machine.ownerId,
+        type: 'backup_missing',
+        details: [
+          `Hetzner automatic backups are enabled (${server.backup_window}) but no backup image exists after ${Math.round(machineAgeMs / 3_600_000)}h`,
+          seeded ? 'Watchdog requested a safety backup seed' : 'Watchdog could not request a safety backup seed',
+        ],
+      });
+    }
+  }
+
+  return alerts;
 }
 
 // ─── Hetzner API Reboot ─────────────────────────────────────────────────────
@@ -185,6 +360,7 @@ export async function runWatchdog(): Promise<WatchdogAlert[]> {
     );
   const heartbeatStates = await listHeartbeatStatesByMachineIds(activeMachines.map((machine) => machine.id));
   const heartbeatStateByMachineId = new Map(heartbeatStates.map((state) => [state.machineId, state]));
+  alerts.push(...await auditHetznerBackups(activeMachines));
 
   const now = Date.now();
 
