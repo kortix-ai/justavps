@@ -1,20 +1,32 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import type { Context } from 'hono';
-import { eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { randomBytes, randomUUID } from 'crypto';
 import { db } from '@/server/db';
 import { apiGuard, type AuthVariables } from "@/server/auth/api-guard";
 import { errorResponse, handleRouteError } from "@/server/core/route-helpers";
 import { config } from "@/server/core/config";
-import { backupArtifacts, baremetalHosts, baremetalProcurements, cellAdmissionControls, cellCapacitySnapshots, cells, hostCapacityReservations, machines } from '@/server/db/schema';
-import { buildBaremetalCellCapacitySnapshots, buildBaremetalCellState, normalizeBaremetalHostGeneration } from "@/server/platform/baremetal/cells";
-import { ensureBaremetalCellRecord } from "@/server/platform/baremetal/cell-store";
+import {
+  backupArtifacts,
+  baremetalHostImages,
+  baremetalHosts,
+  baremetalProcurements,
+  hostCapacityReservations,
+  images,
+  machineEvents,
+  machines,
+  regions,
+  users,
+  type RegionRow,
+} from '@/server/db/schema';
 import { getBaremetalHostClassProfile } from "@/server/platform/baremetal/host-class-profiles";
 import { HOST_MAINTENANCE_STATES } from "@/server/platform/baremetal/host-maintenance";
 import { HttpBaremetalRunnerClient } from "@/server/platform/baremetal/runner-client";
 import { HetznerRobotClient } from "@/server/platform/baremetal/vendors/hetzner-robot";
 import { CONTROL_PLANE_SERVICE_PROFILES, isControlPlaneServiceStale, listControlPlaneServiceStates } from "@/server/platform/control-plane/service-state";
+import { deriveClusterRef } from "@/shared/lib/fleet-clusters";
+import { findRegion, regionLabel, REGIONS } from "@/shared/lib/regions";
 import { loadConfigAuditChecks, loadFleetHostAuditSummary, summarizeConfigAudit } from "@/server/v2/services/config-audit";
 import { registerAdminFleetBenchmarkRoutes } from "@/server/v2/routes/admin/fleet/benchmarks";
 import { registerAdminFleetControlPlaneRoutes } from "@/server/v2/routes/admin/fleet/control-plane";
@@ -37,13 +49,8 @@ function requireAdmin(c: Context<{ Variables: AuthVariables }>) {
 }
 
 const HostMaintenanceStateSchema = z.enum(HOST_MAINTENANCE_STATES);
-const CellAdmissionStateSchema = z.enum(['open', 'restricted', 'closed']);
-const CellSellabilityStateSchema = z.enum(['sellable', 'reserve_only', 'unsellable']);
-const CellCapacitySchema = z.object({
-  vcpu: z.number().int().min(0),
-  memory_gb: z.number().int().min(0),
-  disk_gb: z.number().int().min(0),
-});
+const RegionAdmissionStateSchema = z.enum(['open', 'restricted', 'closed']);
+const RegionSellabilityStateSchema = z.enum(['sellable', 'reserve_only', 'unsellable']);
 
 const HostDrainReportSchema = z.object({
   active_machines: z.number(),
@@ -94,19 +101,45 @@ const HostSchedulerStateSchema = z.object({
   updated_by: z.string().nullable(),
 });
 
+const ClusterRefSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  region: z.string(),
+  incus_cluster_name: z.string(),
+  incus_member_name: z.string(),
+});
+
+const ClusterSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  region: z.string(),
+  region_label: z.string(),
+  incus_cluster_name: z.string(),
+  host_count: z.number(),
+  active_host_count: z.number(),
+  active_schedulable_host_count: z.number(),
+  total_vcpu: z.number(),
+  total_memory_gb: z.number(),
+  total_disk_gb: z.number(),
+  used_vcpu: z.number(),
+  used_memory_gb: z.number(),
+  used_disk_gb: z.number(),
+  available_vcpu: z.number(),
+  available_memory_gb: z.number(),
+  available_disk_gb: z.number(),
+  admission_state: RegionAdmissionStateSchema,
+  sellability_state: RegionSellabilityStateSchema,
+  member_names: z.array(z.string()),
+});
+
 const HostListResponseSchema = z.object({
   hosts: z.array(z.object({
     id: z.string().uuid(),
     vendor: z.string(),
     host_class: z.string(),
-    generation: z.string(),
     region: z.string(),
+    cluster: ClusterRefSchema,
     location: z.string(),
-    cell_id: z.string().uuid().nullable(),
-    cell_slug: z.string(),
-    cell_name: z.string(),
-    cell_admission_state: z.enum(['open', 'restricted', 'closed']),
-    cell_sellability_state: z.enum(['sellable', 'reserve_only', 'unsellable']),
     name: z.string(),
     status: z.string(),
     maintenance_state: HostMaintenanceStateSchema,
@@ -135,45 +168,32 @@ const HostListResponseSchema = z.object({
     created_at: z.string(),
     updated_at: z.string(),
   })),
-  cells: z.array(z.object({
-    id: z.string().uuid().nullable(),
-    slug: z.string(),
-    name: z.string(),
-    region: z.string(),
-    host_class: z.string(),
-    generation: z.string(),
-    status: z.string(),
+  regions: z.array(z.object({
+    id: z.string(),
+    label: z.string(),
+    continent: z.string(),
+    active: z.boolean(),
+    admission_state: RegionAdmissionStateSchema,
+    sellability_state: RegionSellabilityStateSchema,
     host_count: z.number(),
     active_host_count: z.number(),
     active_schedulable_host_count: z.number(),
-    constrained_host_count: z.number(),
-    admission_state: z.enum(['open', 'restricted', 'closed']),
-    sellability_state: z.enum(['sellable', 'reserve_only', 'unsellable']),
-    admission_reason: z.string().nullable(),
     total_vcpu: z.number(),
     total_memory_gb: z.number(),
     total_disk_gb: z.number(),
     used_vcpu: z.number(),
     used_memory_gb: z.number(),
     used_disk_gb: z.number(),
-    reserved_vcpu: z.number(),
-    reserved_memory_gb: z.number(),
-    reserved_disk_gb: z.number(),
-    reserve_budget_vcpu: z.number(),
-    reserve_budget_memory_gb: z.number(),
-    reserve_budget_disk_gb: z.number(),
     available_vcpu: z.number(),
     available_memory_gb: z.number(),
     available_disk_gb: z.number(),
-    sellable_vcpu: z.number(),
-    sellable_memory_gb: z.number(),
-    sellable_disk_gb: z.number(),
     utilization_score: z.number(),
   })),
+  clusters: z.array(ClusterSchema),
 });
 
 const HostSchema = HostListResponseSchema.shape.hosts.element;
-const CellSchema = HostListResponseSchema.shape.cells.element;
+const RegionSchema = HostListResponseSchema.shape.regions.element;
 
 const HetznerProductListResponseSchema = z.object({
   products: z.array(z.object({
@@ -181,6 +201,14 @@ const HetznerProductListResponseSchema = z.object({
     name: z.string(),
     location: z.array(z.string()).optional(),
     description: z.array(z.string()).optional(),
+    traffic: z.string().optional(),
+    prices: z.array(z.object({
+      location: z.string(),
+      monthly_net: z.string(),
+      monthly_gross: z.string(),
+      hourly_net: z.string().nullable().optional(),
+      hourly_gross: z.string().nullable().optional(),
+    })).optional(),
   })),
 });
 
@@ -189,6 +217,7 @@ const BootstrapConfigSchema = z.object({
     id: z.string().uuid(),
     name: z.string(),
     region: z.string(),
+    cluster: ClusterRefSchema,
     location: z.string(),
     public_ipv4: z.string().nullable(),
     public_ipv6: z.string().nullable(),
@@ -214,18 +243,6 @@ function machineHostId(machine: typeof machines.$inferSelect) {
   if (machine.baremetalHostId) return machine.baremetalHostId;
   const meta = (machine.providerMeta ?? {}) as Record<string, unknown>;
   return typeof meta.baremetal_host_id === 'string' ? meta.baremetal_host_id : null;
-}
-
-type CellSerializationContext = {
-  rows?: Array<typeof cells.$inferSelect>;
-  admissions?: Array<typeof cellAdmissionControls.$inferSelect>;
-};
-
-function buildCellSerializationMaps(context?: CellSerializationContext) {
-  return {
-    cellsById: new Map((context?.rows ?? []).map((row) => [row.id, row])),
-    admissionsByCellId: new Map((context?.admissions ?? []).map((row) => [row.cellId, row])),
-  };
 }
 
 function buildDrainReport(row: typeof baremetalHosts.$inferSelect, context?: {
@@ -321,38 +338,26 @@ function buildHostSchedulerState(row: typeof baremetalHosts.$inferSelect) {
   };
 }
 
-function serializeHost(row: typeof baremetalHosts.$inferSelect, context?: {
+function buildHostClusterState(row: typeof baremetalHosts.$inferSelect) {
+  return deriveClusterRef({
+    region: row.region,
+    hostName: row.name,
+    metadata: row.metadata ?? {},
+  });
+}
+
+export function serializeHost(row: typeof baremetalHosts.$inferSelect, context?: {
   machines?: Array<typeof machines.$inferSelect>;
   reservations?: Array<typeof hostCapacityReservations.$inferSelect>;
   artifacts?: Array<typeof backupArtifacts.$inferSelect>;
-  cellRows?: Array<typeof cells.$inferSelect>;
-  cellAdmissions?: Array<typeof cellAdmissionControls.$inferSelect>;
 }) {
-  const { cellsById, admissionsByCellId } = buildCellSerializationMaps({
-    rows: context?.cellRows,
-    admissions: context?.cellAdmissions,
-  });
-  const cell = buildBaremetalCellState({
-    region: row.region,
-    hostClass: row.hostClass,
-    generation: row.generation,
-    cellId: row.cellId,
-    metadata: row.metadata,
-    cell: row.cellId ? cellsById.get(row.cellId) ?? null : null,
-    admission: row.cellId ? admissionsByCellId.get(row.cellId) ?? null : null,
-  });
   return {
     id: row.id,
     vendor: row.vendor,
     host_class: row.hostClass,
-    generation: normalizeBaremetalHostGeneration(row.generation, row.metadata),
     region: row.region,
+    cluster: buildHostClusterState(row),
     location: row.location,
-    cell_id: row.cellId,
-    cell_slug: cell?.slug ?? 'unassigned',
-    cell_name: cell?.name ?? 'Unassigned',
-    cell_admission_state: cell?.admission.state ?? 'open',
-    cell_sellability_state: cell?.admission.sellability ?? 'sellable',
     name: row.name,
     status: row.status,
     maintenance_state: row.maintenanceState,
@@ -383,104 +388,156 @@ function serializeHost(row: typeof baremetalHosts.$inferSelect, context?: {
   };
 }
 
-function serializeCells(
-  rows: Array<typeof baremetalHosts.$inferSelect>,
-  reservations: Array<typeof hostCapacityReservations.$inferSelect>,
-  context?: CellSerializationContext,
+function serializeClusters(
+  hostRows: Array<typeof baremetalHosts.$inferSelect>,
+  regionRows: Array<RegionRow>,
 ) {
-  const { cellsById, admissionsByCellId } = buildCellSerializationMaps(context);
-  return buildBaremetalCellCapacitySnapshots(rows.map((row) => {
-    const hostReservations = reservations.filter((reservation) => reservation.hostId === row.id && ['reserved', 'committed'].includes(reservation.state));
-    return {
-      id: row.id,
-      region: row.region,
-      hostClass: row.hostClass,
-      generation: row.generation,
-      cellId: row.cellId,
-      cell: buildBaremetalCellState({
-        region: row.region,
-        hostClass: row.hostClass,
-        generation: row.generation,
-        cellId: row.cellId,
-        metadata: row.metadata,
-        cell: row.cellId ? cellsById.get(row.cellId) ?? null : null,
-        admission: row.cellId ? admissionsByCellId.get(row.cellId) ?? null : null,
+  const regionMap = new Map(regionRows.map((row) => [row.id, row]));
+  const hostsByCluster = new Map<string, Array<typeof baremetalHosts.$inferSelect>>();
+
+  for (const host of hostRows) {
+    const cluster = buildHostClusterState(host);
+    const bucket = hostsByCluster.get(cluster.id) ?? [];
+    bucket.push(host);
+    hostsByCluster.set(cluster.id, bucket);
+  }
+
+  return Array.from(hostsByCluster.entries())
+    .map(([clusterId, hosts]) => {
+      const clusterRef = buildHostClusterState(hosts[0]!);
+      const regionRow = regionMap.get(clusterRef.region);
+      const activeHosts = hosts.filter((host) => ["active", "bootstrapping"].includes(host.status));
+      const activeSchedulableHosts = activeHosts.filter((host) => {
+        const scheduler = asRecord((host.metadata ?? {}).scheduler);
+        return host.maintenanceState === "in_service" && scheduler?.schedulable !== false;
+      });
+      const totals = hosts.reduce(
+        (acc, host) => ({
+          total_vcpu: acc.total_vcpu + (host.totalVcpu ?? 0),
+          total_memory_gb: acc.total_memory_gb + (host.totalMemoryGb ?? 0),
+          total_disk_gb: acc.total_disk_gb + (host.totalDiskGb ?? 0),
+          used_vcpu: acc.used_vcpu + (host.usedVcpu ?? 0),
+          used_memory_gb: acc.used_memory_gb + (host.usedMemoryGb ?? 0),
+          used_disk_gb: acc.used_disk_gb + (host.usedDiskGb ?? 0),
+        }),
+        { total_vcpu: 0, total_memory_gb: 0, total_disk_gb: 0, used_vcpu: 0, used_memory_gb: 0, used_disk_gb: 0 },
+      );
+
+      return {
+        id: clusterId,
+        name: clusterRef.name,
+        region: clusterRef.region,
+        region_label: regionRow?.label ?? regionLabel(clusterRef.region),
+        incus_cluster_name: clusterRef.incus_cluster_name,
+        host_count: hosts.length,
+        active_host_count: activeHosts.length,
+        active_schedulable_host_count: activeSchedulableHosts.length,
+        total_vcpu: totals.total_vcpu,
+        total_memory_gb: totals.total_memory_gb,
+        total_disk_gb: totals.total_disk_gb,
+        used_vcpu: totals.used_vcpu,
+        used_memory_gb: totals.used_memory_gb,
+        used_disk_gb: totals.used_disk_gb,
+        available_vcpu: Math.max(totals.total_vcpu - totals.used_vcpu, 0),
+        available_memory_gb: Math.max(totals.total_memory_gb - totals.used_memory_gb, 0),
+        available_disk_gb: Math.max(totals.total_disk_gb - totals.used_disk_gb, 0),
+        admission_state: regionRow?.admissionState ?? "open",
+        sellability_state: regionRow?.sellabilityState ?? "sellable",
+        member_names: hosts.map((host) => buildHostClusterState(host).incus_member_name),
+      };
+    })
+    .sort((a, b) => a.region.localeCompare(b.region) || a.name.localeCompare(b.name));
+}
+
+function serializeRegions(
+  hostRows: Array<typeof baremetalHosts.$inferSelect>,
+  regionRows: Array<RegionRow>,
+) {
+  const regionsById = new Map<string, RegionRow>(regionRows.map((row) => [row.id, row]));
+  const hostsByRegion = new Map<string, Array<typeof baremetalHosts.$inferSelect>>();
+  for (const host of hostRows) {
+    const bucket = hostsByRegion.get(host.region);
+    if (bucket) bucket.push(host);
+    else hostsByRegion.set(host.region, [host]);
+  }
+
+  // Include every region from the regions table plus any orphan hosts whose
+  // region_id isn't present in the regions table.
+  const regionIds = new Set<string>([
+    ...regionRows.map((row) => row.id),
+    ...hostsByRegion.keys(),
+  ]);
+
+  const result = Array.from(regionIds).map((regionId) => {
+    const regionRow = regionsById.get(regionId) ?? null;
+    const info = findRegion(regionId);
+    const hosts = hostsByRegion.get(regionId) ?? [];
+    const activeHosts = hosts.filter((host) => ['active', 'bootstrapping'].includes(host.status));
+    const activeSchedulableHosts = activeHosts.filter((host) => {
+      if (host.maintenanceState !== 'in_service') return false;
+      const scheduler = asRecord((host.metadata ?? {}).scheduler);
+      return scheduler?.schedulable !== false;
+    });
+
+    const totals = hosts.reduce(
+      (acc, host) => ({
+        total_vcpu: acc.total_vcpu + (host.totalVcpu ?? 0),
+        total_memory_gb: acc.total_memory_gb + (host.totalMemoryGb ?? 0),
+        total_disk_gb: acc.total_disk_gb + (host.totalDiskGb ?? 0),
+        used_vcpu: acc.used_vcpu + (host.usedVcpu ?? 0),
+        used_memory_gb: acc.used_memory_gb + (host.usedMemoryGb ?? 0),
+        used_disk_gb: acc.used_disk_gb + (host.usedDiskGb ?? 0),
       }),
-      status: row.status,
-      maintenanceState: row.maintenanceState,
-      metadata: row.metadata,
-      capacity: {
-        totalVcpu: row.totalVcpu ?? 0,
-        totalMemoryGb: row.totalMemoryGb ?? 0,
-        totalDiskGb: row.totalDiskGb ?? 0,
-        usedVcpu: row.usedVcpu ?? 0,
-        usedMemoryGb: row.usedMemoryGb ?? 0,
-        usedDiskGb: row.usedDiskGb ?? 0,
-      },
-      reservations: {
-        reserved: {
-          vcpu: hostReservations.filter((reservation) => reservation.state === 'reserved').reduce((sum, reservation) => sum + reservation.vcpu, 0),
-          memoryGb: hostReservations.filter((reservation) => reservation.state === 'reserved').reduce((sum, reservation) => sum + reservation.memoryGb, 0),
-          diskGb: hostReservations.filter((reservation) => reservation.state === 'reserved').reduce((sum, reservation) => sum + reservation.diskGb, 0),
-        },
-        committed: {
-          vcpu: hostReservations.filter((reservation) => reservation.state === 'committed').reduce((sum, reservation) => sum + reservation.vcpu, 0),
-          memoryGb: hostReservations.filter((reservation) => reservation.state === 'committed').reduce((sum, reservation) => sum + reservation.memoryGb, 0),
-          diskGb: hostReservations.filter((reservation) => reservation.state === 'committed').reduce((sum, reservation) => sum + reservation.diskGb, 0),
-        },
-      },
+      { total_vcpu: 0, total_memory_gb: 0, total_disk_gb: 0, used_vcpu: 0, used_memory_gb: 0, used_disk_gb: 0 },
+    );
+
+    const available_vcpu = Math.max(totals.total_vcpu - totals.used_vcpu, 0);
+    const available_memory_gb = Math.max(totals.total_memory_gb - totals.used_memory_gb, 0);
+    const available_disk_gb = Math.max(totals.total_disk_gb - totals.used_disk_gb, 0);
+
+    const utilization_score = totals.total_vcpu > 0
+      ? Math.round((totals.used_vcpu / totals.total_vcpu) * 10000)
+      : 0;
+
+    return {
+      id: regionId,
+      label: regionRow?.label ?? info?.label ?? regionLabel(regionId),
+      continent: regionRow?.continent ?? info?.continent ?? 'EU',
+      active: regionRow?.active ?? info?.active ?? false,
+      admission_state: regionRow?.admissionState ?? 'open',
+      sellability_state: regionRow?.sellabilityState ?? 'sellable',
+      host_count: hosts.length,
+      active_host_count: activeHosts.length,
+      active_schedulable_host_count: activeSchedulableHosts.length,
+      total_vcpu: totals.total_vcpu,
+      total_memory_gb: totals.total_memory_gb,
+      total_disk_gb: totals.total_disk_gb,
+      used_vcpu: totals.used_vcpu,
+      used_memory_gb: totals.used_memory_gb,
+      used_disk_gb: totals.used_disk_gb,
+      available_vcpu,
+      available_memory_gb,
+      available_disk_gb,
+      utilization_score,
     };
-  })).map((snapshot) => ({
-    id: snapshot.cell.id,
-    slug: snapshot.cell.slug,
-    name: snapshot.cell.name,
-    region: snapshot.cell.region,
-    host_class: snapshot.cell.hostClass,
-    generation: snapshot.cell.generation,
-    status: snapshot.cell.status,
-    host_count: snapshot.hostCount,
-    active_host_count: snapshot.activeHostCount,
-    active_schedulable_host_count: snapshot.activeSchedulableHostCount,
-    constrained_host_count: snapshot.constrainedHostCount,
-    admission_state: snapshot.cell.admission.state,
-    sellability_state: snapshot.cell.admission.sellability,
-    admission_reason: snapshot.cell.admission.reason,
-    total_vcpu: snapshot.totals.vcpu,
-    total_memory_gb: snapshot.totals.memoryGb,
-    total_disk_gb: snapshot.totals.diskGb,
-    used_vcpu: snapshot.used.vcpu,
-    used_memory_gb: snapshot.used.memoryGb,
-    used_disk_gb: snapshot.used.diskGb,
-    reserved_vcpu: snapshot.reserved.vcpu,
-    reserved_memory_gb: snapshot.reserved.memoryGb,
-    reserved_disk_gb: snapshot.reserved.diskGb,
-    reserve_budget_vcpu: snapshot.reserveBudget.vcpu,
-    reserve_budget_memory_gb: snapshot.reserveBudget.memoryGb,
-    reserve_budget_disk_gb: snapshot.reserveBudget.diskGb,
-    available_vcpu: snapshot.available.vcpu,
-    available_memory_gb: snapshot.available.memoryGb,
-    available_disk_gb: snapshot.available.diskGb,
-    sellable_vcpu: snapshot.sellable.vcpu,
-    sellable_memory_gb: snapshot.sellable.memoryGb,
-    sellable_disk_gb: snapshot.sellable.diskGb,
-    utilization_score: snapshot.utilizationScore,
-  }));
+  });
+
+  return result.sort((a, b) => a.id.localeCompare(b.id));
 }
 
 async function loadFleetOverviewState() {
-  const [hostRows, reservationRows, cellRows, admissionRows] = await Promise.all([
+  const [hostRows, reservationRows, regionRows] = await Promise.all([
     db.select().from(baremetalHosts),
     db.select().from(hostCapacityReservations),
-    db.select().from(cells),
-    db.select().from(cellAdmissionControls),
+    db.select().from(regions),
   ]);
 
   return {
     hostRows,
     reservationRows,
-    cellRows,
-    admissionRows,
-    cells: serializeCells(hostRows, reservationRows, { rows: cellRows, admissions: admissionRows }),
+    regionRows,
+    regions: serializeRegions(hostRows, regionRows),
+    clusters: serializeClusters(hostRows, regionRows),
   };
 }
 
@@ -489,9 +546,6 @@ function serializeProcurement(row: typeof baremetalProcurements.$inferSelect) {
     id: row.id,
     vendor: row.vendor,
     host_class: row.hostClass,
-    generation: row.generation,
-    target_cell_id: row.targetCellId,
-    procurement_purpose: row.procurementPurpose,
     product_id: row.productId,
     region: row.region,
     location: row.location,
@@ -509,43 +563,66 @@ function serializeProcurement(row: typeof baremetalProcurements.$inferSelect) {
   };
 }
 
-function serializeProcurementRecommendations(cells: ReturnType<typeof serializeCells>) {
-  return cells.flatMap((cell) => {
-    const currentProfile = getBaremetalHostClassProfile(cell.host_class);
-    const recommendedHostClass = currentProfile.preferredGrowthHostClass;
-    const recommendedProfile = getBaremetalHostClassProfile(recommendedHostClass);
-    const reserveShortfall = {
-      vcpu: Math.max(cell.reserve_budget_vcpu - cell.available_vcpu, 0),
-      memory_gb: Math.max(cell.reserve_budget_memory_gb - cell.available_memory_gb, 0),
-      disk_gb: Math.max(cell.reserve_budget_disk_gb - cell.available_disk_gb, 0),
-    };
+function serializeProcurementRecommendations(
+  regionAggregates: ReturnType<typeof serializeRegions>,
+  hostRows: Array<typeof baremetalHosts.$inferSelect>,
+) {
+  // Group hosts by (region, hostClass) to determine evolution recommendations.
+  const hostsByRegionClass = new Map<string, Array<typeof baremetalHosts.$inferSelect>>();
+  for (const host of hostRows) {
+    const key = `${host.region}:${host.hostClass}`;
+    const bucket = hostsByRegionClass.get(key);
+    if (bucket) bucket.push(host);
+    else hostsByRegionClass.set(key, [host]);
+  }
 
-    const reserveBreached = reserveShortfall.vcpu > 0 || reserveShortfall.memory_gb > 0 || reserveShortfall.disk_gb > 0;
-    const shouldEvolveHostClass = currentProfile.role === 'starter_edge' && recommendedHostClass !== cell.host_class;
-    const constrainedCell = cell.admission_state !== 'open' || cell.sellability_state !== 'sellable';
-    if (!reserveBreached && !shouldEvolveHostClass && !constrainedCell) return [];
+  const recommendations: Array<{
+    id: string;
+    region: string;
+    region_label: string;
+    current_host_class: string;
+    current_role: string;
+    recommended_host_class: string;
+    recommended_role: string;
+    minimum_hosts: number;
+    reserve_shortfall_vcpu: number;
+    reserve_shortfall_memory_gb: number;
+    reserve_shortfall_disk_gb: number;
+    summary: string;
+    notes: string[];
+  }> = [];
 
-    return [{
-      id: `${cell.slug}:${recommendedHostClass}:${recommendedProfile.defaultGeneration}`,
-      cell_id: cell.id,
-      cell_slug: cell.slug,
-      cell_name: cell.name,
-      region: cell.region,
-      current_host_class: cell.host_class,
-      current_generation: cell.generation,
-      current_role: currentProfile.role,
-      recommended_host_class: recommendedHostClass,
-      recommended_generation: recommendedProfile.defaultGeneration,
-      recommended_role: recommendedProfile.role,
-      procurement_purpose: reserveBreached ? 'reserve_replenishment' : shouldEvolveHostClass ? 'capacity_growth' : 'bootstrap',
-      minimum_hosts: 1,
-      reserve_shortfall_vcpu: reserveShortfall.vcpu,
-      reserve_shortfall_memory_gb: reserveShortfall.memory_gb,
-      reserve_shortfall_disk_gb: reserveShortfall.disk_gb,
-      summary: reserveBreached ? `${cell.name} is below reserve budget and should add capacity.` : `${cell.name} should shift future growth from ${cell.host_class} to ${recommendedHostClass}.`,
-      notes: [],
-    }];
-  });
+  for (const regionAggregate of regionAggregates) {
+    for (const [key] of hostsByRegionClass.entries()) {
+      const [region, hostClass] = key.split(':');
+      if (region !== regionAggregate.id) continue;
+
+      const currentProfile = getBaremetalHostClassProfile(hostClass);
+      const recommendedHostClass = currentProfile.preferredGrowthHostClass;
+      const recommendedProfile = getBaremetalHostClassProfile(recommendedHostClass);
+
+      const shouldEvolveHostClass = currentProfile.role === 'starter_edge' && recommendedHostClass !== hostClass;
+      if (!shouldEvolveHostClass) continue;
+
+      recommendations.push({
+        id: `${region}:${hostClass}`,
+        region,
+        region_label: regionAggregate.label,
+        current_host_class: hostClass,
+        current_role: currentProfile.role,
+        recommended_host_class: recommendedHostClass,
+        recommended_role: recommendedProfile.role,
+        minimum_hosts: 1,
+        reserve_shortfall_vcpu: 0,
+        reserve_shortfall_memory_gb: 0,
+        reserve_shortfall_disk_gb: 0,
+        summary: `${regionAggregate.label} should shift future growth from ${hostClass} to ${recommendedHostClass}.`,
+        notes: [],
+      });
+    }
+  }
+
+  return recommendations;
 }
 
 function serializeControlPlaneServiceState(row: Awaited<ReturnType<typeof listControlPlaneServiceStates>>[number]) {
@@ -571,44 +648,6 @@ function serializeControlPlaneServiceState(row: Awaited<ReturnType<typeof listCo
   };
 }
 
-function serializeCellCapacitySnapshot(row: typeof cellCapacitySnapshots.$inferSelect) {
-  return {
-    id: row.id,
-    cell_id: row.cellId,
-    cell_slug: row.cellSlug,
-    region: row.region,
-    host_class: row.hostClass,
-    generation: row.generation,
-    admission_state: row.admissionState,
-    sellability_state: row.sellabilityState,
-    host_count: row.hostCount,
-    active_host_count: row.activeHostCount,
-    active_schedulable_host_count: row.activeSchedulableHostCount,
-    constrained_host_count: row.constrainedHostCount,
-    total_vcpu: row.totalVcpu,
-    total_memory_gb: row.totalMemoryGb,
-    total_disk_gb: row.totalDiskGb,
-    used_vcpu: row.usedVcpu,
-    used_memory_gb: row.usedMemoryGb,
-    used_disk_gb: row.usedDiskGb,
-    reserved_vcpu: row.reservedVcpu,
-    reserved_memory_gb: row.reservedMemoryGb,
-    reserved_disk_gb: row.reservedDiskGb,
-    reserve_budget_vcpu: row.reserveBudgetVcpu,
-    reserve_budget_memory_gb: row.reserveBudgetMemoryGb,
-    reserve_budget_disk_gb: row.reserveBudgetDiskGb,
-    available_vcpu: row.availableVcpu,
-    available_memory_gb: row.availableMemoryGb,
-    available_disk_gb: row.availableDiskGb,
-    sellable_vcpu: row.sellableVcpu,
-    sellable_memory_gb: row.sellableMemoryGb,
-    sellable_disk_gb: row.sellableDiskGb,
-    utilization_score_basis_points: row.utilizationScore,
-    snapshot_window_start: row.snapshotWindowStart.toISOString(),
-    created_at: row.createdAt.toISOString(),
-  };
-}
-
 async function placeHetznerRobotOrder(procurementId: string, approvedByUserId?: string) {
   const [procurement] = await db.select().from(baremetalProcurements).where(eq(baremetalProcurements.id, procurementId));
   if (!procurement) throw new Error('Procurement request not found');
@@ -631,28 +670,13 @@ async function placeHetznerRobotOrder(procurementId: string, approvedByUserId?: 
   const hostId = procurement.hostId ?? randomUUID();
   const hostName = `bm-${procurement.hostClass}-${procurement.location}-${hostId.slice(0, 8)}`;
   const runnerToken = randomBytes(24).toString('hex');
-    const hostClassProfile = getBaremetalHostClassProfile(procurement.hostClass);
-    const generation = normalizeBaremetalHostGeneration(procurement.generation ?? hostClassProfile.defaultGeneration, procurement.metadata ?? null);
-  const [targetCell] = procurement.targetCellId
-    ? await db.select().from(cells).where(eq(cells.id, procurement.targetCellId))
-    : [null];
-  if (targetCell && (targetCell.region !== procurement.region || targetCell.hostClass !== procurement.hostClass || targetCell.generation !== generation)) {
-    throw new Error(`Target cell ${targetCell.slug} does not match procurement dimensions`);
-  }
-  const cell = targetCell ?? await ensureBaremetalCellRecord({
-    region: procurement.region,
-    hostClass: procurement.hostClass,
-    generation,
-  });
 
   const [host] = await db.insert(baremetalHosts).values({
     id: hostId,
     vendor: procurement.vendor,
     hostClass: procurement.hostClass,
-    generation,
     region: procurement.region,
     location: procurement.location,
-    cellId: cell.id,
     name: hostName,
     status: 'ordering',
     providerTransactionId: transaction.transaction.id,
@@ -718,6 +742,14 @@ adminFleetV2App.openapi(createRoute({
         name: item.product.name,
         location: item.product.location,
         description: item.product.description,
+        traffic: item.product.traffic,
+        prices: item.product.prices?.map((p) => ({
+          location: p.location,
+          monthly_net: p.price.net,
+          monthly_gross: p.price.gross,
+          hourly_net: p.price.hourly_net ?? null,
+          hourly_gross: p.price.hourly_gross ?? null,
+        })),
       })),
     });
   } catch (err) {
@@ -726,19 +758,39 @@ adminFleetV2App.openapi(createRoute({
 }) as any);
 
 adminFleetV2App.openapi(createRoute({
-  method: 'post',
-  path: '/cells/{id}/admission-state',
+  method: 'get',
+  path: '/regions',
   tags: ['Admin Bare Metal'],
-  summary: 'Update cell admission and sellability state',
+  summary: 'List regions with aggregate host capacity',
+  responses: {
+    200: { description: 'Regions', content: { 'application/json': { schema: z.object({ regions: z.array(RegionSchema) }) } } },
+  },
+}), (async (c: any) => {
+  const adminError = requireAdmin(c);
+  if (adminError) return adminError as Response;
+
+  try {
+    const overview = await loadFleetOverviewState();
+    return c.json({ regions: overview.regions });
+  } catch (err) {
+    return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
+  }
+}) as any);
+
+adminFleetV2App.openapi(createRoute({
+  method: 'post',
+  path: '/regions/{id}/admission-state',
+  tags: ['Admin Bare Metal'],
+  summary: 'Update region admission and sellability state',
   request: {
-    params: z.object({ id: z.string().uuid() }),
+    params: z.object({ id: z.string().min(1) }),
     body: {
       required: true,
       content: {
         'application/json': {
           schema: z.object({
-            admission_state: CellAdmissionStateSchema,
-            sellability_state: CellSellabilityStateSchema,
+            admission_state: RegionAdmissionStateSchema,
+            sellability_state: RegionSellabilityStateSchema,
             reason: z.string().max(500).nullable().optional(),
             source: z.string().max(120).optional(),
           }),
@@ -747,7 +799,7 @@ adminFleetV2App.openapi(createRoute({
     },
   },
   responses: {
-    200: { description: 'Cell admission updated', content: { 'application/json': { schema: z.object({ cell: CellSchema }) } } },
+    200: { description: 'Region admission updated', content: { 'application/json': { schema: z.object({ region: RegionSchema }) } } },
   },
 }), (async (c: any) => {
   const adminError = requireAdmin(c);
@@ -756,106 +808,31 @@ adminFleetV2App.openapi(createRoute({
   try {
     const { id } = c.req.valid('param');
     const body = c.req.valid('json');
-    const [existingCell] = await db.select().from(cells).where(eq(cells.id, id));
-    if (!existingCell) return errorResponse(c, 404, 'Cell not found') as Response;
+    const [existing] = await db.select().from(regions).where(eq(regions.id, id));
+    if (!existing) return errorResponse(c, 404, 'Region not found') as Response;
 
-    const now = new Date();
-    await db.insert(cellAdmissionControls).values({
-      cellId: id,
-      admissionState: body.admission_state,
-      sellabilityState: body.sellability_state,
-      reason: body.reason ?? null,
-      source: body.source ?? 'admin-ui',
-      setAt: now,
-      metadata: {
-        changed_by_user_id: c.get('userId'),
-      },
-      createdAt: now,
-      updatedAt: now,
-    }).onConflictDoUpdate({
-      target: cellAdmissionControls.cellId,
-      set: {
-        admissionState: body.admission_state,
-        sellabilityState: body.sellability_state,
+    const metadata = {
+      ...(existing.metadata ?? {}),
+      admission: {
+        ...(asRecord((existing.metadata ?? {}).admission) ?? {}),
         reason: body.reason ?? null,
         source: body.source ?? 'admin-ui',
-        setAt: now,
-        metadata: {
-          changed_by_user_id: c.get('userId'),
-        },
-        updatedAt: now,
-      },
-    });
-
-    const overview = await loadFleetOverviewState();
-    const cell = overview.cells.find((row) => row.id === id);
-    if (!cell) return errorResponse(c, 404, 'Cell not found after update') as Response;
-    return c.json({ cell });
-  } catch (err) {
-    return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
-  }
-}) as any);
-
-adminFleetV2App.openapi(createRoute({
-  method: 'post',
-  path: '/cells/{id}/reserve-policy',
-  tags: ['Admin Bare Metal'],
-  summary: 'Update a cell reserve policy',
-  request: {
-    params: z.object({ id: z.string().uuid() }),
-    body: {
-      required: true,
-      content: {
-        'application/json': {
-          schema: z.object({
-            warm_reserve: CellCapacitySchema,
-            failure_reserve: CellCapacitySchema,
-            procurement_reserve: CellCapacitySchema,
-          }),
-        },
-      },
-    },
-  },
-  responses: {
-    200: { description: 'Cell reserve policy updated', content: { 'application/json': { schema: z.object({ cell: CellSchema }) } } },
-  },
-}), (async (c: any) => {
-  const adminError = requireAdmin(c);
-  if (adminError) return adminError as Response;
-
-  try {
-    const { id } = c.req.valid('param');
-    const body = c.req.valid('json');
-    const [existingCell] = await db.select().from(cells).where(eq(cells.id, id));
-    if (!existingCell) return errorResponse(c, 404, 'Cell not found') as Response;
-
-    const reservePolicy = {
-      warmReserve: {
-        vcpu: body.warm_reserve.vcpu,
-        memoryGb: body.warm_reserve.memory_gb,
-        diskGb: body.warm_reserve.disk_gb,
-      },
-      failureReserve: {
-        vcpu: body.failure_reserve.vcpu,
-        memoryGb: body.failure_reserve.memory_gb,
-        diskGb: body.failure_reserve.disk_gb,
-      },
-      procurementReserve: {
-        vcpu: body.procurement_reserve.vcpu,
-        memoryGb: body.procurement_reserve.memory_gb,
-        diskGb: body.procurement_reserve.disk_gb,
+        set_at: new Date().toISOString(),
+        changed_by_user_id: c.get('userId') ?? null,
       },
     };
 
-    await db.update(cells).set({
-      reservePolicy,
+    await db.update(regions).set({
+      admissionState: body.admission_state,
+      sellabilityState: body.sellability_state,
+      metadata,
       updatedAt: new Date(),
-    }).where(eq(cells.id, id));
+    }).where(eq(regions.id, id));
 
     const overview = await loadFleetOverviewState();
-    const cell = overview.cells.find((row) => row.id === id);
-    if (!cell) return errorResponse(c, 404, 'Cell not found after update') as Response;
-    return c.json({ cell });
+    const region = overview.regions.find((row) => row.id === id);
+    if (!region) return errorResponse(c, 404, 'Region not found after update') as Response;
+    return c.json({ region });
   } catch (err) {
     return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
   }
@@ -896,8 +873,7 @@ registerAdminFleetHostMutationRoutes(adminFleetV2App, requireAdmin, {
     };
     const nextHostStatus = body.status === 'failed' ? 'error' : existing.status === 'bootstrapping' ? 'active' : existing.status;
     const [host] = await db.update(baremetalHosts).set({ status: nextHostStatus, metadata: nextMetadata, updatedAt: new Date() }).where(eq(baremetalHosts.id, id)).returning();
-    const [cellRows, admissionRows] = await Promise.all([db.select().from(cells), db.select().from(cellAdmissionControls)]);
-    return serializeHost(host, { cellRows, cellAdmissions: admissionRows });
+    return serializeHost(host);
   },
   updateOperatorSettings: async (id, body) => {
     const [existing] = await db.select().from(baremetalHosts).where(eq(baremetalHosts.id, id));
@@ -916,8 +892,7 @@ registerAdminFleetHostMutationRoutes(adminFleetV2App, requireAdmin, {
       },
     };
     const [host] = await db.update(baremetalHosts).set({ metadata: nextMetadata, updatedAt: new Date() }).where(eq(baremetalHosts.id, id)).returning();
-    const [cellRows, admissionRows] = await Promise.all([db.select().from(cells), db.select().from(cellAdmissionControls)]);
-    return serializeHost(host, { cellRows, cellAdmissions: admissionRows });
+    return serializeHost(host);
   },
   updateSchedulerState: async (id, body, userId) => {
     const [existing] = await db.select().from(baremetalHosts).where(eq(baremetalHosts.id, id));
@@ -933,8 +908,7 @@ registerAdminFleetHostMutationRoutes(adminFleetV2App, requireAdmin, {
       },
     };
     const [host] = await db.update(baremetalHosts).set({ metadata: nextMetadata, updatedAt: new Date() }).where(eq(baremetalHosts.id, id)).returning();
-    const [cellRows, admissionRows] = await Promise.all([db.select().from(cells), db.select().from(cellAdmissionControls)]);
-    return serializeHost(host, { cellRows, cellAdmissions: admissionRows });
+    return serializeHost(host);
   },
   updateMaintenanceState: async (id, body, userId) => {
     const [existing] = await db.select().from(baremetalHosts).where(eq(baremetalHosts.id, id));
@@ -957,19 +931,15 @@ registerAdminFleetHostMutationRoutes(adminFleetV2App, requireAdmin, {
       metadata: nextMetadata,
       updatedAt: now,
     }).where(eq(baremetalHosts.id, id)).returning();
-    const [machineRows, reservationRows, artifactRows, cellRows, admissionRows] = await Promise.all([
+    const [machineRows, reservationRows, artifactRows] = await Promise.all([
       db.select().from(machines),
       db.select().from(hostCapacityReservations),
       db.select().from(backupArtifacts),
-      db.select().from(cells),
-      db.select().from(cellAdmissionControls),
     ]);
     return serializeHost(host, {
       machines: machineRows,
       reservations: reservationRows,
       artifacts: artifactRows,
-      cellRows,
-      cellAdmissions: admissionRows,
     });
   },
 });
@@ -985,6 +955,7 @@ registerAdminFleetHostRoutes(adminFleetV2App, requireAdmin, {
       id: host.id,
       name: host.name,
       region: host.region,
+      cluster: buildHostClusterState(host),
       location: host.location,
       public_ipv4: host.publicIpv4,
       public_ipv6: host.publicIpv6,
@@ -992,17 +963,17 @@ registerAdminFleetHostRoutes(adminFleetV2App, requireAdmin, {
     };
   },
   listHosts: async () => {
-    const [rows, machineRows, reservationRows, artifactRows, cellRows, admissionRows] = await Promise.all([
+    const [rows, machineRows, reservationRows, artifactRows, regionRows] = await Promise.all([
       db.select().from(baremetalHosts),
       db.select().from(machines),
       db.select().from(hostCapacityReservations),
       db.select().from(backupArtifacts),
-      db.select().from(cells),
-      db.select().from(cellAdmissionControls),
+      db.select().from(regions),
     ]);
     return {
-      hosts: rows.map((row) => serializeHost(row, { machines: machineRows, reservations: reservationRows, artifacts: artifactRows, cellRows, cellAdmissions: admissionRows })),
-      cells: serializeCells(rows, reservationRows, { rows: cellRows, admissions: admissionRows }),
+      hosts: rows.map((row) => serializeHost(row, { machines: machineRows, reservations: reservationRows, artifacts: artifactRows })),
+      regions: serializeRegions(rows, regionRows),
+      clusters: serializeClusters(rows, regionRows),
     };
   },
   reconcileHosts: async () => {
@@ -1039,22 +1010,48 @@ registerAdminFleetHostRoutes(adminFleetV2App, requireAdmin, {
     }
     const { reconcileBaremetalHost } = await import("@/server/platform/baremetal/reconcile");
     await reconcileBaremetalHost(host.id);
-    const [hostRows, machineRows, reservationRows, artifactRows, cellRows, admissionRows] = await Promise.all([
+    const [hostRows, machineRows, reservationRows, artifactRows] = await Promise.all([
       db.select().from(baremetalHosts),
       db.select().from(machines),
       db.select().from(hostCapacityReservations),
       db.select().from(backupArtifacts),
-      db.select().from(cells),
-      db.select().from(cellAdmissionControls),
     ]);
     const refreshed = hostRows.find((row) => row.id === host.id) ?? host;
-    return { cleaned_instance_ids: orphans, skipped_instance_ids: skipped, host: serializeHost(refreshed, { machines: machineRows, reservations: reservationRows, artifacts: artifactRows, cellRows, cellAdmissions: admissionRows }) };
+    return { cleaned_instance_ids: orphans, skipped_instance_ids: skipped, host: serializeHost(refreshed, { machines: machineRows, reservations: reservationRows, artifacts: artifactRows }) };
+  },
+  createHost: async (body) => {
+    const regionId = typeof body.region === 'string' ? body.region : '';
+    const hostClass = typeof body.host_class === 'string' ? body.host_class : '';
+    if (!regionId) throw new Error('region is required');
+    if (!hostClass) throw new Error('host_class is required');
+    const [regionRow] = await db.select().from(regions).where(eq(regions.id, regionId));
+    if (!regionRow) throw new Error('Region not found');
+
+    const hostId = randomUUID();
+    const [host] = await db.insert(baremetalHosts).values({
+      id: hostId,
+      vendor: typeof body.vendor === 'string' ? body.vendor : 'manual',
+      hostClass,
+      region: regionId,
+      location: String(body.location),
+      name: typeof body.name === 'string' && body.name.trim()
+        ? body.name.trim()
+        : `host-${regionId}-${hostClass}-${hostId.slice(0, 8)}`,
+      status: 'requested',
+      publicIpv4: typeof body.public_ipv4 === 'string' ? body.public_ipv4 : null,
+      publicIpv6: typeof body.public_ipv6 === 'string' ? body.public_ipv6 : null,
+      metadata: {
+        created_via: 'admin_api',
+        ...(asRecord(body.metadata) ?? {}),
+      },
+      updatedAt: new Date(),
+    }).returning();
+
+    return serializeHost(host);
   },
   registerHost: async (id, body) => {
     const [existing] = await db.select().from(baremetalHosts).where(eq(baremetalHosts.id, id));
     if (!existing) throw new Error('Host not found');
-    const generation = normalizeBaremetalHostGeneration(typeof body.generation === 'string' ? body.generation : existing.generation, (body.metadata as Record<string, unknown> | undefined) ?? existing.metadata ?? null);
-    const cell = await ensureBaremetalCellRecord({ region: existing.region, hostClass: existing.hostClass, generation });
     const [host] = await db.update(baremetalHosts).set({
       runnerBaseUrl: String(body.runner_base_url),
       publicIpv4: typeof body.public_ipv4 === 'string' ? body.public_ipv4 : existing.publicIpv4,
@@ -1062,14 +1059,54 @@ registerAdminFleetHostRoutes(adminFleetV2App, requireAdmin, {
       totalVcpu: Number(body.total_vcpu),
       totalMemoryGb: Number(body.total_memory_gb),
       totalDiskGb: Number(body.total_disk_gb),
-      generation,
-      cellId: cell.id,
       status: body.status === 'bootstrapping' ? 'bootstrapping' : 'active',
       metadata: { ...(existing.metadata ?? {}), ...((body.metadata as Record<string, unknown> | undefined) ?? {}) },
       updatedAt: new Date(),
     }).where(eq(baremetalHosts.id, id)).returning();
-    const [cellRows, admissionRows] = await Promise.all([db.select().from(cells), db.select().from(cellAdmissionControls)]);
-    return serializeHost(host, { cellRows, cellAdmissions: admissionRows });
+    return serializeHost(host);
+  },
+  heartbeatHost: async (id, body) => {
+    const [existing] = await db.select().from(baremetalHosts).where(eq(baremetalHosts.id, id));
+    if (!existing) throw new Error('Host not found');
+
+    const driftStatus = typeof body.drift_status === 'string' ? body.drift_status : 'in_policy';
+    const healthy = Boolean(body.incus_ok) && Boolean(body.zfs_ok) && Boolean(body.runner_ok);
+    const schedulable = healthy && driftStatus !== 'blocking_drift' && existing.maintenanceState === 'in_service' && ['active', 'bootstrapping'].includes(existing.status);
+    const now = new Date();
+    const nextStatus = existing.status === 'bootstrapping' && healthy ? 'active' : existing.status;
+    const nextMetadata = {
+      ...(existing.metadata ?? {}),
+      heartbeat: {
+        checked_at: now.toISOString(),
+        incus_ok: Boolean(body.incus_ok),
+        zfs_ok: Boolean(body.zfs_ok),
+        runner_ok: Boolean(body.runner_ok),
+        drift_status: driftStatus,
+        instance_count: Number(body.instance_count ?? 0),
+        image_count: Number(body.image_count ?? 0),
+        alerts: Array.isArray(body.alerts) ? body.alerts.filter((value: unknown): value is string => typeof value === 'string') : [],
+      },
+      scheduler: {
+        ...(asRecord((existing.metadata ?? {}).scheduler) ?? {}),
+        schedulable,
+        unschedulableReason: schedulable ? null : (!healthy ? 'host heartbeat reported unhealthy services' : driftStatus === 'blocking_drift' ? 'host has blocking drift' : `host is ${existing.maintenanceState}`),
+        updatedAt: now.toISOString(),
+        updatedBy: 'system/heartbeat',
+      },
+      bootstrap: {
+        ...(asRecord((existing.metadata ?? {}).bootstrap) ?? {}),
+        drift_status: driftStatus,
+      },
+    };
+
+    const [host] = await db.update(baremetalHosts).set({
+      status: nextStatus,
+      lastHeartbeatAt: now,
+      metadata: nextMetadata,
+      updatedAt: now,
+    }).where(eq(baremetalHosts.id, id)).returning();
+
+    return serializeHost(host);
   },
 });
 
@@ -1099,6 +1136,7 @@ adminFleetV2App.openapi(createRoute({
       id: host.id,
       name: host.name,
       region: host.region,
+      cluster: buildHostClusterState(host),
       location: host.location,
       public_ipv4: host.publicIpv4,
       public_ipv6: host.publicIpv6,
@@ -1117,24 +1155,315 @@ adminFleetV2App.openapi(createRoute({
   const adminError = requireAdmin(c);
   if (adminError) return adminError as Response;
 
-  const [rows, machineRows, reservationRows, artifactRows, cellRows, admissionRows] = await Promise.all([
+  const [rows, machineRows, reservationRows, artifactRows, regionRows] = await Promise.all([
     db.select().from(baremetalHosts),
     db.select().from(machines),
     db.select().from(hostCapacityReservations),
     db.select().from(backupArtifacts),
-    db.select().from(cells),
-    db.select().from(cellAdmissionControls),
+    db.select().from(regions),
   ]);
   return c.json({
     hosts: rows.map((row) => serializeHost(row, {
       machines: machineRows,
       reservations: reservationRows,
       artifacts: artifactRows,
-      cellRows,
-      cellAdmissions: admissionRows,
     })),
-    cells: serializeCells(rows, reservationRows, { rows: cellRows, admissions: admissionRows }),
+    regions: serializeRegions(rows, regionRows),
+    clusters: serializeClusters(rows, regionRows),
   });
+}) as any);
+
+const HostDetailMachineSchema = z.object({
+  id: z.string().uuid(),
+  slug: z.string(),
+  name: z.string(),
+  status: z.string(),
+  vcpu: z.number().nullable(),
+  memory_gb: z.number().nullable(),
+  disk_gb: z.number().nullable(),
+  ip: z.string().nullable(),
+  created_at: z.string(),
+  last_heartbeat_at: z.string().nullable(),
+  owner_user_id: z.string().nullable(),
+  owner_email: z.string().nullable(),
+});
+
+const HostDetailReservationSchema = z.object({
+  id: z.string().uuid(),
+  machine_id: z.string().uuid(),
+  machine_slug: z.string().nullable(),
+  reservation_type: z.string(),
+  state: z.string(),
+  vcpu: z.number(),
+  memory_gb: z.number(),
+  disk_gb: z.number(),
+  expires_at: z.string().nullable(),
+  committed_at: z.string().nullable(),
+  released_at: z.string().nullable(),
+  created_at: z.string(),
+});
+
+const HostDetailMachineEventSchema = z.object({
+  id: z.string().uuid(),
+  machine_id: z.string().uuid(),
+  machine_slug: z.string().nullable(),
+  event: z.string(),
+  stage: z.string().nullable(),
+  message: z.string().nullable(),
+  metadata: z.record(z.string(), z.unknown()),
+  created_at: z.string(),
+});
+
+const HostDetailBackupArtifactSchema = z.object({
+  id: z.string().uuid(),
+  display_name: z.string().nullable(),
+  source_machine_slug: z.string().nullable(),
+  status: z.string(),
+  artifact_type: z.string(),
+  size_bytes: z.number().nullable(),
+  created_at: z.string(),
+});
+
+const HostDetailImageCachedSchema = z.object({
+  id: z.string().uuid(),
+  image_id: z.string().uuid().nullable(),
+  image_alias: z.string().nullable(),
+  image_ref: z.string(),
+  image_name: z.string().nullable(),
+  availability_state: z.string(),
+  source: z.string(),
+  last_seen_at: z.string().nullable(),
+  last_requested_at: z.string().nullable(),
+});
+
+const HostRunnerProbeSchema = z.object({
+  reachable: z.boolean(),
+  checked_at: z.string(),
+  incus: z.object({
+    status: z.enum(['ok', 'error']),
+    server_version: z.string().nullable(),
+    instance_count: z.number(),
+    image_count: z.number(),
+  }).optional(),
+  error: z.string().optional(),
+}).nullable();
+
+const HostDetailResponseSchema = z.object({
+  host: HostSchema,
+  machines: z.array(HostDetailMachineSchema),
+  reservations: z.array(HostDetailReservationSchema),
+  events: z.array(HostDetailMachineEventSchema),
+  backup_artifacts: z.array(HostDetailBackupArtifactSchema),
+  runner_probe: HostRunnerProbeSchema,
+  images_cached: z.array(HostDetailImageCachedSchema),
+});
+
+async function probeHostRunner(host: typeof baremetalHosts.$inferSelect): Promise<{
+  reachable: boolean;
+  checked_at: string;
+  incus?: { status: 'ok' | 'error'; server_version: string | null; instance_count: number; image_count: number };
+  error?: string;
+} | null> {
+  if (!host.runnerBaseUrl || !host.runnerToken) return null;
+  const checkedAt = new Date().toISOString();
+  try {
+    // Wrap the runner getState() call with an AbortSignal timeout so an
+    // unreachable runner does not block the admin page.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    // getState() does not currently accept an abort signal, but it delegates
+    // to fetch under the hood. We run it in a race so the request never
+    // exceeds 5s from the operator's perspective.
+    const client = new HttpBaremetalRunnerClient(host.runnerBaseUrl, host.runnerToken);
+    try {
+      const state = await Promise.race<{
+        checkedAt: string;
+        incus: { status: 'ok' | 'error'; serverVersion: string | null; instanceCount: number; imageCount: number };
+      } | never>([
+        client.getState() as Promise<{
+          checkedAt: string;
+          incus: { status: 'ok' | 'error'; serverVersion: string | null; instanceCount: number; imageCount: number };
+        }>,
+        new Promise((_, reject) => {
+          controller.signal.addEventListener('abort', () => reject(new Error('runner probe timed out after 5s')));
+        }),
+      ]);
+      return {
+        reachable: true,
+        checked_at: checkedAt,
+        incus: {
+          status: state.incus.status,
+          server_version: state.incus.serverVersion,
+          instance_count: state.incus.instanceCount,
+          image_count: state.incus.imageCount,
+        },
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  } catch (err) {
+    return {
+      reachable: false,
+      checked_at: checkedAt,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+adminFleetV2App.openapi(createRoute({
+  method: 'get',
+  path: '/hosts/{id}',
+  tags: ['Admin Bare Metal'],
+  summary: 'Get full detail for a single bare-metal host (machines, reservations, events, runner probe)',
+  request: { params: z.object({ id: z.string().uuid() }) },
+  responses: {
+    200: { description: 'Host detail', content: { 'application/json': { schema: HostDetailResponseSchema } } },
+    404: { description: 'Host not found' },
+  },
+}), (async (c: any) => {
+  const adminError = requireAdmin(c);
+  if (adminError) return adminError as Response;
+
+  try {
+    const { id } = c.req.valid('param');
+    const [hostRow] = await db.select().from(baremetalHosts).where(eq(baremetalHosts.id, id));
+    if (!hostRow) return errorResponse(c, 404, 'Host not found') as Response;
+
+    // Load machines currently assigned to this host (non-deleted) joined to
+    // owner email in a single query. Fall back to owner_user_id if the user
+    // row isn't found.
+    const hostMachineRows = await db
+      .select({
+        id: machines.id,
+        slug: machines.slug,
+        name: machines.name,
+        status: machines.status,
+        vcpu: machines.vcpu,
+        ramGb: machines.ramGb,
+        diskGb: machines.diskGb,
+        ip: machines.ip,
+        createdAt: machines.createdAt,
+        lastHeartbeatAt: machines.lastHeartbeatAt,
+        ownerId: machines.ownerId,
+        ownerEmail: users.email,
+      })
+      .from(machines)
+      .leftJoin(users, eq(users.id, machines.ownerId))
+      .where(and(eq(machines.baremetalHostId, hostRow.id), isNull(machines.deletedAt)));
+
+    // Reservations, backup artifacts, and host-image cache rows all scope by host_id.
+    const [reservationRows, backupArtifactRows, hostImageRows, allMachineRows] = await Promise.all([
+      db.select().from(hostCapacityReservations).where(eq(hostCapacityReservations.hostId, hostRow.id)),
+      db.select().from(backupArtifacts).where(eq(backupArtifacts.sourceHostId, hostRow.id)),
+      db.select().from(baremetalHostImages).where(eq(baremetalHostImages.hostId, hostRow.id)),
+      db.select().from(machines),
+    ]);
+
+    // Recent machine events for machines currently or previously on this host.
+    const hostMachineIds = allMachineRows
+      .filter((m) => m.baremetalHostId === hostRow.id)
+      .map((m) => m.id);
+    const machineSlugById = new Map<string, string>(allMachineRows.map((m) => [m.id, m.slug]));
+    const eventRows = hostMachineIds.length > 0
+      ? await db
+          .select()
+          .from(machineEvents)
+          .where(inArray(machineEvents.machineId, hostMachineIds))
+          .orderBy(desc(machineEvents.createdAt))
+          .limit(50)
+      : [];
+
+    // Resolve image names for cached host images (best effort).
+    const imageIds = hostImageRows
+      .map((row) => row.imageId)
+      .filter((id): id is string => Boolean(id));
+    const imageNameById = new Map<string, string>();
+    if (imageIds.length > 0) {
+      const imageRows = await db.select().from(images).where(inArray(images.id, imageIds));
+      for (const img of imageRows) imageNameById.set(img.id, img.name);
+    }
+
+    // Probe the runner (non-blocking on failure, 5s timeout).
+    const runnerProbe = await probeHostRunner(hostRow);
+
+    const serialized = serializeHost(hostRow, {
+      machines: allMachineRows,
+      reservations: reservationRows,
+      artifacts: backupArtifactRows,
+    });
+
+    return c.json({
+      host: serialized,
+      machines: hostMachineRows.map((m) => ({
+        id: m.id,
+        slug: m.slug,
+        name: m.name,
+        status: m.status,
+        vcpu: m.vcpu ?? null,
+        memory_gb: m.ramGb ?? null,
+        disk_gb: m.diskGb ?? null,
+        ip: m.ip ?? null,
+        created_at: m.createdAt.toISOString(),
+        last_heartbeat_at: m.lastHeartbeatAt?.toISOString() ?? null,
+        owner_user_id: m.ownerId ?? null,
+        owner_email: m.ownerEmail ?? null,
+      })),
+      reservations: reservationRows
+        .slice()
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .map((row) => ({
+          id: row.id,
+          machine_id: row.machineId,
+          machine_slug: machineSlugById.get(row.machineId) ?? null,
+          reservation_type: row.reservationType,
+          state: row.state,
+          vcpu: row.vcpu,
+          memory_gb: row.memoryGb,
+          disk_gb: row.diskGb,
+          expires_at: row.expiresAt?.toISOString() ?? null,
+          committed_at: row.committedAt?.toISOString() ?? null,
+          released_at: row.releasedAt?.toISOString() ?? null,
+          created_at: row.createdAt.toISOString(),
+        })),
+      events: eventRows.map((row) => ({
+        id: row.id,
+        machine_id: row.machineId,
+        machine_slug: machineSlugById.get(row.machineId) ?? null,
+        event: row.event,
+        stage: row.stage ?? null,
+        message: row.message ?? null,
+        metadata: (row.metadata ?? {}) as Record<string, unknown>,
+        created_at: row.createdAt.toISOString(),
+      })),
+      backup_artifacts: backupArtifactRows
+        .slice()
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .slice(0, 20)
+        .map((row) => ({
+          id: row.id,
+          display_name: row.displayName ?? null,
+          source_machine_slug: row.sourceMachineSlug ?? null,
+          status: row.status,
+          artifact_type: row.artifactType,
+          size_bytes: row.sizeBytes ?? null,
+          created_at: row.createdAt.toISOString(),
+        })),
+      runner_probe: runnerProbe,
+      images_cached: hostImageRows.map((row) => ({
+        id: row.id,
+        image_id: row.imageId ?? null,
+        image_alias: row.imageAlias ?? null,
+        image_ref: row.imageRef,
+        image_name: row.imageId ? imageNameById.get(row.imageId) ?? null : null,
+        availability_state: row.availabilityState,
+        source: row.source,
+        last_seen_at: row.lastSeenAt?.toISOString() ?? null,
+        last_requested_at: row.lastRequestedAt?.toISOString() ?? null,
+      })),
+    });
+  } catch (err) {
+    return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
+  }
 }) as any);
 
 adminFleetV2App.openapi(createRoute({
@@ -1211,13 +1540,11 @@ adminFleetV2App.openapi(createRoute({
     const { reconcileBaremetalHost } = await import("@/server/platform/baremetal/reconcile");
     await reconcileBaremetalHost(host.id);
 
-    const [hostRows, machineRows, reservationRows, artifactRows, cellRows, admissionRows] = await Promise.all([
+    const [hostRows, machineRows, reservationRows, artifactRows] = await Promise.all([
       db.select().from(baremetalHosts),
       db.select().from(machines),
       db.select().from(hostCapacityReservations),
       db.select().from(backupArtifacts),
-      db.select().from(cells),
-      db.select().from(cellAdmissionControls),
     ]);
     const refreshed = hostRows.find((row) => row.id === host.id) ?? host;
 
@@ -1228,8 +1555,6 @@ adminFleetV2App.openapi(createRoute({
         machines: machineRows,
         reservations: reservationRows,
         artifacts: artifactRows,
-        cellRows,
-        cellAdmissions: admissionRows,
       }),
     });
   } catch (err) {
@@ -1323,12 +1648,7 @@ adminFleetV2App.openapi(createRoute({
       updatedAt: new Date(),
     }).where(eq(baremetalHosts.id, id)).returning();
 
-    const [cellRows, admissionRows] = await Promise.all([
-      db.select().from(cells),
-      db.select().from(cellAdmissionControls),
-    ]);
-
-    return c.json({ host: serializeHost(host, { cellRows, cellAdmissions: admissionRows }) });
+    return c.json({ host: serializeHost(host) });
   } catch (err) {
     return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
   }
@@ -1386,12 +1706,7 @@ adminFleetV2App.openapi(createRoute({
       updatedAt: new Date(),
     }).where(eq(baremetalHosts.id, id)).returning();
 
-    const [cellRows, admissionRows] = await Promise.all([
-      db.select().from(cells),
-      db.select().from(cellAdmissionControls),
-    ]);
-
-    return c.json({ host: serializeHost(host, { cellRows, cellAdmissions: admissionRows }) });
+    return c.json({ host: serializeHost(host) });
   } catch (err) {
     return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
   }
@@ -1445,12 +1760,7 @@ adminFleetV2App.openapi(createRoute({
       updatedAt: new Date(),
     }).where(eq(baremetalHosts.id, id)).returning();
 
-    const [cellRows, admissionRows] = await Promise.all([
-      db.select().from(cells),
-      db.select().from(cellAdmissionControls),
-    ]);
-
-    return c.json({ host: serializeHost(host, { cellRows, cellAdmissions: admissionRows }) });
+    return c.json({ host: serializeHost(host) });
   } catch (err) {
     return handleRouteError(c, err, 'ADMIN-BAREMETAL') as Response;
   }
@@ -1479,13 +1789,6 @@ registerAdminFleetAuditRoutes(adminFleetV2App, requireAdmin, {
       blocking_drift: audit.blockingDrift,
     };
   },
-  listCellCapacitySnapshots: async (limit) => {
-    const rows = await db.select().from(cellCapacitySnapshots);
-    return rows
-      .sort((a, b) => b.snapshotWindowStart.getTime() - a.snapshotWindowStart.getTime())
-      .slice(0, limit ?? 50)
-      .map(serializeCellCapacitySnapshot);
-  },
 });
 
 registerAdminFleetControlPlaneRoutes(adminFleetV2App, requireAdmin);
@@ -1497,23 +1800,42 @@ registerAdminFleetProcurementRoutes(adminFleetV2App, requireAdmin, {
   createProcurement: async (body, userId) => {
     const requestedByUserId = userId ?? randomUUID();
     const requiresApproval = body.requires_approval ?? config.BAREMETAL_PURCHASE_APPROVAL_REQUIRED;
-    const [targetCell] = body.target_cell_id
-      ? await db.select().from(cells).where(eq(cells.id, body.target_cell_id))
-      : [null];
-    if (body.target_cell_id && !targetCell) {
-      throw new Error('Target cell not found');
+    const productId = String(body.product_id ?? '').trim();
+    if (!productId) throw new Error('product_id is required');
+
+    // Auto-derive location + region from the product's available datacenters if
+    // the caller didn't specify. This keeps the Order UX to a single choice: the
+    // Hetzner product. The first available DC wins; region is mapped from the
+    // DC prefix via REGIONS.hetznerLocations.
+    let location = typeof body.location === 'string' && body.location.trim() ? body.location.trim() : '';
+    if (!location && config.hasHetznerRobotCredentials()) {
+      try {
+        const robot = new HetznerRobotClient();
+        const products = await robot.listServerProducts();
+        const product = products.find((p) => p.product.id === productId);
+        location = product?.product.location?.[0] ?? '';
+      } catch {
+        // fall through — require explicit location if product lookup fails
+      }
     }
-    const hostClassProfile = getBaremetalHostClassProfile(body.host_class);
-    const generation = normalizeBaremetalHostGeneration(body.generation ?? targetCell?.generation ?? hostClassProfile.defaultGeneration, targetCell?.metadata ?? null);
+    if (!location) throw new Error('Could not determine datacenter from product; ensure Hetzner credentials are configured or pass an explicit location.');
+
+    // Region derives from which REGIONS bucket contains the location.
+    const regionFromLocation = REGIONS.find((r) => (r.hetznerLocations as readonly string[]).includes(location))?.id;
+    const region = typeof body.region === 'string' && body.region.trim() ? body.region.trim() : regionFromLocation ?? 'eu';
+
+    // host_class = the Hetzner product id (lowercased). This is the hardware
+    // identity — no extra abstraction layer.
+    const hostClass = typeof body.host_class === 'string' && body.host_class.trim()
+      ? body.host_class.trim()
+      : productId.toLowerCase();
+
     const [procurement] = await db.insert(baremetalProcurements).values({
       vendor: String(body.vendor ?? 'hetzner_robot'),
-      hostClass: String(body.host_class),
-      generation,
-      targetCellId: body.target_cell_id ?? null,
-      procurementPurpose: String(body.procurement_purpose ?? 'capacity_growth'),
-      productId: String(body.product_id),
-      region: String(body.region),
-      location: String(body.location),
+      hostClass,
+      productId,
+      region,
+      location,
       status: requiresApproval ? 'requested' : 'approved',
       requestedByUserId,
       approvedByUserId: requiresApproval ? null : userId,
@@ -1527,7 +1849,7 @@ registerAdminFleetProcurementRoutes(adminFleetV2App, requireAdmin, {
   },
   listRecommendations: async () => {
     const overview = await loadFleetOverviewState();
-    return serializeProcurementRecommendations(overview.cells);
+    return serializeProcurementRecommendations(overview.regions, overview.hostRows);
   },
   approveProcurement: (id, userId) => placeHetznerRobotOrder(id, userId ?? undefined),
   syncProcurement: async (id) => {
@@ -1562,3 +1884,9 @@ registerAdminFleetProcurementRoutes(adminFleetV2App, requireAdmin, {
 });
 
 registerAdminFleetBenchmarkRoutes(adminFleetV2App, requireAdmin);
+
+// Ensure REGIONS is referenced to keep it imported even if not yet used in
+// every code path. We may use it in the future for bootstrapping the regions
+// table or for validation, and keeping the import surface explicit documents
+// the dependency.
+void REGIONS;

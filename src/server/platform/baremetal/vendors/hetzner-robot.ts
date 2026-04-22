@@ -6,6 +6,50 @@ function basicAuthHeader(user: string, password: string) {
   return `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`;
 }
 
+const SSH_KEY_TYPES = new Set([
+  'ssh-rsa',
+  'ssh-dss',
+  'ssh-ed25519',
+  'ecdsa-sha2-nistp256',
+  'ecdsa-sha2-nistp384',
+  'ecdsa-sha2-nistp521',
+  'sk-ssh-ed25519@openssh.com',
+  'sk-ecdsa-sha2-nistp256@openssh.com',
+]);
+
+/**
+ * Validate + normalize an OpenSSH public key string to `<type> <base64> [comment]`.
+ * Catches common env-var corruption (backslash-escaped spaces, quote wrapping,
+ * trailing newlines) before it reaches Hetzner with a cryptic 400.
+ */
+export function normalizeSshPublicKey(raw: string): string {
+  if (!raw) throw new Error('SSH public key is empty');
+  let value = raw.trim();
+  // Strip surrounding quotes (common when pasted from an env file).
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    value = value.slice(1, -1).trim();
+  }
+  // Unescape shell-escaped spaces (from `printf '%q'` or similar).
+  value = value.replace(/\\ /g, ' ');
+  // Collapse any internal newlines / tabs that shouldn't be there.
+  if (/[\n\r\t]/.test(value)) {
+    throw new Error('SSH public key contains newline/tab characters; expected single-line format');
+  }
+  const parts = value.split(/\s+/);
+  if (parts.length < 2) {
+    throw new Error(`SSH public key is malformed: expected '<type> <base64> [comment]', got ${JSON.stringify(raw.slice(0, 40))}…`);
+  }
+  const [type, base64, ...commentParts] = parts;
+  if (!SSH_KEY_TYPES.has(type)) {
+    throw new Error(`SSH public key has unsupported type '${type}' — expected one of ${[...SSH_KEY_TYPES].slice(0, 3).join(', ')}, …`);
+  }
+  if (!/^[A-Za-z0-9+/]+=*$/.test(base64)) {
+    throw new Error('SSH public key base64 body contains invalid characters');
+  }
+  const comment = commentParts.join(' ').trim();
+  return comment ? `${type} ${base64} ${comment}` : `${type} ${base64}`;
+}
+
 interface HetznerRobotProduct {
   product: {
     id: string;
@@ -36,6 +80,23 @@ interface HetznerRobotKey {
     type?: string;
     size?: number;
     created_at?: string;
+  };
+}
+
+export interface HetznerRobotServer {
+  server: {
+    server_ip: string | null;
+    server_ipv6_net?: string | null;
+    server_number: number;
+    server_name: string | null;
+    product: string;
+    dc: string;
+    traffic?: string;
+    status: string;
+    cancelled: boolean;
+    paid_until?: string;
+    ip?: string[];
+    subnet?: Array<{ ip: string; mask: string }>;
   };
 }
 
@@ -83,9 +144,10 @@ export class HetznerRobotClient {
   }
 
   async createKey(input: { name: string; data: string }): Promise<HetznerRobotKey> {
+    const normalized = normalizeSshPublicKey(input.data);
     const body = new URLSearchParams();
     body.set('name', input.name);
-    body.set('data', input.data);
+    body.set('data', normalized);
     return this.request('/key', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -94,10 +156,11 @@ export class HetznerRobotClient {
   }
 
   async ensureKey(input: { name: string; data: string }): Promise<string> {
+    const normalized = normalizeSshPublicKey(input.data);
     const keys = await this.listKeys().catch(() => []);
-    const existing = keys.find((entry) => entry.key.data.trim() === input.data.trim());
+    const existing = keys.find((entry) => entry.key.data.trim() === normalized);
     if (existing) return existing.key.fingerprint;
-    const created = await this.createKey(input);
+    const created = await this.createKey({ name: input.name, data: normalized });
     return created.key.fingerprint;
   }
 
@@ -128,5 +191,14 @@ export class HetznerRobotClient {
 
   getOrderTransaction(id: string): Promise<HetznerRobotTransaction> {
     return this.request(`/order/server/transaction/${encodeURIComponent(id)}`);
+  }
+
+  async listServers(): Promise<HetznerRobotServer[]> {
+    try {
+      return await this.request<HetznerRobotServer[]>('/server');
+    } catch (err) {
+      if (err instanceof Error && /404/.test(err.message)) return [];
+      throw err;
+    }
   }
 }

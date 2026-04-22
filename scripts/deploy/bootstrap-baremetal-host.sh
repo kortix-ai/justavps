@@ -42,6 +42,32 @@ import json, sys
 print(json.loads(sys.argv[1])['host']['runner_token'])
 PY
 )"
+cluster_json="$(python3 - <<'PY' "$bootstrap_json"
+import json, sys
+host = json.loads(sys.argv[1])['host']
+print(json.dumps(host.get('cluster') or {}))
+PY
+)"
+cluster_id="$(python3 - <<'PY' "$cluster_json"
+import json, sys
+print((json.loads(sys.argv[1]) or {}).get('id', ''))
+PY
+)"
+cluster_name="$(python3 - <<'PY' "$cluster_json"
+import json, sys
+print((json.loads(sys.argv[1]) or {}).get('name', ''))
+PY
+)"
+incus_cluster_name="$(python3 - <<'PY' "$cluster_json"
+import json, sys
+print((json.loads(sys.argv[1]) or {}).get('incus_cluster_name', ''))
+PY
+)"
+incus_member_name="$(python3 - <<'PY' "$cluster_json"
+import json, sys
+print((json.loads(sys.argv[1]) or {}).get('incus_member_name', ''))
+PY
+)"
 
 scp "${SSH_OPTS[@]}" -r "$RUNNER_SRC_DIR" "root@${HOST_IP}:/opt/justavps-runnerd"
 scp "${SSH_OPTS[@]}" -r "$HOST_BOOTSTRAP_DIR" "root@${HOST_IP}:/opt/justavps-host-bootstrap"
@@ -55,6 +81,10 @@ RUNNERD_PORT=${RUNNER_PORT}
 RUNNERD_PUBLIC_IPV4=${HOST_IP}
 INCUS_CHANNEL=${INCUS_CHANNEL}
 INCUS_PROJECT=${INCUS_PROJECT}
+JUSTAVPS_CLUSTER_ID=${cluster_id}
+JUSTAVPS_CLUSTER_NAME=${cluster_name}
+JUSTAVPS_INCUS_CLUSTER_NAME=${incus_cluster_name}
+JUSTAVPS_INCUS_MEMBER_NAME=${incus_member_name}
 EOF
 
 ssh "${SSH_OPTS[@]}" "root@${HOST_IP}" "systemctl daemon-reload && systemctl enable --now justavps-runnerd && systemctl restart justavps-runnerd"
@@ -84,9 +114,9 @@ print(json.dumps({
 }))
 PY")"
 
-register_payload="$(python3 - <<'PY' "$HOST_IP" "$RUNNER_PORT" "$capacity_json" "$doctor_json"
+register_payload="$(python3 - <<'PY' "$HOST_IP" "$RUNNER_PORT" "$capacity_json" "$doctor_json" "$cluster_id" "$cluster_name" "$incus_cluster_name" "$incus_member_name"
 import json, sys
-host_ip, runner_port, capacity_json, doctor_json = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+host_ip, runner_port, capacity_json, doctor_json, cluster_id, cluster_name, incus_cluster_name, incus_member_name = sys.argv[1:9]
 capacity = json.loads(capacity_json)
 doctor = json.loads(doctor_json)
 print(json.dumps({
@@ -101,6 +131,10 @@ print(json.dumps({
       'storage_driver': doctor.get('storage_driver'),
       'storage_pool': doctor.get('storage_pool'),
       'incus_project': doctor.get('incus_project'),
+      'cluster_id': cluster_id or None,
+      'cluster_name': cluster_name or None,
+      'incus_cluster_name': incus_cluster_name or None,
+      'incus_member_name': incus_member_name or None,
       'runner_port': int(runner_port),
     }
   }

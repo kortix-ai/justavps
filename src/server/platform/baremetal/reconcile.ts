@@ -2,7 +2,6 @@ import { resolvePlanForDisplay } from '@/shared/lib/plan-catalog';
 import { eq } from 'drizzle-orm';
 import { db } from "@/server/db/index";
 import { baremetalHosts, hostCapacityReservations, images, machines } from "@/server/db/schema";
-import { ensureBaremetalHostCellAssignment } from "@/server/platform/baremetal/cell-store";
 import { expireStaleHostCapacityReservations } from "@/server/platform/baremetal/reservations";
 import { syncHostImageAvailabilityFromRunnerState } from "@/server/platform/baremetal/image-locality";
 import { backfillMachinePortAllocationsFromMachine } from "@/server/platform/baremetal/port-allocations";
@@ -288,7 +287,6 @@ export async function reconcileBaremetalFleet(
     }
 
     try {
-      const cell = await ensureBaremetalHostCellAssignment({ host });
       const state = await deps.fetchRunnerState(host);
       for (const instance of state.instances) liveInstanceIds.add(instance.instanceId);
       const hostMachines = allMachines.filter((machine) => machine.provider === 'baremetal' && machineHostId(machine) === host.id);
@@ -336,8 +334,6 @@ export async function reconcileBaremetalFleet(
       await deps.updateHost(host.id, {
         status: reconciledHostStatus(host, state.incus.status),
         lastHeartbeatAt: new Date(checkedAt),
-        generation: cell.generation,
-        cellId: cell.id,
         usedVcpu: usage.usedVcpu,
         usedMemoryGb: usage.usedMemoryGb,
         usedDiskGb: usage.usedDiskGb,

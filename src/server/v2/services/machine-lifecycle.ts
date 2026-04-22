@@ -194,7 +194,7 @@ export async function createMachineRecord(input: CreateMachineInput) {
     // and never leaks into v1 list/get/mutation endpoints. Keeps the two
     // API surfaces cleanly separated even though they share the machines table.
     apiVersion: 'v2',
-    machineMode: input.machineMode ?? 'vm',
+    machineMode: input.machineMode ?? 'container',
     requestedImageKind: input.requestedImageKind ?? 'golden',
     requestedImageRef: input.requestedImageRef ?? null,
     sshPublicKey: '',

@@ -179,7 +179,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
   const [ramGb, setRamGb] = useState(4);
   const [diskGb, setDiskGb] = useState(80);
   const [machineName, setMachineName] = useState("");
-  const [machineMode, setMachineMode] = useState<"vm" | "container">("vm");
+  const [machineMode, setMachineMode] = useState<"vm" | "container">("container");
   const [dockerImage, setDockerImage] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -210,8 +210,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
       && clampedVcpu >= MIN_VCPU
       && clampedRam >= MIN_RAM_GB
       && clampedDisk >= MIN_DISK_GB
-      && !machineLimitReached
-      && (machineMode !== "container" || dockerImage.trim().length > 0),
+      && !machineLimitReached,
   );
 
   /* ─── Live price breakdown ─── */
@@ -385,7 +384,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                       <Box className="size-3.5" />
                       <span className="text-sm font-medium">Container</span>
                     </div>
-                    <p className="text-[11px] text-muted-foreground">Fast start. Bring a Docker Hub image like <code>nginx:latest</code>.</p>
+                      <p className="text-[11px] text-muted-foreground">Fast start. Uses the platform container by default; Docker image optional.</p>
                   </button>
                 </div>
 
@@ -397,14 +396,14 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                       </span>
                     </div>
                     <Input
-                      placeholder="nginx:latest or docker:nginx:latest"
+                        placeholder="Optional: nginx:latest or docker:nginx:latest"
                       value={dockerImage}
                       onChange={(e) => setDockerImage(e.target.value)}
                       className="h-9 text-sm"
                     />
-                    <p className="text-[11px] text-muted-foreground">
-                      Pulled from Docker Hub through Incus OCI support on upgraded hosts. Access is provided through the JustAVPS terminal, exec API, and preview URLs.
-                    </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Leave blank for the default platform container. Or provide a Docker Hub image through Incus OCI support on upgraded hosts.
+                      </p>
                   </div>
                 )}
 

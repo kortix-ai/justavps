@@ -1,6 +1,5 @@
 import { db, resetDbConnection } from '@/server/db';
-import { baremetalHosts, cellAdmissionControls, cells } from '@/server/db/schema';
-import { buildBaremetalCellCapacitySnapshots, buildBaremetalCellState } from "@/server/platform/baremetal/cells";
+import { baremetalHosts, regions } from '@/server/db/schema';
 import { config } from "@/server/core/config";
 
 type ConfigAuditSeverity = 'ok' | 'warning' | 'error';
@@ -119,8 +118,7 @@ function appendFleetHostAuditChecks(
   hostRows: Array<typeof baremetalHosts.$inferSelect>,
   summary: FleetHostAuditSummary,
   context?: {
-    cellsById: Map<string, typeof cells.$inferSelect>;
-    admissionsByCellId: Map<string, typeof cellAdmissionControls.$inferSelect>;
+    regionsById: Map<string, typeof regions.$inferSelect>;
   },
 ) {
   const driftStatuses = hostRows.map((host) => {
@@ -148,44 +146,59 @@ function appendFleetHostAuditChecks(
     });
   }
 
-  const cellSnapshots = buildBaremetalCellCapacitySnapshots(hostRows.map((host) => ({
-    id: host.id,
-    region: host.region,
-    hostClass: host.hostClass,
-    generation: host.generation,
-    cellId: host.cellId,
-    status: host.status,
-    maintenanceState: host.maintenanceState,
-    metadata: host.metadata,
-    cell: buildBaremetalCellState({
-      region: host.region,
-      hostClass: host.hostClass,
-      generation: host.generation,
-      cellId: host.cellId,
-      metadata: host.metadata,
-      cell: context?.cellsById.get(host.cellId ?? '') ?? undefined,
-      admission: context?.admissionsByCellId.get(host.cellId ?? '') ?? undefined,
-    }) ?? undefined,
-    capacity: {
-      totalVcpu: host.totalVcpu ?? 0,
-      totalMemoryGb: host.totalMemoryGb ?? 0,
-      totalDiskGb: host.totalDiskGb ?? 0,
-      usedVcpu: host.usedVcpu ?? 0,
-      usedMemoryGb: host.usedMemoryGb ?? 0,
-      usedDiskGb: host.usedDiskGb ?? 0,
-    },
-  })));
-  const sellableCellsWithoutSchedulableHosts = cellSnapshots.filter((snapshot) => snapshot.cell.admission.state === 'open'
-    && snapshot.cell.admission.sellability === 'sellable'
-    && snapshot.activeSchedulableHostCount === 0);
+  // Region-level audit: verify hosts reference a region that exists, and that
+  // regions have required admission/sellability state set.
+  if (context?.regionsById) {
+    const orphanHosts = hostRows.filter((host) => !context.regionsById.has(host.region));
+    if (orphanHosts.length > 0) {
+      checks.push({
+        key: 'fleet_host_orphan_region',
+        severity: 'error',
+        message: `${orphanHosts.length} host(s) reference a region not present in the regions table`,
+        details: orphanHosts.map((host) => `${host.name} (region=${host.region})`).join(', '),
+      });
+    }
 
-  if (sellableCellsWithoutSchedulableHosts.length > 0) {
-    checks.push({
-      key: 'fleet_cell_no_schedulable_capacity',
-      severity: 'error',
-      message: `${sellableCellsWithoutSchedulableHosts.length} sellable cell(s) have zero schedulable active hosts`,
-      details: sellableCellsWithoutSchedulableHosts.map((snapshot) => snapshot.cell.slug).join(', '),
+    const regionsMissingAdmission = [...context.regionsById.values()].filter(
+      (region) => !region.admissionState || !region.sellabilityState,
+    );
+    if (regionsMissingAdmission.length > 0) {
+      checks.push({
+        key: 'fleet_region_missing_admission_state',
+        severity: 'error',
+        message: `${regionsMissingAdmission.length} region(s) missing admission/sellability state`,
+        details: regionsMissingAdmission.map((region) => region.id).join(', '),
+      });
+    }
+
+    // Sellable regions without any schedulable active host
+    const hostsByRegion = new Map<string, Array<typeof baremetalHosts.$inferSelect>>();
+    for (const host of hostRows) {
+      const existing = hostsByRegion.get(host.region) ?? [];
+      existing.push(host);
+      hostsByRegion.set(host.region, existing);
+    }
+    const sellableRegionsWithoutCapacity = [...context.regionsById.values()].filter((region) => {
+      if (!region.active) return false;
+      if (region.admissionState !== 'open') return false;
+      if (region.sellabilityState !== 'sellable') return false;
+      const hostsInRegion = hostsByRegion.get(region.id) ?? [];
+      const schedulable = hostsInRegion.filter((host) => {
+        const scheduler = host.metadata && typeof host.metadata === 'object' && !Array.isArray(host.metadata)
+          ? (host.metadata.scheduler as Record<string, unknown> | undefined)
+          : undefined;
+        return host.status === 'active' && scheduler?.schedulable !== false;
+      });
+      return schedulable.length === 0;
     });
+    if (sellableRegionsWithoutCapacity.length > 0) {
+      checks.push({
+        key: 'fleet_region_no_schedulable_capacity',
+        severity: 'error',
+        message: `${sellableRegionsWithoutCapacity.length} sellable region(s) have zero schedulable active hosts`,
+        details: sellableRegionsWithoutCapacity.map((region) => region.id).join(', '),
+      });
+    }
   }
 
   const quarantinedHosts = hostRows.filter((host) => {
@@ -233,28 +246,21 @@ export async function loadConfigAuditChecks(hostRowsInput?: Array<typeof baremet
   const checks = buildConfigAuditChecks();
   const loaded = hostRowsInput ? null : await loadFleetHostAuditSummary();
   const hostRows = hostRowsInput ?? loaded?.hostRows ?? [];
-  let cellRows: Array<typeof cells.$inferSelect> = [];
-  let admissionRows: Array<typeof cellAdmissionControls.$inferSelect> = [];
+  let regionRows: Array<typeof regions.$inferSelect> = [];
   let dbConnectivityOk = options?.databaseReachable ?? true;
   if (dbConnectivityOk) {
     try {
-      [cellRows, admissionRows] = await Promise.all([
-        runAuditQuery(() => db.select().from(cells)),
-        runAuditQuery(() => db.select().from(cellAdmissionControls)),
-      ]);
+      regionRows = await runAuditQuery(() => db.select().from(regions));
     } catch {
       dbConnectivityOk = false;
-      cellRows = [];
-      admissionRows = [];
+      regionRows = [];
     }
   }
   checks.push(dbConnectivityOk
     ? { key: 'database_connectivity', severity: 'ok', message: 'Database connectivity check passed' }
     : { key: 'database_connectivity', severity: 'error', message: 'Database connectivity check failed' });
-  const safeCellRows = Array.isArray(cellRows) ? cellRows : [];
-  const safeAdmissionRows = Array.isArray(admissionRows) ? admissionRows : [];
-  const cellsById = new Map(safeCellRows.map((row) => [row.id, row]));
-  const admissionsByCellId = new Map(safeAdmissionRows.map((row) => [row.cellId, row]));
+  const safeRegionRows = Array.isArray(regionRows) ? regionRows : [];
+  const regionsById = new Map(safeRegionRows.map((row) => [row.id, row]));
   const summary = hostRowsInput
       ? {
         total_hosts: hostRows.length,
@@ -293,7 +299,7 @@ export async function loadConfigAuditChecks(hostRowsInput?: Array<typeof baremet
         warning_drift_hosts: 0,
         blocking_drift_hosts: 0,
       };
-  return appendFleetHostAuditChecks(checks, hostRows, summary, { cellsById, admissionsByCellId });
+  return appendFleetHostAuditChecks(checks, hostRows, summary, { regionsById });
 }
 
 export async function loadFleetHostAuditSummary(): Promise<{

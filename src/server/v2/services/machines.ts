@@ -21,7 +21,6 @@ import {
 import { commitHostCapacityReservation, getHostCapacityReservationForMachine, releaseHostCapacityReservation } from "@/server/platform/baremetal/reservations";
 import { recordHostImageLocalityIntent } from "@/server/platform/baremetal/image-locality";
 import { getMachinePortAllocations, releaseMachinePortAllocations, reserveMachinePortAllocations } from "@/server/platform/baremetal/port-allocations";
-import { deriveBaremetalCellIdentity } from "@/server/platform/baremetal/cells";
 import { checkMachineLimit } from "@/server/auth/account-limits";
 import { decryptSecret } from "@/server/core/crypto";
 import { recordMachineBenchmark } from "@/server/v2/services/machine-benchmarks";
@@ -234,9 +233,6 @@ async function ensureBaremetalHostBinding(machine: MachineRow) {
   const nextMeta = {
     ...meta,
     baremetal_host_id: host.id,
-    baremetal_cell_id: host.cellId,
-    baremetal_cell_slug: deriveBaremetalCellIdentity(host)?.slug ?? null,
-    baremetal_cell_generation: host.generation,
     runner_base_url: host.runnerBaseUrl,
     public_ipv4: meta.public_ipv4 ?? host.publicIpv4 ?? null,
   };
@@ -554,9 +550,6 @@ export async function handleMachineCreateJob(machineId: string, payload: Machine
         create_progress: 1,
         machine_mode: payload.machineMode ?? (machine.machineMode as V2MachineMode),
         baremetal_host_id: host.id,
-        baremetal_cell_id: host.cellId,
-        baremetal_cell_slug: deriveBaremetalCellIdentity(host)?.slug ?? null,
-        baremetal_cell_generation: host.generation,
         runner_base_url: host.runnerBaseUrl,
         reservation_id: reservation.id,
         public_ipv4: publicIpv4,
@@ -614,6 +607,14 @@ export async function handleMachineCreateJob(machineId: string, payload: Machine
         } else {
           await eventBus.emitStageChange(machine.id, payload.accountId, 'server_created', 'Warm pool claimed, waiting for public proxy readiness');
         }
+      } else if ((payload.machineMode ?? (machine.machineMode as V2MachineMode)) === 'container') {
+        await db.update(machines).set({
+          status: 'ready',
+          readyAt: new Date(),
+          readyVia: 'probe',
+          provisioningStage: 'services_ready',
+        }).where(eq(machines.id, machine.id));
+        await eventBus.emitStatusChange(machine.id, payload.accountId, 'ready', 'Container machine ready');
       } else {
         await eventBus.emitStageChange(machine.id, payload.accountId, 'server_created', 'Server created');
       }
@@ -680,8 +681,14 @@ ensureProvisionerServiceWorker();
 export async function createMachineV2(input: { accountId: string; userId: string; isAdmin: boolean; requestUrl?: string; input: V2CreateMachineInput }): Promise<V2CreateMachineResult> {
   const data = input.input;
   const { computeMonthlyPrice } = await import('@/v2/lib/v2-pricing');
+  const { assertNotPaused, regionClosedFlagKey } = await import('@/server/v1/services/operational-flags');
   const tStart = Date.now();
   const ms = () => Date.now() - tStart;
+
+  // ── 0. Kill-switch checks ────────────────────────────────────────────────
+  await assertNotPaused('machine_creates_paused', 'Machine creation is temporarily paused');
+  const region = data.region ?? 'eu';
+  await assertNotPaused(regionClosedFlagKey(region), `Region ${region} is temporarily closed for new machines`);
 
   // ── 1. Quota check (single DB query) ─────────────────────────────────────
   const machineLimit = await checkMachineLimit(input.accountId, input.userId, input.isAdmin);
@@ -693,9 +700,8 @@ export async function createMachineV2(input: { accountId: string; userId: string
   const reqVcpu = data.vcpu;
   const reqRam = data.ram_gb;
   const reqDisk = data.disk_gb;
-  const machineMode = data.machine_mode ?? 'vm';
+  const machineMode = data.machine_mode ?? 'container';
   const dockerImage = normalizeDockerImageRef(data.docker_image);
-  const region = data.region ?? 'hel1';
 
   if (dockerImage && machineMode !== 'container') {
     throw new Error('Docker image refs are only supported for container machines');

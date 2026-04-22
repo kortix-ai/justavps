@@ -34,6 +34,6 @@ describe('v2 catalog API', () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(Array.isArray(data.regions)).toBe(true);
-    expect(data.regions.some((region: { id: string }) => region.id === 'fsn1')).toBe(true);
+    expect(data.regions.some((region: { id: string }) => region.id === 'eu')).toBe(true);
   });
 });

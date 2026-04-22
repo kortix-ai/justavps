@@ -100,7 +100,7 @@ async function main() {
       image,
       machineMode,
       ...(STATIC_IPV4 ? { containerIpv4Address: STATIC_IPV4 } : {}),
-      region: 'hel1',
+      region: 'eu',
       serverType: 'custom',
       vcpu: 2,
       memoryGb: 4,

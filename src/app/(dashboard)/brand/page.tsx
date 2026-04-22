@@ -911,7 +911,7 @@ export const roobert = localFont({
             </div>
             <div>
               <p className="text-sm font-medium text-yellow-600 dark:text-yellow-400">Provisioning</p>
-              <p className="text-xs text-muted-foreground mt-0.5">This usually takes 1–3 minutes.</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Setting up your machine.</p>
             </div>
           </div>
         </div>

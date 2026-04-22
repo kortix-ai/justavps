@@ -11,8 +11,8 @@ vi.mock('@tanstack/react-query', () => ({
 
 vi.mock('@/shared/hooks/api-client', () => ({
   apiV2: {
-    post: vi.fn(async () => ({ host: {}, cell: {} })),
-    get: vi.fn(async () => ({ hosts: [], cells: [] })),
+    post: vi.fn(async () => ({ host: {}, region: {} })),
+    get: vi.fn(async () => ({ hosts: [], regions: [] })),
   },
 }));
 
@@ -33,21 +33,6 @@ describe('use-fleet invalidation', () => {
       [{ queryKey: ['fleet', 'overview'] }],
       [{ queryKey: ['fleet', 'host-audit'] }],
       [{ queryKey: ['fleet', 'config-audit'] }],
-      [{ queryKey: ['fleet', 'cell-capacity-snapshots'] }],
-    ]);
-  });
-
-  it('invalidates all fleet views after cell reserve policy updates', async () => {
-    const { useUpdateFleetCellReservePolicy } = await import('@/shared/hooks/use-fleet');
-    const mutation = useUpdateFleetCellReservePolicy() as { onSuccess?: () => void };
-
-    mutation.onSuccess?.();
-
-    expect(invalidateQueriesMock.mock.calls).toEqual([
-      [{ queryKey: ['fleet', 'overview'] }],
-      [{ queryKey: ['fleet', 'host-audit'] }],
-      [{ queryKey: ['fleet', 'config-audit'] }],
-      [{ queryKey: ['fleet', 'cell-capacity-snapshots'] }],
     ]);
   });
 });

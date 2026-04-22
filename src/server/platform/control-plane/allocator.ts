@@ -1,4 +1,3 @@
-import { deriveBaremetalCellIdentity } from "@/server/platform/baremetal/cells";
 import { leaseHostCapacity, type LeaseHostCapacityResult, type RequestedHostCapacity } from "@/server/platform/baremetal/reservations";
 import { recordControlPlaneServiceCheckpoint } from "@/server/platform/control-plane/service-state";
 
@@ -58,22 +57,14 @@ export async function reserveCapacityForMachineCreate(input: {
 }
 
 export function buildMachinePlacementProviderMeta(lease: LeaseHostCapacityResult, resources: RequestedHostCapacity) {
-  const selectedCandidate = lease.decision.candidates?.find((candidate) => candidate.hostId === lease.host.id);
-  const selectedCell = selectedCandidate?.cell ?? deriveBaremetalCellIdentity(lease.host);
-
   return {
     baremetal_host_id: lease.host.id,
-    baremetal_cell_id: selectedCell?.id ?? lease.host.cellId ?? null,
-    baremetal_cell_slug: selectedCell?.slug ?? null,
-    baremetal_cell_generation: selectedCell?.generation ?? lease.host.generation ?? null,
     runner_base_url: lease.host.runnerBaseUrl,
     public_ipv4: lease.host.publicIpv4 ?? null,
     public_ipv6: lease.host.publicIpv6 ?? null,
     reservation_id: lease.reservation.id,
     placement_decision: {
       selected_host_id: lease.decision.selectedHostId,
-      selected_cell_id: selectedCell?.id ?? null,
-      selected_cell_slug: selectedCell?.slug ?? null,
       outcome: lease.decision.outcome,
       summary: lease.decision.summary,
       explanation: lease.decision.explanation,

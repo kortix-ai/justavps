@@ -17,6 +17,15 @@ import { proxyTokensApp } from "@/server/v1/routes/legacy/proxy-tokens";
 import { proxyApp } from "@/server/v1/routes/proxy";
 import { adminRoutingApp } from "@/server/v1/routes/internal/admin-routing";
 import { adminMachinesApp } from "@/server/v1/routes/internal/admin-machines";
+import { adminAccountsApp } from "@/server/v1/routes/internal/admin-accounts";
+import { adminBillingApp } from "@/server/v1/routes/internal/admin-billing";
+import { adminImagesApp } from "@/server/v1/routes/internal/admin-images";
+import { adminWebhooksApp } from "@/server/v1/routes/internal/admin-webhooks";
+import { adminKeysApp } from "@/server/v1/routes/internal/admin-keys";
+import { adminIntegrationsApp } from "@/server/v1/routes/internal/admin-integrations";
+import { adminActivityApp } from "@/server/v1/routes/internal/admin-activity";
+import { adminSearchApp } from "@/server/v1/routes/internal/admin-search";
+import { adminControlsApp } from "@/server/v1/routes/internal/admin-controls";
 
 export const v1 = new OpenAPIHono();
 
@@ -33,6 +42,22 @@ v1.route('/server-types', serverTypesApp);
 v1.route('/account', accountApp);
 v1.route('/admin/routing', adminRoutingApp);
 v1.route('/admin/machines', adminMachinesApp);
+v1.route('/admin/billing', adminBillingApp);
+// adminImagesApp serves BOTH /admin/images/* and /admin/backup-artifacts/*,
+// so mount it at /admin (alongside adminAccountsApp which also mounts at /admin).
+v1.route('/admin', adminImagesApp);
+v1.route('/admin', adminAccountsApp);
+// adminWebhooksApp serves BOTH /admin/webhooks/* and /admin/webhook-deliveries/*
+v1.route('/admin', adminWebhooksApp);
+// adminKeysApp serves /admin/ssh-keys/*, /admin/api-keys/*, /admin/proxy-tokens/*
+v1.route('/admin', adminKeysApp);
+// adminIntegrationsApp serves /admin/integrations and /admin/integrations/:id
+v1.route('/admin', adminIntegrationsApp);
+// adminActivityApp serves a single GET /admin/activity endpoint
+v1.route('/admin/activity', adminActivityApp);
+// adminSearchApp serves GET /admin/search (global Cmd-K palette)
+v1.route('/admin', adminSearchApp);
+v1.route('/admin/controls', adminControlsApp);
 v1.route('/internal', internalApp);
 // SSE status stream + Toolbox mount under /machines so paths resolve as
 // /api/v1/machines/:id/status/stream and /api/v1/machines/:id/toolbox/*

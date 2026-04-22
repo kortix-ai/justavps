@@ -23,6 +23,7 @@ build/
 
 # testing
 coverage/
+.e2e-checkpoints/
 
 # drizzle
 drizzle/meta/

@@ -78,9 +78,7 @@ const navigation = [
 ];
 
 const adminNavigationV2 = [
-  { name: "All Machines", href: "/admin/machines", icon: Server },
-  { name: "Fleet", href: "/v2/admin/fleet", icon: HardDrive },
-  { name: "Routing", href: "/admin/routing", icon: ShieldCheck },
+  { name: "Admin Panel", href: "/v2/admin", icon: ShieldCheck },
 ];
 
 const versionSwitchItems: Array<{ label: string; version: UiVersion }> = [

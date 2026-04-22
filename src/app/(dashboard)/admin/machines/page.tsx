@@ -1,23 +1,30 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Check,
+  Copy,
   Cpu,
   HardDrive,
   Loader2,
   MemoryStick,
+  Play,
+  Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   Server,
   ShieldCheck,
+  Square,
   Trash2,
+  User as UserIcon,
 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
 import { Input } from "@/shared/ui/input";
+import { Label } from "@/shared/ui/label";
 import { Skeleton } from "@/shared/ui/skeleton";
 import {
   Select,
@@ -41,6 +48,18 @@ import {
   getAdminMachinesRangeLabel,
   getAdminMachinesTotalPages,
 } from "@/v1/lib/admin-machines";
+import {
+  useAdminMachine,
+  useAdminUserSearch,
+  useCreateAdminMachine,
+  useMachineLifecycle,
+  useUpdateAdminMachine,
+  type AdminMachineDetail,
+  type AdminUserSearchResult,
+  type MachineLifecycleAction,
+} from "@/shared/hooks/use-fleet";
+import { ACTIVE_REGIONS } from "@/shared/lib/regions";
+import { AdminStatusPill, AdminMetric } from "@/v2/components/admin/primitives";
 import { toast } from "sonner";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -113,6 +132,20 @@ function statusColor(status: string) {
   }
 }
 
+function statusTone(status: string): "success" | "warning" | "danger" | "neutral" {
+  switch (status) {
+    case "ready":
+      return "success";
+    case "provisioning":
+      return "warning";
+    case "error":
+    case "deleted":
+      return "danger";
+    default:
+      return "neutral";
+  }
+}
+
 function relativeTime(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60000);
@@ -122,6 +155,670 @@ function relativeTime(iso: string) {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+function slugFromEmail(email: string | null | undefined): string {
+  if (!email) return "";
+  return email.split("@")[0].toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24);
+}
+
+function copyToClipboard(value: string) {
+  if (typeof navigator === "undefined" || !navigator.clipboard) return;
+  navigator.clipboard.writeText(value).then(
+    () => toast.success("Copied to clipboard"),
+    () => toast.error("Failed to copy"),
+  );
+}
+
+// ─── Create dialog ──────────────────────────────────────────────────────────
+
+function CreateMachineDialog({
+  open,
+  onOpenChange,
+  onSuccess,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSuccess: () => void;
+}) {
+  const [ownerQuery, setOwnerQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [selectedUser, setSelectedUser] = useState<AdminUserSearchResult | null>(null);
+  const [name, setName] = useState("");
+  const [region, setRegion] = useState(ACTIVE_REGIONS[0]?.id ?? "eu");
+  const [vcpu, setVcpu] = useState(2);
+  const [memoryGb, setMemoryGb] = useState(4);
+  const [diskGb, setDiskGb] = useState(40);
+  const [imageRef, setImageRef] = useState("ubuntu-24.04");
+  const [machineMode, setMachineMode] = useState<"vm" | "container">("container");
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(ownerQuery), 250);
+    return () => clearTimeout(t);
+  }, [ownerQuery]);
+
+  const searchEnabled = open && (debouncedQuery.trim().length >= 1 || !selectedUser);
+  const { data: searchData, isLoading: searchLoading } = useAdminUserSearch(debouncedQuery, searchEnabled);
+  const users = searchData?.users ?? [];
+
+  const create = useCreateAdminMachine();
+
+  // Auto-suggest a name once a user is picked
+  useEffect(() => {
+    if (selectedUser && !name) {
+      const base = slugFromEmail(selectedUser.email);
+      if (base) setName(`admin-${base}`);
+    }
+  }, [selectedUser, name]);
+
+  // Reset when closed
+  useEffect(() => {
+    if (!open) {
+      setOwnerQuery("");
+      setDebouncedQuery("");
+      setSelectedUser(null);
+      setName("");
+      setRegion(ACTIVE_REGIONS[0]?.id ?? "eu");
+      setVcpu(2);
+      setMemoryGb(4);
+      setDiskGb(40);
+      setImageRef("ubuntu-24.04");
+      setMachineMode("container");
+    }
+  }, [open]);
+
+  const canSubmit =
+    !!selectedUser
+    && vcpu > 0
+    && memoryGb > 0
+    && diskGb >= 10
+    && !create.isPending;
+
+  async function submit() {
+    if (!selectedUser) return;
+    try {
+      await create.mutateAsync({
+        owner_user_id: selectedUser.id,
+        account_id: selectedUser.account?.id ?? selectedUser.default_account_id ?? undefined,
+        name: name || undefined,
+        region,
+        vcpu,
+        memory_gb: memoryGb,
+        disk_gb: diskGb,
+        image_ref: imageRef || null,
+        machine_mode: machineMode,
+      });
+      toast.success("Machine created");
+      onOpenChange(false);
+      onSuccess();
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : "Create failed";
+      toast.error(message);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Create machine (on behalf of user)</DialogTitle>
+          <DialogDescription>
+            Admin-only provisioning. Bypasses Stripe/subscription gates.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {/* Owner search */}
+          <div className="space-y-1.5">
+            <Label>Owner</Label>
+            {selectedUser ? (
+              <div className="flex items-center justify-between rounded-xl border px-3 py-2 text-sm">
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{selectedUser.email}</div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    {selectedUser.name ?? "—"}
+                    {selectedUser.account ? ` · ${selectedUser.account.name ?? selectedUser.account.slug}` : ""}
+                  </div>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => setSelectedUser(null)}>
+                  Change
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={ownerQuery}
+                    onChange={(e) => setOwnerQuery(e.target.value)}
+                    placeholder="Search by email, name, or user ID"
+                    className="pl-9"
+                  />
+                </div>
+                <div className="max-h-48 space-y-1 overflow-y-auto rounded-xl border bg-muted/10 p-1">
+                  {searchLoading && (
+                    <div className="flex items-center gap-2 p-2 text-xs text-muted-foreground">
+                      <Loader2 className="size-3 animate-spin" /> Searching…
+                    </div>
+                  )}
+                  {!searchLoading && users.length === 0 && (
+                    <div className="p-2 text-xs text-muted-foreground">No matching users</div>
+                  )}
+                  {users.map((u) => (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={() => setSelectedUser(u)}
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-muted"
+                    >
+                      <UserIcon className="size-3.5 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate">{u.email}</div>
+                        <div className="truncate text-xs text-muted-foreground">
+                          {u.name ?? "—"}
+                          {u.account ? ` · ${u.account.name ?? u.account.slug}` : ""}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Name */}
+          <div className="space-y-1.5">
+            <Label htmlFor="admin-create-name">Name</Label>
+            <Input
+              id="admin-create-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. admin-acme-worker"
+            />
+          </div>
+
+          {/* Region + Mode */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Region</Label>
+              <Select value={region} onValueChange={(v) => setRegion(v ?? (ACTIVE_REGIONS[0]?.id ?? "eu"))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ACTIVE_REGIONS.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.label} ({r.id})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Machine mode</Label>
+              <Select value={machineMode} onValueChange={(v) => setMachineMode((v ?? "vm") as "vm" | "container")}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="vm">VM</SelectItem>
+                  <SelectItem value="container">Container</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* Sizing */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="admin-create-vcpu">vCPU</Label>
+              <Input
+                id="admin-create-vcpu"
+                type="number"
+                min={1}
+                max={128}
+                value={vcpu}
+                onChange={(e) => setVcpu(Math.max(1, Math.min(128, Number(e.target.value) || 1)))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="admin-create-ram">RAM (GB)</Label>
+              <Input
+                id="admin-create-ram"
+                type="number"
+                min={1}
+                max={512}
+                value={memoryGb}
+                onChange={(e) => setMemoryGb(Math.max(1, Math.min(512, Number(e.target.value) || 1)))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="admin-create-disk">Disk (GB)</Label>
+              <Input
+                id="admin-create-disk"
+                type="number"
+                min={10}
+                max={2000}
+                value={diskGb}
+                onChange={(e) => setDiskGb(Math.max(10, Math.min(2000, Number(e.target.value) || 10)))}
+              />
+            </div>
+          </div>
+
+          {/* Image */}
+          <div className="space-y-1.5">
+            <Label htmlFor="admin-create-image">Image (optional)</Label>
+            <Input
+              id="admin-create-image"
+              value={imageRef}
+              onChange={(e) => setImageRef(e.target.value)}
+              placeholder="ubuntu-24.04 or docker:alpine:3.19"
+            />
+            <p className="text-xs text-muted-foreground">
+              Prefix with <code>docker:</code> or <code>oci:</code> for container machines.
+            </p>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button disabled={!canSubmit} onClick={submit}>
+            {create.isPending ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+            Create machine
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Detail dialog ──────────────────────────────────────────────────────────
+
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-3 text-sm">
+      <span className="text-xs uppercase tracking-wider text-muted-foreground">{label}</span>
+      <span className="min-w-0 text-right text-sm">{value}</span>
+    </div>
+  );
+}
+
+function CopyableId({ value }: { value: string }) {
+  return (
+    <button
+      type="button"
+      onClick={() => copyToClipboard(value)}
+      className="inline-flex items-center gap-1 font-mono text-xs hover:text-foreground"
+      title="Click to copy"
+    >
+      <span className="truncate">{value}</span>
+      <Copy className="size-3" />
+    </button>
+  );
+}
+
+function MachineDetailDialog({
+  machineId,
+  onClose,
+}: {
+  machineId: string | null;
+  onClose: () => void;
+}) {
+  const open = !!machineId;
+  const { data, isLoading, error } = useAdminMachine(machineId);
+  const lifecycle = useMachineLifecycle();
+  const update = useUpdateAdminMachine();
+  const [pendingAction, setPendingAction] = useState<MachineLifecycleAction | null>(null);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmStop, setConfirmStop] = useState(false);
+  const [confirmReboot, setConfirmReboot] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setPendingAction(null);
+      setRenameOpen(false);
+      setNewName("");
+      setConfirmDelete(false);
+      setConfirmStop(false);
+      setConfirmReboot(false);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (data?.machine?.name && !renameOpen) {
+      setNewName(data.machine.name);
+    }
+  }, [data?.machine?.name, renameOpen]);
+
+  const machine = data?.machine as AdminMachineDetail | undefined;
+
+  async function runLifecycle(action: MachineLifecycleAction) {
+    if (!machineId) return;
+    setPendingAction(action);
+    try {
+      await lifecycle.mutateAsync({ id: machineId, action });
+      if (action === "start") toast.success("Start requested");
+      else if (action === "stop") toast.success("Stop requested");
+      else if (action === "reboot") toast.success("Reboot requested");
+      else toast.success("Machine deleted");
+      if (action === "delete") onClose();
+      setConfirmDelete(false);
+      setConfirmStop(false);
+      setConfirmReboot(false);
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : `${action} failed`;
+      toast.error(message);
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function submitRename() {
+    if (!machineId) return;
+    try {
+      await update.mutateAsync({ id: machineId, name: newName });
+      toast.success("Renamed");
+      setRenameOpen(false);
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : "Rename failed";
+      toast.error(message);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>
+            {machine?.slug ?? "Machine detail"}
+          </DialogTitle>
+          <DialogDescription>
+            {machine?.name ?? "Loading…"}
+          </DialogDescription>
+        </DialogHeader>
+
+        {isLoading && (
+          <div className="space-y-3">
+            <Skeleton className="h-16 w-full rounded-xl" />
+            <Skeleton className="h-40 w-full rounded-xl" />
+            <Skeleton className="h-32 w-full rounded-xl" />
+          </div>
+        )}
+
+        {error && (
+          <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">
+            <AlertTriangle className="mr-2 inline size-4" />
+            {error instanceof Error ? error.message : "Failed to load machine"}
+          </div>
+        )}
+
+        {data && machine && (
+          <div className="space-y-4">
+            {/* Header status + lifecycle */}
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border p-3">
+              <AdminStatusPill tone={statusTone(machine.status)}>
+                {machine.status}
+              </AdminStatusPill>
+              {machine.provisioning_stage && machine.status === "provisioning" && (
+                <Badge variant="secondary">{machine.provisioning_stage}</Badge>
+              )}
+              <Badge variant="outline" className="font-mono text-xs">{machine.machine_mode}</Badge>
+              <Badge variant="outline" className="font-mono text-xs">{machine.api_version}</Badge>
+              {machine.source === "kortix" && <Badge variant="outline">kortix</Badge>}
+              <span className="ml-auto text-xs text-muted-foreground">
+                Created {relativeTime(machine.created_at)}
+                {machine.ready_at ? ` · Ready ${relativeTime(machine.ready_at)}` : ""}
+              </span>
+            </div>
+
+            {/* Actions */}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pendingAction !== null || machine.status === "deleted"}
+                onClick={() => runLifecycle("start")}
+              >
+                {pendingAction === "start" ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
+                Start
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pendingAction !== null || machine.status === "deleted"}
+                onClick={() => setConfirmStop(true)}
+              >
+                {pendingAction === "stop" ? <Loader2 className="size-3.5 animate-spin" /> : <Square className="size-3.5" />}
+                Stop
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pendingAction !== null || machine.status === "deleted"}
+                onClick={() => setConfirmReboot(true)}
+              >
+                {pendingAction === "reboot" ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />}
+                Reboot
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pendingAction !== null || machine.status === "deleted"}
+                onClick={() => { setRenameOpen(true); setNewName(machine.name); }}
+              >
+                Rename
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={pendingAction !== null || machine.status === "deleted"}
+                onClick={() => setConfirmDelete(true)}
+              >
+                {pendingAction === "delete" ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+                Delete
+              </Button>
+            </div>
+
+            {/* Inline rename form */}
+            {renameOpen && (
+              <div className="space-y-2 rounded-xl border p-3">
+                <Label htmlFor="rename-input">New name</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="rename-input"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button size="sm" variant="outline" onClick={() => setRenameOpen(false)}>Cancel</Button>
+                  <Button size="sm" disabled={update.isPending || !newName.trim() || newName === machine.name} onClick={submitRename}>
+                    {update.isPending ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                    Save
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Identity */}
+            <div className="rounded-xl border p-4 space-y-2">
+              <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Identity</div>
+              <DetailRow label="Slug" value={<span className="font-mono text-xs">{machine.slug}</span>} />
+              <DetailRow label="Name" value={machine.name} />
+              <DetailRow label="Machine ID" value={<CopyableId value={machine.id} />} />
+              {machine.provider_server_id && (
+                <DetailRow label="Provider server" value={<span className="font-mono text-xs">{machine.provider_server_id}</span>} />
+              )}
+              {machine.kortix_sandbox_id && (
+                <DetailRow label="Kortix sandbox" value={<CopyableId value={machine.kortix_sandbox_id} />} />
+              )}
+            </div>
+
+            {/* Compute */}
+            <div className="rounded-xl border p-4">
+              <div className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Compute</div>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <AdminMetric label="vCPU" value={machine.vcpu ?? "—"} />
+                <AdminMetric label="RAM" value={machine.memory_gb != null ? `${machine.memory_gb} GB` : "—"} />
+                <AdminMetric label="Disk" value={machine.disk_gb != null ? `${machine.disk_gb} GB` : "—"} />
+                <AdminMetric label="Price" value={machine.price_monthly != null ? `$${machine.price_monthly}/mo` : "—"} />
+              </div>
+            </div>
+
+            {/* Network */}
+            <div className="rounded-xl border p-4 space-y-2">
+              <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Network</div>
+              <DetailRow label="Public IPv4" value={machine.public_ipv4 ?? machine.ip ?? "—"} />
+              {machine.public_ipv6 && <DetailRow label="IPv6" value={<span className="font-mono text-xs">{machine.public_ipv6}</span>} />}
+              <DetailRow label="SSH port" value={machine.ssh_port ?? "—"} />
+              <DetailRow label="HTTP port" value={machine.http_port ?? "—"} />
+              <DetailRow label="Region" value={machine.region} />
+              {machine.domains.length > 0 && (
+                <DetailRow
+                  label="Domains"
+                  value={
+                    <div className="flex flex-wrap justify-end gap-1">
+                      {machine.domains.map((d) => (
+                        <Badge key={d} variant="outline" className="text-xs">{d}</Badge>
+                      ))}
+                    </div>
+                  }
+                />
+              )}
+            </div>
+
+            {/* Host */}
+            {data.host && (
+              <div className="rounded-xl border p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Host</div>
+                  <a
+                    href={`/v2/admin/hosts?highlight=${data.host.id}`}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    Open host →
+                  </a>
+                </div>
+                <DetailRow label="Name" value={data.host.name} />
+                <DetailRow label="Region" value={data.host.region} />
+                <DetailRow label="Location" value={data.host.location} />
+                <DetailRow label="Public IPv4" value={data.host.public_ipv4 ?? "—"} />
+              </div>
+            )}
+
+            {/* Owner + account */}
+            <div className="rounded-xl border p-4 space-y-2">
+              <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Owner</div>
+              <DetailRow label="Email" value={machine.owner.email ?? "—"} />
+              <DetailRow label="Name" value={machine.owner.name ?? "—"} />
+              <DetailRow label="User ID" value={<CopyableId value={machine.owner.id} />} />
+              {machine.account && (
+                <>
+                  <DetailRow label="Account" value={`${machine.account.name ?? machine.account.slug ?? "—"}${machine.account.type === "organization" ? " (org)" : ""}`} />
+                  <DetailRow label="Account ID" value={<CopyableId value={machine.account.id} />} />
+                </>
+              )}
+            </div>
+
+            {/* Subscription */}
+            {machine.subscription && (
+              <div className="rounded-xl border p-4 space-y-2">
+                <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Subscription</div>
+                <DetailRow label="Status" value={machine.subscription.status} />
+                <DetailRow label="Stripe sub" value={<span className="font-mono text-xs">{machine.subscription.stripe_subscription_id}</span>} />
+                <DetailRow label="Period end" value={machine.subscription.current_period_end ? new Date(machine.subscription.current_period_end).toLocaleDateString() : "—"} />
+                <DetailRow label="Cancel scheduled" value={machine.subscription.cancel_at_period_end ? "Yes" : "No"} />
+              </div>
+            )}
+
+            {/* Events */}
+            <div className="rounded-xl border p-4 space-y-2">
+              <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Recent events
+              </div>
+              {data.events.length === 0 ? (
+                <div className="text-xs text-muted-foreground">No events recorded</div>
+              ) : (
+                <div className="space-y-1">
+                  {data.events.slice(0, 10).map((ev) => (
+                    <div key={ev.id} className="flex items-start justify-between gap-2 text-xs">
+                      <div className="min-w-0">
+                        <span className="font-medium">{ev.event}</span>
+                        {ev.stage ? <span className="text-muted-foreground"> · {ev.stage}</span> : null}
+                        {ev.message ? <span className="text-muted-foreground"> — {ev.message}</span> : null}
+                      </div>
+                      <span className="shrink-0 text-muted-foreground">{relativeTime(ev.created_at)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Stop confirmation */}
+        <Dialog open={confirmStop} onOpenChange={setConfirmStop}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Stop this machine?</DialogTitle>
+              <DialogDescription>
+                The runner will power off the instance. Disk state is preserved.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirmStop(false)}>Cancel</Button>
+              <Button disabled={pendingAction === "stop"} onClick={() => runLifecycle("stop")}>
+                {pendingAction === "stop" ? <Loader2 className="size-3.5 animate-spin" /> : <Square className="size-3.5" />}
+                Stop
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Reboot confirmation */}
+        <Dialog open={confirmReboot} onOpenChange={setConfirmReboot}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Reboot this machine?</DialogTitle>
+              <DialogDescription>
+                The runner will reboot the instance. Expect a few seconds of downtime.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirmReboot(false)}>Cancel</Button>
+              <Button disabled={pendingAction === "reboot"} onClick={() => runLifecycle("reboot")}>
+                {pendingAction === "reboot" ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />}
+                Reboot
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete confirmation */}
+        <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete machine</DialogTitle>
+              <DialogDescription>
+                This <strong>gracefully</strong> destroys the machine (instance, DNS, subscription, DB).
+                Irreversible.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+              <Button variant="destructive" disabled={pendingAction === "delete"} onClick={() => runLifecycle("delete")}>
+                {pendingAction === "delete" ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+                Delete permanently
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -145,6 +842,8 @@ export default function AdminMachinesPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [singleDeleteMachine, setSingleDeleteMachine] = useState<AdminMachine | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [detailMachineId, setDetailMachineId] = useState<string | null>(null);
 
   const buildQueryParams = useCallback(() => {
     const params = new URLSearchParams();
@@ -290,10 +989,14 @@ export default function AdminMachinesPage() {
         <div>
           <h1 className="font-heading text-3xl tracking-tight">Admin — Machines</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Manage all machines across all accounts. Gracefully delete servers from Hetzner, DNS, billing, and DB.
+            Manage all machines across all accounts. Create, inspect, start/stop/reboot, rename, and gracefully delete.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="size-4" />
+            Create machine
+          </Button>
           {selected.size > 0 && (
             <Button
               variant="destructive"
@@ -462,12 +1165,12 @@ export default function AdminMachinesPage() {
             {machines.map((m) => (
               <div
                 key={m.id}
-                className={`rounded-2xl border p-4 transition-colors ${selected.has(m.id) ? "ring-2 ring-primary/50 bg-primary/5" : ""}`}
+                className={`rounded-2xl border p-4 transition-colors ${selected.has(m.id) ? "ring-2 ring-primary/50 bg-primary/5" : "hover:bg-muted/30"}`}
               >
                 <div className="flex gap-3">
                   {/* Selection checkbox */}
                   <button
-                    onClick={() => toggleSelect(m.id)}
+                    onClick={(e) => { e.stopPropagation(); toggleSelect(m.id); }}
                     className="mt-1 shrink-0"
                   >
                     <div className={`flex size-4 items-center justify-center rounded border transition-colors ${selected.has(m.id) ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground/40 hover:border-foreground"}`}>
@@ -475,8 +1178,12 @@ export default function AdminMachinesPage() {
                     </div>
                   </button>
 
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
+                  {/* Content (clickable to open detail) */}
+                  <button
+                    type="button"
+                    onClick={() => setDetailMachineId(m.id)}
+                    className="flex-1 min-w-0 text-left"
+                  >
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0 space-y-1.5">
                         {/* Row 1: slug + badges */}
@@ -552,23 +1259,23 @@ export default function AdminMachinesPage() {
                           </div>
                         )}
                       </div>
-
-                      {/* Actions */}
-                      {m.status !== "deleted" && (
-                        <div className="flex shrink-0 gap-2">
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            disabled={deleteMutation.isPending}
-                            onClick={() => setSingleDeleteMachine(m)}
-                          >
-                            <Trash2 className="size-3.5" />
-                            Delete
-                          </Button>
-                        </div>
-                      )}
                     </div>
-                  </div>
+                  </button>
+
+                  {/* Actions (prevent propagation so row click still opens detail) */}
+                  {m.status !== "deleted" && (
+                    <div className="flex shrink-0 gap-2">
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={deleteMutation.isPending}
+                        onClick={(e) => { e.stopPropagation(); setSingleDeleteMachine(m); }}
+                      >
+                        <Trash2 className="size-3.5" />
+                        Delete
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -608,6 +1315,19 @@ export default function AdminMachinesPage() {
           )}
         </>
       )}
+
+      {/* ── Create dialog ──────────────────────────────────────────────────── */}
+      <CreateMachineDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onSuccess={() => qc.invalidateQueries({ queryKey: ["admin", "machines"] })}
+      />
+
+      {/* ── Detail dialog ──────────────────────────────────────────────────── */}
+      <MachineDetailDialog
+        machineId={detailMachineId}
+        onClose={() => setDetailMachineId(null)}
+      />
 
       {/* ── Single delete confirmation dialog ──────────────────────────────── */}
       <Dialog open={!!singleDeleteMachine} onOpenChange={(open) => { if (!open) setSingleDeleteMachine(null); }}>

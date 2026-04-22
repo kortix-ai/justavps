@@ -4,15 +4,10 @@ import { sql } from 'drizzle-orm';
 import { db } from '@/server/db';
 import {
   baremetalHosts,
-  cellAdmissionControls,
-  cells,
   hostCapacityReservations,
   type BaremetalHost,
-  type CellAdmissionControlRow,
-  type CellRow,
   type HostCapacityReservationRow,
 } from '@/server/db/schema';
-import { buildBaremetalCellState, deriveBaremetalCellIdentity, normalizeBaremetalHostGeneration } from "@/server/platform/baremetal/cells";
 import { applyExplicitImageAvailabilityToHosts, loadImageAvailabilityRows } from "@/server/platform/baremetal/image-locality";
 import { hostAcceptsPlacement } from "@/server/platform/baremetal/host-maintenance";
 import { scheduleBaremetalPlacement } from "@/server/platform/baremetal/scheduler";
@@ -118,26 +113,6 @@ async function fetchActiveReservationsForHost(executor: ReservationDbExecutor, h
   ));
 }
 
-async function loadCellStateMaps(executor: ReservationDbExecutor, hosts: Array<Pick<BaremetalHost, 'cellId'>>) {
-  const cellIds = [...new Set(hosts.map((host) => host.cellId).filter((cellId): cellId is string => Boolean(cellId)))];
-  if (cellIds.length === 0) {
-    return {
-      cellsById: new Map<string, CellRow>(),
-      admissionsByCellId: new Map<string, CellAdmissionControlRow>(),
-    };
-  }
-
-  const [cellRows, admissionRows] = await Promise.all([
-    executor.select().from(cells).where(inArray(cells.id, cellIds)),
-    executor.select().from(cellAdmissionControls).where(inArray(cellAdmissionControls.cellId, cellIds)),
-  ]);
-
-  return {
-    cellsById: new Map(cellRows.map((cell) => [cell.id, cell])),
-    admissionsByCellId: new Map(admissionRows.map((admission) => [admission.cellId, admission])),
-  };
-}
-
 export async function getHostCapacityReservationForMachine(machineId: string, executor: ReservationDbExecutor = db) {
   const rows = await executor.select().from(hostCapacityReservations).where(and(
     eq(hostCapacityReservations.machineId, machineId),
@@ -162,16 +137,6 @@ export async function leaseHostCapacity(input: {
     const [host] = await executor.select().from(baremetalHosts).where(eq(baremetalHosts.id, existing.hostId));
     if (!host) throw new Error(`Reserved host ${existing.hostId} no longer exists`);
     const activeReservations = await fetchActiveReservationsForHost(executor, host.id);
-    const { cellsById, admissionsByCellId } = await loadCellStateMaps(executor, [host]);
-    const cell = buildBaremetalCellState({
-      region: host.region,
-      hostClass: host.hostClass,
-      generation: host.generation,
-      cellId: host.cellId,
-      metadata: host.metadata,
-      cell: host.cellId ? cellsById.get(host.cellId) ?? null : null,
-      admission: host.cellId ? admissionsByCellId.get(host.cellId) ?? null : null,
-    });
     return {
       host,
       reservation: existing,
@@ -190,25 +155,18 @@ export async function leaseHostCapacity(input: {
         },
         policy: {
           requiredHostClass: null,
-          requiredCellId: null,
           preferredHostClasses: [],
-          preferredCellIds: [],
           warmPoolPreference: 'prefer',
           requireLocalImage: false,
-          cellSpreadPreference: 'spread',
+          hostSpreadPreference: 'spread',
           maxProjectedUtilizationScore: null,
-          allowRestrictedCellAdmission: false,
-          allowReserveOnlySellability: false,
         },
-        cells: [],
         candidates: [{
           hostId: host.id,
           eligible: true,
           score: 0,
           reasons: ['existing reservation'],
-          cell,
           projectedUsage: projectHostUsage(host, summarizeReservationUsage(activeReservations)),
-          cellProjectedUtilization: null,
           projectedUtilization: {
             vcpuPercent: Number(((Math.max(host.usedVcpu ?? 0, 0) / Math.max(host.totalVcpu ?? 0, 1)) * 100).toFixed(1)),
             memoryPercent: Number(((Math.max(host.usedMemoryGb ?? 0, 0) / Math.max(host.totalMemoryGb ?? 0, 1)) * 100).toFixed(1)),
@@ -220,9 +178,6 @@ export async function leaseHostCapacity(input: {
             warmPool: 'unknown',
             imageLocality: 'unknown',
             hostClass: host.hostClass,
-            generation: cell?.generation ?? host.generation ?? null,
-            cellId: cell?.id ?? host.cellId ?? null,
-            cellSlug: cell?.slug ?? null,
             maintenanceState: host.maintenanceState,
             schedulable: hostAcceptsPlacement(host),
             driftStatus: (((host.metadata ?? {}) as Record<string, unknown>).bootstrap as Record<string, unknown> | undefined)?.drift_status === 'in_policy'
@@ -230,8 +185,6 @@ export async function leaseHostCapacity(input: {
               || (((host.metadata ?? {}) as Record<string, unknown>).bootstrap as Record<string, unknown> | undefined)?.drift_status === 'blocking_drift'
               ? ((((host.metadata ?? {}) as Record<string, unknown>).bootstrap as Record<string, unknown>).drift_status as 'in_policy' | 'warning_drift' | 'blocking_drift')
               : null,
-            admissionState: cell?.admission.state ?? 'open',
-            sellabilityState: cell?.admission.sellability ?? 'sellable',
           },
         }],
       },
@@ -239,7 +192,6 @@ export async function leaseHostCapacity(input: {
   }
 
   const rows = await executor.select().from(baremetalHosts);
-  const { cellsById, admissionsByCellId } = await loadCellStateMaps(executor, rows);
   const hostsWithReservations = await Promise.all(rows.map(async (host) => ({
     host,
     reservations: summarizeReservationUsage(await fetchActiveReservationsForHost(executor, host.id)),
@@ -250,20 +202,9 @@ export async function leaseHostCapacity(input: {
       id: host.id,
       region: host.region,
       status: host.status as BaremetalHostCandidate['status'],
-       hostClass: host.hostClass,
-       generation: normalizeBaremetalHostGeneration(host.generation, host.metadata),
-       cellId: host.cellId,
-       cell: buildBaremetalCellState({
-         region: host.region,
-         hostClass: host.hostClass,
-         generation: host.generation,
-         cellId: host.cellId,
-         metadata: host.metadata,
-         cell: host.cellId ? cellsById.get(host.cellId) ?? null : null,
-         admission: host.cellId ? admissionsByCellId.get(host.cellId) ?? null : null,
-        }),
-       maintenanceState: host.maintenanceState,
-       runnerBaseUrl: host.runnerBaseUrl,
+      hostClass: host.hostClass,
+      maintenanceState: host.maintenanceState,
+      runnerBaseUrl: host.runnerBaseUrl,
       publicIpv4: host.publicIpv4,
       publicIpv6: host.publicIpv6,
       runnerToken: host.runnerToken,

@@ -12,8 +12,6 @@ const runWatchdogMock = vi.fn();
 const reconcileBaremetalFleetMock = vi.fn();
 const pruneExpiredMachineTelemetryRollupsMock = vi.fn();
 const pruneExpiredMachineEventsMock = vi.fn();
-const recordCellCapacitySnapshotsMock = vi.fn();
-const pruneExpiredCellCapacitySnapshotsMock = vi.fn();
 const pruneDeletedMachinePortAllocationsMock = vi.fn();
 const pruneTerminalControlPlaneJobsMock = vi.fn();
 const pruneTerminalWebhookDeliveriesMock = vi.fn();
@@ -65,11 +63,6 @@ vi.mock('@/server/platform/baremetal/reconcile', () => ({
   reconcileBaremetalFleet: reconcileBaremetalFleetMock,
 }));
 
-vi.mock('@/server/platform/baremetal/cell-capacity-store', () => ({
-  recordCellCapacitySnapshots: recordCellCapacitySnapshotsMock,
-  pruneExpiredCellCapacitySnapshots: pruneExpiredCellCapacitySnapshotsMock,
-}));
-
 vi.mock('@/server/platform/baremetal/port-allocations', async () => {
   const actual = await vi.importActual<typeof import("@/server/platform/baremetal/port-allocations")>('@/server/platform/baremetal/port-allocations');
   return {
@@ -88,22 +81,9 @@ describe('control-plane service wrappers', () => {
     const metadata = buildMachinePlacementProviderMeta({
       host: {
         id: 'host-1',
-        cellId: 'cell-1',
-        generation: 'gen1',
         runnerBaseUrl: 'http://runner',
         publicIpv4: '203.0.113.10',
         publicIpv6: null,
-        cell: {
-          id: 'cell-1',
-          slug: 'hel1-general-small-gen1',
-          name: 'HEL1 general-small gen1',
-          region: 'hel1',
-          hostClass: 'general-small',
-          generation: 'gen1',
-          status: 'active',
-          reservePolicy: { warmReserve: { vcpu: 0, memoryGb: 0, diskGb: 0 }, failureReserve: { vcpu: 0, memoryGb: 0, diskGb: 0 }, procurementReserve: { vcpu: 0, memoryGb: 0, diskGb: 0 } },
-          admission: { state: 'open', sellability: 'sellable', reason: null, source: 'manual', setAt: null },
-        },
       },
       reservation: { id: 'reservation-1' },
       decision: {
@@ -111,14 +91,12 @@ describe('control-plane service wrappers', () => {
         outcome: 'placed',
         summary: 'Selected host host-1',
         explanation: ['best score'],
-        candidates: [{ hostId: 'host-1', cell: { id: 'cell-1', slug: 'hel1-general-small-gen1' } }],
+        candidates: [{ hostId: 'host-1' }],
       },
     } as never, { vcpu: 2, memoryGb: 4, diskGb: 80 });
 
     expect(metadata).toMatchObject({
       baremetal_host_id: 'host-1',
-      baremetal_cell_id: 'cell-1',
-      baremetal_cell_slug: 'hel1-general-small-gen1',
       reservation_id: 'reservation-1',
       placement_decision: {
         selected_host_id: 'host-1',
@@ -293,8 +271,6 @@ describe('control-plane service wrappers', () => {
     acquireControlPlaneServiceLeaseMock.mockResolvedValue({ acquired: true, leaseOwner: 'lease-fleet', row: null });
     reconcileBaremetalFleetMock.mockResolvedValue({ checkedAt: '2026-04-11T00:00:00.000Z', hosts: [{ status: 'ok' }, { status: 'error' }] });
     pruneDeletedMachinePortAllocationsMock.mockResolvedValue(4);
-    pruneExpiredCellCapacitySnapshotsMock.mockResolvedValue(5);
-    recordCellCapacitySnapshotsMock.mockResolvedValue(3);
 
     const { runFleetAuditorServicePass } = await import("@/server/platform/control-plane/fleet-auditor");
     const result = await runFleetAuditorServicePass({ leaseOwner: 'lease-fleet', leaseMs: 45_000, maxHosts: 12 });
@@ -306,15 +282,13 @@ describe('control-plane service wrappers', () => {
       skipGlobalImageAudit: true,
     }));
     expect(pruneDeletedMachinePortAllocationsMock).toHaveBeenCalledTimes(1);
-    expect(pruneExpiredCellCapacitySnapshotsMock).toHaveBeenCalledTimes(1);
-    expect(recordCellCapacitySnapshotsMock).toHaveBeenCalledWith({ observedAt: new Date('2026-04-11T00:00:00.000Z') });
     expect(releaseControlPlaneServiceLeaseMock).toHaveBeenCalledWith(expect.objectContaining({
       service: 'fleet_auditor',
       scope: 'baremetal',
       leaseOwner: 'lease-fleet',
-      checkpoint: expect.objectContaining({ last_host_count: 2, last_error_count: 1, last_cell_snapshot_count: 3, last_snapshot_pruned_count: 5, last_deleted_port_allocation_pruned_count: 4 }),
+      checkpoint: expect.objectContaining({ last_host_count: 2, last_error_count: 1, last_deleted_port_allocation_pruned_count: 4 }),
     }));
-    expect(result).toMatchObject({ acquired: true, hostsChecked: 2, snapshotsRecorded: 3, snapshotsPruned: 5, portAllocationsPruned: 4, scope: 'fleet_auditor:baremetal' });
+    expect(result).toMatchObject({ acquired: true, hostsChecked: 2, portAllocationsPruned: 4, scope: 'fleet_auditor:baremetal' });
   });
 
   it('runs webhook dispatcher through its own leased service pass', async () => {

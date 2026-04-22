@@ -114,9 +114,13 @@ describe('app health route', () => {
 
   it('returns warning from /api/health when hosts are quarantined without blocking drift', async () => {
     dbExecuteMock.mockResolvedValueOnce([]);
-    dbSelectFromMock.mockResolvedValueOnce([
-      { id: 'host-1', name: 'bm-host-1', region: 'hel1', hostClass: 'general-small', generation: 'gen1', cellId: 'cell-1', status: 'active', maintenanceState: 'in_service', totalVcpu: 12, totalMemoryGb: 64, totalDiskGb: 900, usedVcpu: 4, usedMemoryGb: 12, usedDiskGb: 120, metadata: { scheduler: { schedulable: false, unschedulableReason: 'manual quarantine' }, bootstrap: { validation_artifact: { status: 'passed' } } } },
-    ]);
+    dbSelectFromMock
+      .mockResolvedValueOnce([
+        { id: 'host-1', name: 'bm-host-1', region: 'eu', hostClass: 'general-small', generation: 'gen1', status: 'active', maintenanceState: 'in_service', totalVcpu: 12, totalMemoryGb: 64, totalDiskGb: 900, usedVcpu: 4, usedMemoryGb: 12, usedDiskGb: 120, metadata: { scheduler: { schedulable: false, unschedulableReason: 'manual quarantine' }, bootstrap: { validation_artifact: { status: 'passed' } } } },
+      ])
+      .mockResolvedValueOnce([
+        { id: 'eu', label: 'Europe', continent: 'EU', active: true, admissionState: 'open', sellabilityState: 'sellable', reservePolicy: {}, hetznerLocations: ['HEL1-DC2'], metadata: {} },
+      ]);
     listControlPlaneServiceStatesMock.mockResolvedValueOnce([]);
 
     const { app } = await import('@/server/app');
@@ -130,7 +134,7 @@ describe('app health route', () => {
     });
     expect(body.config_audit.checks).toEqual(expect.arrayContaining([
       expect.objectContaining({ key: 'fleet_no_schedulable_capacity', severity: 'error', message: 'No schedulable active hosts are available for new placements' }),
-      expect.objectContaining({ key: 'fleet_cell_no_schedulable_capacity', severity: 'error', message: '1 sellable cell(s) have zero schedulable active hosts' }),
+      expect.objectContaining({ key: 'fleet_region_no_schedulable_capacity', severity: 'error', message: '1 sellable region(s) have zero schedulable active hosts' }),
       expect.objectContaining({ key: 'fleet_host_quarantined', severity: 'warning', message: '1 host(s) are quarantined from scheduling' }),
     ]));
   });
@@ -294,14 +298,19 @@ describe('app health route', () => {
 
   it('returns degraded from /api/readyz when hosts are quarantined without blocking drift', async () => {
     dbExecuteMock.mockResolvedValueOnce([]);
-    dbSelectFromMock.mockResolvedValueOnce([
-      {
-        id: 'host-1',
-        name: 'bm-host-1',
-        status: 'active',
-        metadata: { scheduler: { schedulable: false, unschedulableReason: 'manual quarantine' }, bootstrap: { validation_artifact: { status: 'passed' } } },
-      },
-    ]);
+    dbSelectFromMock
+      .mockResolvedValueOnce([
+        {
+          id: 'host-1',
+          name: 'bm-host-1',
+          region: 'eu',
+          status: 'active',
+          metadata: { scheduler: { schedulable: false, unschedulableReason: 'manual quarantine' }, bootstrap: { validation_artifact: { status: 'passed' } } },
+        },
+      ])
+      .mockResolvedValueOnce([
+        { id: 'eu', label: 'Europe', continent: 'EU', active: true, admissionState: 'restricted', sellabilityState: 'reserve_only', reservePolicy: {}, hetznerLocations: ['HEL1-DC2'], metadata: {} },
+      ]);
     listControlPlaneServiceStatesMock.mockResolvedValueOnce([
       { service: 'provisioner', scope: 'machine_create', leaseOwner: null, lastCompletedAt: new Date() },
       { service: 'webhook_dispatcher', scope: 'webhook_deliver', leaseOwner: null, lastCompletedAt: new Date() },
@@ -328,14 +337,19 @@ describe('app health route', () => {
 
   it('returns degraded from /api/readyz when hosts have blocking drift', async () => {
     dbExecuteMock.mockResolvedValueOnce([]);
-    dbSelectFromMock.mockResolvedValueOnce([
-      {
-        id: 'host-1',
-        name: 'bm-host-1',
-        status: 'active',
-        metadata: { bootstrap: { drift_status: 'blocking_drift', validation_artifact: { status: 'failed' } } },
-      },
-    ]);
+    dbSelectFromMock
+      .mockResolvedValueOnce([
+        {
+          id: 'host-1',
+          name: 'bm-host-1',
+          region: 'eu',
+          status: 'active',
+          metadata: { bootstrap: { drift_status: 'blocking_drift', validation_artifact: { status: 'failed' } } },
+        },
+      ])
+      .mockResolvedValueOnce([
+        { id: 'eu', label: 'Europe', continent: 'EU', active: true, admissionState: 'restricted', sellabilityState: 'reserve_only', reservePolicy: {}, hetznerLocations: ['HEL1-DC2'], metadata: {} },
+      ]);
     listControlPlaneServiceStatesMock.mockResolvedValueOnce([
       { service: 'provisioner', scope: 'machine_create', leaseOwner: null, lastCompletedAt: new Date() },
       { service: 'webhook_dispatcher', scope: 'webhook_deliver', leaseOwner: null, lastCompletedAt: new Date() },

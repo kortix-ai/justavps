@@ -1,16 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/server/platform/baremetal/cell-store', () => ({
-  ensureBaremetalHostCellAssignment: vi.fn(async ({ host }: { host: { cellId?: string | null; region: string; hostClass: string; generation?: string | null } }) => ({
-    id: host.cellId ?? 'cell-generated',
-    slug: `${host.region}--${host.hostClass}--${host.generation ?? 'gen1'}`,
-    name: `${host.region.toUpperCase()} ${host.hostClass} ${host.generation ?? 'gen1'}`,
-    region: host.region,
-    hostClass: host.hostClass,
-    generation: host.generation ?? 'gen1',
-  })),
-}));
-
 import { reconcileBaremetalFleet, summarizeHostUsage } from "@/server/platform/baremetal/reconcile";
 
 describe('baremetal reconciliation', () => {
@@ -149,8 +138,6 @@ describe('baremetal reconciliation', () => {
     expect(hostUpdates).toEqual([expect.objectContaining({
       hostId: 'host-1',
       status: 'disabled',
-      cellId: expect.any(String),
-      generation: 'gen1',
       usedVcpu: 0,
       usedMemoryGb: 0,
       usedDiskGb: 0,

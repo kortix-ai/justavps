@@ -1,6 +1,6 @@
 import { reconcileBaremetalFleet } from "@/server/platform/baremetal/reconcile";
-import { pruneExpiredCellCapacitySnapshots, recordCellCapacitySnapshots } from "@/server/platform/baremetal/cell-capacity-store";
 import { pruneDeletedMachinePortAllocations } from "@/server/platform/baremetal/port-allocations";
+import { syncPendingProcurements } from "@/server/platform/baremetal/procurement-sync";
 
 import {
   acquireControlPlaneServiceLease,
@@ -39,8 +39,12 @@ export async function runFleetAuditorServicePass(options?: {
     skipGlobalImageAudit: true,
   });
   const prunedPortAllocations = await pruneDeletedMachinePortAllocations();
-  const prunedSnapshots = await pruneExpiredCellCapacitySnapshots();
-  const snapshotsRecorded = await recordCellCapacitySnapshots({ observedAt: new Date(result.checkedAt) });
+  const procurementSync = await syncPendingProcurements().catch((err) => ({
+    checked: 0,
+    updated: 0,
+    promotedToBootstrapping: 0,
+    errors: [{ procurementId: 'n/a', error: err instanceof Error ? err.message : String(err) }],
+  }));
 
   await releaseControlPlaneServiceLease({
     service: CONTROL_PLANE_FLEET_AUDITOR_SERVICE,
@@ -50,9 +54,10 @@ export async function runFleetAuditorServicePass(options?: {
       last_reconcile_at: result.checkedAt,
       last_host_count: result.hosts.length,
       last_error_count: result.hosts.filter((host) => host.status === 'error').length,
-      last_cell_snapshot_count: snapshotsRecorded,
-      last_snapshot_pruned_count: prunedSnapshots,
       last_deleted_port_allocation_pruned_count: prunedPortAllocations,
+      last_procurement_sync_checked: procurementSync.checked,
+      last_procurement_sync_promoted: procurementSync.promotedToBootstrapping,
+      last_procurement_sync_errors: procurementSync.errors.length,
     },
   });
 
@@ -60,8 +65,8 @@ export async function runFleetAuditorServicePass(options?: {
     acquired: true,
     hostsChecked: result.hosts.length,
     portAllocationsPruned: prunedPortAllocations,
-    snapshotsPruned: prunedSnapshots,
-    snapshotsRecorded,
+    procurementsSynced: procurementSync.checked,
+    procurementsPromoted: procurementSync.promotedToBootstrapping,
     checkedAt: result.checkedAt,
     leaseOwner: lease.leaseOwner,
     scope: buildControlPlaneServiceKey({ service: CONTROL_PLANE_FLEET_AUDITOR_SERVICE, scope: FLEET_AUDITOR_SCOPE }),

@@ -382,7 +382,7 @@ https://justavps.com/api/v2
 - **Catalog endpoints** — \`/catalog/pricing\`, \`/catalog/recommendations\`, \`/catalog/regions\`, \`/catalog/hosts\` for dynamic resource discovery.
 - **Admin fleet surface** — \`/admin/fleet/*\` for host procurement, cell admission, and control-plane service state (operator-only).
 - **No per-machine Stripe subscriptions** — billing is handled outside v2 machine lifecycle.
-- **Minimal cloud-init** — v2 uses pre-built golden images; cloud-init only injects machine identity (~5s boot).
+- **Minimal cloud-init** — v2 uses pre-built golden images; cloud-init only injects machine identity.
 `,
     },
     servers: [

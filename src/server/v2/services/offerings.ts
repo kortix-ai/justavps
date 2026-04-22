@@ -25,9 +25,8 @@ interface PublicPlanOffering {
 }
 
 const PUBLIC_REGIONS: PublicRegion[] = [
-  { id: 'fsn1', name: 'Falkenstein', country: 'DE', city: 'Falkenstein' },
-  { id: 'nbg1', name: 'Nuremberg', country: 'DE', city: 'Nuremberg' },
-  { id: 'hel1', name: 'Helsinki', country: 'FI', city: 'Helsinki' },
+  { id: 'eu', name: 'Europe', country: 'EU', city: 'Europe' },
+  { id: 'us', name: 'United States', country: 'US', city: 'United States' },
 ];
 
 export function listPublicRegions(): PublicRegion[] {

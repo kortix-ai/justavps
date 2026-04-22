@@ -1,6 +1,5 @@
 import { marketForRegion, resolvePlanForDisplay } from '@/shared/lib/plan-catalog';
 
-import { buildBaremetalCellCapacitySnapshots, buildBaremetalCellState, projectBaremetalCellUtilization } from "@/server/platform/baremetal/cells";
 import type { ReservationUsageSummary } from "@/server/platform/baremetal/reservations";
 import { hostHasAvailableCapacity, hostProjectedUtilizationScore, projectHostUsage } from "@/server/platform/baremetal/reservations";
 import { hostAcceptsPlacement, hostPlacementBlockReason } from "@/server/platform/baremetal/host-maintenance";
@@ -20,24 +19,16 @@ type SchedulerHostCandidate = BaremetalHostCandidate & { reservations?: Reservat
 
 const DEFAULT_POLICY: Required<Pick<BaremetalPlacementPolicy, 'warmPoolPreference' | 'requireLocalImage'>> & {
   requiredHostClass: string | null;
-  requiredCellId: string | null;
   preferredHostClasses: string[];
-  preferredCellIds: string[];
-  cellSpreadPreference: 'spread' | 'pack' | 'neutral';
+  hostSpreadPreference: 'spread' | 'pack' | 'neutral';
   maxProjectedUtilizationScore: number | null;
-  allowRestrictedCellAdmission: boolean;
-  allowReserveOnlySellability: boolean;
 } = {
   requiredHostClass: null,
-  requiredCellId: null,
   preferredHostClasses: [],
-  preferredCellIds: [],
   warmPoolPreference: 'prefer',
   requireLocalImage: false,
-  cellSpreadPreference: 'spread',
+  hostSpreadPreference: 'spread',
   maxProjectedUtilizationScore: null,
-  allowRestrictedCellAdmission: false,
-  allowReserveOnlySellability: false,
 };
 
 function toPlanDefinition(region: string, serverType: string): BaremetalPlanDefinition | null {
@@ -167,15 +158,11 @@ function normalizePolicy(policy?: BaremetalPlacementPolicy): BaremetalPlacementD
   return {
     ...DEFAULT_POLICY,
     requiredHostClass: policy?.requiredHostClass ?? DEFAULT_POLICY.requiredHostClass,
-    requiredCellId: policy?.requiredCellId ?? DEFAULT_POLICY.requiredCellId,
     preferredHostClasses: policy?.preferredHostClasses ?? DEFAULT_POLICY.preferredHostClasses,
-    preferredCellIds: policy?.preferredCellIds ?? DEFAULT_POLICY.preferredCellIds,
     warmPoolPreference: policy?.warmPoolPreference ?? DEFAULT_POLICY.warmPoolPreference,
     requireLocalImage: policy?.requireLocalImage ?? DEFAULT_POLICY.requireLocalImage,
-    cellSpreadPreference: policy?.cellSpreadPreference ?? DEFAULT_POLICY.cellSpreadPreference,
+    hostSpreadPreference: policy?.hostSpreadPreference ?? DEFAULT_POLICY.hostSpreadPreference,
     maxProjectedUtilizationScore: policy?.maxProjectedUtilizationScore ?? DEFAULT_POLICY.maxProjectedUtilizationScore,
-    allowRestrictedCellAdmission: policy?.allowRestrictedCellAdmission ?? DEFAULT_POLICY.allowRestrictedCellAdmission,
-    allowReserveOnlySellability: policy?.allowReserveOnlySellability ?? DEFAULT_POLICY.allowReserveOnlySellability,
   };
 }
 
@@ -184,29 +171,10 @@ function candidateExplanation(args: {
   request: BaremetalPlacementRequest;
   policy: BaremetalPlacementDecision['policy'];
   reservations: ReservationUsageSummary;
-  cellSnapshots: ReturnType<typeof buildBaremetalCellCapacitySnapshots>;
 }): BaremetalPlacementCandidateEvaluation {
-  const { host, request, policy, reservations, cellSnapshots } = args;
+  const { host, request, policy, reservations } = args;
   const reasons: string[] = [];
   const metadata = normalizeSchedulerMetadata(host);
-  const hostCell = host.cell;
-  const cell = host.cell ?? buildBaremetalCellState({
-    region: host.region,
-    hostClass: host.hostClass,
-    generation: host.generation,
-    cellId: host.cellId,
-    metadata: host.metadata,
-    cell: hostCell ? {
-      id: hostCell.id ?? undefined,
-      slug: hostCell.slug,
-      name: hostCell.name,
-      region: hostCell.region,
-      hostClass: hostCell.hostClass,
-      generation: hostCell.generation,
-    } : null,
-  });
-  const cellSnapshot = cell ? cellSnapshots.find((snapshot) => snapshot.cell.slug === cell.slug) ?? null : null;
-  const cellProjectedUtilization = projectBaremetalCellUtilization(cellSnapshot, request.resources);
   const requestedHost = request.requestedHostId === host.id;
   const locality = imageLocalityMatch(metadata, request);
   const warmPool = warmPoolMatch(metadata, request.resources);
@@ -216,12 +184,9 @@ function candidateExplanation(args: {
     lifecycle: false,
     schedulable: false,
     hostClass: false,
-    cell: false,
     capacity: false,
     locality: false,
     utilization: false,
-    admission: false,
-    reserve: false,
   };
 
   if (host.region !== request.region) {
@@ -255,11 +220,6 @@ function candidateExplanation(args: {
     reasons.push(`host class ${host.hostClass ?? 'unknown'} does not match required class ${policy.requiredHostClass}`);
   }
 
-  if (policy.requiredCellId && cell?.id !== policy.requiredCellId) {
-    disqualifiers.cell = true;
-    reasons.push(`host cell ${cell?.id ?? 'unassigned'} does not match required cell ${policy.requiredCellId}`);
-  }
-
   if (!hostHasAvailableCapacity(hostToReservationHost(host), reservations, request.resources)) {
     disqualifiers.capacity = true;
     reasons.push(`insufficient capacity for ${request.resources.vcpu} vCPU / ${request.resources.memoryGb} GB RAM / ${request.resources.diskGb} GB disk`);
@@ -283,30 +243,6 @@ function candidateExplanation(args: {
     reasons.push(`projected utilization score ${projectedScore.toFixed(3)} exceeds policy max ${policy.maxProjectedUtilizationScore.toFixed(3)}`);
   }
 
-  if (cellSnapshot) {
-    const admission = cellSnapshot.cell.admission;
-    if (admission.state === 'closed') {
-      disqualifiers.admission = true;
-      reasons.push(`cell ${cellSnapshot.cell.slug} admission is closed${admission.reason ? `: ${admission.reason}` : ''}`);
-    } else if (admission.state === 'restricted' && !policy.allowRestrictedCellAdmission) {
-      disqualifiers.admission = true;
-      reasons.push(`cell ${cellSnapshot.cell.slug} admission is restricted${admission.reason ? `: ${admission.reason}` : ''}`);
-    }
-
-    if (admission.sellability === 'unsellable') {
-      disqualifiers.admission = true;
-      reasons.push(`cell ${cellSnapshot.cell.slug} is marked unsellable${admission.reason ? `: ${admission.reason}` : ''}`);
-    } else if (admission.sellability === 'reserve_only' && !policy.allowReserveOnlySellability) {
-      disqualifiers.admission = true;
-      reasons.push(`cell ${cellSnapshot.cell.slug} is reserve-only and not sellable for general placement`);
-    }
-  }
-
-  if (cellProjectedUtilization && !cellProjectedUtilization.reserveSatisfied) {
-    disqualifiers.reserve = true;
-    reasons.push(`cell reserve budget would be breached; projected sellable capacity becomes ${cellProjectedUtilization.projectedSellable.vcpu} vCPU / ${cellProjectedUtilization.projectedSellable.memoryGb} GB RAM / ${cellProjectedUtilization.projectedSellable.diskGb} GB disk`);
-  }
-
   let score = projectedScore;
   if (warmPool === 'exact') score -= policy.warmPoolPreference === 'avoid' ? -0.04 : 0.06;
   if (warmPool === 'cpu_bucket') score -= policy.warmPoolPreference === 'avoid' ? -0.02 : 0.03;
@@ -325,33 +261,16 @@ function candidateExplanation(args: {
     score += 0.03;
     reasons.push('image would need remote fetch');
   }
-  if (cellProjectedUtilization) {
-    const projectedSellablePressure = Math.max(
-      1 - (cellProjectedUtilization.projectedSellable.vcpu / Math.max(request.resources.vcpu, 1)),
-      1 - (cellProjectedUtilization.projectedSellable.memoryGb / Math.max(request.resources.memoryGb, 1)),
-      1 - (cellProjectedUtilization.projectedSellable.diskGb / Math.max(request.resources.diskGb, 1)),
-      0,
-    );
-    if (policy.cellSpreadPreference === 'spread') {
-      score += cellProjectedUtilization.score * 0.15;
-      reasons.push(`cell projected utilization score ${cellProjectedUtilization.score.toFixed(4)} considered for spread policy`);
-    }
-    if (policy.cellSpreadPreference === 'pack') {
-      score -= cellProjectedUtilization.score * 0.1;
-      reasons.push(`cell projected utilization score ${cellProjectedUtilization.score.toFixed(4)} considered for pack policy`);
-    }
-    if (projectedSellablePressure > 0) {
-      score += Math.min(projectedSellablePressure, 1) * 0.05;
-      reasons.push(`cell sellable headroom penalty applied from reserve-aware pressure (${projectedSellablePressure.toFixed(3)})`);
-    }
+  // hostSpreadPreference: spread = prefer less-loaded hosts (score already uses
+  // projected utilization, so higher score = more loaded). No extra nudge needed
+  // for spread. Pack mode subtracts to prefer loaded hosts.
+  if (policy.hostSpreadPreference === 'pack') {
+    score -= projectedScore * 0.1;
+    reasons.push(`pack policy applied: preferring more-loaded hosts`);
   }
   if (policy.preferredHostClasses.includes(host.hostClass ?? '')) {
     score -= 0.02;
     reasons.push(`preferred host class match (${host.hostClass})`);
-  }
-  if (cell?.id && policy.preferredCellIds.includes(cell.id)) {
-    score -= 0.02;
-    reasons.push(`preferred cell match (${cell.slug})`);
   }
   score += metadata.hostClassPolicy?.scoreAdjustment ?? 0;
 
@@ -362,9 +281,7 @@ function candidateExplanation(args: {
     eligible,
     score: eligible ? Number(score.toFixed(4)) : null,
     reasons,
-    cell,
     projectedUsage,
-    cellProjectedUtilization,
     projectedUtilization: {
       vcpuPercent: Number(((projectedUsage.vcpu / Math.max(host.capacity.totalVcpu, 1)) * 100).toFixed(1)),
       memoryPercent: Number(((projectedUsage.memoryGb / Math.max(host.capacity.totalMemoryGb, 1)) * 100).toFixed(1)),
@@ -376,15 +293,10 @@ function candidateExplanation(args: {
       warmPool,
       imageLocality: locality,
       hostClass: host.hostClass ?? null,
-      generation: cell?.generation ?? host.generation ?? null,
-      cellId: cell?.id ?? host.cellId ?? null,
-      cellSlug: cell?.slug ?? null,
-        maintenanceState: host.maintenanceState ?? null,
-        schedulable: metadata.schedulable !== false && metadata.driftStatus !== 'blocking_drift' && hostAcceptsPlacement(host),
-        driftStatus: metadata.driftStatus ?? null,
-        admissionState: cellSnapshot?.cell.admission.state ?? 'open',
-        sellabilityState: cellSnapshot?.cell.admission.sellability ?? 'sellable',
-      },
+      maintenanceState: host.maintenanceState ?? null,
+      schedulable: metadata.schedulable !== false && metadata.driftStatus !== 'blocking_drift' && hostAcceptsPlacement(host),
+      driftStatus: metadata.driftStatus ?? null,
+    },
   };
 }
 
@@ -401,14 +313,12 @@ export function scheduleBaremetalPlacement(input: {
   hosts: SchedulerHostCandidate[];
 }): BaremetalPlacementDecision {
   const policy = normalizePolicy(input.request.policy);
-  const cellSnapshots = buildBaremetalCellCapacitySnapshots(input.hosts);
   const candidates = input.hosts
     .map((host) => candidateExplanation({
       host,
       request: input.request,
       policy,
       reservations: host.reservations ?? emptyReservations(),
-      cellSnapshots,
     }))
     .sort((a, b) => {
       if (a.eligible !== b.eligible) return a.eligible ? -1 : 1;
@@ -431,7 +341,6 @@ export function scheduleBaremetalPlacement(input: {
     explanation,
     request: input.request,
     policy,
-    cells: cellSnapshots,
     candidates,
   };
 }

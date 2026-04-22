@@ -25,7 +25,7 @@ export default function V2Layout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <SidebarProvider>
+    <SidebarProvider className="h-svh">
       <AppSidebarV2 />
       <SidebarInset className="min-w-0 overflow-hidden">
         <header className="flex h-14 shrink-0 items-center px-6">

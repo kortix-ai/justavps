@@ -65,7 +65,7 @@ export function RescaleDialog({ open, onOpenChange, machine }: RescaleDialogProp
       {
         onSuccess: () => {
           toast.success("Scale-up initiated", {
-            description: "Your machine is being resized. It will be back online in ~60–90 seconds.",
+            description: "Your machine is being resized and will be back online shortly.",
           });
           handleClose(false);
         },
@@ -92,7 +92,7 @@ export function RescaleDialog({ open, onOpenChange, machine }: RescaleDialogProp
             <div>
               <DialogTitle className="text-base">Scale Up</DialogTitle>
               <DialogDescription className="text-xs mt-0.5">
-                Upgrade to a larger plan. ~60–90s downtime while the machine restarts.
+                Upgrade to a larger plan. Brief downtime while the machine restarts.
               </DialogDescription>
             </div>
           </div>

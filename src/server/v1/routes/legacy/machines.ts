@@ -809,7 +809,7 @@ const rebootMachineRoute = createRoute({
   tags: ['Machines'],
   security: bearerSecurity,
   summary: 'Reboot a machine',
-  description: 'Initiates a hard reboot via the provider API (~30s downtime).',
+  description: 'Initiates a hard reboot via the provider API. The machine briefly goes offline during restart.',
   request: {
     params: z.object({ id: z.string().uuid().openapi({ description: 'Machine ID' }) }),
   },
@@ -949,7 +949,7 @@ const resizeMachineRoute = createRoute({
   summary: 'Resize (scale up) a machine',
   description:
     'Scales a machine UP to a larger server type. **Only upgrades are allowed** — you cannot downgrade to a smaller plan. ' +
-    'The machine is stopped, resized, and restarted (~60-90s downtime). Disk is permanently enlarged. Billing is prorated.',
+    'The machine is stopped, resized, and restarted (brief downtime). Disk is permanently enlarged. Billing is prorated.',
   request: {
     params: z.object({ id: z.string().uuid().openapi({ description: 'Machine ID' }) }),
     body: {

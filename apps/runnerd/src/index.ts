@@ -543,7 +543,7 @@ app.post('/v1/instances', async (c) => {
   const vcpu = Number(body.vcpu);
   const memoryGb = Number(body.memoryGb);
   const cloudInitUserData = String(body.cloudInitUserData || '');
-  const machineMode = String(body.machineMode || 'vm') === 'container' ? 'container' : 'vm';
+  const machineMode = String(body.machineMode || 'container') === 'container' ? 'container' : 'vm';
   const sshProxyEnabled = body.sshProxyEnabled !== false;
   const containerIpv4Address = typeof body.containerIpv4Address === 'string' && body.containerIpv4Address.trim()
     ? body.containerIpv4Address.trim()

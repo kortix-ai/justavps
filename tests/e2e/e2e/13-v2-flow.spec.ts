@@ -9,7 +9,7 @@ const fakeV2Machine = {
   provisioning_stage: null,
   provisioning_stage_updated_at: null,
   api_version: 'v2',
-  region: 'hel1',
+  region: 'eu',
   resources: { vcpu: 2, ram_gb: 4, disk_gb: 80 },
   billing: { mode: 'flat_monthly', price_monthly: 12, current_period_end: null },
   image: null,
@@ -29,8 +29,6 @@ const fakeV2Machine = {
 
 test.describe('V2 flow wiring', () => {
   test('v2 machines page uses v2 APIs and versioned detail links', async ({ page }) => {
-    await login(page, `v2-list-${Date.now()}@example.com`, 'testpassword123');
-
     const seenPaths = new Set<string>();
     page.on('request', (request) => {
       try {
@@ -40,11 +38,13 @@ test.describe('V2 flow wiring', () => {
       }
     });
 
-    await page.route('**/api/v2/machines', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ machines: [fakeV2Machine] }),
+    await login(page, `v2-list-${Date.now()}@example.com`, 'testpassword123', async (p) => {
+      await p.route('**/api/v2/machines', async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ machines: [fakeV2Machine] }),
+        });
       });
     });
 
@@ -59,8 +59,6 @@ test.describe('V2 flow wiring', () => {
   });
 
   test('v2 machine detail keeps truthful provisioning copy', async ({ page }) => {
-    await login(page, `v2-detail-${Date.now()}@example.com`, 'testpassword123');
-
     const provisioningMachine = {
       ...fakeV2Machine,
       id: 'machine-v2-provisioning',
@@ -72,25 +70,27 @@ test.describe('V2 flow wiring', () => {
       health: null,
     };
 
-    await page.route('**/api/v2/machines/machine-v2-provisioning', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(provisioningMachine),
+    await login(page, `v2-detail-${Date.now()}@example.com`, 'testpassword123', async (p) => {
+      await p.route('**/api/v2/machines/machine-v2-provisioning', async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(provisioningMachine),
+        });
       });
-    });
 
-    await page.route('**/api/v2/machines/machine-v2-provisioning/status/stream', async (route) => {
-      await route.fulfill({
-        status: 200,
-        headers: { 'content-type': 'text/event-stream' },
-        body: '',
+      await p.route('**/api/v2/machines/machine-v2-provisioning/status/stream', async (route) => {
+        await route.fulfill({
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+          body: '',
+        });
       });
     });
 
     await page.goto('/v2/machines/machine-v2-provisioning');
     await expect(page.getByText('VM running, waiting for daemon').first()).toBeVisible();
-    await expect(page.getByText('First boot takes about 60–90 seconds.').first()).toBeVisible();
+    await expect(page.getByText('Setting up your machine.').first()).toBeVisible();
     await expect(page.locator('text=60%')).toBeVisible();
     await expect(page.locator('text=Terminal, exec access, and tools appear once the machine becomes ready.')).toBeVisible();
     await expect(page.locator('text=Terminal, SSH, and tools appear in a few seconds.')).toHaveCount(0);

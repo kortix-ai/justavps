@@ -134,7 +134,7 @@ async function main() {
       vcpu: 2,
       ram_gb: 4,
       disk_gb: 40,
-      region: 'hel1',
+      region: 'eu',
       machine_mode: 'vm',
       name: `e2e-${SCENARIO}-${Date.now()}`,
       ...(TARGET_HOST_ID ? { host_id: TARGET_HOST_ID } : {}),

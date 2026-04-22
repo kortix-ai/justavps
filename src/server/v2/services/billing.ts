@@ -32,7 +32,7 @@ export async function getBillingOverviewV2(input: { accountId: string; region?: 
       compute_seconds: 0,
       storage_gb_seconds: 0,
     },
-    plans: plansForRegion(input.region ?? 'hel1').map((plan) => ({
+    plans: plansForRegion(input.region ?? 'eu').map((plan) => ({
       id: plan.id,
       price_monthly: plan.priceMonthly,
     })),

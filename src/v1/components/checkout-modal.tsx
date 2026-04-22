@@ -242,7 +242,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                 <h2 className="text-lg font-semibold tracking-tight">Deploy your machine</h2>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
                   {isLoggedIn
-                    ? "Choose a plan — your machine deploys in about 60 seconds."
+                    ? "Choose a plan to deploy your machine."
                     : "Choose a plan — we\u2019ll use your email at checkout to set up your account."}
                 </p>
               </div>
@@ -450,8 +450,6 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
 
             {/* ── Trust signals ── */}
             <div className="flex items-center justify-center gap-3 text-[10px] text-muted-foreground/50 pt-1">
-              <span>Ready in ~60s</span>
-              <span>·</span>
               <span>Cancel anytime</span>
               <span>·</span>
               <span>No lock-in</span>

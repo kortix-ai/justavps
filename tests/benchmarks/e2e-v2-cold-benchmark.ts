@@ -153,7 +153,7 @@ async function main() {
   const createStart = Date.now();
   const create = await http<{ id: string; slug: string; status: string }>('/machines', {
     method: 'POST',
-    body: JSON.stringify({ vcpu: 2, ram_gb: 4, disk_gb: 40, region: 'hel1', name: `e2e-cold-${Date.now()}`, ...(TARGET_HOST_ID ? { host_id: TARGET_HOST_ID } : {}), ...(TARGET_IMAGE_ID ? { image_id: TARGET_IMAGE_ID } : {}) }),
+    body: JSON.stringify({ vcpu: 2, ram_gb: 4, disk_gb: 40, region: 'eu', name: `e2e-cold-${Date.now()}`, ...(TARGET_HOST_ID ? { host_id: TARGET_HOST_ID } : {}), ...(TARGET_IMAGE_ID ? { image_id: TARGET_IMAGE_ID } : {}) }),
   });
   state.machineId = create.data.id;
   console.log(`[machine] create accepted id=${state.machineId} slug=${create.data.slug} in ${Date.now() - createStart}ms`);

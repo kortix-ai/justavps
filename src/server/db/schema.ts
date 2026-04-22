@@ -18,8 +18,8 @@ export const machineTelemetryRetentionClassEnum = pgEnum('machine_telemetry_rete
   'heartbeat_minute_7d',
   'alert_30d',
 ]);
-export const cellAdmissionStateEnum = pgEnum('cell_admission_state', ['open', 'restricted', 'closed']);
-export const cellSellabilityStateEnum = pgEnum('cell_sellability_state', ['sellable', 'reserve_only', 'unsellable']);
+export const regionAdmissionStateEnum = pgEnum('region_admission_state', ['open', 'restricted', 'closed']);
+export const regionSellabilityStateEnum = pgEnum('region_sellability_state', ['sellable', 'reserve_only', 'unsellable']);
 export const machinePortProtocolEnum = pgEnum('machine_port_protocol', ['ssh', 'http']);
 export const machineModeEnum = pgEnum('machine_mode', ['vm', 'container']);
 export const machineImageSourceKindEnum = pgEnum('machine_image_source_kind', ['golden', 'catalog', 'docker']);
@@ -154,7 +154,7 @@ export const machines = pgTable('machines', {
 
   // Provider-agnostic fields
   provider: text('provider').notNull(), // "cloud" | future providers...
-  machineMode: machineModeEnum('machine_mode').notNull().default('vm'),
+  machineMode: machineModeEnum('machine_mode').notNull().default('container'),
   requestedImageKind: machineImageSourceKindEnum('requested_image_kind').default('golden'),
   requestedImageRef: text('requested_image_ref'),
   imageId: uuid('image_id'), // nullable, no FK
@@ -322,47 +322,34 @@ export const machineTelemetryRollups = pgTable('machine_telemetry_rollups', {
 }));
 
 // ─── Bare-metal fleet ────────────────────────────────────────────────────────
+//
+// Topology is Region → Cluster → Host → Machine. Launch baseline derives one
+// cluster per region today and stores cluster metadata on each host until a
+// first-class clusters table exists. Hosts live in a region (text key mirroring
+// src/shared/lib/regions.ts). Admission + sellability are tracked at region
+// level; per-host schedulability follows from maintenance_state + status.
 
-export const cells = pgTable('cells', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  slug: text('slug').notNull().unique(),
-  name: text('name').notNull(),
-  region: text('region').notNull(),
-  hostClass: text('host_class').notNull(),
-  generation: text('generation').notNull().default('gen1'),
-  status: text('status').notNull().default('active'), // active | constrained | disabled
-  reservePolicy: jsonb('reserve_policy').$type<Record<string, unknown>>().notNull().default({}),
+export const regions = pgTable('regions', {
+  id: text('id').primaryKey(),
+  label: text('label').notNull(),
+  continent: text('continent').notNull(),
+  active: boolean('active').notNull().default(true),
+  admissionState: regionAdmissionStateEnum('admission_state').notNull().default('open'),
+  sellabilityState: regionSellabilityStateEnum('sellability_state').notNull().default('sellable'),
+  hetznerLocations: text('hetzner_locations').array().notNull().default(sql`ARRAY[]::text[]`),
   metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (table) => ({
-  regionHostClassGenerationUidx: uniqueIndex('cells_region_host_class_generation_uidx').on(table.region, table.hostClass, table.generation),
-  statusRegionIdx: index('cells_status_region_idx').on(table.status, table.region, table.updatedAt),
-}));
-
-export const cellAdmissionControls = pgTable('cell_admission_controls', {
-  cellId: uuid('cell_id').primaryKey().references(() => cells.id, { onDelete: 'cascade' }),
-  admissionState: cellAdmissionStateEnum('admission_state').notNull().default('open'),
-  sellabilityState: cellSellabilityStateEnum('sellability_state').notNull().default('sellable'),
-  reason: text('reason'),
-  source: text('source').notNull().default('manual'),
-  setAt: timestamp('set_at').defaultNow().notNull(),
-  metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-}, (table) => ({
-  admissionStateIdx: index('cell_admission_controls_state_idx').on(table.admissionState, table.updatedAt),
-  sellabilityStateIdx: index('cell_admission_controls_sellability_idx').on(table.sellabilityState, table.updatedAt),
+  activeAdmissionIdx: index('regions_active_admission_idx').on(table.active, table.admissionState),
 }));
 
 export const baremetalHosts = pgTable('baremetal_hosts', {
   id: uuid('id').primaryKey().defaultRandom(),
   vendor: text('vendor').notNull().default('hetzner_robot'),
   hostClass: text('host_class').notNull(),
-  generation: text('generation').notNull().default('gen1'),
   region: text('region').notNull(),
   location: text('location').notNull(),
-  cellId: uuid('cell_id').references(() => cells.id, { onDelete: 'set null' }),
   name: text('name').notNull().unique(),
   status: text('status').notNull().default('requested'), // requested | ordering | bootstrapping | active | draining | disabled | error | deleted
   providerServerNumber: text('provider_server_number').unique(),
@@ -389,7 +376,6 @@ export const baremetalHosts = pgTable('baremetal_hosts', {
   regionStatusHostClassIdx: index('baremetal_hosts_region_status_host_class_idx').on(table.region, table.status, table.hostClass),
   statusUpdatedAtIdx: index('baremetal_hosts_status_updated_at_idx').on(table.status, table.updatedAt),
   maintenanceStateUpdatedAtIdx: index('baremetal_hosts_maintenance_state_updated_idx').on(table.maintenanceState, table.updatedAt),
-  cellStatusIdx: index('baremetal_hosts_cell_status_idx').on(table.cellId, table.status, table.updatedAt),
 }));
 
 export const machineBenchmarks = pgTable('machine_benchmarks', {
@@ -509,53 +495,10 @@ export const controlPlaneServiceStates = pgTable('control_plane_service_states',
   completedAtIdx: index('control_plane_service_states_completed_at_idx').on(table.lastCompletedAt, table.updatedAt),
 }));
 
-export const cellCapacitySnapshots = pgTable('cell_capacity_snapshots', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  cellId: uuid('cell_id').references(() => cells.id, { onDelete: 'set null' }),
-  cellSlug: text('cell_slug').notNull(),
-  region: text('region').notNull(),
-  hostClass: text('host_class').notNull(),
-  generation: text('generation').notNull(),
-  admissionState: cellAdmissionStateEnum('admission_state').notNull(),
-  sellabilityState: cellSellabilityStateEnum('sellability_state').notNull(),
-  hostCount: integer('host_count').notNull(),
-  activeHostCount: integer('active_host_count').notNull(),
-  activeSchedulableHostCount: integer('active_schedulable_host_count').notNull().default(0),
-  constrainedHostCount: integer('constrained_host_count').notNull(),
-  totalVcpu: integer('total_vcpu').notNull(),
-  totalMemoryGb: integer('total_memory_gb').notNull(),
-  totalDiskGb: integer('total_disk_gb').notNull(),
-  usedVcpu: integer('used_vcpu').notNull(),
-  usedMemoryGb: integer('used_memory_gb').notNull(),
-  usedDiskGb: integer('used_disk_gb').notNull(),
-  reservedVcpu: integer('reserved_vcpu').notNull(),
-  reservedMemoryGb: integer('reserved_memory_gb').notNull(),
-  reservedDiskGb: integer('reserved_disk_gb').notNull(),
-  reserveBudgetVcpu: integer('reserve_budget_vcpu').notNull(),
-  reserveBudgetMemoryGb: integer('reserve_budget_memory_gb').notNull(),
-  reserveBudgetDiskGb: integer('reserve_budget_disk_gb').notNull(),
-  availableVcpu: integer('available_vcpu').notNull(),
-  availableMemoryGb: integer('available_memory_gb').notNull(),
-  availableDiskGb: integer('available_disk_gb').notNull(),
-  sellableVcpu: integer('sellable_vcpu').notNull(),
-  sellableMemoryGb: integer('sellable_memory_gb').notNull(),
-  sellableDiskGb: integer('sellable_disk_gb').notNull(),
-  utilizationScore: integer('utilization_score_basis_points').notNull(),
-  snapshotWindowStart: timestamp('snapshot_window_start').notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (table) => ({
-  cellWindowUidx: uniqueIndex('cell_capacity_snapshots_cell_window_uidx').on(table.cellSlug, table.snapshotWindowStart),
-  cellObservedIdx: index('cell_capacity_snapshots_cell_observed_idx').on(table.cellId, table.snapshotWindowStart.desc()),
-  observedIdx: index('cell_capacity_snapshots_observed_idx').on(table.snapshotWindowStart.desc(), table.region, table.hostClass),
-}));
-
 export const baremetalProcurements = pgTable('baremetal_procurements', {
   id: uuid('id').primaryKey().defaultRandom(),
   vendor: text('vendor').notNull().default('hetzner_robot'),
   hostClass: text('host_class').notNull(),
-  generation: text('generation').notNull().default('gen1'),
-  targetCellId: uuid('target_cell_id').references(() => cells.id, { onDelete: 'set null' }),
-  procurementPurpose: text('procurement_purpose').notNull().default('capacity_growth'), // capacity_growth | reserve_replenishment | bootstrap | specialization
   productId: text('product_id').notNull(),
   region: text('region').notNull(),
   location: text('location').notNull(),
@@ -827,6 +770,19 @@ export const kortixLinks = pgTable('kortix_links', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// ─── Operational Flags ──────────────────────────────────────────────────────
+
+export const operationalFlags = pgTable('operational_flags', {
+  key: text('key').primaryKey(),        // e.g. 'machine_creates_paused', 'signups_paused', 'region_eu_closed'
+  value: jsonb('value').$type<{ enabled: boolean; reason?: string | null; metadata?: Record<string, unknown> }>().notNull(),
+  updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type OperationalFlagRow = typeof operationalFlags.$inferSelect;
+export type NewOperationalFlag = typeof operationalFlags.$inferInsert;
+
 // ─── Type Exports ───────────────────────────────────────────────────────────
 
 export type User = typeof users.$inferSelect;
@@ -845,10 +801,8 @@ export type MachineHeartbeatStateRow = typeof machineHeartbeatStates.$inferSelec
 export type NewMachineHeartbeatState = typeof machineHeartbeatStates.$inferInsert;
 export type MachineTelemetryRollupRow = typeof machineTelemetryRollups.$inferSelect;
 export type NewMachineTelemetryRollup = typeof machineTelemetryRollups.$inferInsert;
-export type CellRow = typeof cells.$inferSelect;
-export type NewCell = typeof cells.$inferInsert;
-export type CellAdmissionControlRow = typeof cellAdmissionControls.$inferSelect;
-export type NewCellAdmissionControl = typeof cellAdmissionControls.$inferInsert;
+export type RegionRow = typeof regions.$inferSelect;
+export type NewRegion = typeof regions.$inferInsert;
 export type BaremetalHost = typeof baremetalHosts.$inferSelect;
 export type NewBaremetalHost = typeof baremetalHosts.$inferInsert;
 export type HostCapacityReservationRow = typeof hostCapacityReservations.$inferSelect;

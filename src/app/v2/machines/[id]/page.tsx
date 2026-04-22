@@ -870,7 +870,7 @@ export default function MachineDetailPage() {
                 <div>
                   <p className="text-sm font-semibold">{provisioning.label}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    First boot takes about 60–90 seconds.
+                    Setting up your machine.
                   </p>
                 </div>
                 <span className="font-mono text-sm font-semibold tabular-nums text-foreground">

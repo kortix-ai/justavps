@@ -1,11 +1,13 @@
-import type {
-  BaremetalCellAdmissionState,
-  BaremetalCellCapacitySnapshot,
-  BaremetalCellSellabilityState,
-  BaremetalCellState,
-} from "@/server/platform/baremetal/cells";
-
-type BaremetalVendor = 'hetzner_robot';
+/**
+ * Bare-metal placement types.
+ *
+ * Topology: Region → Cluster → Host → Machine. Scheduling is still a pure
+ * per-host decision inside the selected cluster —
+ * filter hosts by region + host_class + schedulability, score by projected
+ * utilization + warm-pool/image-locality bonuses, pick the best. Region-level
+ * admission (open/restricted/closed, sellable/reserve_only/unsellable) is
+ * enforced by the caller, not the scheduler.
+ */
 
 export type BaremetalHostStatus =
   | 'requested'
@@ -16,15 +18,6 @@ export type BaremetalHostStatus =
   | 'disabled'
   | 'error'
   | 'deleted';
-
-type BaremetalProcurementStatus =
-  | 'requested'
-  | 'approved'
-  | 'ordering'
-  | 'bootstrapping'
-  | 'active'
-  | 'failed'
-  | 'cancelled';
 
 export interface BaremetalCapacity {
   totalVcpu: number;
@@ -71,15 +64,11 @@ export interface BaremetalSchedulerHostMetadata {
 
 export interface BaremetalPlacementPolicy {
   requiredHostClass?: string | null;
-  requiredCellId?: string | null;
   preferredHostClasses?: string[];
-  preferredCellIds?: string[];
   warmPoolPreference?: 'prefer' | 'neutral' | 'avoid';
   requireLocalImage?: boolean;
-  cellSpreadPreference?: 'spread' | 'pack' | 'neutral';
+  hostSpreadPreference?: 'spread' | 'pack' | 'neutral';
   maxProjectedUtilizationScore?: number | null;
-  allowRestrictedCellAdmission?: boolean;
-  allowReserveOnlySellability?: boolean;
 }
 
 export interface BaremetalPlacementRequest {
@@ -96,9 +85,6 @@ export interface BaremetalHostCandidate {
   region: string;
   status: BaremetalHostStatus;
   hostClass?: string | null;
-  generation?: string | null;
-  cellId?: string | null;
-  cell?: BaremetalCellState | null;
   maintenanceState?: string | null;
   runnerBaseUrl: string | null;
   publicIpv4: string | null;
@@ -113,21 +99,7 @@ export interface BaremetalPlacementCandidateEvaluation {
   eligible: boolean;
   score: number | null;
   reasons: string[];
-  cell: BaremetalCellState | null;
   projectedUsage: BaremetalPlacementResources;
-  cellProjectedUtilization: {
-    hostCount: number;
-    vcpuPercent: number;
-    memoryPercent: number;
-    diskPercent: number;
-    score: number;
-    reserveBudget: BaremetalPlacementResources;
-    projectedAvailable: BaremetalPlacementResources;
-    projectedSellable: BaremetalPlacementResources;
-    reserveSatisfied: boolean;
-    admissionState: BaremetalCellAdmissionState;
-    sellabilityState: BaremetalCellSellabilityState;
-  } | null;
   projectedUtilization: {
     vcpuPercent: number;
     memoryPercent: number;
@@ -139,14 +111,9 @@ export interface BaremetalPlacementCandidateEvaluation {
     warmPool: 'exact' | 'cpu_bucket' | 'none' | 'unknown';
     imageLocality: 'local' | 'remote' | 'warming' | 'unknown' | 'error';
     hostClass: string | null;
-    generation: string | null;
-    cellId: string | null;
-    cellSlug: string | null;
     maintenanceState: string | null;
     schedulable: boolean;
     driftStatus: 'in_policy' | 'warning_drift' | 'blocking_drift' | null;
-    admissionState: BaremetalCellAdmissionState;
-    sellabilityState: BaremetalCellSellabilityState;
   };
 }
 
@@ -158,15 +125,10 @@ export interface BaremetalPlacementDecision {
   request: BaremetalPlacementRequest;
   policy: Required<Pick<BaremetalPlacementPolicy, 'warmPoolPreference' | 'requireLocalImage'>> & {
     requiredHostClass: string | null;
-    requiredCellId: string | null;
     preferredHostClasses: string[];
-    preferredCellIds: string[];
-    cellSpreadPreference: 'spread' | 'pack' | 'neutral';
+    hostSpreadPreference: 'spread' | 'pack' | 'neutral';
     maxProjectedUtilizationScore: number | null;
-    allowRestrictedCellAdmission: boolean;
-    allowReserveOnlySellability: boolean;
   };
-  cells: BaremetalCellCapacitySnapshot[];
   candidates: BaremetalPlacementCandidateEvaluation[];
 }
 

@@ -160,7 +160,7 @@ export default function MachinesPage() {
           <div>
             <p className="text-sm font-medium">Setting up your machine…</p>
             <p className="text-xs text-muted-foreground">
-              Payment complete. Your machine is being provisioned — usually takes 1–3 minutes.
+              Payment complete. Your machine is being provisioned.
             </p>
           </div>
         </div>

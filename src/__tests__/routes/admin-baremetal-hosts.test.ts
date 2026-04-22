@@ -6,8 +6,8 @@ const hostRow = {
   vendor: 'hetzner_robot',
   hostClass: 'general-small',
   generation: 'gen1',
-  region: 'hel1',
-  location: 'HEL1',
+  region: 'eu',
+  location: 'HEL1-DC4',
   cellId: '8a034d1a-7780-43ff-bf2d-36efc4f3e858',
   name: 'bm-general-small-HEL1-ed822eae',
   status: 'ordering',
@@ -35,9 +35,9 @@ const hostRow = {
 
 const cellRow = {
   id: hostRow.cellId,
-  slug: 'hel1--general-small--gen1',
+  slug: 'eu--general-small--gen1',
   name: 'HEL1 general-small gen1',
-  region: 'hel1',
+  region: 'eu',
   hostClass: 'general-small',
   generation: 'gen1',
   status: 'active',
@@ -61,6 +61,24 @@ const cellAdmissionRow = {
   metadata: {},
   createdAt: new Date('2026-04-02T10:00:00.000Z'),
   updatedAt: new Date('2026-04-02T10:00:00.000Z'),
+};
+
+const regionRow = {
+  id: 'eu',
+  label: 'Europe',
+  continent: 'EU',
+  active: true,
+  admissionState: 'restricted',
+  sellabilityState: 'reserve_only',
+  reservePolicy: {
+    warmReserve: { vcpu: 1, memoryGb: 2, diskGb: 20 },
+    failureReserve: { vcpu: 2, memoryGb: 4, diskGb: 40 },
+    procurementReserve: { vcpu: 0, memoryGb: 0, diskGb: 0 },
+  },
+  hetznerLocations: ['HEL1-DC2'],
+  metadata: {},
+  createdAt: new Date('2026-04-02T09:55:32.536Z'),
+  updatedAt: new Date('2026-04-02T09:55:32.536Z'),
 };
 
 const benchmarkRow = {
@@ -108,9 +126,9 @@ vi.mock('@/server/auth/api-guard', () => ({
 vi.mock('@/server/platform/baremetal/cell-store', () => ({
   ensureBaremetalCellRecord: vi.fn(async () => ({
     id: hostRow.cellId,
-    slug: 'hel1--general-small--gen1',
+    slug: 'eu--general-small--gen1',
     name: 'HEL1 general-small gen1',
-    region: 'hel1',
+    region: 'eu',
     hostClass: 'general-small',
     generation: 'gen1',
   })),
@@ -197,9 +215,6 @@ describe('admin baremetal host bootstrap routes', () => {
 
   it('registers host runner details and capacity', async () => {
     selectWhereMock.mockResolvedValueOnce([{ ...hostRow, runnerToken: 'runner-token-123' }]);
-    selectDirectMock
-      .mockReturnValueOnce([cellRow])
-      .mockReturnValueOnce([cellAdmissionRow]);
     updateReturningMock.mockResolvedValueOnce([{
       ...hostRow,
       runnerToken: 'runner-token-123',
@@ -231,7 +246,7 @@ describe('admin baremetal host bootstrap routes', () => {
     expect(data.host.runner_base_url).toBe('http://1.2.3.4:7779');
     expect(data.host.total_vcpu).toBe(12);
     expect(data.host.status).toBe('active');
-    expect(data.host.cell_slug).toBe('hel1--general-small--gen1');
+    expect(data.host.region).toBe('eu');
     expect(data.host.bootstrap_validation.status).toBeNull();
     expect(data.host.drift_status).toBeNull();
     expect(data.host.scheduler).toEqual({ schedulable: null, unschedulable_reason: null, updated_at: null, updated_by: null });
@@ -503,45 +518,50 @@ describe('admin baremetal host bootstrap routes', () => {
     expect(data.host.drain_report.blockers_total).toBe(0);
   });
 
-  it('lists hosts with cell reserve and admission visibility', async () => {
+  it('lists hosts with region admission visibility', async () => {
     selectDirectMock
       .mockReturnValueOnce([{ ...hostRow, status: 'active', totalVcpu: 12, totalMemoryGb: 64, totalDiskGb: 900, runnerBaseUrl: 'http://1.2.3.4:7779', publicIpv4: '1.2.3.4' }])
       .mockReturnValueOnce([])
       .mockReturnValueOnce([])
       .mockReturnValueOnce([])
-      .mockReturnValueOnce([cellRow])
-      .mockReturnValueOnce([cellAdmissionRow]);
+      .mockReturnValueOnce([regionRow]);
 
     const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
     const res = await adminFleetV2App.request(new Request('http://localhost/hosts'));
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.hosts[0]).toMatchObject({
-      cell_slug: 'hel1--general-small--gen1',
-      cell_admission_state: 'restricted',
-      cell_sellability_state: 'reserve_only',
+      id: hostRow.id,
+      region: 'eu',
+      host_class: 'general-small',
+      status: 'active',
     });
-    expect(data.cells[0]).toMatchObject({
-      slug: 'hel1--general-small--gen1',
+    expect(data.regions[0]).toMatchObject({
+      id: 'eu',
+      label: 'Europe',
       admission_state: 'restricted',
       sellability_state: 'reserve_only',
-      reserve_budget_vcpu: 3,
-      reserve_budget_memory_gb: 6,
-      reserve_budget_disk_gb: 60,
+      host_count: 1,
+      active_host_count: 1,
+      active_schedulable_host_count: 1,
+      total_vcpu: 12,
+      total_memory_gb: 64,
+      total_disk_gb: 900,
     });
   });
 
-  it('updates cell admission and sellability state', async () => {
-    selectWhereMock.mockResolvedValueOnce([cellRow]);
+  it('updates region admission and sellability state', async () => {
+    // First select: existing region lookup in the admission-state handler.
+    selectWhereMock.mockResolvedValueOnce([regionRow]);
+    // Then loadFleetOverviewState: hosts, reservations, regions.
     selectDirectMock
       .mockReturnValueOnce([{ ...hostRow, status: 'active', totalVcpu: 12, totalMemoryGb: 64, totalDiskGb: 900, runnerBaseUrl: 'http://1.2.3.4:7779', publicIpv4: '1.2.3.4' }])
       .mockReturnValueOnce([])
-      .mockReturnValueOnce([cellRow])
-      .mockReturnValueOnce([{ ...cellAdmissionRow, admissionState: 'closed', sellabilityState: 'unsellable', reason: 'Paused' }]);
+      .mockReturnValueOnce([{ ...regionRow, admissionState: 'closed', sellabilityState: 'unsellable' }]);
     updateReturningMock.mockResolvedValueOnce([]);
 
     const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
-    const res = await adminFleetV2App.request(new Request(`http://localhost/cells/${cellRow.id}/admission-state`, {
+    const res = await adminFleetV2App.request(new Request(`http://localhost/regions/${regionRow.id}/admission-state`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ admission_state: 'closed', sellability_state: 'unsellable', reason: 'Paused' }),
@@ -549,41 +569,10 @@ describe('admin baremetal host bootstrap routes', () => {
 
     expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data.cell).toMatchObject({
-      id: cellRow.id,
+    expect(data.region).toMatchObject({
+      id: regionRow.id,
       admission_state: 'closed',
       sellability_state: 'unsellable',
-      admission_reason: 'Paused',
-    });
-  });
-
-  it('updates cell reserve policy', async () => {
-    selectWhereMock.mockResolvedValueOnce([cellRow]);
-    selectDirectMock
-      .mockReturnValueOnce([{ ...hostRow, status: 'active', totalVcpu: 12, totalMemoryGb: 64, totalDiskGb: 900, runnerBaseUrl: 'http://1.2.3.4:7779', publicIpv4: '1.2.3.4' }])
-      .mockReturnValueOnce([])
-      .mockReturnValueOnce([{ ...cellRow, reservePolicy: { warmReserve: { vcpu: 2, memoryGb: 4, diskGb: 40 }, failureReserve: { vcpu: 3, memoryGb: 6, diskGb: 60 }, procurementReserve: { vcpu: 1, memoryGb: 2, diskGb: 20 } } }])
-      .mockReturnValueOnce([cellAdmissionRow]);
-    updateReturningMock.mockResolvedValueOnce([]);
-
-    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
-    const res = await adminFleetV2App.request(new Request(`http://localhost/cells/${cellRow.id}/reserve-policy`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        warm_reserve: { vcpu: 2, memory_gb: 4, disk_gb: 40 },
-        failure_reserve: { vcpu: 3, memory_gb: 6, disk_gb: 60 },
-        procurement_reserve: { vcpu: 1, memory_gb: 2, disk_gb: 20 },
-      }),
-    }));
-
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.cell).toMatchObject({
-      id: cellRow.id,
-      reserve_budget_vcpu: 6,
-      reserve_budget_memory_gb: 12,
-      reserve_budget_disk_gb: 120,
     });
   });
 
@@ -600,12 +589,11 @@ describe('admin baremetal host bootstrap routes', () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.recommendations[0]).toMatchObject({
-      cell_slug: 'hel1--general-small--gen1',
+      region: 'eu',
       current_host_class: 'general-small',
       current_role: 'starter_edge',
       recommended_host_class: 'general-medium',
       recommended_role: 'mainstream',
-      procurement_purpose: 'reserve_replenishment',
       minimum_hosts: 1,
     });
   });
@@ -635,57 +623,6 @@ describe('admin baremetal host bootstrap routes', () => {
       scope: 'machine_create',
       lease_owner: null,
       checkpoint: { last_processed_count: 2 },
-    });
-  });
-
-  it('lists recent cell capacity snapshots', async () => {
-    selectDirectMock.mockReturnValueOnce([{
-      id: 'snap-1',
-      cellId: 'cell-1',
-      cellSlug: 'hel1--general-small--gen1',
-      region: 'hel1',
-      hostClass: 'general-small',
-      generation: 'gen1',
-      admissionState: 'open',
-      sellabilityState: 'sellable',
-      hostCount: 2,
-      activeHostCount: 2,
-      activeSchedulableHostCount: 1,
-      constrainedHostCount: 0,
-      totalVcpu: 24,
-      totalMemoryGb: 124,
-      totalDiskGb: 895,
-      usedVcpu: 10,
-      usedMemoryGb: 12,
-      usedDiskGb: 200,
-      reservedVcpu: 0,
-      reservedMemoryGb: 0,
-      reservedDiskGb: 0,
-      reserveBudgetVcpu: 4,
-      reserveBudgetMemoryGb: 8,
-      reserveBudgetDiskGb: 80,
-      availableVcpu: 14,
-      availableMemoryGb: 112,
-      availableDiskGb: 695,
-      sellableVcpu: 10,
-      sellableMemoryGb: 104,
-      sellableDiskGb: 615,
-      utilizationScore: 2597,
-      snapshotWindowStart: new Date('2026-04-11T05:00:00.000Z'),
-      createdAt: new Date('2026-04-11T05:00:05.000Z'),
-    }]);
-
-    const { adminFleetV2App } = await import("@/server/v2/routes/admin/fleet");
-    const res = await adminFleetV2App.request(new Request('http://localhost/cell-capacity-snapshots?limit=1'));
-
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.snapshots[0]).toMatchObject({
-      cell_slug: 'hel1--general-small--gen1',
-      active_schedulable_host_count: 1,
-      total_vcpu: 24,
-      reserve_budget_vcpu: 4,
-      utilization_score_basis_points: 2597,
     });
   });
 

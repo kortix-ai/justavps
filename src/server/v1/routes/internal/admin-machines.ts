@@ -1,6 +1,8 @@
 /**
- * Admin Machines — list all machines across all accounts with filtering,
- * and graceful delete (Hetzner server + DNS + KV + billing + DB).
+ * Admin Machines — full CRUD + lifecycle control for the admin panel.
+ *
+ * This route lets operators list, inspect, create, rename, resize,
+ * start/stop/reboot, and delete any machine across any account.
  */
 
 import { OpenAPIHono } from '@hono/zod-openapi';
@@ -8,11 +10,22 @@ import type { Context } from 'hono';
 import { eq, and, ne, ilike, sql, inArray, desc, or, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/server/db';
-import { machines, users, accounts, subscriptions } from '@/server/db/schema';
+import {
+  machines,
+  users,
+  accounts,
+  subscriptions,
+  baremetalHosts,
+  machineEvents,
+  machineHeartbeatStates,
+  machinePortAllocations,
+} from '@/server/db/schema';
 import { apiGuard, type AuthVariables } from "@/server/auth/api-guard";
 import { errorResponse } from "@/server/core/route-helpers";
 import { cleanupMachineResources } from "@/server/v1/services/machine-lifecycle";
 import { getProvider } from "@/server/platform/providers/index";
+import { createMachineV2 } from "@/server/v2/services/machines";
+import { HttpBaremetalRunnerClient } from "@/server/platform/baremetal/runner-client";
 
 export const adminMachinesApp = new OpenAPIHono<{ Variables: AuthVariables }>();
 adminMachinesApp.use('*', apiGuard);
@@ -97,6 +110,110 @@ function buildMachineConditions(filters: ListFilters, options?: { exclude?: Arra
   }
 
   return conditions.length > 0 ? and(...conditions) : undefined;
+}
+
+// ─── Serializers ────────────────────────────────────────────────────────────
+
+type MachineRow = typeof machines.$inferSelect;
+type SubscriptionRow = typeof subscriptions.$inferSelect;
+
+function serializeAdminMachine(
+  m: MachineRow,
+  extra: {
+    ownerEmail?: string | null;
+    ownerName?: string | null;
+    accountName?: string | null;
+    accountSlug?: string | null;
+    accountType?: string | null;
+    subscription?: SubscriptionRow | null;
+  } = {},
+) {
+  const heartbeat = m.lastHeartbeat && typeof m.lastHeartbeat === 'object' ? m.lastHeartbeat as Record<string, unknown> : null;
+  return {
+    id: m.id,
+    slug: m.slug,
+    name: m.name,
+    status: m.status,
+    provisioning_stage: m.provisioningStage ?? null,
+    provider: m.provider,
+    server_type: m.serverType,
+    region: m.region,
+    ip: m.ip,
+    public_ipv4: m.publicIpv4 ?? null,
+    public_ipv6: m.publicIpv6 ?? null,
+    ssh_port: m.sshPort ?? null,
+    http_port: m.httpPort ?? null,
+    source: m.source,
+    kortix_sandbox_id: m.kortixSandboxId ?? null,
+    price_monthly: m.priceMonthly ?? null,
+    backups_enabled: m.backupsEnabled,
+    provider_server_id: m.providerServerId ?? null,
+    baremetal_host_id: m.baremetalHostId ?? null,
+    daemon_version: m.daemonVersion ?? null,
+    machine_mode: m.machineMode,
+    api_version: m.apiVersion,
+    vcpu: m.vcpu ?? null,
+    memory_gb: m.ramGb ?? null,
+    disk_gb: m.diskGb ?? null,
+    domains: Array.isArray(m.domains) ? m.domains : [],
+    created_at: m.createdAt.toISOString(),
+    ready_at: m.readyAt?.toISOString() ?? null,
+    deleted_at: m.deletedAt?.toISOString() ?? null,
+    last_heartbeat_at: m.lastHeartbeatAt?.toISOString() ?? null,
+    health: heartbeat ? {
+      cpu: heartbeat.cpu ?? null,
+      memory: heartbeat.memory ?? null,
+      disk: heartbeat.disk ?? null,
+    } : null,
+    owner: {
+      id: m.ownerId,
+      email: extra.ownerEmail ?? null,
+      name: extra.ownerName ?? null,
+    },
+    account: m.accountId ? {
+      id: m.accountId,
+      name: extra.accountName ?? null,
+      slug: extra.accountSlug ?? null,
+      type: extra.accountType ?? null,
+    } : null,
+    subscription: extra.subscription ? {
+      status: extra.subscription.status,
+      stripe_subscription_id: extra.subscription.stripeSubscriptionId,
+      cancel_at_period_end: extra.subscription.cancelAtPeriodEnd,
+      current_period_end: extra.subscription.currentPeriodEnd?.toISOString() ?? null,
+    } : null,
+  };
+}
+
+async function loadMachineWithJoins(id: string) {
+  const [row] = await db
+    .select({
+      machine: machines,
+      ownerEmail: users.email,
+      ownerName: users.name,
+      accountName: accounts.name,
+      accountSlug: accounts.slug,
+      accountType: accounts.type,
+    })
+    .from(machines)
+    .leftJoin(users, eq(machines.ownerId, users.id))
+    .leftJoin(accounts, eq(machines.accountId, accounts.id))
+    .where(eq(machines.id, id));
+  return row ?? null;
+}
+
+async function serializeFullMachineById(id: string) {
+  const row = await loadMachineWithJoins(id);
+  if (!row) return null;
+  const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.machineId, id));
+  return serializeAdminMachine(row.machine, {
+    ownerEmail: row.ownerEmail,
+    ownerName: row.ownerName,
+    accountName: row.accountName,
+    accountSlug: row.accountSlug,
+    accountType: row.accountType,
+    subscription: sub ?? null,
+  });
 }
 
 // ─── GET / — List all machines (admin view, with joins + filters) ───────────
@@ -208,55 +325,342 @@ adminMachinesApp.get('/', async (c) => {
       by_status: statusSummary,
       by_source: sourceSummary,
     },
-    machines: rows.map((r) => {
-      const m = r.machine;
-      const sub = subsByMachineId.get(m.id);
-      return {
-        id: m.id,
-        slug: m.slug,
-        name: m.name,
-        status: m.status,
-        provisioning_stage: m.provisioningStage ?? null,
-        provider: m.provider,
-        server_type: m.serverType,
-        region: m.region,
-        ip: m.ip,
-        source: m.source,
-        kortix_sandbox_id: m.kortixSandboxId ?? null,
-        price_monthly: m.priceMonthly ?? null,
-        backups_enabled: m.backupsEnabled,
-        provider_server_id: m.providerServerId ?? null,
-        daemon_version: m.daemonVersion ?? null,
-        created_at: m.createdAt.toISOString(),
-        ready_at: m.readyAt?.toISOString() ?? null,
-        deleted_at: m.deletedAt?.toISOString() ?? null,
-        last_heartbeat_at: m.lastHeartbeatAt?.toISOString() ?? null,
-        health: m.lastHeartbeat && typeof m.lastHeartbeat === 'object' ? {
-          cpu: (m.lastHeartbeat as Record<string, unknown>).cpu ?? null,
-          memory: (m.lastHeartbeat as Record<string, unknown>).memory ?? null,
-          disk: (m.lastHeartbeat as Record<string, unknown>).disk ?? null,
-        } : null,
-        owner: {
-          id: m.ownerId,
-          email: r.ownerEmail ?? null,
-          name: r.ownerName ?? null,
-        },
-        account: m.accountId ? {
-          id: m.accountId,
-          name: r.accountName ?? null,
-          slug: r.accountSlug ?? null,
-          type: r.accountType ?? null,
-        } : null,
-        subscription: sub ? {
-          status: sub.status,
-          stripe_subscription_id: sub.stripeSubscriptionId,
-          cancel_at_period_end: sub.cancelAtPeriodEnd,
-          current_period_end: sub.currentPeriodEnd?.toISOString() ?? null,
-        } : null,
-      };
-    }),
+    machines: rows.map((r) => serializeAdminMachine(r.machine, {
+      ownerEmail: r.ownerEmail,
+      ownerName: r.ownerName,
+      accountName: r.accountName,
+      accountSlug: r.accountSlug,
+      accountType: r.accountType,
+      subscription: subsByMachineId.get(r.machine.id) ?? null,
+    })),
   });
 });
+
+// ─── GET /:id — Full machine detail (events, heartbeat, ports, host) ───────
+
+adminMachinesApp.get('/:id', async (c) => {
+  const adminError = requireAdmin(c);
+  if (adminError) return adminError;
+
+  const id = c.req.param('id');
+  const parsed = z.string().uuid().safeParse(id);
+  if (!parsed.success) {
+    return errorResponse(c, 400, 'Invalid machine ID');
+  }
+
+  const row = await loadMachineWithJoins(id);
+  if (!row) {
+    return errorResponse(c, 404, 'Machine not found');
+  }
+
+  const machine = row.machine;
+
+  const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.machineId, id));
+
+  const recentEvents = await db
+    .select()
+    .from(machineEvents)
+    .where(eq(machineEvents.machineId, id))
+    .orderBy(desc(machineEvents.createdAt))
+    .limit(50);
+
+  const [heartbeat] = await db
+    .select()
+    .from(machineHeartbeatStates)
+    .where(eq(machineHeartbeatStates.machineId, id));
+
+  const portRows = await db
+    .select()
+    .from(machinePortAllocations)
+    .where(eq(machinePortAllocations.machineId, id));
+
+  let host: {
+    id: string;
+    name: string;
+    region: string;
+    location: string;
+    public_ipv4: string | null;
+  } | null = null;
+  if (machine.baremetalHostId) {
+    const [hostRow] = await db
+      .select({
+        id: baremetalHosts.id,
+        name: baremetalHosts.name,
+        region: baremetalHosts.region,
+        location: baremetalHosts.location,
+        publicIpv4: baremetalHosts.publicIpv4,
+      })
+      .from(baremetalHosts)
+      .where(eq(baremetalHosts.id, machine.baremetalHostId));
+    if (hostRow) {
+      host = {
+        id: hostRow.id,
+        name: hostRow.name,
+        region: hostRow.region,
+        location: hostRow.location,
+        public_ipv4: hostRow.publicIpv4 ?? null,
+      };
+    }
+  }
+
+  return c.json({
+    machine: serializeAdminMachine(machine, {
+      ownerEmail: row.ownerEmail,
+      ownerName: row.ownerName,
+      accountName: row.accountName,
+      accountSlug: row.accountSlug,
+      accountType: row.accountType,
+      subscription: sub ?? null,
+    }),
+    events: recentEvents.map((ev) => ({
+      id: ev.id,
+      event: ev.event,
+      stage: ev.stage ?? null,
+      message: ev.message ?? null,
+      metadata: ev.metadata ?? {},
+      created_at: ev.createdAt.toISOString(),
+    })),
+    heartbeat: heartbeat ? {
+      daemon_version: heartbeat.daemonVersion ?? null,
+      last_heartbeat_at: heartbeat.lastHeartbeatAt?.toISOString() ?? null,
+      last_projected_at: heartbeat.lastProjectedAt?.toISOString() ?? null,
+      heartbeat_count: heartbeat.heartbeatCount,
+      last_ready_at: heartbeat.lastReadyAt?.toISOString() ?? null,
+      uptime_sec: heartbeat.uptimeSec ?? null,
+      services: heartbeat.services ?? {},
+      load: heartbeat.load ?? null,
+      network: heartbeat.network ?? null,
+      security: heartbeat.security ?? null,
+      updated_at: heartbeat.updatedAt.toISOString(),
+    } : null,
+    port_allocations: portRows.map((p) => ({
+      id: p.id,
+      protocol: p.protocol,
+      public_port: p.publicPort,
+      target_port: p.targetPort,
+      metadata: p.metadata ?? {},
+      updated_at: p.updatedAt.toISOString(),
+    })),
+    host,
+  });
+});
+
+// ─── POST / — Admin-on-behalf-of create ─────────────────────────────────────
+
+const CreateMachineBodySchema = z.object({
+  owner_user_id: z.string().uuid(),
+  account_id: z.string().uuid().optional(),
+  name: z.string().min(1).max(64).optional(),
+  region: z.string().min(1).default('eu'),
+  vcpu: z.number().int().min(1).max(128),
+  memory_gb: z.number().int().min(1).max(512),
+  disk_gb: z.number().int().min(10).max(2000),
+  image_ref: z.string().min(1).optional().nullable(),
+  machine_mode: z.enum(['vm', 'container']).optional().default('container'),
+});
+
+adminMachinesApp.post('/', async (c) => {
+  const adminError = requireAdmin(c);
+  if (adminError) return adminError;
+
+  const body = await c.req.json().catch(() => null);
+  const parsed = CreateMachineBodySchema.safeParse(body);
+  if (!parsed.success) {
+    return errorResponse(c, 400, parsed.error.issues.map((i) => i.message).join('; '));
+  }
+
+  const input = parsed.data;
+
+  // Resolve owner + account
+  const [owner] = await db.select().from(users).where(eq(users.id, input.owner_user_id));
+  if (!owner) {
+    return errorResponse(c, 400, 'owner_user_id does not reference an existing user');
+  }
+
+  const accountId = input.account_id ?? owner.defaultAccountId;
+  if (!accountId) {
+    return errorResponse(c, 400, 'Could not determine an account for this user (pass account_id explicitly)');
+  }
+
+  const [account] = await db.select().from(accounts).where(eq(accounts.id, accountId));
+  if (!account) {
+    return errorResponse(c, 400, 'account_id does not reference an existing account');
+  }
+
+  const isDockerImage = input.image_ref ? /^(docker|oci):/i.test(input.image_ref) : false;
+
+  try {
+    const result = await createMachineV2({
+      accountId,
+      userId: owner.id,
+      isAdmin: true,
+      requestUrl: c.req.url,
+      input: {
+        vcpu: input.vcpu,
+        ram_gb: input.memory_gb,
+        disk_gb: input.disk_gb,
+        machine_mode: input.machine_mode,
+        region: input.region,
+        name: input.name,
+        image_id: null,
+        docker_image: isDockerImage ? input.image_ref ?? null : null,
+      },
+    });
+
+    if (result.kind === 'checkout') {
+      return errorResponse(c, 500, 'Unexpected checkout gate for admin-created machine');
+    }
+
+    const full = await serializeFullMachineById(result.machine.id);
+    return c.json({ machine: full ?? result.machine }, 201);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[ADMIN] Failed to create machine:', message);
+    return errorResponse(c, 500, `Create failed: ${message}`);
+  }
+});
+
+// ─── PATCH /:id — Rename + resize (rename is live, resize rejected) ────────
+
+const UpdateMachineBodySchema = z.object({
+  name: z.string().min(1).max(64).optional(),
+  vcpu: z.number().int().min(1).max(128).optional(),
+  memory_gb: z.number().int().min(1).max(512).optional(),
+  disk_gb: z.number().int().min(10).max(2000).optional(),
+  backups_enabled: z.boolean().optional(),
+});
+
+adminMachinesApp.patch('/:id', async (c) => {
+  const adminError = requireAdmin(c);
+  if (adminError) return adminError;
+
+  const id = c.req.param('id');
+  if (!z.string().uuid().safeParse(id).success) {
+    return errorResponse(c, 400, 'Invalid machine ID');
+  }
+
+  const body = await c.req.json().catch(() => null);
+  const parsed = UpdateMachineBodySchema.safeParse(body);
+  if (!parsed.success) {
+    return errorResponse(c, 400, parsed.error.issues.map((i) => i.message).join('; '));
+  }
+
+  const [machine] = await db.select().from(machines).where(eq(machines.id, id));
+  if (!machine) {
+    return errorResponse(c, 404, 'Machine not found');
+  }
+
+  const data = parsed.data;
+  const wantsResize =
+    (data.vcpu !== undefined && data.vcpu !== (machine.vcpu ?? data.vcpu))
+    || (data.memory_gb !== undefined && data.memory_gb !== (machine.ramGb ?? data.memory_gb))
+    || (data.disk_gb !== undefined && data.disk_gb !== (machine.diskGb ?? data.disk_gb));
+
+  if (wantsResize) {
+    return errorResponse(c, 400, 'Resize is not implemented — requires machine stop/start and capacity rebalance');
+  }
+
+  const updates: Partial<MachineRow> = {};
+  if (data.name !== undefined) updates.name = data.name;
+  if (data.backups_enabled !== undefined) updates.backupsEnabled = data.backups_enabled;
+
+  if (Object.keys(updates).length === 0) {
+    const full = await serializeFullMachineById(id);
+    return c.json({ machine: full });
+  }
+
+  await db.update(machines).set(updates).where(eq(machines.id, id));
+  const full = await serializeFullMachineById(id);
+  return c.json({ machine: full });
+});
+
+// ─── POST /:id/(start|stop|reboot) — Lifecycle actions via runner client ────
+
+async function getRunnerClientForMachine(machine: MachineRow): Promise<
+  | { runner: HttpBaremetalRunnerClient; instanceId: string }
+  | { error: { status: number; message: string } }
+> {
+  const providerServerId = machine.providerServerId
+    ?? (machine.provider === 'baremetal' ? `justavps-${machine.slug}` : null);
+
+  if (!providerServerId) {
+    return { error: { status: 400, message: 'Machine has no provider server ID' } };
+  }
+
+  if (machine.provider !== 'baremetal') {
+    return { error: { status: 400, message: `Lifecycle control not supported for provider ${machine.provider}` } };
+  }
+
+  if (!machine.baremetalHostId) {
+    return { error: { status: 400, message: 'Machine is not bound to a bare-metal host' } };
+  }
+
+  const [host] = await db.select().from(baremetalHosts).where(eq(baremetalHosts.id, machine.baremetalHostId));
+  if (!host?.runnerBaseUrl || !host.runnerToken) {
+    return { error: { status: 502, message: 'Runner is not configured for this host' } };
+  }
+
+  return {
+    runner: new HttpBaremetalRunnerClient(host.runnerBaseUrl, host.runnerToken),
+    instanceId: providerServerId,
+  };
+}
+
+function runnerErrorResponse(c: Context<{ Variables: AuthVariables }>, err: unknown) {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error('[ADMIN] Runner action failed:', message);
+  return errorResponse(c, 502, `Runner unreachable: ${message}`);
+}
+
+async function handleLifecycleAction(
+  c: Context<{ Variables: AuthVariables }>,
+  action: 'start' | 'stop' | 'reboot',
+) {
+  const adminError = requireAdmin(c);
+  if (adminError) return adminError;
+
+  const id = c.req.param('id');
+  const idCheck = z.string().uuid().safeParse(id);
+  if (!idCheck.success) {
+    return errorResponse(c, 400, 'Invalid machine ID');
+  }
+
+  const [machine] = await db.select().from(machines).where(eq(machines.id, idCheck.data));
+  if (!machine) {
+    return errorResponse(c, 404, 'Machine not found');
+  }
+  if (machine.status === 'deleted') {
+    return errorResponse(c, 400, 'Machine is deleted');
+  }
+
+  const clientResult = await getRunnerClientForMachine(machine);
+  if ('error' in clientResult) {
+    return errorResponse(c, clientResult.error.status, clientResult.error.message);
+  }
+
+  const { runner, instanceId } = clientResult;
+
+  try {
+    if (action === 'start') {
+      await runner.startInstance(instanceId);
+      await db.update(machines).set({ status: 'ready' }).where(eq(machines.id, machine.id));
+    } else if (action === 'stop') {
+      await runner.stopInstance(instanceId);
+      await db.update(machines).set({ status: 'stopped' }).where(eq(machines.id, machine.id));
+    } else {
+      await runner.rebootInstance(instanceId);
+    }
+  } catch (err) {
+    return runnerErrorResponse(c, err);
+  }
+
+  const full = await serializeFullMachineById(machine.id);
+  return c.json({ ok: true, machine: full });
+}
+
+adminMachinesApp.post('/:id/start', (c) => handleLifecycleAction(c, 'start'));
+adminMachinesApp.post('/:id/stop', (c) => handleLifecycleAction(c, 'stop'));
+adminMachinesApp.post('/:id/reboot', (c) => handleLifecycleAction(c, 'reboot'));
 
 // ─── DELETE /:id — Graceful admin delete (full cleanup) ─────────────────────
 

@@ -117,7 +117,7 @@ export const postApiV1MachinesByIdReactivate = <ThrowOnError extends boolean = f
 /**
  * Reboot a machine
  *
- * Initiates a hard reboot via the provider API (~30s downtime).
+ * Initiates a hard reboot via the provider API. The machine briefly goes offline during restart.
  */
 export const postApiV1MachinesByIdReboot = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByIdRebootData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByIdRebootResponses, PostApiV1MachinesByIdRebootErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
@@ -162,7 +162,7 @@ export const postApiV1MachinesByIdStart = <ThrowOnError extends boolean = false>
 /**
  * Resize (scale up) a machine
  *
- * Scales a machine UP to a larger server type. **Only upgrades are allowed** — you cannot downgrade to a smaller plan. The machine is stopped, resized, and restarted (~60-90s downtime). Disk is permanently enlarged. Billing is prorated.
+ * Scales a machine UP to a larger server type. **Only upgrades are allowed** — you cannot downgrade to a smaller plan. The machine is stopped, resized, and restarted (brief downtime). Disk is permanently enlarged. Billing is prorated.
  */
 export const postApiV1MachinesByIdResize = <ThrowOnError extends boolean = false>(options: Options<PostApiV1MachinesByIdResizeData, ThrowOnError>) => (options.client ?? client).post<PostApiV1MachinesByIdResizeResponses, PostApiV1MachinesByIdResizeErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }, {
