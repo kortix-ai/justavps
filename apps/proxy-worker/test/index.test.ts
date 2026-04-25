@@ -34,7 +34,7 @@ const mockCtx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unkno
 
 let savedFetch: typeof globalThis.fetch;
 
-describe('Worker integration — broker proxy', () => {
+describe('Worker integration — direct proxy', () => {
   beforeEach(() => {
     mockKV.clear();
     savedFetch = globalThis.fetch;
@@ -93,12 +93,12 @@ describe('Worker integration — broker proxy', () => {
     });
   });
 
-  describe('authentication + broker proxy', () => {
-    it('should proxy authenticated request through the broker', async () => {
+  describe('authentication + direct proxy', () => {
+    it('should proxy authenticated request directly to machine origin', async () => {
       // Wait for async setup
       await setupTestData();
 
-      // Mock the outgoing fetch (Worker -> broker)
+      // Mock the outgoing fetch (Worker -> machine origin)
       globalThis.fetch = vi.fn().mockResolvedValue(
         new Response('OpenCode response', { status: 200 }),
       );
@@ -110,17 +110,14 @@ describe('Worker integration — broker proxy', () => {
       const response = await worker.fetch(request, mockEnv, mockCtx);
 
       expect(response.status).toBe(200);
-      // Verify the Worker fetched the shared broker.
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        `${BROKER_ORIGIN}/_broker_proxy`,
+        'http://10.0.0.1/api/test',
         expect.objectContaining({ method: 'GET' }),
       );
 
       const fetchCall = (globalThis.fetch as any).mock.calls[0];
       const forwardedHeaders = fetchCall[1].headers;
-      expect(forwardedHeaders.get('X-Kortix-Target-IP')).toBe('10.0.0.1');
-      expect(forwardedHeaders.get('X-Kortix-Target-Port')).toBe('80');
-      expect(forwardedHeaders.get('X-Kortix-Target-Path')).toBe('/api/test');
+      expect(forwardedHeaders.get('X-Kortix-Original-Host')).toBe('abc123.kortix.cloud');
     });
 
     it('should proxy port subdomain through daemon port proxy on port 80', async () => {
@@ -137,14 +134,12 @@ describe('Worker integration — broker proxy', () => {
       const response = await worker.fetch(request, mockEnv, mockCtx);
 
       expect(response.status).toBe(200);
-      // Non-default ports are encoded into the target path for the broker.
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        `${BROKER_ORIGIN}/_broker_proxy`,
+        'http://10.0.0.1/_port/3000/app',
         expect.objectContaining({ method: 'GET' }),
       );
 
       const fetchCall = (globalThis.fetch as any).mock.calls[0];
-      expect(fetchCall[1].headers.get('X-Kortix-Target-Path')).toBe('/_port/3000/app');
       expect(fetchCall[1].headers.get('X-Kortix-Original-Host')).toBe('abc123.kortix.cloud');
     });
 
@@ -162,18 +157,16 @@ describe('Worker integration — broker proxy', () => {
       const response = await worker.fetch(request, mockEnv, mockCtx);
 
       expect(response.status).toBe(200);
-      // Non-default ports are encoded into the target path for the broker.
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        `${BROKER_ORIGIN}/_broker_proxy`,
+        'http://10.0.0.1/_port/3456',
         expect.objectContaining({ method: 'GET' }),
       );
 
       const fetchCall = (globalThis.fetch as any).mock.calls[0];
-      expect(fetchCall[1].headers.get('X-Kortix-Target-Path')).toBe('/_port/3456');
       expect(fetchCall[1].headers.get('X-Kortix-Original-Host')).toBe('abc123.kortix.cloud');
     });
 
-    it('should sign broker headers with original host information', async () => {
+    it('should forward original host information to the direct origin', async () => {
       await setupTestData();
 
       globalThis.fetch = vi.fn().mockResolvedValue(
@@ -189,7 +182,7 @@ describe('Worker integration — broker proxy', () => {
       const fetchCall = (globalThis.fetch as any).mock.calls[0];
       const forwardedHeaders = fetchCall[1].headers;
       expect(forwardedHeaders.get('X-Kortix-Original-Host')).toBe('abc123.kortix.cloud');
-      expect(forwardedHeaders.get('X-Kortix-Signature')).toBeTruthy();
+      expect(forwardedHeaders.get('X-Kortix-Machine-Slug')).toBe('abc123');
     });
 
     it('should redirect browser requests to login on auth failure', async () => {

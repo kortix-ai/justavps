@@ -103,10 +103,6 @@ export function resolveMachineCallbackConfig(requestUrl?: string): { url: string
   return { url: config.PLATFORM_URL, callbackExpected: false };
 }
 
-function resolvePlatformCallbackUrl(requestUrl?: string): string {
-  return resolveMachineCallbackConfig(requestUrl).url;
-}
-
 function readProviderMeta(machine: typeof machines.$inferSelect): ProvisionProviderMeta {
   return (machine.providerMeta ?? {}) as ProvisionProviderMeta;
 }
@@ -317,6 +313,58 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
     }
   }
 
+  const requestedImageKind = machine.requestedImageKind ?? (typeof meta.requested_image_kind === 'string' ? meta.requested_image_kind : null);
+  const requestedImageRef = machine.requestedImageRef ?? (typeof meta.requested_image_ref === 'string' ? meta.requested_image_ref : null);
+  const effectiveReadyVia = machine.readyVia ?? (typeof meta.ready_via === 'string' ? meta.ready_via : null);
+  const runtimeKind = deriveMachineRuntimeKind({
+    machineMode: (machine.machineMode as 'vm' | 'container') ?? 'container',
+    requestedImageKind: requestedImageKind === 'catalog' || requestedImageKind === 'docker' ? requestedImageKind : 'golden',
+  });
+  const host = machine.publicIpv4 ?? (typeof meta.public_ipv4 === 'string' ? meta.public_ipv4 : machine.ip);
+  const port = machine.httpPort ?? (typeof meta.http_port === 'number' ? meta.http_port : null);
+  const shouldProbeReady = shouldMarkReadyFromHttpProbe({ runtimeKind, host, port })
+    || (requestedImageKind === 'docker' || /^(docker|oci):/i.test(requestedImageRef ?? ''));
+
+  // ── Probe-ready machine with no heartbeat yet → synthesize health ───────
+  if (machine.status === 'ready' && effectiveReadyVia === 'probe' && !machine.lastHeartbeatAt && machine.providerServerId) {
+    const now = new Date();
+    const nextMeta = await updateProviderMeta(machine.id, {
+      last_probe_at: now.toISOString(),
+      ready_via: 'probe',
+      daemon_reachable_at: now.toISOString(),
+    });
+    const probeHeartbeat = {
+      cpu: 0,
+      memory: 0,
+      disk: 0,
+      services: {
+        probe_ready: true,
+      },
+    };
+    await db.update(machines).set({
+      lastHeartbeatAt: now,
+      lastHeartbeat: probeHeartbeat,
+      daemonVersion: machine.daemonVersion ?? 'probe-seed',
+      providerMeta: nextMeta,
+    }).where(eq(machines.id, machine.id));
+    if (config.isCloudflareConfigured() && host) {
+      await syncMachineRoutingState({
+        machineId: machine.id,
+        accountId: machine.accountId ?? machine.ownerId,
+        machineSlug: machine.slug,
+        machineStatus: 'ready',
+        serverType: machine.serverType,
+        desiredIp: host,
+        desiredOriginPort: port,
+        publicIpv4: typeof nextMeta.public_ipv4 === 'string' ? nextMeta.public_ipv4 : machine.publicIpv4 ?? null,
+        publicIpv6: typeof nextMeta.public_ipv6 === 'string' ? nextMeta.public_ipv6 : machine.publicIpv6 ?? null,
+        originHostname: `origin-${machine.slug}.${config.PROXY_DOMAIN}`,
+        source: 'probe_ready_seed',
+      }).catch(() => {});
+    }
+    return { ...machine, lastHeartbeatAt: now, lastHeartbeat: probeHeartbeat, daemonVersion: machine.daemonVersion ?? 'probe-seed', providerMeta: nextMeta };
+  }
+
   // Only run sync logic for provisioning machines (or timeout-recoverable errors)
   const canRecoverTimeout = machine.status === 'error' && machine.provisioningStage === 'timeout';
   if ((machine.status !== 'provisioning' && !canRecoverTimeout) || !machine.providerServerId) return machine;
@@ -329,19 +377,24 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
       readyAt: now,
       provisioningStage: machine.provisioningStage ?? 'services_ready',
     }).where(eq(machines.id, machine.id));
+    if (config.isCloudflareConfigured() && host) {
+      await syncMachineRoutingState({
+        machineId: machine.id,
+        accountId: machine.accountId ?? machine.ownerId,
+        machineSlug: machine.slug,
+        machineStatus: 'ready',
+        serverType: machine.serverType,
+        desiredIp: host,
+        desiredOriginPort: port,
+        publicIpv4: typeof meta.public_ipv4 === 'string' ? meta.public_ipv4 : machine.publicIpv4 ?? null,
+        publicIpv6: typeof meta.public_ipv6 === 'string' ? meta.public_ipv6 : machine.publicIpv6 ?? null,
+        originHostname: `origin-${machine.slug}.${config.PROXY_DOMAIN}`,
+        source: 'heartbeat_ready',
+      }).catch(() => {});
+    }
     return { ...machine, status: 'ready' as const, readyAt: now };
   }
 
-  const requestedImageKind = machine.requestedImageKind ?? (typeof meta.requested_image_kind === 'string' ? meta.requested_image_kind : null);
-  const requestedImageRef = machine.requestedImageRef ?? (typeof meta.requested_image_ref === 'string' ? meta.requested_image_ref : null);
-  const runtimeKind = deriveMachineRuntimeKind({
-    machineMode: (machine.machineMode as 'vm' | 'container') ?? 'vm',
-    requestedImageKind: requestedImageKind === 'catalog' || requestedImageKind === 'docker' ? requestedImageKind : 'golden',
-  });
-  const host = machine.publicIpv4 ?? (typeof meta.public_ipv4 === 'string' ? meta.public_ipv4 : machine.ip);
-  const port = machine.httpPort ?? (typeof meta.http_port === 'number' ? meta.http_port : null);
-  const shouldProbeReady = shouldMarkReadyFromHttpProbe({ runtimeKind, host, port })
-    || (requestedImageKind === 'docker' || /^(docker|oci):/i.test(requestedImageRef ?? ''));
   if (shouldProbeReady) {
     if (await canConnect(host, port)) {
       const now = new Date();
@@ -350,14 +403,40 @@ export async function syncMachineStatus(machine: typeof machines.$inferSelect) {
         ready_via: 'probe',
         daemon_reachable_at: now.toISOString(),
       });
+      const probeHeartbeat = {
+        cpu: 0,
+        memory: 0,
+        disk: 0,
+        services: {
+          probe_ready: true,
+        },
+      };
       await db.update(machines).set({
         status: 'ready',
         readyAt: now,
         readyVia: 'probe',
         provisioningStage: 'services_ready',
+        lastHeartbeatAt: now,
+        lastHeartbeat: probeHeartbeat,
+        daemonVersion: machine.daemonVersion ?? 'probe-seed',
         providerMeta: nextMeta,
       }).where(eq(machines.id, machine.id));
-      return { ...machine, status: 'ready' as const, readyAt: now, readyVia: 'probe' as const, provisioningStage: 'services_ready', providerMeta: nextMeta };
+      if (config.isCloudflareConfigured() && host) {
+        await syncMachineRoutingState({
+          machineId: machine.id,
+          accountId: machine.accountId ?? machine.ownerId,
+          machineSlug: machine.slug,
+          machineStatus: 'ready',
+          serverType: machine.serverType,
+          desiredIp: host,
+          desiredOriginPort: port,
+          publicIpv4: typeof nextMeta.public_ipv4 === 'string' ? nextMeta.public_ipv4 : machine.publicIpv4 ?? null,
+          publicIpv6: typeof nextMeta.public_ipv6 === 'string' ? nextMeta.public_ipv6 : machine.publicIpv6 ?? null,
+          originHostname: `origin-${machine.slug}.${config.PROXY_DOMAIN}`,
+          source: 'probe_ready',
+        }).catch(() => {});
+      }
+      return { ...machine, status: 'ready' as const, readyAt: now, readyVia: 'probe' as const, provisioningStage: 'services_ready', lastHeartbeatAt: now, lastHeartbeat: probeHeartbeat, daemonVersion: machine.daemonVersion ?? 'probe-seed', providerMeta: nextMeta };
     }
   }
 

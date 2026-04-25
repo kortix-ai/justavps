@@ -53,4 +53,22 @@ describe('runnerd vm runtime helpers', () => {
       inspectInstance,
     })).resolves.toEqual({ ready: true, ip: '10.0.0.5' });
   });
+
+  it('includes cloud-init user data in vm init args when provided', async () => {
+    const { buildVmInitArgs } = await import('../../../apps/runnerd/src/runtime/vm/create');
+
+    expect(buildVmInitArgs({
+      resolvedImage: 'justavps-golden',
+      instanceName: 'justavps-demo',
+      cloudInitUserData: '#!/bin/bash\necho hi',
+      incusTarget: (name) => name ?? '',
+    })).toEqual([
+      'init',
+      'justavps-golden',
+      'justavps-demo',
+      '--vm',
+      '-c',
+      'cloud-init.user-data=#!/bin/bash\necho hi',
+    ]);
+  });
 });

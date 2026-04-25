@@ -334,11 +334,6 @@ function AccountDetailDialog({
                 </div>
               )}
             </section>
-
-            {/* Action row — reserved for future */}
-            <div className="rounded-xl border border-dashed p-3 text-center text-xs text-muted-foreground">
-              Account-level actions (suspend, reset password, impersonate) — coming soon.
-            </div>
           </div>
         )}
       </DialogContent>

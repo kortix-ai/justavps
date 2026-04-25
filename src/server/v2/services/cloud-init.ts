@@ -46,6 +46,12 @@ export function buildCloudInitV2(opts: V2CloudInitOpts): string {
     .map((ip) => `ufw allow from ${ip} to any port 80 proto tcp 2>/dev/null || true`)
     .join('\n');
 
+  const seedHeartbeat =
+    `curl -sf -X POST "${opts.platformCallbackUrl}/api/v1/internal/heartbeat" ` +
+    `-H "Content-Type: application/json" ` +
+    `-d '{"slug":"${opts.slug}","machine_token":"${opts.machineToken}","daemon_version":"bootstrap-seed","uptime":0,"services":{"daemon":true,"welcome":true},"load":{"cpu":0,"memory":0,"disk":0}}' ` +
+    `>/dev/null 2>&1 || true`;
+
   const cloudInitScriptBase64 = opts.cloudInitScript
     ? Buffer.from(opts.cloudInitScript).toString('base64')
     : '';
@@ -74,6 +80,13 @@ echo '${envLinesBase64}' | base64 -d > /etc/justavps/env
 systemd-machine-id-setup 2>/dev/null || true
 echo "${opts.slug}" > /etc/hostname
 hostname "${opts.slug}" 2>/dev/null || true
+
+# ── 1.5 Ensure daemon binary exists on fallback images ─────────────────────
+if [ ! -x /usr/local/bin/justavps-daemon ]; then
+  command -v curl >/dev/null 2>&1 || (apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq curl ca-certificates >/dev/null 2>&1 || true)
+  curl -fsSL -o /usr/local/bin/justavps-daemon "https://pub-caf7762051b942d5a801397d750a0dc3.r2.dev/daemon/latest/justavps-daemon-linux-amd64" >/dev/null 2>&1 || true
+  chmod +x /usr/local/bin/justavps-daemon 2>/dev/null || true
+fi
 
 # ── 2. Ensure daemon + default landing service files exist ──
 cat > /etc/systemd/system/justavps-daemon.service << 'DAEONSVC'
@@ -162,5 +175,8 @@ chmod +x /tmp/justavps-custom.sh
 
 # ── 6. Stage callback (best-effort, control plane marks ready on runnerd return) ─
 ${stageCallback('services_ready', 'Services started')}
+
+# ── 7. Seed one heartbeat so control-plane health is populated immediately ──
+${seedHeartbeat}
 `;
 }

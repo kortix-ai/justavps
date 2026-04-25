@@ -1,6 +1,7 @@
 name = "kortix-cloud-proxy"
 main = "src/index.ts"
 compatibility_date = "2024-12-18"
+compatibility_flags = ["global_fetch_strictly_public"]
 
 # Route: all traffic to *.kortix.cloud goes through this Worker
 # Set via Cloudflare dashboard: Workers Routes → *.kortix.cloud/*

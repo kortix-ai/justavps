@@ -57,7 +57,7 @@ import {
   type AdminMachineDetail,
   type AdminUserSearchResult,
   type MachineLifecycleAction,
-} from "@/shared/hooks/use-fleet";
+} from "@/shared/hooks/use-admin-machines";
 import { ACTIVE_REGIONS } from "@/shared/lib/regions";
 import { AdminStatusPill, AdminMetric } from "@/v2/components/admin/primitives";
 import { toast } from "sonner";
@@ -356,7 +356,7 @@ function CreateMachineDialog({
             </div>
             <div className="space-y-1.5">
               <Label>Machine mode</Label>
-              <Select value={machineMode} onValueChange={(v) => setMachineMode((v ?? "vm") as "vm" | "container")}>
+              <Select value={machineMode} onValueChange={(v) => setMachineMode((v ?? "container") as "vm" | "container")}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>

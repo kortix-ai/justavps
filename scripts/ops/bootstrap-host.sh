@@ -110,15 +110,18 @@ echo "incus pool: $(incus storage list --format csv 2>/dev/null | tr '\n' ' ')"
 REMOTE
 
 log "[4/8] Build runnerd locally + package"
-cd "$(dirname "$0")/../../apps/runnerd"
-if [ ! -d node_modules ]; then pnpm install --frozen-lockfile >/dev/null; fi
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+RUNNERD_DIR="${REPO_ROOT}/apps/runnerd"
+cd "$RUNNERD_DIR"
+if [ ! -d node_modules ]; then pnpm install --silent; fi
+if [ ! -f node_modules/.bin/tsc ]; then pnpm add -D typescript --silent; fi
 pnpm build >/dev/null
-cd - >/dev/null
+cd "$REPO_ROOT"
 
 log "[5/8] Rsync runnerd to target (/opt/justavps-runnerd)"
 $SSH 'mkdir -p /opt/justavps-runnerd'
 rsync -az -e "ssh -o StrictHostKeyChecking=no -i $HOME/.ssh/justavps_host" \
-  apps/runnerd/dist apps/runnerd/package.json apps/runnerd/node_modules \
+  "${RUNNERD_DIR}/dist" "${RUNNERD_DIR}/package.json" "${RUNNERD_DIR}/node_modules" \
   root@${TARGET_IP}:/opt/justavps-runnerd/
 
 log "[6/8] Install systemd unit + env file with fresh runnerd token"

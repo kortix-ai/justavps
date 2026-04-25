@@ -53,7 +53,7 @@ export function registerAdminFleetProcurementRoutes(
     method: 'get',
     path: '/procurement-recommendations',
     tags: ['Admin Bare Metal'],
-    summary: 'List reserve-aware procurement recommendations by cell',
+    summary: 'List reserve-aware procurement recommendations by region cluster',
     responses: { 200: { description: 'Procurement recommendations', content: { 'application/json': { schema: ProcurementRecommendationListSchema } } } },
   }), (async (c: any) => {
     const adminError = requireAdmin(c);

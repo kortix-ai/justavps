@@ -12,13 +12,13 @@ import { db } from '../../../src/server/db';
 import { apiKeys, baremetalHosts, hostCapacityReservations, images, machines, users } from '../../../src/server/db/schema';
 import { ensureUserAccountGraph } from "@/server/auth/accounts";
 import { generateApiKey, hashPassword } from "@/server/core/crypto";
-import { clearCheckpoint, loadCheckpoint, saveCheckpoint } from './lib/checkpoints';
+import { checkpointFilePath, clearCheckpoint, loadCheckpoint, saveCheckpoint, shouldKeepE2EState } from './lib/checkpoints';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:4100';
 const API_BASE = `${BASE_URL}/api/v2`;
 const MACHINE_CALLBACK_URL = process.env.MACHINE_CALLBACK_URL || '';
 const TARGET_HOST_ID = process.env.E2E_BAREMETAL_HOST_ID || undefined;
-const TARGET_HOST_IP = process.env.E2E_BAREMETAL_HOST_IP || '135.181.129.188';
+const TARGET_HOST_IP = process.env.E2E_BAREMETAL_HOST_IP || undefined;
 const TARGET_IMAGE_ID = process.env.E2E_IMAGE_ID || undefined;
 const MACHINE_VCPU = Number(process.env.E2E_MACHINE_VCPU || '1');
 const MACHINE_RAM_GB = Number(process.env.E2E_MACHINE_RAM_GB || '1');
@@ -202,6 +202,7 @@ async function createHarnessUser() {
 }
 
 async function cleanup() {
+  if (shouldKeepE2EState()) return;
   if (state.imageId && state.accountId) {
     try {
       await http(`/images/${state.imageId}`, { method: 'DELETE' });
@@ -281,9 +282,17 @@ async function main() {
   const health = await requestJson<{ status?: string }>(`${BASE_URL}/api/health`, {}, 30_000);
   if (health.status < 200 || health.status >= 300) throw new Error(`Local API health failed: ${health.status}`);
 
-  const [targetHost] = TARGET_HOST_ID
+  let [targetHost] = TARGET_HOST_ID
     ? await db.select().from(baremetalHosts).where(eq(baremetalHosts.id, TARGET_HOST_ID)).limit(1)
-    : await db.select().from(baremetalHosts).where(eq(baremetalHosts.publicIpv4, TARGET_HOST_IP)).limit(1);
+    : TARGET_HOST_IP
+      ? await db.select().from(baremetalHosts).where(eq(baremetalHosts.publicIpv4, TARGET_HOST_IP)).limit(1)
+      : [];
+  if (!targetHost) {
+    const rows = await db.select().from(baremetalHosts);
+    targetHost = rows
+      .filter((row) => row.status === 'active' && row.runnerBaseUrl && (((row.metadata as Record<string, unknown> | null)?.scheduler as Record<string, unknown> | undefined)?.schedulable === true))
+      .sort((a, b) => Number(Boolean(a.publicIpv6)) - Number(Boolean(b.publicIpv6)))[0];
+  }
   if (targetHost?.id) {
     await reconcileLocalHostCapacity(targetHost.id);
   }
@@ -302,7 +311,7 @@ async function main() {
         vcpu: MACHINE_VCPU,
         ram_gb: MACHINE_RAM_GB,
         disk_gb: MACHINE_DISK_GB,
-        ...(TARGET_HOST_ID ? { host_id: TARGET_HOST_ID } : {}),
+        ...(targetHost?.id ? { host_id: targetHost.id } : {}),
         ...(TARGET_IMAGE_ID ? { image_id: TARGET_IMAGE_ID } : {}),
       }),
     });
@@ -487,8 +496,12 @@ process.on('uncaughtException', async (error) => {
 
 main()
   .then(async () => {
-    await cleanup();
-    await clearCheckpoint(CHECKPOINT_SUITE);
+    if (shouldKeepE2EState()) {
+      console.log(`[checkpoint] preserved at ${checkpointFilePath(CHECKPOINT_SUITE)} (E2E_KEEP_STATE=true)`);
+    } else {
+      await cleanup();
+      await clearCheckpoint(CHECKPOINT_SUITE);
+    }
     process.exit(0);
   })
   .catch(async (error) => {

@@ -380,7 +380,7 @@ https://justavps.com/api/v2
 - **Resources-first pricing** — machines are created with explicit \`vcpu\`, \`ram_gb\`, \`disk_gb\` instead of fixed server_type tiers.
 - **Native snapshots** — \`POST /snapshots/{machineId}\` captures disk state. Images are published artifacts; snapshots are lightweight, per-machine.
 - **Catalog endpoints** — \`/catalog/pricing\`, \`/catalog/recommendations\`, \`/catalog/regions\`, \`/catalog/hosts\` for dynamic resource discovery.
-- **Admin fleet surface** — \`/admin/fleet/*\` for host procurement, cell admission, and control-plane service state (operator-only).
+- **Admin fleet surface** — \`/admin/fleet/*\` for host procurement, region/cluster admission, and control-plane service state (operator-only).
 - **No per-machine Stripe subscriptions** — billing is handled outside v2 machine lifecycle.
 - **Minimal cloud-init** — v2 uses pre-built golden images; cloud-init only injects machine identity.
 `,

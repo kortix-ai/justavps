@@ -32,7 +32,7 @@ const BAREMETAL_HOST_CLASS_PROFILES: Record<string, BaremetalHostClassProfile> =
     defaultGeneration: 'gen2',
     notes: [
       'Preferred mainstream production class for denser shared capacity.',
-      'Use this as the default target for new mainstream growth cells.',
+      'Use this as the default target for new mainstream growth clusters.',
     ],
   },
   'memory-heavy': {
@@ -54,7 +54,7 @@ const BAREMETAL_HOST_CLASS_PROFILES: Record<string, BaremetalHostClassProfile> =
     preferredGrowthHostClass: 'gpu',
     defaultGeneration: 'gen2',
     notes: [
-      'Reserved for accelerator-backed workloads and premium specialized cells.',
+      'Reserved for accelerator-backed workloads and premium specialized clusters.',
     ],
   },
 };

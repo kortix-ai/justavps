@@ -12,12 +12,12 @@ import { db } from '../../../src/server/db';
 import { apiKeys, baremetalHosts, hostCapacityReservations, machines, users } from '../../../src/server/db/schema';
 import { ensureUserAccountGraph } from '@/server/auth/accounts';
 import { generateApiKey, hashPassword } from '@/server/core/crypto';
-import { clearCheckpoint, loadCheckpoint, saveCheckpoint } from './lib/checkpoints';
+import { checkpointFilePath, clearCheckpoint, loadCheckpoint, saveCheckpoint, shouldKeepE2EState } from './lib/checkpoints';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:4100';
 const API_BASE = `${BASE_URL}/api/v2`;
 const TARGET_HOST_ID = process.env.E2E_BAREMETAL_HOST_ID || undefined;
-const TARGET_HOST_IP = process.env.E2E_BAREMETAL_HOST_IP || '135.181.129.188';
+const TARGET_HOST_IP = process.env.E2E_BAREMETAL_HOST_IP || undefined;
 const CHECKPOINT_SUITE = 'e2e-v2-create-machine-container';
 
 type MachineView = {
@@ -168,10 +168,14 @@ async function getTargetHost(): Promise<HostRow> {
     ? await db.select().from(baremetalHosts).where(eq(baremetalHosts.id, TARGET_HOST_ID)).limit(1)
     : [];
   if (explicit) return explicit;
-  const [byIp] = await db.select().from(baremetalHosts).where(eq(baremetalHosts.publicIpv4, TARGET_HOST_IP)).limit(1);
-  if (byIp) return byIp;
+  if (TARGET_HOST_IP) {
+    const [byIp] = await db.select().from(baremetalHosts).where(eq(baremetalHosts.publicIpv4, TARGET_HOST_IP)).limit(1);
+    if (byIp) return byIp;
+  }
   const rows = await db.select().from(baremetalHosts);
-  const active = rows.find((row) => row.status === 'active' && row.runnerBaseUrl && (((row.metadata as Record<string, unknown> | null)?.scheduler as Record<string, unknown> | undefined)?.schedulable === true));
+  const active = rows
+    .filter((row) => row.status === 'active' && row.runnerBaseUrl && (((row.metadata as Record<string, unknown> | null)?.scheduler as Record<string, unknown> | undefined)?.schedulable === true))
+    .sort((a, b) => Number(Boolean(a.publicIpv6)) - Number(Boolean(b.publicIpv6)))[0];
   if (!active) throw new Error('No active schedulable host found for container machine test');
   return active;
 }
@@ -191,6 +195,7 @@ async function reconcileLocalHostCapacity(hostId: string) {
 }
 
 async function cleanup() {
+  if (shouldKeepE2EState()) return;
   if (state.snapshotId && state.machineId) {
     try { await http(`/snapshots/${state.machineId}/${state.snapshotId}`, { method: 'DELETE' }); } catch {}
   }
@@ -395,8 +400,12 @@ process.on('uncaughtException', async (error) => {
 
 main()
   .then(async () => {
-    await cleanup();
-    await clearCheckpoint(CHECKPOINT_SUITE);
+    if (shouldKeepE2EState()) {
+      console.log(`[checkpoint] preserved at ${checkpointFilePath(CHECKPOINT_SUITE)} (E2E_KEEP_STATE=true)`);
+    } else {
+      await cleanup();
+      await clearCheckpoint(CHECKPOINT_SUITE);
+    }
     process.exit(0);
   })
   .catch(async (error) => {

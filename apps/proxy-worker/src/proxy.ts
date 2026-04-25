@@ -1,16 +1,15 @@
 /**
- * Shared-broker proxy.
+ * Direct machine proxy.
  *
- * The Worker remains the public auth + routing layer, but it no longer fetches
- * machine IPs directly. Instead it sends a signed internal request to a shared
- * broker origin, and the broker dials the target machine IP.
+ * The Worker authenticates the request, then proxies directly to the machine
+ * origin IP + port stored in KV.
  */
 
 import type { MachineInfo } from './auth';
 
 export interface ProxyEnv {
-  BROKER_ORIGIN: string;
-  BROKER_SHARED_SECRET: string;
+  BROKER_ORIGIN?: string;
+  BROKER_SHARED_SECRET?: string;
 }
 
 // Hop-by-hop headers that must not be forwarded.
@@ -88,63 +87,25 @@ function normalizeUpstreamHost(hostname: string, slug: string, port: number): st
   return lowerHostname;
 }
 
-async function createBrokerHeaders(
+function createUpstreamHeaders(
   request: Request,
   machineInfo: MachineInfo,
   slug: string,
   port: number,
-  targetPath: string,
-  env: ProxyEnv,
-): Promise<Headers> {
+): Headers {
   const url = new URL(request.url);
   const headers = stripHopByHopHeaders(new Headers(request.headers));
-  const timestamp = String(Math.floor(Date.now() / 1000));
-  const nonce = crypto.randomUUID().replaceAll('-', '');
   const originalHost = normalizeUpstreamHost(url.hostname, slug, port);
-  const targetIP = machineInfo.ip;
-  const upstreamPort = machineInfo.origin_port ?? 80;
-  const machineId = machineInfo.machine_id || `slug:${slug}`;
-
-  const canonical = [
-    timestamp,
-    nonce,
-    machineId,
-    slug,
-    targetIP,
-    String(upstreamPort),
-    originalHost,
-    targetPath,
-  ].join('\n');
-  const signature = await signBrokerPayload(env.BROKER_SHARED_SECRET, canonical);
-
-  headers.set('X-Kortix-Target-IP', targetIP);
-  headers.set('X-Kortix-Target-Port', String(upstreamPort));
-  headers.set('X-Kortix-Target-Path', targetPath);
-  headers.set('X-Kortix-Machine-Id', machineId);
+  headers.set('Host', originalHost);
   headers.set('X-Kortix-Machine-Slug', slug);
   headers.set('X-Kortix-Original-Host', originalHost);
-  headers.set('X-Kortix-Request-Ts', timestamp);
-  headers.set('X-Kortix-Request-Nonce', nonce);
-  headers.set('X-Kortix-Signature', signature);
+  if (machineInfo.machine_id) headers.set('X-Kortix-Machine-Id', machineInfo.machine_id);
 
   return headers;
 }
 
-async function signBrokerPayload(secret: string, payload: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
-  return Array.from(new Uint8Array(sig)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
 /**
- * Proxy an HTTP request to the shared broker, which dials the target machine.
+ * Proxy an HTTP request directly to the machine origin.
  */
 export async function proxyHTTPRequest(
   request: Request,
@@ -155,21 +116,23 @@ export async function proxyHTTPRequest(
   rewrittenPath?: string,
 ): Promise<Response> {
   try {
+    void env;
     const url = new URL(request.url);
     const targetPath = buildTargetPath(url, port, rewrittenPath);
-    const brokerHeaders = await createBrokerHeaders(request, machineInfo, slug, port, targetPath, env);
-    const brokerURL = `${env.BROKER_ORIGIN.replace(/\/$/, '')}/_broker_proxy`;
+    const upstreamHeaders = createUpstreamHeaders(request, machineInfo, slug, port);
+    const upstreamHost = machineInfo.origin_hostname || machineInfo.ip;
+    const upstreamURL = `http://${upstreamHost}${targetPath}`;
 
     const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
     const body = hasBody ? await request.arrayBuffer() : null;
 
     if (body && body.byteLength > 0) {
-      brokerHeaders.set('Content-Length', String(body.byteLength));
+      upstreamHeaders.set('Content-Length', String(body.byteLength));
     }
 
-    const response = await fetch(brokerURL, {
+    const response = await fetch(upstreamURL, {
       method: request.method,
-      headers: brokerHeaders,
+      headers: upstreamHeaders,
       body,
       redirect: 'manual',
     });
@@ -182,10 +145,10 @@ export async function proxyHTTPRequest(
       headers: responseHeaders,
     });
   } catch (error) {
-    console.error('Broker proxy request failed:', error);
+    console.error('Direct proxy request failed:', error);
     return new Response(JSON.stringify({
-      error: 'Broker proxy request failed',
-      target: `${machineInfo.ip}:${port}`,
+      error: 'Direct proxy request failed',
+      target: `${machineInfo.origin_hostname || machineInfo.ip}:80`,
       details: error instanceof Error ? error.message : 'Unknown error',
     }), {
       status: 502,
@@ -199,7 +162,7 @@ export async function proxyHTTPRequest(
 }
 
 /**
- * Proxy a WebSocket upgrade request through the shared broker.
+ * Proxy a WebSocket upgrade request directly to the machine origin.
  */
 export async function proxyWebSocket(
   request: Request,
@@ -209,15 +172,17 @@ export async function proxyWebSocket(
   env: ProxyEnv,
 ): Promise<Response> {
   try {
+    void env;
     const url = new URL(request.url);
     const targetPath = buildTargetPath(url, port);
-    const brokerHeaders = await createBrokerHeaders(request, machineInfo, slug, port, targetPath, env);
-    brokerHeaders.set('Connection', 'Upgrade');
-    brokerHeaders.set('Upgrade', 'websocket');
-    const brokerURL = `${env.BROKER_ORIGIN.replace(/\/$/, '')}/_broker_proxy`;
+    const upstreamHeaders = createUpstreamHeaders(request, machineInfo, slug, port);
+    upstreamHeaders.set('Connection', 'Upgrade');
+    upstreamHeaders.set('Upgrade', 'websocket');
+    const upstreamHost = machineInfo.origin_hostname || machineInfo.ip;
+    const upstreamURL = `http://${upstreamHost}${targetPath}`;
 
-    const originResp = await fetch(brokerURL, {
-      headers: brokerHeaders,
+    const originResp = await fetch(upstreamURL, {
+      headers: upstreamHeaders,
     });
 
     const originWs = originResp.webSocket;

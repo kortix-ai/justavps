@@ -381,6 +381,27 @@ async function waitForTcpListener(host: string | null | undefined, port: number 
   return false;
 }
 
+async function injectMachineIdentityViaRunner(input: {
+  hostRunnerBaseUrl: string;
+  hostRunnerToken: string;
+  providerServerId: string;
+  script: string;
+}) {
+  const runner = new HttpBaremetalRunnerClient(input.hostRunnerBaseUrl, input.hostRunnerToken);
+  const encoded = Buffer.from(input.script).toString('base64');
+  const result = await runner.execInstance(input.providerServerId, {
+    command: '/bin/bash',
+    args: [
+      '-lc',
+      `echo '${encoded}' | base64 -d > /tmp/justavps-init.sh && chmod +x /tmp/justavps-init.sh && /tmp/justavps-init.sh`,
+    ],
+    timeoutMs: 120_000,
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(`identity injection failed: ${result.stderr || result.stdout || `exit ${result.exitCode}`}`);
+  }
+}
+
 async function ensureMachineSubscription(machine: MachineRow, payload: MachineCreateJobPayload, specs: { vcpus: number; ramGb: number; diskGb: number; cpuType: 'dedicated' }) {
   if (!stripeClient.isConfigured()) return;
   const [existingSub] = await db.select().from(subscriptions).where(eq(subscriptions.machineId, machine.id));
@@ -574,6 +595,17 @@ export async function handleMachineCreateJob(machineId: string, payload: Machine
         providerMeta: nextProviderMeta,
       }).where(eq(machines.id, machine.id)).returning();
       machineForSideEffects = updatedMachine ?? { ...machine, providerServerId: server.serverId, providerMeta: nextProviderMeta };
+
+      if ((payload.machineMode ?? (machine.machineMode as V2MachineMode)) === 'container' && userdata.trim() && host.runnerToken) {
+        await injectMachineIdentityViaRunner({
+          hostRunnerBaseUrl: host.runnerBaseUrl,
+          hostRunnerToken: host.runnerToken,
+          providerServerId: server.serverId,
+          script: userdata,
+        }).catch((error) => {
+          console.warn(`[v2-job ${machine.slug}] identity injection skipped:`, error instanceof Error ? error.message : String(error));
+        });
+      }
 
       await recordMachineBenchmark({
         machineId: machine.id,
@@ -831,7 +863,13 @@ export async function startMachineV2(input: { accountId: string; machineId: stri
   } catch (error) {
     if (!isBenignLifecycleError(error, 'running')) throw error;
   }
-  await db.update(machines).set({ status: 'ready' }).where(eq(machines.id, machine.id));
+  const now = new Date();
+  await db.update(machines).set({
+    status: 'ready',
+    lastHeartbeatAt: now,
+    lastHeartbeat: { cpu: 0, memory: 0, disk: 0, services: { probe_ready: true, lifecycle_start: true } },
+    daemonVersion: machine.daemonVersion ?? 'probe-seed',
+  }).where(eq(machines.id, machine.id));
   return { ok: true };
 }
 
@@ -845,7 +883,7 @@ export async function stopMachineV2(input: { accountId: string; machineId: strin
   } catch (error) {
     if (!isBenignLifecycleError(error, 'stopped')) throw error;
   }
-  await db.update(machines).set({ status: 'stopped' }).where(eq(machines.id, machine.id));
+  await db.update(machines).set({ status: 'stopped', lastHeartbeatAt: null, lastHeartbeat: null }).where(eq(machines.id, machine.id));
   return { ok: true };
 }
 
@@ -854,6 +892,12 @@ export async function rebootMachineV2(input: { accountId: string; machineId: str
   const providerServerId = inferProviderServerId(machine);
   if (!providerServerId) throw new Error('Machine not found');
   await getProvider(machine.provider).rebootServer(providerServerId);
+  const now = new Date();
+  await db.update(machines).set({
+    lastHeartbeatAt: now,
+    lastHeartbeat: { cpu: 0, memory: 0, disk: 0, services: { probe_ready: true, lifecycle_reboot: true } },
+    daemonVersion: machine.daemonVersion ?? 'probe-seed',
+  }).where(eq(machines.id, machine.id));
   return { ok: true };
 }
 

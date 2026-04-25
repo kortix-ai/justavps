@@ -8,6 +8,7 @@ import { db } from '@/server/db';
 import { apiKeys, baremetalHosts, hostCapacityReservations, machines, users } from '@/server/db/schema';
 import { ensureUserAccountGraph } from '@/server/auth/accounts';
 import { generateApiKey, hashPassword } from '@/server/core/crypto';
+import { syncApiKeyHashToKV } from '@/server/v1/services/proxy-kv';
 
 dotenv.config();
 dotenv.config({ path: '.env.local', override: true });
@@ -15,7 +16,7 @@ dotenv.config({ path: '.env.local', override: true });
 export const DEFAULT_BASE_URL = process.env.BASE_URL || 'http://localhost:4100';
 export const DEFAULT_API_BASE = `${DEFAULT_BASE_URL}/api/v2`;
 export const DEFAULT_TARGET_HOST_ID = process.env.E2E_BAREMETAL_HOST_ID || undefined;
-export const DEFAULT_TARGET_HOST_IP = process.env.E2E_BAREMETAL_HOST_IP || '135.181.129.188';
+export const DEFAULT_TARGET_HOST_IP = process.env.E2E_BAREMETAL_HOST_IP || undefined;
 
 export type HarnessIdentityState = {
   email: string;
@@ -119,6 +120,13 @@ export async function createAdminHarnessUser(state: HarnessIdentityState, name: 
     permissions: ['*'],
   }).returning();
 
+  await syncApiKeyHashToKV(sha256, account.id, apiKey.name, {
+    scope: 'account',
+    machineIds: null,
+    permissions: ['*'],
+    expiresAt: null,
+  }).catch(() => undefined);
+
   state.userId = user.id;
   state.accountId = account.id;
   state.apiKey = key;
@@ -138,11 +146,15 @@ export async function getTargetHost(targetHostId = DEFAULT_TARGET_HOST_ID, targe
     : [];
   if (explicit) return explicit;
 
-  const [byIp] = await db.select().from(baremetalHosts).where(eq(baremetalHosts.publicIpv4, targetHostIp)).limit(1);
-  if (byIp) return byIp;
+  if (targetHostIp) {
+    const [byIp] = await db.select().from(baremetalHosts).where(eq(baremetalHosts.publicIpv4, targetHostIp)).limit(1);
+    if (byIp) return byIp;
+  }
 
   const rows = await db.select().from(baremetalHosts);
-  const active = rows.find((row) => row.status === 'active' && row.runnerBaseUrl && (((row.metadata as Record<string, unknown> | null)?.scheduler as Record<string, unknown> | undefined)?.schedulable === true));
+  const active = rows
+    .filter((row) => row.status === 'active' && row.runnerBaseUrl && (((row.metadata as Record<string, unknown> | null)?.scheduler as Record<string, unknown> | undefined)?.schedulable === true))
+    .sort((a, b) => Number(Boolean(a.publicIpv6)) - Number(Boolean(b.publicIpv6)))[0];
   if (!active) throw new Error('No active schedulable host found');
   return active;
 }

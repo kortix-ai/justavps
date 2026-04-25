@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 const CHECKPOINT_ROOT = path.join(process.cwd(), '.e2e-checkpoints');
+const KEEP_E2E_STATE = (process.env.E2E_KEEP_STATE || '').trim().toLowerCase() === 'true';
 
 type CheckpointEnvelope<T> = {
   suite: string;
@@ -37,6 +38,14 @@ export async function saveCheckpoint<T extends object>(suite: string, state: T):
 export async function clearCheckpoint(suite: string): Promise<void> {
   const file = path.join(CHECKPOINT_ROOT, `${suite}.json`);
   await fs.rm(file, { force: true });
+}
+
+export function shouldKeepE2EState() {
+  return KEEP_E2E_STATE;
+}
+
+export function checkpointFilePath(suite: string) {
+  return path.join(CHECKPOINT_ROOT, `${suite}.json`);
 }
 
 export async function runCheckpointedStep<T extends object>(

@@ -41,6 +41,19 @@ export function buildWarmPoolVmName(input: {
   return `${input.prefix}${input.cpu}-${input.suffix}`;
 }
 
+export function buildVmInitArgs(input: {
+  resolvedImage: string;
+  instanceName: string;
+  cloudInitUserData?: string;
+  incusTarget: (name?: string) => string;
+}) {
+  const args = ['init', input.resolvedImage, input.incusTarget(input.instanceName), '--vm'];
+  if (input.cloudInitUserData?.trim()) {
+    args.push('-c', `cloud-init.user-data=${input.cloudInitUserData}`);
+  }
+  return args;
+}
+
 export async function checkVmAgentReady(input: {
   name: string;
   runIncus: (args: string[], timeoutMs?: number) => Promise<{ stdout: string; stderr: string }>;

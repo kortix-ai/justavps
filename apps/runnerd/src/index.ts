@@ -12,7 +12,7 @@ import { waitForInstance, waitForPrivateIpv4 } from './incus/instance-wait.js';
 import { allocateStaticBridgeIpv4 } from './network/bridge-ip.js';
 import { setupContainerProxyDevices, setupProxyDevices, setupWarmClaimProxyDevices } from './network/proxy-devices.js';
 import { buildContainerCreateMetadata, buildContainerLaunchArgs } from './runtime/container/create.js';
-import { buildVmCreateMetadata, buildWarmPoolPrefix, buildWarmPoolVmCreateMetadata, buildWarmPoolVmName, checkVmAgentReady } from './runtime/vm/create.js';
+import { buildVmCreateMetadata, buildVmInitArgs, buildWarmPoolPrefix, buildWarmPoolVmCreateMetadata, buildWarmPoolVmName, checkVmAgentReady } from './runtime/vm/create.js';
 
 const execFileAsync = promisify(execFile);
 const app = new Hono();
@@ -586,6 +586,12 @@ app.post('/v1/instances', async (c) => {
         );
       }
       stageTimings.proxy_ms = Date.now() - startTs;
+      if (cloudInitUserData.trim()) {
+        const b64 = Buffer.from(cloudInitUserData).toString('base64');
+        await runIncus(['exec', incusTarget(instanceName), '--', 'bash', '-c',
+          `echo '${b64}' | base64 -d > /tmp/init.sh && chmod +x /tmp/init.sh && /tmp/init.sh`], 120000);
+        stageTimings.identity_ms = Date.now() - startTs;
+      }
       regenerateNginxMap().catch(() => {});
       console.log(`[runnerd] container ready ${instanceName} total=+${Date.now() - startTs}ms stages=${JSON.stringify(stageTimings)} image=${resolvedImage}`);
       return c.json({
@@ -660,7 +666,12 @@ app.post('/v1/instances', async (c) => {
       // Last resort: full cold boot from image alias.
       const resolvedImage = await resolveVmImageReference(image, { runIncus });
       await retryTransient(() => runIncusPty(['delete', incusTarget(instanceName), '--force'], 20000).catch(() => ({ stdout: '', stderr: '' })), 20000);
-      await retryTransient(() => runIncusPty(['init', resolvedImage, incusTarget(instanceName), '--vm'], 300000), 310000);
+      await retryTransient(() => runIncusPty(buildVmInitArgs({
+        resolvedImage,
+        instanceName,
+        cloudInitUserData,
+        incusTarget,
+      }), 300000), 310000);
       await waitForInstance({ instanceName, queryIncus, delay });
       await applyVmBootTuning(instanceName);
       await ensureRootDiskSize(instanceName, diskGb);
@@ -672,29 +683,6 @@ app.post('/v1/instances', async (c) => {
       console.log(`[runnerd] started ${instanceName} +${Date.now() - startTs}ms`);
       const inspected = await waitForPrivateIpv4({ instanceName, inspectInstance: (target) => inspectInstance({ instanceName: target, queryIncus }), delay });
       console.log(`[runnerd] ip ready ${instanceName} +${Date.now() - startTs}ms ip=${inspected.privateIpv4 ?? 'none'}`);
-
-      // Wait for incus agent
-      const agentDeadline = Date.now() + 30000;
-      let agentReady = false;
-      while (Date.now() < agentDeadline) {
-        try {
-          await runIncus(['exec', incusTarget(instanceName), '--', 'true'], 3000);
-          agentReady = true;
-          break;
-        } catch {
-          await delay(200);
-        }
-      }
-      if (!agentReady) throw new Error('Timed out waiting for incus agent');
-      console.log(`[runnerd] agent ready ${instanceName} +${Date.now() - startTs}ms`);
-
-      // Inject identity
-      if (cloudInitUserData.trim()) {
-        const b64 = Buffer.from(cloudInitUserData).toString('base64');
-        await runIncus(['exec', incusTarget(instanceName), '--', 'bash', '-c',
-          `echo '${b64}' | base64 -d > /tmp/init.sh && chmod +x /tmp/init.sh && /tmp/init.sh`], 30000);
-        console.log(`[runnerd] identity injected ${instanceName} +${Date.now() - startTs}ms`);
-      }
 
       // Set up proxies
       if (inspected.privateIpv4 && RUNNERD_PUBLIC_IPV4) {

@@ -47,6 +47,7 @@
     "e2e:v2:10:ui-images": "playwright test tests/e2e/e2e/16-v2-images-ui.spec.ts",
     "e2e:v2:11:ui-billing": "playwright test tests/e2e/e2e/17-v2-billing-ui.spec.ts",
     "e2e:v2:12:ui-admin": "playwright test tests/e2e/e2e/18-v2-admin-panel.spec.ts",
+    "e2e:v2:13:cluster-membership": "tsx -r dotenv/config tests/scripts/v2/13-incus-cluster-membership.ts",
     "v2:inventory": "tsx -r dotenv/config scripts/ops/v2-inventory.ts",
     "v2:reset:dry": "tsx -r dotenv/config scripts/ops/v2-reset.ts",
     "v2:reset": "tsx -r dotenv/config scripts/ops/v2-reset.ts --apply",
