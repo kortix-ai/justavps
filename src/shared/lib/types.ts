@@ -19,7 +19,6 @@ export interface Machine {
   provisioning_stage: string | null;
   provisioning_stage_updated_at: string | null;
   provider: string;
-  api_version: 'v1' | 'v2';
   machine_mode?: MachineMode;
   requested_image_kind?: 'golden' | 'catalog' | 'docker' | null;
   requested_image_ref?: string | null;
@@ -27,7 +26,6 @@ export interface Machine {
   server_type: string;
   region: string;
   ip: string | null;
-  /** V2 actual allocated resources */
   vcpu?: number;
   ram_gb?: number;
   disk_gb?: number;
@@ -44,15 +42,10 @@ export interface Machine {
   created_by_api_key_prefix?: string | null;
   daemon_version: string | null;
   urls: { proxy: string; terminal: string; port_template: string } | null;
-  /** Legacy/V1 SSH command; V2 should prefer `access.exec_endpoint` and terminal URLs. */
   ssh?: string | null;
-  /** Legacy/V1 SSH host. */
   ssh_host?: string | null;
-  /** Legacy/V1 SSH port. */
   ssh_port?: number | null;
-  /** Legacy/V1 SSH helper command. */
   ssh_setup_command?: string | null;
-  /** Legacy/V1 SSH config block. */
   ssh_config_block?: string | null;
   ssh_key?: {
     private_key: string | null;

@@ -1,7 +1,7 @@
 /**
  * Canonical region definitions.
  *
- * A **Region** is a coarse geographic bucket (`eu`, `us`). Every V2 bare-metal
+ * A **Region** is a coarse geographic bucket (`eu`, `us`). Every bare-metal
  * host and machine belongs to exactly one region. The physical datacenter
  * (HEL1-DC4, NBG1-DC1, ASH-DC1, ...) lives in the host's `location` field, not
  * in the region. This keeps the region user-facing and stable while letting

@@ -698,7 +698,6 @@ export default function MachineDetailPage() {
   const isResizing =
     machine.status === "provisioning" && machine.provisioning_stage === "resizing";
   const uptime = machine.ready_at ? timeAgo(machine.ready_at) : null;
-  const versionLabel = machine.api_version === "v2" ? "V2" : "V1";
   const provisioningPct = provisioningProgress(machine);
 
 
@@ -745,9 +744,6 @@ export default function MachineDetailPage() {
               >
                 <span className={cn("size-1.5 rounded-full", statusInfo.dotClass)} />
                 {statusInfo.label}
-              </Badge>
-              <Badge variant="outline" className="h-5 px-1.5 text-[10px] font-semibold tracking-wide shrink-0">
-                {versionLabel}
               </Badge>
               {machine.subscription?.cancel_at_period_end && (
                 <Badge

@@ -11,7 +11,7 @@ describe('route helpers', () => {
   it('uses error statusCode when provided', async () => {
     const response = handleRouteError({
       json: (payload: unknown, status: number) => new Response(JSON.stringify(payload), { status }),
-    } as never, new CapacityError('No schedulable host could place request'), 'MACHINES-V2');
+    } as never, new CapacityError('No schedulable host could place request'), 'MACHINES');
 
     expect(response.status).toBe(409);
     const body = await response.json();

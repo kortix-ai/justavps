@@ -59,9 +59,9 @@ export function backupSurcharge(priceMonthly: number): number {
 
 // ─── Region → Market mapping ────────────────────────────────────────────────
 //
-// V2 regions are continent-level (`eu`, `us`, `asia`) and map directly to a
-// market. Legacy city-level codes (hel1/nbg1/fsn1/hil/ash) are preserved as a
-// fallback so stray V1 callers still resolve to the right market.
+// Continent-level regions (`eu`, `us`, `asia`) map directly to a market.
+// City-level codes (hel1/nbg1/fsn1/hil/ash) are preserved as a fallback so
+// API responses with the legacy region values still resolve correctly.
 
 const LEGACY_REGION_MARKET: Record<string, Market> = {
   hel1: 'eu',

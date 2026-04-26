@@ -24,7 +24,6 @@ export type AdminMachineDetail = {
   baremetal_host_id: string | null;
   daemon_version: string | null;
   machine_mode: string;
-  api_version: string;
   vcpu: number | null;
   memory_gb: number | null;
   disk_gb: number | null;

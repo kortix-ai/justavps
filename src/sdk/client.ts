@@ -253,7 +253,7 @@ class MachinesResource {
   get(id: string) { return this.http.get<Machine>(`/machines/${id}`); }
   create(input: CreateMachineBody) { return this.http.post<Machine>('/machines', input); }
   exec(id: string, input: { command: string; args?: string[]; cwd?: string; env_vars?: Record<string, string>; user?: string; group?: string; timeout_ms?: number }) {
-    return this.http.post<V2ExecResult>(`/machines/${id}/exec`, input);
+    return this.http.post<ExecResult>(`/machines/${id}/exec`, input);
   }
   delete(id: string) { return this.http.delete(`/machines/${id}`); }
   reboot(id: string) { return this.http.post<{ action: string; status: string }>(`/machines/${id}/reboot`); }
@@ -372,7 +372,7 @@ export interface ExecResult {
   duration_ms: number;
 }
 
-export interface V2ExecResult {
+export interface ExecResult {
   ok: boolean;
   stdout: string;
   stderr: string;

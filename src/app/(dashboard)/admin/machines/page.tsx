@@ -602,7 +602,6 @@ function MachineDetailDialog({
                 <Badge variant="secondary">{machine.provisioning_stage}</Badge>
               )}
               <Badge variant="outline" className="font-mono text-xs">{machine.machine_mode}</Badge>
-              <Badge variant="outline" className="font-mono text-xs">{machine.api_version}</Badge>
               {machine.source === "kortix" && <Badge variant="outline">kortix</Badge>}
               <span className="ml-auto text-xs text-muted-foreground">
                 Created {relativeTime(machine.created_at)}

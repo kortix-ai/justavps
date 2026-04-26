@@ -32,7 +32,6 @@ const machineRow = {
   baremetalHostId: HOST_ID,
   daemonVersion: '1.0.0',
   machineMode: 'vm',
-  apiVersion: 'v2',
   vcpu: 2,
   ramGb: 4,
   diskGb: 40,
@@ -213,7 +212,7 @@ describe('admin machines CRUD + lifecycle', () => {
     expect(data.host).toMatchObject({ id: HOST_ID, name: 'bm-host-1' });
   });
 
-  it('rejects legacy V2 admin machine creation via POST /', async () => {
+  it('admin machine creation via POST / is gone (handled out-of-band)', async () => {
     enqueueSelect([userRow]);                 // 1) owner lookup
     enqueueSelect([accountRow]);              // 2) account lookup
 
@@ -235,8 +234,6 @@ describe('admin machines CRUD + lifecycle', () => {
     }));
 
     expect(res.status).toBe(410);
-    const data = await res.json();
-    expect(data.message).toContain('standalone apps/v2-api');
   });
 
   it('rejects POST / when owner_user_id does not exist', async () => {
