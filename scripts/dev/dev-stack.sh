@@ -141,13 +141,14 @@ wait_for_port "v2-api" "$V2_PORT" "$V2_PID"
 echo "[dev-stack] starting next dev on :${NEXT_PORT}"
 (
   V1_API_URL="${V1_API_URL:-http://localhost:${V1_PORT}}" \
-    V2_API_URL="${V2_API_URL:-http://localhost:${V2_PORT}}" \
+    NEXT_PUBLIC_V2_ADMIN_URL="${NEXT_PUBLIC_V2_ADMIN_URL:-http://localhost:${V2_PORT}/admin-ui}" \
     pnpm exec next dev --webpack -p "$NEXT_PORT" 2>&1 | prefix_output "next" "\033[35m"
 ) &
 NEXT_PID=$!
 
 echo "[dev-stack] up: v1=:${V1_PORT}  v2=:${V2_PORT}  next=:${NEXT_PORT}"
-echo "[dev-stack]   - V2 admin UI:  http://localhost:${NEXT_PORT}/admin-ui/  (or http://localhost:${V2_PORT}/admin-ui/)"
+echo "[dev-stack]   - V1 dashboard: http://localhost:${NEXT_PORT}/"
+echo "[dev-stack]   - V2 admin UI:  http://localhost:${V2_PORT}/admin-ui/  (also picked from V1 sidebar version selector)"
 
 wait -n "$V1_PID" "$V2_PID" "$NEXT_PID"
 status=$?

@@ -30,6 +30,13 @@ import { Avatar, AvatarFallback } from "@/shared/ui/avatar";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select";
 import { useTheme } from "@/shared/hooks/use-theme";
 import { Logo } from "@/shared/components/logo";
 import {
@@ -80,6 +87,8 @@ const adminNavigation = [
   { name: "All Machines", href: "/admin/machines", icon: Server },
   { name: "Routing", href: "/admin/routing", icon: ShieldCheck },
 ];
+
+const V2_ADMIN_URL = (process.env.NEXT_PUBLIC_V2_ADMIN_URL || "http://localhost:4200/admin-ui").replace(/\/$/, "");
 
 export function AppSidebar() {
   const pathname = usePathname();
@@ -176,6 +185,27 @@ export function AppSidebar() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/kortix-symbol.svg" alt="Kortix" className="h-[14px] w-auto dark:invert flex-shrink-0" />
             </div>
+          </div>
+          <div className="px-2 pt-1 group-data-[collapsible=icon]:hidden">
+            <Select
+              value="v1"
+              onValueChange={(value) => {
+                if (value === "v2") window.location.href = V2_ADMIN_URL;
+              }}
+            >
+              <SelectTrigger
+                size="sm"
+                className="w-full h-8 text-xs"
+                aria-label="Select API version"
+                data-testid="version-select"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="v1">V1 — Hetzner cloud</SelectItem>
+                <SelectItem value="v2">V2 — Incus admin →</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </SidebarHeader>
         <SidebarContent>

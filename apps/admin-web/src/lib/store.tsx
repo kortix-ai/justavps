@@ -118,21 +118,7 @@ const STORAGE_KEYS = {
 
 function defaultBaseUrl() {
   if (typeof window === 'undefined') return '';
-  // When admin-web is served by a host that is *not* the V2 API itself
-  // (e.g. proxied through Next.js on :4100 in dev, or via a separate
-  // public origin), fall back to a sensible V2 API URL instead of
-  // pointing at the wrapping host. Build-time override via VITE_V2_API_URL
-  // takes precedence; in dev we also auto-detect the common Next.js port.
-  const buildTimeUrl = (import.meta.env.VITE_V2_API_URL as string | undefined)?.trim();
-  if (buildTimeUrl) return buildTimeUrl.replace(/\/$/, '');
-
-  const { protocol, hostname, port, origin } = window.location;
-  // Next.js dev runs on :4100 and proxies /admin-ui/* into the V2 API.
-  // The V2 API itself listens on :4200 — use that for runtime API calls.
-  if ((hostname === 'localhost' || hostname === '127.0.0.1') && port === '4100') {
-    return `${protocol}//${hostname}:4200`;
-  }
-  return origin;
+  return window.location.origin;
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
