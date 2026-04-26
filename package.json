@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --webpack -p 4100",
+    "dev": "bash scripts/dev/dev-stack.sh",
+    "dev:next": "next dev --webpack -p 4100",
     "dev:turbopack": "next dev -p 4100",
     "dev:ngrok": "bash scripts/dev/dev-with-ngrok-callback.sh",
     "dev:stripe": "bash scripts/dev/dev-with-stripe.sh",
