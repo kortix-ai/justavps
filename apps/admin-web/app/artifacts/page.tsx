@@ -8,12 +8,14 @@ import { Tag } from '@/components/ui/tag';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Empty } from '@/components/ui/empty';
-import { RefreshCw, Search, Trash2 } from 'lucide-react';
+import { Download, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { formatBytes, shortId } from '@/lib/utils';
+import { PullImageDialog } from '@/components/features/pull-image-dialog';
 
 export default function ArtifactsPage() {
   const { state, runAction, request, refreshAll } = useStore();
   const [filter, setFilter] = useState('');
+  const [pullOpen, setPullOpen] = useState(false);
 
   const filtered = useMemo(() => {
     if (!filter.trim()) return state.images;
@@ -41,9 +43,14 @@ export default function ArtifactsPage() {
         title="Artifacts"
         description="Image catalog observed across all configured Incus clusters."
         actions={
-          <Button variant="secondary" leftIcon={<RefreshCw className="size-3.5" />} disabled={state.busy} onClick={() => refreshAll().catch(() => {})}>
-            Refresh
-          </Button>
+          <>
+            <Button variant="secondary" leftIcon={<RefreshCw className="size-3.5" />} disabled={state.busy} onClick={() => refreshAll().catch(() => {})}>
+              Refresh
+            </Button>
+            <Button leftIcon={<Download className="size-3.5" />} disabled={state.busy} onClick={() => setPullOpen(true)} id="open-pull-image">
+              Pull from registry
+            </Button>
+          </>
         }
       />
 
@@ -80,7 +87,7 @@ export default function ArtifactsPage() {
             <table className="w-full min-w-[720px] border-collapse">
               <thead>
                 <tr>
-                  {['Aliases', 'Type', 'Visibility', 'Size', 'Cluster', 'Fingerprint', ''].map((h) => (
+                  {['Aliases', 'Type', 'Visibility', 'Source', 'Size', 'Cluster', 'Fingerprint', ''].map((h) => (
                     <th key={h} className="sticky top-0 bg-bg-1 px-3.5 py-2.5 text-left text-[11px] font-medium uppercase tracking-[0.06em] text-fg-muted">{h}</th>
                   ))}
                 </tr>
@@ -88,18 +95,30 @@ export default function ArtifactsPage() {
               <tbody id="images-tbody">
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={7}>
+                    <td colSpan={8}>
                       <Empty title={filter ? 'No images match' : 'No images'} description={filter ? 'Try a different search.' : 'Once an image is published or pulled into a cluster it shows up here.'} />
                     </td>
                   </tr>
                 ) : filtered.map((image) => {
                   const aliases = (image.aliases ?? []).map((alias) => alias.name).join(', ') || '—';
                   const deleteId = image.aliases?.[0]?.name ?? image.fingerprint ?? image.id;
+                  const dockerRef = (image.properties ?? {})['justavps.docker_ref'];
+                  const sourceKind = (image.properties ?? {})['justavps.source'];
                   return (
                     <tr key={image.fingerprint ?? image.id} className="border-b border-border last:border-0">
                       <td className="px-3.5 py-2.5 font-medium">{aliases}</td>
                       <td className="px-3.5 py-2.5"><Tag tone="ghost">{image.type ?? '—'}</Tag></td>
                       <td className="px-3.5 py-2.5">{image.public ? <Tag tone="info">public</Tag> : <Tag>private</Tag>}</td>
+                      <td className="px-3.5 py-2.5">
+                        {sourceKind === 'docker' ? (
+                          <span className="inline-flex flex-col gap-0.5">
+                            <Tag tone="violet">docker</Tag>
+                            {dockerRef ? <span className="font-mono text-[11px] text-fg-subtle">{dockerRef}</span> : null}
+                          </span>
+                        ) : (
+                          <Tag tone="ghost">incus</Tag>
+                        )}
+                      </td>
                       <td className="px-3.5 py-2.5 text-fg-muted">{formatBytes(image.size)}</td>
                       <td className="px-3.5 py-2.5 font-mono text-fg-muted">{image.cluster?.id ?? '—'}</td>
                       <td className="px-3.5 py-2.5"><code className="font-mono text-fg-muted">{shortId(image.fingerprint, 18)}</code></td>
@@ -116,6 +135,8 @@ export default function ArtifactsPage() {
           </div>
         </div>
       </Card>
+
+      <PullImageDialog open={pullOpen} onClose={() => setPullOpen(false)} onCreated={() => setPullOpen(false)} />
     </section>
   );
 }

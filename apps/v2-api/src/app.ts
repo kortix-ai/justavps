@@ -41,13 +41,26 @@ const restoreSnapshotSchema = z.object({
   stateful: z.boolean().optional().default(false),
 });
 
-const createImageSchema = z.object({
-  machine_id: z.string().min(1),
-  snapshot_id: z.string().min(1).optional(),
-  name: z.string().min(1).max(80).regex(/^[a-z0-9][a-z0-9_.:-]*$/).optional(),
-  public: z.boolean().optional().default(false),
-  properties: z.record(z.string(), z.string()).optional().default({}),
-});
+const createImageSchema = z
+  .object({
+    machine_id: z.string().min(1).optional(),
+    snapshot_id: z.string().min(1).optional(),
+    docker: z
+      .object({
+        ref: z.string().min(1).max(200),
+        server: z.string().url().optional(),
+      })
+      .optional(),
+    region: z.string().min(1).optional(),
+    cluster_id: z.string().min(1).optional(),
+    name: z.string().min(1).max(80).regex(/^[a-z0-9][a-z0-9_.:-]*$/).optional(),
+    public: z.boolean().optional().default(false),
+    properties: z.record(z.string(), z.string()).optional().default({}),
+  })
+  .refine((data) => Boolean(data.machine_id) !== Boolean(data.docker), {
+    message: 'Provide exactly one of machine_id or docker',
+    path: ['machine_id'],
+  });
 
 const createBackupSchema = z.object({
   name: z.string().min(1).max(80).regex(/^[a-zA-Z0-9_.:-]+$/).optional(),
@@ -979,9 +992,47 @@ export function createApp(config: AppConfig) {
   app.post('/images', async (c) => {
     try {
       const input = createImageSchema.parse(await c.req.json());
-      const resolved = await machineClient(config, input.machine_id);
-      if (!resolved) return c.json({ error: true, message: 'Machine not found' }, 404);
       const alias = input.name ?? generatedResourceName('img');
+
+      // Branch 1: pull from a Docker/OCI registry into a cluster's Incus image catalog.
+      if (input.docker) {
+        const cluster = input.cluster_id
+          ? findCluster(config, input.cluster_id)
+          : input.region
+            ? pickCluster(config, input.region)
+            : (config.clusters[0] ?? null);
+        if (!cluster) return c.json({ error: true, message: 'No Incus cluster available for the requested region/cluster_id' }, 409);
+        const server = input.docker.server ?? 'https://docker.io';
+        const operation = await clientFor(cluster).createImageFromOci({
+          server,
+          ociRef: input.docker.ref,
+          aliases: [{ name: alias, description: `JustAVPS image ${alias} (OCI: ${input.docker.ref})` }],
+          properties: { ...input.properties, 'justavps.source': 'docker', 'justavps.docker_ref': input.docker.ref, 'justavps.docker_server': server },
+          public: input.public,
+        });
+
+        let image = null;
+        if (config.databaseConfigured) {
+          image = await getPrisma().image.create({
+            data: {
+              accountId: c.req.header('x-account-id') || 'system',
+              visibility: input.public ? 'catalog' : 'private',
+              name: alias,
+              incusClusterId: cluster.id,
+              incusProject: cluster.project,
+              incusFingerprint: alias,
+              sourceMachineId: null,
+              sourceSnapshotId: null,
+              metadata: { incus_operation: operation, alias, docker_ref: input.docker.ref, docker_server: server },
+            },
+          });
+        }
+        return c.json({ image: image ?? { id: alias, name: alias, source: 'docker', docker_ref: input.docker.ref }, operation }, 201);
+      }
+
+      // Branch 2: publish from an existing machine (with optional snapshot).
+      const resolved = await machineClient(config, input.machine_id!);
+      if (!resolved) return c.json({ error: true, message: 'Machine not found' }, 404);
       const operation = await resolved.client.createImageFromInstance({
         instanceName: resolved.machine.incusInstanceName,
         snapshotName: input.snapshot_id,

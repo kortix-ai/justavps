@@ -169,6 +169,33 @@ export class IncusClient {
     return this.waitOperation(operation);
   }
 
+  async createImageFromOci(input: {
+    server: string;
+    ociRef: string;
+    aliases?: Array<{ name: string; description?: string }>;
+    properties?: Record<string, string>;
+    public?: boolean;
+  }): Promise<IncusOperation> {
+    // Native Incus OCI pull. Equivalent to:
+    //   incus remote add <server> --protocol=oci
+    //   incus image copy <server>:<ociRef> local: --alias <aliasName>
+    const operation = await this.requestOperation('POST', this.projectPath('/images'), {
+      source: {
+        type: 'image',
+        mode: 'pull',
+        protocol: 'oci',
+        server: input.server,
+        alias: input.ociRef,
+        image_type: 'container',
+      },
+      aliases: input.aliases ?? [],
+      properties: input.properties ?? {},
+      public: input.public ?? false,
+    });
+    // OCI pulls (Docker layers + convert) can take a while; give it a generous deadline.
+    return this.waitOperation(operation, 600_000);
+  }
+
   async deleteImage(fingerprint: string): Promise<IncusOperation> {
     const resolved = await this.resolveImageFingerprint(fingerprint);
     const operation = await this.requestOperation('DELETE', this.projectPath(`/images/${encodeURIComponent(resolved)}`));
