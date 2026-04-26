@@ -30,10 +30,9 @@ const MIME_TYPES: Record<string, string> = {
 
 function resolveDistRoot(): string {
   // `apps/v2-api/src/admin-ui-static.ts` (tsx dev) and `apps/v2-api/dist/admin-ui-static.js` (prod)
-  // both sit two levels above `apps/admin-web/dist`.
+  // both sit two levels above `apps/admin-web/out` (Next static export).
   const here = fileURLToPath(import.meta.url);
-  const root = resolve(here, '..', '..', '..', 'admin-web', 'dist');
-  return root;
+  return resolve(here, '..', '..', '..', 'admin-web', 'out');
 }
 
 function contentType(filePath: string): string {
@@ -97,25 +96,29 @@ export function registerAdminUi(app: Hono): { distRoot: string } {
       return c.json({ error: true, message: 'Invalid admin-ui asset path' }, 400);
     }
 
+    // 1. Direct file hit: e.g. /admin-ui/_next/static/chunks/foo.js → out/_next/static/chunks/foo.js
     if (existsSync(target)) {
       try {
         const stat = statSync(target);
-        if (stat.isFile()) {
-          const data = await readFile(target);
-          c.header('Content-Type', contentType(target));
-          // Cache hashed assets aggressively, fall back to revalidate for index.html.
-          if (/\.[a-f0-9]{8,}\./.test(target)) {
-            c.header('Cache-Control', 'public, max-age=31536000, immutable');
-          } else {
-            c.header('Cache-Control', 'public, max-age=0, must-revalidate');
-          }
-          return c.body(data as unknown as ArrayBuffer);
+        if (stat.isFile()) return await sendFile(c, target);
+        if (stat.isDirectory()) {
+          const dirIndex = join(target, 'index.html');
+          if (existsSync(dirIndex)) return await sendFile(c, dirIndex);
         }
       } catch {
-        // fall through to SPA fallback
+        // fall through
       }
     }
 
+    // 2. Next-style trailing-slash route: /admin-ui/topology → out/topology/index.html
+    const dirIndex = `${target}/index.html`;
+    if (existsSync(dirIndex)) return await sendFile(c, dirIndex);
+
+    // 3. Static-export non-trailing variant: out/topology.html
+    const htmlSibling = `${target}.html`;
+    if (existsSync(htmlSibling)) return await sendFile(c, htmlSibling);
+
+    // 4. SPA fallback
     return serveIndex(c, distRoot, indexPath);
   });
 
@@ -127,8 +130,16 @@ async function serveIndex(c: Context, distRoot: string, indexPath: string) {
     c.header('Content-Type', 'text/html; charset=utf-8');
     return c.body(notFoundHtml(`No index.html found in <code>${distRoot}</code>.`), 503);
   }
-  const data = await readFile(indexPath);
-  c.header('Content-Type', 'text/html; charset=utf-8');
-  c.header('Cache-Control', 'public, max-age=0, must-revalidate');
+  return sendFile(c, indexPath);
+}
+
+async function sendFile(c: Context, filePath: string) {
+  const data = await readFile(filePath);
+  c.header('Content-Type', contentType(filePath));
+  if (/\.[a-f0-9]{8,}\./.test(filePath) || filePath.includes('/_next/static/')) {
+    c.header('Cache-Control', 'public, max-age=31536000, immutable');
+  } else {
+    c.header('Cache-Control', 'public, max-age=0, must-revalidate');
+  }
   return c.body(data as unknown as ArrayBuffer);
 }
