@@ -74,14 +74,15 @@ function CommandPalette() {
 
   const items: Item[] = useMemo(() => {
     const base: Item[] = [
-      { id: 'go-dashboard', group: 'Navigation', label: 'Go to Dashboard', perform: () => router.push('/'), keywords: 'home overview' },
-      { id: 'go-topology', group: 'Navigation', label: 'Go to Topology', perform: () => router.push('/topology'), keywords: 'cluster region host' },
-      { id: 'go-machines', group: 'Navigation', label: 'Go to Machines', perform: () => router.push('/machines'), keywords: 'instances vm container' },
-      { id: 'go-artifacts', group: 'Navigation', label: 'Go to Artifacts', perform: () => router.push('/artifacts'), keywords: 'images snapshots' },
-      { id: 'go-vendor', group: 'Navigation', label: 'Go to Vendor', perform: () => router.push('/vendor'), keywords: 'hetzner robot' },
-      { id: 'go-procurement', group: 'Navigation', label: 'Go to Procurement', perform: () => router.push('/procurement'), keywords: 'order bootstrap' },
-      { id: 'go-console', group: 'Navigation', label: 'Go to API Console', perform: () => router.push('/console'), keywords: 'request raw http' },
-      { id: 'go-settings', group: 'Navigation', label: 'Go to Settings', perform: () => router.push('/settings'), keywords: 'token api url' },
+      { id: 'go-overview', group: 'Workspace', label: 'Go to Overview', perform: () => router.push('/'), keywords: 'home dashboard' },
+      { id: 'go-machines', group: 'Workspace', label: 'Go to Machines', perform: () => router.push('/machines'), keywords: 'instances vm container' },
+      { id: 'go-images', group: 'Workspace', label: 'Go to Images', perform: () => router.push('/images'), keywords: 'image catalog snapshot pull docker oci' },
+      { id: 'go-settings', group: 'Workspace', label: 'Go to Settings', perform: () => router.push('/settings'), keywords: 'token api url account' },
+      { id: 'go-admin', group: 'Admin', label: 'Go to Admin Overview', perform: () => router.push('/admin'), keywords: 'cluster fleet capacity' },
+      { id: 'go-topology', group: 'Admin', label: 'Go to Topology', perform: () => router.push('/admin/topology'), keywords: 'cluster region host' },
+      { id: 'go-vendor', group: 'Admin', label: 'Go to Vendor', perform: () => router.push('/admin/vendor'), keywords: 'hetzner robot' },
+      { id: 'go-procurement', group: 'Admin', label: 'Go to Procurement', perform: () => router.push('/admin/procurement'), keywords: 'order bootstrap capacity' },
+      { id: 'go-console', group: 'Admin', label: 'Go to API Console', perform: () => router.push('/admin/console'), keywords: 'request raw http' },
       { id: 'act-refresh', group: 'Actions', label: 'Refresh everything', perform: () => refreshAll(), keywords: 'sync reload' },
       { id: 'act-workflow', group: 'Actions', label: 'Run full E2E workflow', perform: () => runWorkflow(), keywords: 'live test e2e' },
     ];

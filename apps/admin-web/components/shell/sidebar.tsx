@@ -5,62 +5,35 @@ import { usePathname } from 'next/navigation';
 import { useStore } from '@/lib/store';
 import { Tag } from '@/components/ui/tag';
 import { cn } from '@/lib/utils';
-import {
-  LayoutDashboard,
-  Network,
-  Boxes,
-  ImageIcon,
-  Building2,
-  ShoppingCart,
-  Terminal,
-  Settings,
-} from 'lucide-react';
+import type { Scope } from './scope';
+import { isActive, navForScope } from './scope';
+import { ScopeSwitcher } from './scope-switcher';
 
-type NavItem = {
-  to: string;
-  label: string;
-  icon: typeof LayoutDashboard;
-  route: string;
-  match?: (p: string) => boolean;
-};
-
-const NAV_ITEMS: NavItem[] = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, route: 'dashboard', match: (p) => p === '/' },
-  { to: '/topology', label: 'Topology', icon: Network, route: 'topology' },
-  { to: '/machines', label: 'Machines', icon: Boxes, route: 'machines' },
-  { to: '/artifacts', label: 'Artifacts', icon: ImageIcon, route: 'artifacts' },
-  { to: '/vendor', label: 'Vendor', icon: Building2, route: 'vendor' },
-  { to: '/procurement', label: 'Procurement', icon: ShoppingCart, route: 'procurement' },
-  { to: '/console', label: 'API Console', icon: Terminal, route: 'console' },
-  { to: '/settings', label: 'Settings', icon: Settings, route: 'settings' },
-];
-
-function isActive(item: NavItem, pathname: string) {
-  const stripped = pathname.replace(/\/$/, '') || '/';
-  if (item.match) return item.match(stripped);
-  return stripped === item.to || stripped.startsWith(`${item.to}/`);
-}
-
-export function Sidebar() {
+export function Sidebar({ scope }: { scope: Scope }) {
   const { state } = useStore();
-  const pathname = usePathname();
+  const pathname = usePathname() || '/';
+  const items = navForScope(scope);
   const tokenSet = Boolean(state.token);
   const healthOk = state.health?.status === 'ok';
   return (
-    <aside className="sticky top-0 flex h-screen flex-col gap-3.5 overflow-y-auto border-r border-border bg-bg-1 px-3 py-4">
-      <div className="mb-1 flex items-center gap-2.5 border-b border-border px-2 pb-2">
+    <aside className="sticky top-0 flex h-screen w-[240px] flex-col gap-3.5 overflow-y-auto border-r border-border bg-bg-1 px-3 py-3.5">
+      <Link href="/" className="flex items-center gap-2.5 px-2 pb-1">
         <div className="flex size-[26px] items-center justify-center rounded-[7px] bg-fg text-[13px] font-bold tracking-[-0.04em] text-bg">▲</div>
         <div>
           <div className="text-[13px] font-semibold tracking-tight">JustAVPS V2</div>
           <div className="text-[11px] text-fg-subtle">Incus control plane</div>
         </div>
-      </div>
+      </Link>
+
+      <ScopeSwitcher scope={scope} />
 
       <div>
-        <div className="px-2.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-fg-subtle">Workspace</div>
+        <div className="px-2.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-fg-subtle">
+          {scope === 'admin' ? 'Admin' : 'Workspace'}
+        </div>
         <nav id="primary-nav" className="flex flex-col gap-px">
-          {NAV_ITEMS.map((item) => {
-            const active = isActive(item, pathname || '/');
+          {items.map((item) => {
+            const active = isActive(item, pathname);
             const Icon = item.icon;
             return (
               <Link

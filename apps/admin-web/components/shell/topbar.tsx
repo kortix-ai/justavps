@@ -11,36 +11,19 @@ import { useFullWorkflow } from '@/lib/use-full-workflow';
 import { useCommandPalette } from './command-palette';
 import { ChevronRight, Command, RefreshCw, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import type { Scope } from './scope';
+import { pageTitle, scopeHome } from './scope';
 
-const PAGE_TITLES: Record<string, string> = {
-  '/': 'Dashboard',
-  '/topology': 'Topology',
-  '/machines': 'Machines',
-  '/artifacts': 'Artifacts',
-  '/vendor': 'Vendor',
-  '/procurement': 'Procurement',
-  '/console': 'API Console',
-  '/settings': 'Settings',
-};
-
-function pageTitle(pathname: string): string {
-  const stripped = pathname.replace(/\/$/, '') || '/';
-  if (PAGE_TITLES[stripped]) return PAGE_TITLES[stripped];
-  for (const [prefix, value] of Object.entries(PAGE_TITLES)) {
-    if (prefix !== '/' && stripped.startsWith(prefix)) return value;
-  }
-  return PAGE_TITLES['/'];
-}
-
-export function Topbar() {
+export function Topbar({ scope }: { scope: Scope }) {
   const { state, refreshAll } = useStore();
   const { run: runWorkflow, running: workflowRunning } = useFullWorkflow();
   const { open: openCmdK } = useCommandPalette();
   const pathname = usePathname() || '/';
-  const title = pageTitle(pathname);
+  const title = pageTitle(scope, pathname);
+  const showRunE2E = scope === 'admin';
 
   useEffect(() => {
-    if (typeof document !== 'undefined') document.title = `${title} · JustAVPS V2 Admin`;
+    if (typeof document !== 'undefined') document.title = `${title} · JustAVPS V2`;
   }, [title]);
 
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
@@ -51,12 +34,12 @@ export function Topbar() {
       id="topbar"
       className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b border-border bg-bg-1/80 px-5 backdrop-blur-[12px]"
     >
-      <div className="flex min-w-0 flex-1 items-center gap-2.5">
-        <nav className="flex min-w-0 items-center gap-1.5 text-[13px] text-fg-muted" aria-label="Breadcrumb">
-          <Link href="/" className="whitespace-nowrap hover:text-fg">JustAVPS V2</Link>
-          <ChevronRight className="size-3.5 text-fg-disabled" />
-          <span className="truncate font-medium text-fg">{title}</span>
-        </nav>
+      <nav className="flex min-w-0 flex-1 items-center gap-2 text-[13px] text-fg-muted" aria-label="Breadcrumb">
+        <Link href={scopeHome(scope)} className="whitespace-nowrap font-medium text-fg-muted hover:text-fg">
+          {scope === 'admin' ? 'Admin' : 'Workspace'}
+        </Link>
+        <ChevronRight className="size-3.5 text-fg-disabled" />
+        <span className="truncate font-medium text-fg">{title}</span>
         <span className="flex-1" />
         {state.busy ? (
           <Tag tone="info">
@@ -64,7 +47,7 @@ export function Topbar() {
             <span>{state.status.label}</span>
           </Tag>
         ) : null}
-      </div>
+      </nav>
 
       <div className="flex items-center gap-2">
         <Button variant="secondary" size="sm" leftIcon={<Command className="size-3.5" />} onClick={openCmdK} aria-label="Command palette" data-testid="v2-cmdk">
@@ -76,9 +59,11 @@ export function Topbar() {
           Refresh
         </Button>
 
-        <Button variant="primary" size="sm" leftIcon={<Zap className="size-3.5" />} disabled={state.busy || workflowRunning} onClick={() => runWorkflow().catch(() => {})} data-testid="v2-run-workflow" id="full-workflow">
-          {workflowRunning ? 'Running…' : 'Run E2E'}
-        </Button>
+        {showRunE2E ? (
+          <Button variant="primary" size="sm" leftIcon={<Zap className="size-3.5" />} disabled={state.busy || workflowRunning} onClick={() => runWorkflow().catch(() => {})} data-testid="v2-run-workflow" id="full-workflow">
+            {workflowRunning ? 'Running…' : 'Run E2E'}
+          </Button>
+        ) : null}
 
         <span
           id="status"
