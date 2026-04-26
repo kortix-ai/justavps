@@ -4,7 +4,6 @@ import Link from "next/link";
 import { Badge } from "@/shared/ui/badge";
 import { Globe, Cpu, HardDrive, DollarSign, Clock, Shield, CalendarX2 } from "lucide-react";
 import { cn, regionDisplay, planName, planSpecs, timeAgo } from "@/shared/lib/utils";
-import { V2_ENABLED } from "@/shared/lib/versioning";
 import type { Machine } from "@/shared/lib/types";
 
 const statusConfig = {
@@ -39,14 +38,11 @@ export function MachineCard({ machine }: MachineCardProps) {
     statusConfig[machine.status as keyof typeof statusConfig] ||
     statusConfig.stopped;
   const specs = planSpecs(machine.server_type);
-  const isV2Machine = V2_ENABLED && machine.api_version === 'v2';
-  const machineHref = isV2Machine ? `/v2/machines/${machine.id}` : `/machines/${machine.id}`;
-  const versionLabel = isV2Machine ? 'V2' : 'V1';
 
   return (
     <div className="group rounded-xl border bg-card transition-all duration-200 hover:border-foreground/20 hover:shadow-md hover:shadow-black/[0.04] dark:hover:shadow-black/20">
       <Link
-        href={machineHref}
+        href={`/machines/${machine.id}`}
         className={cn(
           "block",
           machine.status === "error" && "border-red-500/20",
@@ -59,9 +55,6 @@ export function MachineCard({ machine }: MachineCardProps) {
               <h3 className="text-sm font-semibold truncate leading-snug">
                 {machine.name || machine.slug}
               </h3>
-              <Badge variant="outline" className="h-5 px-1.5 text-[10px] font-semibold tracking-wide shrink-0">
-                {versionLabel}
-              </Badge>
             </div>
             <p className="text-[11px] text-muted-foreground font-mono truncate mt-0.5">
               {machine.slug}

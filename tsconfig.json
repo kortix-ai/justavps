@@ -19,6 +19,7 @@
       }
     ],
     "paths": {
+      "@/server/*": ["./apps/v1-api/src/server/*"],
       "@/*": ["./src/*"]
     }
   },

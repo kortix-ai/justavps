@@ -1,0 +1,209 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["v2_core", "v2_incus", "v2_ops"]
+}
+
+model Host {
+  id                   String   @id @default(cuid())
+  vendor               String
+  providerServerNumber String?  @map("provider_server_number")
+  hostClass            String   @map("host_class")
+  productId            String?  @map("product_id")
+  region               String
+  location             String
+  name                 String
+  status               String
+  schedulable          Boolean  @default(false)
+  publicIpv4           String?  @map("public_ipv4")
+  publicIpv6           String?  @map("public_ipv6")
+  incusClusterId       String?  @map("incus_cluster_id")
+  incusMemberName      String?  @map("incus_member_name")
+  metadata             Json     @default("{}")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@unique([vendor, providerServerNumber])
+  @@index([region, status])
+  @@index([incusClusterId, incusMemberName])
+  @@map("hosts")
+  @@schema("v2_core")
+}
+
+model Machine {
+  id                String   @id @default(cuid())
+  accountId         String   @map("account_id")
+  name              String
+  region            String
+  type              String
+  status            String
+  sourceType        String   @map("source_type")
+  sourceId          String?  @map("source_id")
+  incusClusterId    String   @map("incus_cluster_id")
+  incusProject      String   @map("incus_project")
+  incusInstanceName String   @map("incus_instance_name")
+  incusMemberName   String?  @map("incus_member_name")
+  resources         Json
+  metadata          Json     @default("{}")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@unique([incusClusterId, incusProject, incusInstanceName])
+  @@index([accountId, status])
+  @@map("machines")
+  @@schema("v2_core")
+}
+
+model Image {
+  id                String   @id @default(cuid())
+  accountId         String?  @map("account_id")
+  visibility        String
+  name              String
+  incusClusterId    String   @map("incus_cluster_id")
+  incusProject      String   @map("incus_project")
+  incusFingerprint  String   @map("incus_fingerprint")
+  sourceMachineId   String?  @map("source_machine_id")
+  sourceSnapshotId  String?  @map("source_snapshot_id")
+  metadata          Json     @default("{}")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@unique([incusClusterId, incusProject, incusFingerprint])
+  @@index([accountId, visibility])
+  @@map("images")
+  @@schema("v2_core")
+}
+
+model Snapshot {
+  id                String   @id @default(cuid())
+  accountId         String   @map("account_id")
+  machineId         String   @map("machine_id")
+  name              String
+  incusSnapshotName String   @map("incus_snapshot_name")
+  status            String
+  metadata          Json     @default("{}")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@unique([machineId, incusSnapshotName])
+  @@index([accountId])
+  @@map("snapshots")
+  @@schema("v2_core")
+}
+
+model Backup {
+  id              String   @id @default(cuid())
+  accountId       String   @map("account_id")
+  machineId       String   @map("machine_id")
+  status          String
+  storageUri      String?  @map("storage_uri")
+  incusBackupName String?  @map("incus_backup_name")
+  retentionPolicy Json     @default("{}") @map("retention_policy")
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([accountId, status])
+  @@map("backups")
+  @@schema("v2_core")
+}
+
+model IncusCluster {
+  id           String   @id
+  name         String
+  region       String
+  endpoint     String
+  project      String
+  lastSyncedAt DateTime? @map("last_synced_at")
+  observed     Json     @default("{}")
+
+  @@map("clusters")
+  @@schema("v2_incus")
+}
+
+model IncusMember {
+  clusterId    String   @map("cluster_id")
+  name         String
+  url          String
+  status       String
+  roles        Json     @default("[]")
+  observed     Json     @default("{}")
+  lastSyncedAt DateTime @default(now()) @map("last_synced_at")
+
+  @@id([clusterId, name])
+  @@index([clusterId, status])
+  @@map("members")
+  @@schema("v2_incus")
+}
+
+model IncusInstance {
+  clusterId    String   @map("cluster_id")
+  project      String
+  name         String
+  type         String
+  status       String
+  location     String?
+  observed     Json
+  lastSyncedAt DateTime @default(now()) @map("last_synced_at")
+
+  @@id([clusterId, project, name])
+  @@index([clusterId, location])
+  @@map("instances")
+  @@schema("v2_incus")
+}
+
+model IncusImage {
+  clusterId    String   @map("cluster_id")
+  project      String
+  fingerprint  String
+  aliases      Json     @default("[]")
+  observed     Json
+  lastSyncedAt DateTime @default(now()) @map("last_synced_at")
+
+  @@id([clusterId, project, fingerprint])
+  @@map("images")
+  @@schema("v2_incus")
+}
+
+model Operation {
+  id                String   @id @default(cuid())
+  accountId         String?  @map("account_id")
+  type              String
+  status            String
+  idempotencyKey    String?  @unique @map("idempotency_key")
+  targetType        String?  @map("target_type")
+  targetId          String?  @map("target_id")
+  incusClusterId    String?  @map("incus_cluster_id")
+  incusOperationUrl String?  @map("incus_operation_url")
+  request           Json     @default("{}")
+  result            Json     @default("{}")
+  error             String?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@index([accountId, status])
+  @@map("operations")
+  @@schema("v2_ops")
+}
+
+model Procurement {
+  id                    String   @id @default(cuid())
+  vendor                String
+  productId             String   @map("product_id")
+  hostClass             String   @map("host_class")
+  region                String
+  location              String
+  status                String
+  providerTransactionId String?  @unique @map("provider_transaction_id")
+  hostId                String?  @map("host_id")
+  request               Json     @default("{}")
+  result                Json     @default("{}")
+  error                 String?
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@index([vendor, status])
+  @@map("procurements")
+  @@schema("v2_ops")
+}

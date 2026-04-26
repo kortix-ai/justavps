@@ -1,13 +1,8 @@
-/**
- * Next.js catch-all API route — mounts Hono at /api/*
- */
+import { proxyToV1Api } from '../_proxy';
 
-import { handle } from 'hono/vercel';
-import { app } from '@/server/app';
-
-export const GET = handle(app);
-export const POST = handle(app);
-export const PUT = handle(app);
-export const PATCH = handle(app);
-export const DELETE = handle(app);
-export const OPTIONS = handle(app);
+export const GET = proxyToV1Api;
+export const POST = proxyToV1Api;
+export const PUT = proxyToV1Api;
+export const PATCH = proxyToV1Api;
+export const DELETE = proxyToV1Api;
+export const OPTIONS = proxyToV1Api;

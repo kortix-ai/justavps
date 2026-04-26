@@ -77,7 +77,7 @@ describe.skipIf(!process.env.DATABASE_URL)('durable webhook delivery integration
     const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(new Response('ok', { status: 200 }));
 
     const { deliverWebhooks } = await import("@/server/platform/control-plane/webhook-delivery");
-    const { processDueControlPlaneJobs } = await import("@/server/v2/services/control-plane-jobs");
+    const { processDueControlPlaneJobs } = await import("@/server/platform/control-plane/jobs");
 
     await deliverWebhooks(account.id, {
       machineId: 'machine-1',
@@ -117,7 +117,7 @@ describe.skipIf(!process.env.DATABASE_URL)('durable webhook delivery integration
     vi.spyOn(global, 'fetch').mockResolvedValue(new Response('boom', { status: 500 }));
 
     const { deliverWebhooks } = await import("@/server/platform/control-plane/webhook-delivery");
-    const { processDueControlPlaneJobs } = await import("@/server/v2/services/control-plane-jobs");
+    const { processDueControlPlaneJobs } = await import("@/server/platform/control-plane/jobs");
 
     await deliverWebhooks(account.id, {
       machineId: 'machine-2',

@@ -5,7 +5,7 @@ dotenv.config();
 dotenv.config({ path: '.env.local', override: true });
 
 export default defineConfig({
-  schema: './src/server/db/schema.ts',
+  schema: './apps/v1-api/src/server/db/schema.ts',
   out: './db/migrations',
   dialect: 'postgresql',
   dbCredentials: {

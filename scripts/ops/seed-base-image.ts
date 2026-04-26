@@ -4,8 +4,8 @@ import { config as dotenvConfig } from 'dotenv';
 dotenvConfig();
 dotenvConfig({ path: '.env.local', override: true });
 
-import { db } from '../../src/server/db/index.js';
-import { images, users } from '../../src/server/db/schema.js';
+import { db } from '@/server/db';
+import { images, users } from '@/server/db/schema';
 import { randomUUID } from 'crypto';
 import { eq } from 'drizzle-orm';
 

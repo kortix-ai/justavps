@@ -96,11 +96,6 @@ vi.mock('@/server/platform/baremetal/runner-client', () => ({
   }),
 }));
 
-const createMachineV2Mock = vi.fn();
-vi.mock('@/server/v2/services/machines', () => ({
-  createMachineV2: createMachineV2Mock,
-}));
-
 const cleanupMachineResourcesMock = vi.fn(async () => ({ ok: true }));
 vi.mock('@/server/v1/services/machine-lifecycle', () => ({
   cleanupMachineResources: cleanupMachineResourcesMock,
@@ -190,7 +185,6 @@ describe('admin machines CRUD + lifecycle', () => {
     stopInstanceMock.mockImplementation(async () => undefined);
     rebootInstanceMock.mockClear();
     rebootInstanceMock.mockImplementation(async () => undefined);
-    createMachineV2Mock.mockReset();
     cleanupMachineResourcesMock.mockClear();
   });
 
@@ -219,18 +213,9 @@ describe('admin machines CRUD + lifecycle', () => {
     expect(data.host).toMatchObject({ id: HOST_ID, name: 'bm-host-1' });
   });
 
-  it('creates a machine on behalf of a user via POST /', async () => {
+  it('rejects legacy V2 admin machine creation via POST /', async () => {
     enqueueSelect([userRow]);                 // 1) owner lookup
     enqueueSelect([accountRow]);              // 2) account lookup
-    // createMachineV2 is mocked — internally it doesn't hit our db mock
-    // because it's fully replaced. Afterwards, serializeFullMachineById runs:
-    enqueueSelect([detailJoinRow()]);         // 3) loadMachineWithJoins
-    enqueueSelect([]);                        // 4) subscriptions
-
-    createMachineV2Mock.mockResolvedValueOnce({
-      kind: 'machine',
-      machine: { id: MACHINE_ID, slug: 'admin-test-machine' },
-    });
 
     const { adminMachinesApp } = await import('@/server/v1/routes/internal/admin-machines');
     const res = await adminMachinesApp.request(new Request('http://localhost/', {
@@ -249,15 +234,9 @@ describe('admin machines CRUD + lifecycle', () => {
       }),
     }));
 
-    expect(res.status).toBe(201);
-    expect(createMachineV2Mock).toHaveBeenCalledTimes(1);
-    const call = createMachineV2Mock.mock.calls[0][0];
-    expect(call.accountId).toBe(ACCOUNT_ID);
-    expect(call.userId).toBe(OWNER_ID);
-    expect(call.isAdmin).toBe(true);
-    expect(call.input.vcpu).toBe(2);
-    expect(call.input.ram_gb).toBe(4);
-    expect(call.input.disk_gb).toBe(40);
+    expect(res.status).toBe(410);
+    const data = await res.json();
+    expect(data.message).toContain('standalone apps/v2-api');
   });
 
   it('rejects POST / when owner_user_id does not exist', async () => {
@@ -277,7 +256,6 @@ describe('admin machines CRUD + lifecycle', () => {
     }));
 
     expect(res.status).toBe(400);
-    expect(createMachineV2Mock).not.toHaveBeenCalled();
   });
 
   it('renames a machine via PATCH /:id', async () => {

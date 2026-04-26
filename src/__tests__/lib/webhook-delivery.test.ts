@@ -15,7 +15,7 @@ vi.mock('@/server/db', () => ({
   },
 }));
 
-vi.mock('@/server/v2/services/control-plane-jobs', () => ({
+vi.mock('@/server/platform/control-plane/jobs', () => ({
   enqueueControlPlaneJob: enqueueControlPlaneJobMock,
   registerControlPlaneJobHandler: registerHandlerMock,
 }));

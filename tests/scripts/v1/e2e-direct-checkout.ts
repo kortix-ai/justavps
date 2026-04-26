@@ -3,8 +3,8 @@ import 'dotenv/config';
 import { execFileSync } from 'node:child_process';
 import Stripe from 'stripe';
 import { eq } from 'drizzle-orm';
-import { db } from '../../../src/server/db';
-import { users } from '../../../src/server/db/schema';
+import { db } from '@/server/db';
+import { users } from '@/server/db/schema';
 
 const BASE = process.env.BASE_URL || 'http://localhost:4100';
 const STRIPE_KEY = process.env.STRIPE_SECRET_KEY || '';

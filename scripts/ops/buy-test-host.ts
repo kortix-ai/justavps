@@ -9,10 +9,10 @@ dc({ path: '.env.local', override: true });
 
 async function main() {
   const { randomUUID, randomBytes } = await import('node:crypto');
-  const { db } = await import('/Users/markokraemer/Projects/heyagi/justavps.com/src/server/db');
-  const { baremetalHosts, baremetalProcurements } = await import('/Users/markokraemer/Projects/heyagi/justavps.com/src/server/db/schema');
-  const { HetznerRobotClient } = await import('/Users/markokraemer/Projects/heyagi/justavps.com/src/server/platform/baremetal/vendors/hetzner-robot');
-  const { config } = await import('/Users/markokraemer/Projects/heyagi/justavps.com/src/server/core/config');
+  const { db } = await import('@/server/db');
+  const { baremetalHosts, baremetalProcurements } = await import('@/server/db/schema');
+  const { HetznerRobotClient } = await import('@/server/platform/baremetal/vendors/hetzner-robot');
+  const { config } = await import('@/server/core/config');
 
   if (!config.BAREMETAL_BOOTSTRAP_PUBLIC_KEY) throw new Error('BAREMETAL_BOOTSTRAP_PUBLIC_KEY not set');
 
@@ -28,7 +28,7 @@ async function main() {
   const runnerToken = randomBytes(24).toString('hex');
 
   // Create procurement row first (matches admin /procurements flow).
-  const { users } = await import('/Users/markokraemer/Projects/heyagi/justavps.com/src/server/db/schema');
+  const { users } = await import('@/server/db/schema');
   const { eq: eqOp } = await import('drizzle-orm');
   const [adminUser] = await db.select({ id: users.id }).from(users).where(eqOp(users.isAdmin, true)).limit(1);
   const requestedByUserId = adminUser?.id;

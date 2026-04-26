@@ -1,0 +1,10 @@
+{
+  "name": "justavps-v1-api",
+  "private": true,
+  "scripts": {
+    "dev": "tsx --tsconfig ../../tsconfig.json src/index.ts",
+    "start": "tsx --tsconfig ../../tsconfig.json src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {}
+}

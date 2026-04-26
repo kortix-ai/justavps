@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -43,6 +43,7 @@ import {
 } from "@/shared/ui/dialog";
 import { api, ApiError } from "@/shared/hooks/api-client";
 import { useAccount } from "@/shared/hooks/use-account";
+import { cn } from "@/shared/lib/utils";
 import {
   formatMachineHealthPercent,
   getAdminMachinesRangeLabel,
@@ -59,8 +60,42 @@ import {
   type MachineLifecycleAction,
 } from "@/shared/hooks/use-admin-machines";
 import { ACTIVE_REGIONS } from "@/shared/lib/regions";
-import { AdminStatusPill, AdminMetric } from "@/v2/components/admin/primitives";
 import { toast } from "sonner";
+
+function AdminStatusPill({
+  children,
+  tone = "neutral",
+  className,
+}: {
+  children: ReactNode;
+  tone?: "success" | "warning" | "danger" | "neutral";
+  className?: string;
+}) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "capitalize",
+        tone === "success" && "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+        tone === "warning" && "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+        tone === "danger" && "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300",
+        className,
+      )}
+    >
+      {children}
+    </Badge>
+  );
+}
+
+function AdminMetric({ label, value, sub }: { label: string; value: ReactNode; sub?: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className="truncate text-sm font-medium">{value}</div>
+      {sub ? <div className="truncate text-xs text-muted-foreground">{sub}</div> : null}
+    </div>
+  );
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

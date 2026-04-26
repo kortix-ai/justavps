@@ -17,6 +17,65 @@ Keep current V2 running while building the clean implementation in parallel.
 - Every core flow gets curl-level E2E before UI polish.
 - Browser E2E is secondary.
 - `justavps-daemon` is the per-machine user toolbox, not infrastructure truth.
+- Clean V2 uses a separate Postgres schema namespace and does not write legacy V1/current-V2 tables.
+
+## Codebase And DB Boundary
+
+Clean V2 should be a separate deployable codebase/service, not another layer inside the existing tangled V1/V2 app.
+
+Legacy V1/current V2 can remain deployed for backwards compatibility, but clean V2 should have its own API, migrations, jobs, and tests.
+
+Implementation starts at `apps/v2-api`.
+
+Long-term service split:
+
+```text
+apps/web      frontend only
+apps/v1-api   legacy API only, kept for backwards compatibility
+apps/v2-api   standalone Incus-first API
+```
+
+The web app should not own API/runtime/business logic. It should call APIs.
+
+UI migration is a separate lane after API E2E is green:
+
+```text
+curl E2E green -> typed V2 API client -> UI feature flag -> page-by-page migration -> remove V1 UI calls
+```
+
+Rules for moving V2 into the UI:
+
+- Do not import `apps/v2-api` or server/runtime modules into Next.js pages/components.
+- The UI calls the V2 API over HTTP only.
+- Add or generate a typed client from the V2 API contract before wiring pages.
+- Keep V1 and V2 UI paths behind an explicit feature flag during migration.
+- Migrate page flows only after their matching curl E2E is green.
+- Do not reintroduce API business logic into the web frontend for convenience.
+- Remove V1 API calls from migrated pages instead of mixing V1 and V2 semantics in one flow.
+
+Use Prisma for all custom Postgres state. Do not hand-write application queries against Postgres unless there is a proven Prisma limitation.
+
+Use direct HTTP clients for external systems:
+
+- Incus API
+- Hetzner Robot API
+- per-machine `justavps-daemon` toolbox API
+
+Postgres should be separated by schema namespace at minimum:
+
+```text
+v2_core   product truth: accounts, machines, images, snapshots, backups, leases
+v2_incus  synced Incus cache: clusters, members, instances, images, operations
+v2_ops    jobs, operation logs, audit events, idempotency keys
+```
+
+Rules:
+
+- Clean V2 does not write legacy V1/current-V2 tables.
+- Legacy data import, if needed, is an explicit one-way migration/import job.
+- `v2_incus` tables are cache only and can always be rebuilt from Incus.
+- `v2_core` tables are product intent and must not be inferred from stale cache alone.
+- All public IDs are product IDs, not raw Incus names.
 
 ## Runtime Truth Model
 
@@ -74,17 +133,24 @@ Clusters are real Incus clusters observed from Incus.
 
 Hosts are Incus cluster members.
 
-Machines are product records backed by Incus instances.
+Machines are product records backed one-to-one by Incus instances.
+
+Machine runtime types map directly to Incus instance types:
+
+- `container` -> Incus container instance
+- `vm` -> Incus virtual-machine instance
+
+The product should not invent a third machine runtime type unless Incus supports it or there is a concrete external provider requirement.
 
 ## API Surface
 
-Build the clean API separately first, for example under:
+Build the clean API as a standalone service:
 
 ```text
-/api/v2-clean
+apps/v2-api
 ```
 
-Later, swap it into `/api/v2` once proven.
+Later, deploy it as the `/api/v2` origin once proven.
 
 ### Public API
 
@@ -212,6 +278,74 @@ Sync records:
 
 DB cache can be stale, but never authoritative over Incus runtime state.
 
+## Incus Wrapper Boundary
+
+The core product is a safe, user-aware wrapper around Incus.
+
+Prefer direct Incus APIs whenever they map cleanly to the product primitive.
+
+Wrap Incus for:
+
+- list clusters and members
+- list images
+- create instance
+- start/stop/reboot/delete instance
+- inspect instance state
+- execute emergency commands if needed
+- create/list/restore/delete snapshots
+- publish image from instance or snapshot
+- export/import backups
+- copy/move artifacts across clusters where supported
+- observe operations and failures
+
+Custom product logic is only for concerns Incus does not own:
+
+- auth and account ownership
+- billing and quotas
+- product IDs and slugs
+- region/catalog presentation
+- physical inventory and vendor procurement
+- source selection: image, snapshot, backup
+- scheduler policy across clusters/members
+- capacity reservations/idempotency
+- audit trail and operation history
+- backup retention policy
+- public proxy/routing state
+- per-machine toolbox authorization
+- admin approval/procurement workflows
+
+Inventory split:
+
+- Physical host inventory is custom product/ops state.
+- Vendor procurement is custom product/ops state.
+- Host bootstrap state is custom until the host joins Incus.
+- Incus cluster/member inventory is observed runtime state.
+- Machine/instance inventory should be reconciled from Incus.
+- DB inventory can annotate Incus resources, but not override observed runtime facts.
+
+Procurement/provisioning split:
+
+- Procurement buys or reserves physical hosts from a vendor.
+- Host provisioning installs Incus, joins the cluster, enables admin access, and validates the member.
+- Machine provisioning calls Incus to create an instance from a source.
+- Guest provisioning only injects identity/toolbox config into the instance.
+
+Custom procurement/provisioning is required around Incus, but should stop at the Incus boundary as soon as Incus owns the resource.
+
+Provisioning should be thin:
+
+1. Validate user/product request.
+2. Pick region, cluster, member, and source.
+3. Create product intent and idempotency record.
+4. Call Incus to create the instance from image/snapshot/backup.
+5. Inject `justavps-daemon` identity through Incus/cloud-init metadata.
+6. Wait for Incus operation completion.
+7. Observe the created instance from Incus.
+8. Mark product machine provisioned.
+9. Separately mark toolbox ready after daemon heartbeat/probe.
+
+Avoid custom provisioning systems unless Incus cannot provide the primitive.
+
 ## Images, Snapshots, And Backups
 
 The product should wrap the useful Incus image/snapshot/backup API instead of hiding it.
@@ -297,6 +431,7 @@ Machine source is explicit in the request body:
 ```json
 {
   "region": "eu",
+  "type": "container",
   "resources": {
     "vcpu": 2,
     "memory_gb": 4,
@@ -315,6 +450,11 @@ Valid source types:
 - `snapshot`
 - `backup`
 - `empty` if we ever support blank instances
+
+Valid machine types:
+
+- `container`
+- `vm`
 
 ## Per-Machine Toolbox
 
@@ -448,20 +588,20 @@ Each suite should be curl/API based, deterministic, and clean up after itself.
 Current V2 stays untouched until clean V2 can pass:
 
 ```bash
-tests/scripts/v2-clean/01-health-and-auth.sh
-tests/scripts/v2-clean/02-cluster-sync.sh
-tests/scripts/v2-clean/03-create-container.sh
-tests/scripts/v2-clean/04-lifecycle.sh
-tests/scripts/v2-clean/05-snapshots.sh
-tests/scripts/v2-clean/06-images.sh
-tests/scripts/v2-clean/07-backups.sh
-tests/scripts/v2-clean/08-placement-rejects-standalone-host.sh
-tests/scripts/v2-clean/09-host-joins-cluster.sh
-tests/scripts/v2-clean/10-admin-incus-ui.sh
-tests/scripts/v2-clean/11-proxy-and-exec.sh
-tests/scripts/v2-clean/12-toolbox-files.sh
-tests/scripts/v2-clean/13-toolbox-process.sh
-tests/scripts/v2-clean/14-toolbox-pty.sh
+tests/scripts/v2-api/01-health-and-auth.sh
+tests/scripts/v2-api/02-cluster-sync.sh
+tests/scripts/v2-api/03-create-container.sh
+tests/scripts/v2-api/04-lifecycle.sh
+tests/scripts/v2-api/05-snapshots.sh
+tests/scripts/v2-api/06-images.sh
+tests/scripts/v2-api/07-backups.sh
+tests/scripts/v2-api/08-placement-rejects-standalone-host.sh
+tests/scripts/v2-api/09-host-joins-cluster.sh
+tests/scripts/v2-api/10-admin-incus-ui.sh
+tests/scripts/v2-api/11-proxy-and-exec.sh
+tests/scripts/v2-api/12-toolbox-files.sh
+tests/scripts/v2-api/13-toolbox-process.sh
+tests/scripts/v2-api/14-toolbox-pty.sh
 ```
 
-Then `/api/v2-clean` can replace `/api/v2`.
+Then `apps/v2-api` can become the production `/api/v2` service.

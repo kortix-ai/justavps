@@ -24,6 +24,10 @@ build/
 # testing
 coverage/
 .e2e-checkpoints/
+test-results/
+playwright-report/
+tsconfig.tsbuildinfo
+**/tsconfig.tsbuildinfo
 
 # drizzle
 drizzle/meta/

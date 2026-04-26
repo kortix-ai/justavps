@@ -1,3 +1,4 @@
-import { handlers } from "@/server/auth/nextauth";
+import { proxyToV1Api } from '../../_proxy';
 
-export const { GET, POST } = handlers;
+export const GET = proxyToV1Api;
+export const POST = proxyToV1Api;

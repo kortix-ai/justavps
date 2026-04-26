@@ -1,8 +1,8 @@
 #!/usr/bin/env npx tsx
 import 'dotenv/config';
 import Stripe from 'stripe';
-import { db } from '../../../src/server/db';
-import { users, apiKeys, machines, sshKeys, machineEvents, subscriptions } from '../../../src/server/db/schema';
+import { db } from '@/server/db';
+import { users, apiKeys, machines, sshKeys, machineEvents, subscriptions } from '@/server/db/schema';
 import { hashPassword, generateApiKey } from "@/server/core/crypto";
 import { eq, inArray } from 'drizzle-orm';
 
