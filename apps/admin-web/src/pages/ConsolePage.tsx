@@ -1,6 +1,13 @@
 import { useState } from 'react';
 import { useStore } from '../lib/store';
+import { PageHeader } from '../components/ui/PageHeader';
+import { Card, CardHeader } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
+import { Input, Select, Textarea } from '../components/ui/Input';
+import { Field } from '../components/ui/Field';
+import { Tag } from '../components/ui/Tag';
 import { cx } from '../lib/utils';
+import { IconBolt } from '../components/ui/icons';
 
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -29,11 +36,7 @@ export function ConsolePage() {
       if (useToken && state.token) headers.Authorization = `Bearer ${state.token}`;
 
       const target = `${state.baseUrl.replace(/\/$/, '')}${path.startsWith('/') ? path : `/${path}`}`;
-      const res = await fetch(target, {
-        method,
-        headers,
-        body: payload === undefined ? undefined : JSON.stringify(payload),
-      });
+      const res = await fetch(target, { method, headers, body: payload === undefined ? undefined : JSON.stringify(payload) });
       const text = await res.text();
       setStatusLabel(String(res.status));
       setStatusTone(res.ok ? 'ok' : 'bad');
@@ -53,110 +56,74 @@ export function ConsolePage() {
 
   return (
     <section className="page" data-route="console">
-      <div className="panel">
-        <div className="panel-head">
-          <h2>API Console</h2>
-          <span className="desc">Send raw V2 API requests</span>
-        </div>
-        <div className="console">
-          <div className="form-grid">
-            <div className="field">
-              <label className="field-label" htmlFor="console-method">Method</label>
-              <select
-                id="console-method"
-                className="input"
-                value={method}
-                onChange={(event) => setMethod(event.target.value as Method)}
-              >
+      <PageHeader
+        title="API Console"
+        description="Send raw requests to any V2 API path. Token from settings is used automatically."
+      />
+      <div className="card-grid card-grid--2">
+        <Card>
+          <CardHeader title="Request" />
+          <div className="form-grid form-grid--2">
+            <Field label="Method" htmlFor="console-method">
+              <Select id="console-method" value={method} onChange={(event) => setMethod(event.target.value as Method)}>
                 <option>GET</option>
                 <option>POST</option>
                 <option>PUT</option>
                 <option>PATCH</option>
                 <option>DELETE</option>
-              </select>
-            </div>
-            <div className="field">
-              <label className="field-label" htmlFor="console-path">Path</label>
-              <input id="console-path" className="input" value={path} onChange={(event) => setPath(event.target.value)} />
-            </div>
-            <div className="field">
-              <label className="field-label" htmlFor="console-auth">Use admin token</label>
-              <select
-                id="console-auth"
-                className="input"
-                value={auth}
-                onChange={(event) => setAuth(event.target.value as 'auto' | 'yes' | 'no')}
-              >
-                <option value="auto">auto</option>
+              </Select>
+            </Field>
+            <Field label="Auth" htmlFor="console-auth">
+              <Select id="console-auth" value={auth} onChange={(event) => setAuth(event.target.value as 'auto' | 'yes' | 'no')}>
+                <option value="auto">auto (when token set)</option>
                 <option value="yes">always</option>
                 <option value="no">never</option>
-              </select>
-            </div>
-            <div className="field">
-              <label className="field-label" htmlFor="console-body">Body</label>
-              <textarea
-                id="console-body"
-                className="input"
-                placeholder='{"region":"eu"}'
-                value={body}
-                onChange={(event) => setBody(event.target.value)}
-              />
-            </div>
-            <div className="toolbar">
-              <button id="console-send" type="button" className="button" disabled={busy} onClick={() => send()}>
-                Send
-              </button>
-              <button
-                id="console-clear"
-                type="button"
-                className="button ghost"
-                onClick={() => {
-                  setResponse('');
-                  setStatusLabel('idle');
-                  setStatusTone('');
-                }}
-              >
-                Clear
-              </button>
-            </div>
+              </Select>
+            </Field>
+            <Field label="Path" htmlFor="console-path" span="full" help="Relative to the V2 API base URL configured in Settings.">
+              <Input id="console-path" value={path} onChange={(event) => setPath(event.target.value)} />
+            </Field>
+            <Field label="Body (JSON)" htmlFor="console-body" span="full">
+              <Textarea id="console-body" placeholder={`{\n  "region": "eu"\n}`} value={body} onChange={(event) => setBody(event.target.value)} />
+            </Field>
           </div>
-          <div className="form-grid">
-            <div className="field">
-              <label className="field-label">Status</label>
-              <div id="console-status" className={cx('badge', statusTone)}>
+          <div className="toolbar">
+            <Button id="console-send" leftIcon={<IconBolt />} disabled={busy} onClick={() => send()}>
+              Send
+            </Button>
+            <Button id="console-clear" variant="ghost" onClick={() => { setResponse(''); setStatusLabel('idle'); setStatusTone(''); }}>
+              Clear
+            </Button>
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="Response"
+            actions={
+              <span className={cx('tag', statusTone === 'ok' && 'tag--ok', statusTone === 'bad' && 'tag--bad')} id="console-status">
                 {statusLabel}
-              </div>
-            </div>
-            <div className="field">
-              <label className="field-label" htmlFor="console-response">Response</label>
-              <textarea
-                id="console-response"
-                className="input log"
-                data-testid="v2-json-output"
-                readOnly
-                style={{ minHeight: 320 }}
-                value={response}
-              />
-            </div>
+              </span>
+            }
+          />
+          <div className="log" id="console-response" data-testid="v2-json-output" style={{ minHeight: 320 }}>
+            {response || '— No response yet.'}
           </div>
-        </div>
+        </Card>
       </div>
 
-      <div className="panel">
-        <div className="panel-head">
-          <h2>Last Result</h2>
-          <span className="desc" id="result-label">
-            {state.lastResult?.label ?? 'none'}
-          </span>
+      <Card>
+        <CardHeader title="Last action result" desc={state.lastResult?.label ?? '—'} />
+        <div className="log" id="result-json" style={{ minHeight: 200 }}>
+          {state.lastResult ? JSON.stringify(state.lastResult.data, null, 2) : '— No actions executed yet.'}
         </div>
-        <textarea
-          id="result-json"
-          className="input log"
-          readOnly
-          style={{ minHeight: 220 }}
-          value={state.lastResult ? JSON.stringify(state.lastResult.data, null, 2) : ''}
-        />
-      </div>
+        <div className="toolbar text-subtle text-sm">
+          <Tag tone="ghost">base url</Tag>
+          <code className="mono">{state.baseUrl || 'unset'}</code>
+          <span className="spacer" />
+          <Tag tone={state.token ? 'violet' : 'ghost'}>{state.token ? 'token attached' : 'no token'}</Tag>
+        </div>
+      </Card>
     </section>
   );
 }

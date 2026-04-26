@@ -1,7 +1,16 @@
 import { useEffect, useState } from 'react';
 import type { ProcurementItem } from '../lib/api';
 import { useStore } from '../lib/store';
+import { PageHeader } from '../components/ui/PageHeader';
+import { Card, CardHeader } from '../components/ui/Card';
+import { Tag } from '../components/ui/Tag';
+import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
+import { Field } from '../components/ui/Field';
+import { Empty } from '../components/ui/Empty';
+import { Status } from '../components/ui/Status';
 import { cx, shortId, statusTone } from '../lib/utils';
+import { IconRefresh } from '../components/ui/icons';
 
 export function ProcurementPage() {
   const { state, request, runAction, refreshAll, setSelectedProcurementId } = useStore();
@@ -56,16 +65,13 @@ export function ProcurementPage() {
   async function refreshProcurements() {
     await runAction('refresh procurements', async () => {
       const data = await request<{ procurements: ProcurementItem[] }>('/admin/procurements');
-      // surface via global state via refreshAll (we need to update store directly too)
       await refreshAll();
       return data;
     });
   }
 
   async function quote() {
-    await runAction('quote procurement', async () => {
-      return request('/admin/procurements/quote', { method: 'POST', body: body() });
-    });
+    await runAction('quote procurement', async () => request('/admin/procurements/quote', { method: 'POST', body: body() }));
   }
 
   async function createDryRun() {
@@ -75,31 +81,20 @@ export function ProcurementPage() {
         body: body({ execute: false }),
       });
       const created = data.procurements?.[0];
-      if (created?.id) {
-        setSelectedProcurementId(created.id);
-      }
+      if (created?.id) setSelectedProcurementId(created.id);
       await refreshAll();
       return data;
     });
   }
 
   async function testBlockedNewOrder() {
-    await runAction('test blocked new order', async () => {
-      return request('/admin/procurements', {
-        method: 'POST',
-        expectedStatus: 409,
-        body: body({ execute: true }),
-      });
-    });
+    await runAction('test blocked new order', async () => request('/admin/procurements', { method: 'POST', expectedStatus: 409, body: body({ execute: true }) }));
   }
 
   async function approve() {
     if (!selected) throw new Error('Select a procurement first.');
     await runAction(`approve ${shortId(selected.id, 12)}`, async () => {
-      const data = await request(`/admin/procurements/${encodeURIComponent(selected.id)}/approve`, {
-        method: 'POST',
-        body: { note: 'approved from admin UI dry run' },
-      });
+      const data = await request(`/admin/procurements/${encodeURIComponent(selected.id)}/approve`, { method: 'POST', body: { note: 'approved from admin UI dry run' } });
       await refreshAll();
       return data;
     });
@@ -108,10 +103,7 @@ export function ProcurementPage() {
   async function planOrder() {
     if (!selected) throw new Error('Select a procurement first.');
     await runAction(`plan order ${shortId(selected.id, 12)}`, async () => {
-      const data = await request(`/admin/procurements/${encodeURIComponent(selected.id)}/order`, {
-        method: 'POST',
-        body: { note: 'order planned from admin UI' },
-      });
+      const data = await request(`/admin/procurements/${encodeURIComponent(selected.id)}/order`, { method: 'POST', body: { note: 'order planned from admin UI' } });
       await refreshAll();
       return data;
     });
@@ -119,13 +111,7 @@ export function ProcurementPage() {
 
   async function testBlockedSelectedOrder() {
     if (!selected) throw new Error('Select a procurement first.');
-    await runAction('test blocked selected order', async () => {
-      return request(`/admin/procurements/${encodeURIComponent(selected.id)}/order`, {
-        method: 'POST',
-        expectedStatus: 409,
-        body: { execute: true },
-      });
-    });
+    await runAction('test blocked selected order', async () => request(`/admin/procurements/${encodeURIComponent(selected.id)}/order`, { method: 'POST', expectedStatus: 409, body: { execute: true } }));
   }
 
   async function bootstrapPlan() {
@@ -146,26 +132,19 @@ export function ProcurementPage() {
 
   async function testBlockedBootstrap() {
     if (!selected) throw new Error('Select a procurement first.');
-    await runAction('test blocked bootstrap', async () => {
-      return request(`/admin/procurements/${encodeURIComponent(selected.id)}/bootstrap-plan`, {
+    await runAction('test blocked bootstrap', async () =>
+      request(`/admin/procurements/${encodeURIComponent(selected.id)}/bootstrap-plan`, {
         method: 'POST',
         expectedStatus: 409,
-        body: {
-          cluster_id: clusterId.trim() || state.clusters[0]?.id || 'hel1',
-          mode: 'incusos_join_cluster',
-          execute: true,
-        },
-      });
-    });
+        body: { cluster_id: clusterId.trim() || state.clusters[0]?.id || 'hel1', mode: 'incusos_join_cluster', execute: true },
+      }),
+    );
   }
 
   async function cancel() {
     if (!selected) throw new Error('Select a procurement first.');
     await runAction(`cancel ${shortId(selected.id, 12)}`, async () => {
-      const data = await request(`/admin/procurements/${encodeURIComponent(selected.id)}/cancel`, {
-        method: 'POST',
-        body: { note: 'cancelled from admin UI' },
-      });
+      const data = await request(`/admin/procurements/${encodeURIComponent(selected.id)}/cancel`, { method: 'POST', body: { note: 'cancelled from admin UI' } });
       await refreshAll();
       return data;
     });
@@ -173,187 +152,153 @@ export function ProcurementPage() {
 
   return (
     <section className="page" data-route="procurement">
-      <div className="panel">
-        <div className="panel-head">
-          <h2>Procurement Pipeline</h2>
-          <span className="desc">Quote, plan, approve, and bootstrap hosts safely. Live purchase/reimage execution is blocked by policy.</span>
-        </div>
-        <div className="pipeline">
-          <div className="pipeline-card">
-            <span className="badge">quote</span>
-            <strong>Plan capacity</strong>
-            <p>Choose Robot product, location, region, and quantity without buying anything.</p>
-          </div>
-          <div className="pipeline-card gate">
-            <span className="badge warn">order gate</span>
-            <strong>Approve before order</strong>
-            <p>Order planning is persisted, but real host purchases return blocked responses.</p>
-          </div>
-          <div className="pipeline-card gate">
-            <span className="badge warn">bootstrap gate</span>
-            <strong>Join IncusOS capacity</strong>
-            <p>Bootstrap plans describe the IncusOS join path. Real reimage/bootstrap stays locked.</p>
-          </div>
-        </div>
-        <div className="form-grid cols-3">
-          <div className="field">
-            <label className="field-label" htmlFor="proc-product">Product ID</label>
-            <input id="proc-product" className="input" value={productId} onChange={(event) => setProductId(event.target.value)} placeholder="AX102 / product id" />
-          </div>
-          <div className="field">
-            <label className="field-label" htmlFor="proc-location">Location</label>
-            <input id="proc-location" className="input" value={location} onChange={(event) => setLocation(event.target.value)} />
-          </div>
-          <div className="field">
-            <label className="field-label" htmlFor="proc-region">Region</label>
-            <input id="proc-region" className="input" value={region} onChange={(event) => setRegion(event.target.value)} />
-          </div>
-          <div className="field">
-            <label className="field-label" htmlFor="proc-quantity">Quantity</label>
-            <input id="proc-quantity" className="input" type="number" min={1} max={20} value={quantity} onChange={(event) => setQuantity(Number(event.target.value) || 1)} />
-          </div>
-          <div className="field">
-            <label className="field-label" htmlFor="proc-cluster">Cluster</label>
-            <input id="proc-cluster" className="input" value={clusterId} onChange={(event) => setClusterId(event.target.value)} />
-          </div>
-          <div className="field">
-            <label className="field-label" htmlFor="proc-server-number">Provider server #</label>
-            <input id="proc-server-number" className="input" value={providerServerNumber} onChange={(event) => setProviderServerNumber(event.target.value)} placeholder="optional existing Robot server" />
-          </div>
-        </div>
-        <div className="toolbar" style={{ marginTop: 14 }}>
-          <button type="button" id="proc-quote" className="button secondary" disabled={state.busy} onClick={() => quote().catch(() => {})}>
-            Quote
-          </button>
-          <button type="button" id="proc-create" className="button" disabled={state.busy} onClick={() => createDryRun().catch(() => {})}>
-            Create Dry-Run Procurement
-          </button>
-          <button type="button" id="proc-refresh" className="button secondary" disabled={state.busy} onClick={() => refreshProcurements().catch(() => {})}>
-            Refresh Procurements
-          </button>
-          <button type="button" id="proc-block-order" className="button danger" disabled={state.busy} onClick={() => testBlockedNewOrder().catch(() => {})}>
-            Test Blocked New Order
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Procurement"
+        description="Quote, approve, order-plan, and bootstrap-plan dedicated hosts. Real ordering and bootstrap are gated."
+        actions={
+          <Button variant="secondary" leftIcon={<IconRefresh />} disabled={state.busy} onClick={() => refreshProcurements().catch(() => {})} id="proc-refresh">
+            Refresh
+          </Button>
+        }
+      />
 
-      <div className="panel">
-        <div className="panel-head">
-          <h2>Procurements</h2>
-          <span id="selected-procurement" className="desc">
-            {selected ? selected.id : 'none selected'}
-          </span>
+      <Card>
+        <CardHeader title="Pipeline" desc="Quote → Approve → Plan order → Plan bootstrap. Live execution stays blocked until explicitly confirmed." />
+        <div className="card-grid card-grid--3">
+          <PipelineCard step="01" title="Quote" desc="Pick Robot product, location, region, quantity. No hosts purchased." />
+          <PipelineCard step="02" title="Order gate" desc="Order planning is persisted, but real Robot purchases return 409 unless the operator types ORDER REAL HOSTS." gate />
+          <PipelineCard step="03" title="Bootstrap gate" desc="Bootstrap plan describes the IncusOS install/join path. Real reimage stays blocked." gate />
         </div>
-        <div className="scroll">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Product</th>
-                <th>Location</th>
-                <th>Status</th>
-                <th>Host</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="procurements-tbody">
-              {state.procurements.length === 0 ? (
+      </Card>
+
+      <Card>
+        <CardHeader title="Plan capacity" desc="Build a fresh procurement (always dry-run by default)." />
+        <div className="form-grid form-grid--3">
+          <Field label="Product ID" htmlFor="proc-product">
+            <Input id="proc-product" value={productId} onChange={(event) => setProductId(event.target.value)} placeholder="AX102 / product id" />
+          </Field>
+          <Field label="Location" htmlFor="proc-location">
+            <Input id="proc-location" value={location} onChange={(event) => setLocation(event.target.value)} />
+          </Field>
+          <Field label="Region" htmlFor="proc-region">
+            <Input id="proc-region" value={region} onChange={(event) => setRegion(event.target.value)} />
+          </Field>
+          <Field label="Quantity" htmlFor="proc-quantity">
+            <Input id="proc-quantity" type="number" min={1} max={20} value={quantity} onChange={(event) => setQuantity(Number(event.target.value) || 1)} />
+          </Field>
+          <Field label="Cluster" htmlFor="proc-cluster">
+            <Input id="proc-cluster" value={clusterId} onChange={(event) => setClusterId(event.target.value)} />
+          </Field>
+          <Field label="Provider server #" htmlFor="proc-server-number" help="Optional — link to an existing Robot server.">
+            <Input id="proc-server-number" value={providerServerNumber} onChange={(event) => setProviderServerNumber(event.target.value)} />
+          </Field>
+        </div>
+        <div className="toolbar">
+          <Button variant="secondary" id="proc-quote" disabled={state.busy} onClick={() => quote().catch(() => {})}>
+            Quote
+          </Button>
+          <Button id="proc-create" disabled={state.busy} onClick={() => createDryRun().catch(() => {})}>
+            Create dry-run
+          </Button>
+          <Button variant="danger-ghost" id="proc-block-order" disabled={state.busy} onClick={() => testBlockedNewOrder().catch(() => {})}>
+            Test blocked new order
+          </Button>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader title="Procurements" desc={selected ? `Selected: ${selected.id}` : 'No procurement selected'} />
+        <div className="table-wrap">
+          <div className="table-scroll">
+            <table className="table">
+              <thead>
                 <tr>
-                  <td colSpan={6}>
-                    <div className="empty">No procurements yet — create a dry-run quote.</div>
-                  </td>
+                  <th>ID</th>
+                  <th>Product</th>
+                  <th>Location</th>
+                  <th>Status</th>
+                  <th>Host</th>
+                  <th></th>
                 </tr>
-              ) : (
-                state.procurements.map((p) => {
-                  const active = p.id === state.selectedProcurementId;
-                  return (
-                    <tr key={p.id} className={cx('row-clickable', active && 'row-active')} onClick={() => setSelectedProcurementId(p.id)}>
-                      <td>
-                        <code>{shortId(p.id, 14)}</code>
-                        {active ? <span className="badge ok" style={{ marginLeft: 8 }}>selected</span> : null}
-                      </td>
-                      <td>{p.productId ?? p.product_id ?? '-'}</td>
-                      <td>{p.location}</td>
-                      <td>
-                        <span className={cx('badge', statusTone(p.status))}>{p.status}</span>
-                      </td>
-                      <td>{p.hostId ?? p.host_id ?? '-'}</td>
-                      <td>
-                        <div className="row-actions" onClick={(event) => event.stopPropagation()}>
-                          <button
-                            type="button"
-                            className="button small"
-                            onClick={() => {
-                              setSelectedProcurementId(p.id);
-                              approve().catch(() => {});
-                            }}
-                            disabled={state.busy}
-                          >
-                            approve
-                          </button>
-                          <button
-                            type="button"
-                            className="button small secondary"
-                            onClick={() => {
-                              setSelectedProcurementId(p.id);
-                              planOrder().catch(() => {});
-                            }}
-                            disabled={state.busy}
-                          >
-                            plan order
-                          </button>
-                          <button
-                            type="button"
-                            className="button small secondary"
-                            onClick={() => {
-                              setSelectedProcurementId(p.id);
-                              bootstrapPlan().catch(() => {});
-                            }}
-                            disabled={state.busy}
-                          >
-                            plan bootstrap
-                          </button>
-                          <button
-                            type="button"
-                            className="button small danger"
-                            onClick={() => {
-                              setSelectedProcurementId(p.id);
-                              cancel().catch(() => {});
-                            }}
-                            disabled={state.busy}
-                          >
-                            cancel
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody id="procurements-tbody">
+                {state.procurements.length === 0 ? (
+                  <tr>
+                    <td colSpan={6}>
+                      <Empty title="No procurements yet" description="Build one above with Quote → Create dry-run." />
+                    </td>
+                  </tr>
+                ) : (
+                  state.procurements.map((p) => {
+                    const active = p.id === state.selectedProcurementId;
+                    return (
+                      <tr key={p.id} className={cx('is-clickable', active && 'is-active')} onClick={() => setSelectedProcurementId(p.id)}>
+                        <td>
+                          <code className="mono">{shortId(p.id, 16)}</code>
+                          {active ? <Tag tone="ok" style={{ marginLeft: 8 }}>selected</Tag> : null}
+                        </td>
+                        <td className="text-mono">{p.productId ?? p.product_id ?? '—'}</td>
+                        <td className="text-muted">{p.location}</td>
+                        <td><Status tone={statusTone(p.status) || 'neutral'} label={p.status} /></td>
+                        <td className="text-muted text-mono">{p.hostId ?? p.host_id ?? '—'}</td>
+                        <td>
+                          <div className="cell-actions" onClick={(event) => event.stopPropagation()}>
+                            <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); setSelectedProcurementId(p.id); approve().catch(() => {}); }}>
+                              approve
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); setSelectedProcurementId(p.id); planOrder().catch(() => {}); }}>
+                              plan order
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); setSelectedProcurementId(p.id); bootstrapPlan().catch(() => {}); }}>
+                              plan bootstrap
+                            </Button>
+                            <Button variant="danger-ghost" size="sm" onClick={(event) => { event.stopPropagation(); setSelectedProcurementId(p.id); cancel().catch(() => {}); }}>
+                              cancel
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div className="toolbar" style={{ marginTop: 14 }}>
-          <button type="button" id="proc-approve" className="button" disabled={state.busy || !selected} onClick={() => approve().catch(() => {})}>
-            Approve Selected
-          </button>
-          <button type="button" id="proc-order-plan" className="button secondary" disabled={state.busy || !selected} onClick={() => planOrder().catch(() => {})}>
-            Plan Order
-          </button>
-          <button type="button" id="proc-block-order-selected" className="button danger" disabled={state.busy || !selected} onClick={() => testBlockedSelectedOrder().catch(() => {})}>
-            Test Blocked Selected Order
-          </button>
-          <button type="button" id="proc-bootstrap-plan" className="button secondary" disabled={state.busy || !selected} onClick={() => bootstrapPlan().catch(() => {})}>
-            Create Bootstrap Plan
-          </button>
-          <button type="button" id="proc-block-bootstrap" className="button danger" disabled={state.busy || !selected} onClick={() => testBlockedBootstrap().catch(() => {})}>
-            Test Blocked Bootstrap
-          </button>
-          <button type="button" id="proc-cancel" className="button danger" disabled={state.busy || !selected} onClick={() => cancel().catch(() => {})}>
-            Cancel Selected
-          </button>
+        <div className="toolbar" style={{ marginTop: 4 }}>
+          <Button id="proc-approve" disabled={state.busy || !selected} onClick={() => approve().catch(() => {})}>
+            Approve selected
+          </Button>
+          <Button variant="secondary" id="proc-order-plan" disabled={state.busy || !selected} onClick={() => planOrder().catch(() => {})}>
+            Plan order
+          </Button>
+          <Button variant="danger-ghost" id="proc-block-order-selected" disabled={state.busy || !selected} onClick={() => testBlockedSelectedOrder().catch(() => {})}>
+            Test blocked selected order
+          </Button>
+          <Button variant="secondary" id="proc-bootstrap-plan" disabled={state.busy || !selected} onClick={() => bootstrapPlan().catch(() => {})}>
+            Plan bootstrap
+          </Button>
+          <Button variant="danger-ghost" id="proc-block-bootstrap" disabled={state.busy || !selected} onClick={() => testBlockedBootstrap().catch(() => {})}>
+            Test blocked bootstrap
+          </Button>
+          <Button variant="danger-ghost" id="proc-cancel" disabled={state.busy || !selected} onClick={() => cancel().catch(() => {})}>
+            Cancel
+          </Button>
         </div>
-      </div>
+      </Card>
     </section>
+  );
+}
+
+function PipelineCard({ step, title, desc, gate }: { step: string; title: string; desc: string; gate?: boolean }) {
+  return (
+    <div className={cx('card', 'card--compact')} style={gate ? { borderColor: 'rgba(245,158,11,0.32)', background: 'rgba(245,158,11,0.06)' } : undefined}>
+      <div className="text-subtle text-sm" style={{ letterSpacing: '0.12em', textTransform: 'uppercase' }}>{step}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="card-title">{title}</div>
+        {gate ? <Tag tone="warn">gate</Tag> : null}
+      </div>
+      <div className="text-muted text-sm">{desc}</div>
+    </div>
   );
 }

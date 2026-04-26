@@ -1,5 +1,11 @@
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../lib/store';
+import { PageHeader } from '../components/ui/PageHeader';
+import { Stat } from '../components/ui/Stat';
+import { Card, CardHeader } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
+import { Tag } from '../components/ui/Tag';
+import { IconArrowRight, IconBolt, IconNetwork, IconShoppingCart } from '../components/ui/icons';
 
 export function DashboardPage() {
   const { state } = useStore();
@@ -13,166 +19,120 @@ export function DashboardPage() {
   const activeProcurements = state.procurements.filter((p) =>
     ['planned', 'approved', 'order_planned', 'bootstrap_planned'].includes(String(p.status ?? '')),
   ).length;
+  const recent = state.workflowLog.slice(0, 12);
 
   return (
     <section className="page" data-route="dashboard">
-      <div className="hero">
-        <div className="hero-copy">
-          <div className="eyebrow">Standalone V2 API</div>
-          <h2>Incus operator command center.</h2>
-          <p>
-            One place to see cluster health, physical supply, machine runtime, image artifacts, and the procurement gates that
-            turn Robot hosts into Incus capacity.
-          </p>
-          <div className="hero-actions">
-            <button type="button" className="button" onClick={() => navigate('/machines')}>
-              Manage Machines
-            </button>
-            <button type="button" className="button secondary" onClick={() => navigate('/procurement')}>
-              Procurement Pipeline
-            </button>
-            <button type="button" className="button secondary" onClick={() => navigate('/topology')}>
-              Cluster Topology
-            </button>
-          </div>
-        </div>
-        <div className="hero-side">
-          <div className="signal">
-            <strong>Runtime truth</strong>
-            <span>Incus cluster observation</span>
-          </div>
-          <div className="signal">
-            <strong>Supply truth</strong>
-            <span>Hetzner Robot inventory</span>
-          </div>
-          <div className="signal gate">
-            <strong>Safety lock</strong>
-            <span>ordering &amp; bootstrap blocked unless explicitly confirmed</span>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        title="Dashboard"
+        description="Live snapshot of the V2 control plane: clusters, machines, artifacts, and the procurement gates that turn Robot hosts into Incus capacity."
+        actions={
+          <>
+            <Button variant="secondary" rightIcon={<IconArrowRight />} onClick={() => navigate('/topology')}>
+              View topology
+            </Button>
+            <Button variant="primary" leftIcon={<IconBolt />} onClick={() => navigate('/machines')}>
+              Manage machines
+            </Button>
+          </>
+        }
+      />
 
-      <div className="runway">
-        <div className="runway-step">
-          <div className="num">01</div>
-          <h3>Sync Robot</h3>
-          <p>Pull physical servers and keep unknown hosts unschedulable.</p>
-        </div>
-        <div className="runway-step">
-          <div className="num">02</div>
-          <h3>Observe Incus</h3>
-          <p>Cache clusters, members, instances, and images directly from Incus.</p>
-        </div>
-        <div className="runway-step">
-          <div className="num">03</div>
-          <h3>Schedule Machines</h3>
-          <p>Create containers or VMs only on online Incus members.</p>
-        </div>
-        <div className="runway-step">
-          <div className="num">04</div>
-          <h3>Publish Artifacts</h3>
-          <p>Snapshot, restore, publish images, and create backups from Incus primitives.</p>
-        </div>
-        <div className="runway-step">
-          <div className="num">05</div>
-          <h3>Procure Capacity</h3>
-          <p>Quote, approve, order-plan, and bootstrap-plan dedicated hosts safely.</p>
-        </div>
-      </div>
-
-      <div className="stat-grid">
-        <StatCard id="metric-health" label="Health" value={state.health?.status ?? '-'} meta={state.health?.service ?? 'configuration'} />
-        <StatCard
-          id="metric-regions"
-          label="Regions"
-          value={String(state.regions.length)}
-          meta={state.regions.join(', ') || 'unique regions'}
-        />
-        <StatCard
-          id="metric-clusters"
-          label="Clusters"
-          value={String(state.clusters.length)}
-          meta={state.clusters.map((c) => c.id).join(', ') || 'configured Incus clusters'}
-        />
-        <StatCard
-          id="metric-schedulable"
+      <div className="card-grid card-grid--4">
+        <Stat label="Health" value={state.health?.status ?? '—'} meta={state.health?.service ?? 'service'} />
+        <Stat label="Clusters" value={String(state.clusters.length)} meta={state.clusters.map((c) => c.id).join(', ') || 'none configured'} />
+        <Stat
           label="Schedulable hosts"
           value={String(schedulableInventory)}
-          meta={`${schedulableLive} live members`}
+          meta={`${schedulableLive} live · ${clusteredInventory} clustered`}
         />
-        <StatCard
-          id="metric-machines"
-          label="Machines"
-          value={String(state.machines.length)}
-          meta={`${runningMachines} running`}
-        />
-        <StatCard
-          id="metric-images"
-          label="Images"
-          value={String(state.images.length)}
-          meta={`${publicImages} public`}
-        />
-        <StatCard
-          id="metric-inventory"
-          label="Inventory hosts"
-          value={String(state.inventory.length)}
-          meta={`${clusteredInventory} clustered`}
-        />
-        <StatCard
-          id="metric-robot"
-          label="Robot"
-          value={state.health ? (state.health.hetzner_robot_configured ? 'on' : 'off') : '-'}
-          meta={state.health ? (state.health.hetzner_robot_configured ? 'credentials set' : 'credentials missing') : 'credentials'}
-        />
-        <StatCard
-          id="metric-db"
-          label="Database"
-          value={state.health ? (state.health.database_configured ? 'on' : 'off') : '-'}
-          meta={state.health ? (state.health.database_configured ? 'prisma connected' : 'missing DATABASE_URL') : 'prisma config'}
-        />
-        <StatCard
-          id="metric-auth"
-          label="Auth"
-          value={state.token ? 'set' : 'open'}
-          meta={state.token ? 'admin token attached' : 'no token attached'}
-        />
-        <StatCard
-          id="metric-procurements"
-          label="Procurements"
-          value={String(state.procurements.length)}
-          meta={`${activeProcurements} active`}
-        />
+        <Stat label="Regions" value={String(state.regions.length)} meta={state.regions.join(', ') || '—'} />
+        <Stat label="Machines" value={String(state.machines.length)} meta={`${runningMachines} running`} />
+        <Stat label="Images" value={String(state.images.length)} meta={`${publicImages} public`} />
+        <Stat label="Inventory" value={String(state.inventory.length)} meta={`${clusteredInventory} clustered`} />
+        <Stat label="Procurements" value={String(state.procurements.length)} meta={`${activeProcurements} active`} />
       </div>
 
-      <div className="panel">
-        <div className="panel-head">
-          <h2>Recent Activity</h2>
-          <span className="desc">Newest first</span>
+      <div className="card-grid card-grid--3">
+        <Card>
+          <CardHeader title="Cluster topology" desc="Online members + persisted inventory" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {state.clusters.length === 0 ? (
+              <div className="text-muted text-sm">No clusters configured.</div>
+            ) : (
+              state.clusters.map((cluster) => {
+                const observed = cluster.observed ?? {};
+                const members = (observed.members ?? []).length;
+                const instances = (observed.instances ?? []).length;
+                return (
+                  <div key={cluster.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="cell-primary">{cluster.id}</div>
+                      <div className="cell-meta">{cluster.region} · {cluster.project}</div>
+                    </div>
+                    <Tag tone="ok">{members} mem</Tag>
+                    <Tag>{instances} inst</Tag>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'flex-end' }}>
+            <Button variant="ghost" size="sm" rightIcon={<IconArrowRight />} onClick={() => navigate('/topology')}>
+              Topology
+            </Button>
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader title="Procurement pipeline" desc="Order &amp; bootstrap gates" />
+          <div className="text-sm text-muted" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div>
+              Quote → Approve → Plan order → Plan bootstrap. Real Hetzner ordering and host bootstrap are
+              <strong className="text-mono" style={{ color: 'var(--amber)', marginLeft: 4 }}>blocked</strong> until you explicitly confirm with{' '}
+              <code className="mono">ORDER REAL HOSTS</code>{' / '}
+              <code className="mono">BOOTSTRAP REAL HOST</code>.
+            </div>
+            <div className="toolbar">
+              <Tag tone="warn">order gate</Tag>
+              <Tag tone="warn">bootstrap gate</Tag>
+              <Tag tone="ghost">{activeProcurements} active</Tag>
+            </div>
+          </div>
+          <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'flex-end' }}>
+            <Button variant="ghost" size="sm" rightIcon={<IconArrowRight />} onClick={() => navigate('/procurement')}>
+              Procurement
+            </Button>
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader title="Quick actions" desc="Common operator flows" />
+          <div className="form-grid form-grid--2">
+            <Button variant="secondary" leftIcon={<IconNetwork />} onClick={() => navigate('/topology')}>
+              Sync &amp; observe
+            </Button>
+            <Button variant="secondary" leftIcon={<IconBolt />} onClick={() => navigate('/machines')}>
+              Create machine
+            </Button>
+            <Button variant="secondary" onClick={() => navigate('/artifacts')}>
+              Image catalog
+            </Button>
+            <Button variant="secondary" leftIcon={<IconShoppingCart />} onClick={() => navigate('/procurement')}>
+              Plan capacity
+            </Button>
+          </div>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader title="Recent activity" desc="Newest first" />
+        <div className="log" style={{ maxHeight: 280 }} data-testid="v2-workflow-log" id="workflow-log">
+          {recent.length === 0
+            ? '— No activity yet. Trigger a refresh or run the full E2E to populate.'
+            : recent.map((entry) => `${entry.ts}  ${entry.text}`).join('\n')}
         </div>
-        <textarea
-          id="workflow-log"
-          className="input log"
-          data-testid="v2-workflow-log"
-          readOnly
-          placeholder="Run actions to see progress here."
-          style={{ minHeight: 220 }}
-          value={state.workflowLog.map((entry) => `${entry.ts} ${entry.text}`).join('\n')}
-        />
-      </div>
+      </Card>
     </section>
-  );
-}
-
-function StatCard({ id, label, value, meta }: { id: string; label: string; value: string; meta: string }) {
-  return (
-    <div className="stat-card">
-      <div className="label">{label}</div>
-      <div className="value" id={id}>
-        {value}
-      </div>
-      <div className="meta" id={`${id}-meta`}>
-        {meta}
-      </div>
-    </div>
   );
 }

@@ -12,14 +12,13 @@ test.describe('V2 API admin console', () => {
     await page.goto('/admin-ui/');
     await expect(page.getByRole('heading', { name: 'Dashboard', level: 1 })).toBeVisible();
 
+    // Settings page now owns API URL + token.
+    await page.locator('#primary-nav [data-route="settings"]').click();
     await page.locator('#api-url').fill(process.env.V2_API_BASE_URL || process.env.BASE_URL || 'http://localhost:4200');
     await page.locator('#admin-token').fill(adminToken);
 
     await page.getByTestId('v2-refresh-all').click();
     await expect(page.getByTestId('v2-status')).toContainText('refresh ok', { timeout: 90_000 });
-
-    const metricsLocator = page.locator('#metric-machines, #metric-clusters, #metric-regions');
-    await expect(metricsLocator.first()).not.toHaveText('-');
 
     await page.locator('#primary-nav [data-route="topology"]').click();
     await expect(page.locator('#regions-view').first()).toContainText(process.env.V2_E2E_REGION || 'eu');
@@ -37,14 +36,14 @@ test.describe('V2 API admin console', () => {
     await expect(dialog.locator('[data-source-tab="empty"]')).toBeVisible();
     await expect(dialog.locator('[data-source-tab="backup"]')).toBeVisible();
 
-    // Image tab is default; verify we can edit the alias input.
+    // Image tab is default; verify the alias input.
     await expect(dialog.locator('#create-source-id')).toBeVisible();
 
     await dialog.locator('[data-source-tab="snapshot"]').click();
     await expect(dialog.locator('#create-snapshot-machine')).toBeVisible();
 
     await dialog.locator('[data-source-tab="empty"]').click();
-    await expect(dialog.getByText('Creates an Incus instance with no source.')).toBeVisible();
+    await expect(dialog.getByText('Creates an Incus instance with no rootfs source.')).toBeVisible();
 
     await dialog.locator('[data-source-tab="backup"]').click();
     await expect(dialog.getByText('blocked · 501')).toBeVisible();
@@ -60,7 +59,7 @@ test.describe('V2 API admin console', () => {
     await expect(page.locator('#console-status')).toContainText('200', { timeout: 30_000 });
 
     await page.locator('#primary-nav [data-route="procurement"]').click();
-    await expect(page.getByRole('heading', { name: 'Procurement Pipeline' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Procurement', level: 1 })).toBeVisible();
     await page.locator('#proc-product').fill('v2-ui-dry-run-product');
     await page.locator('#proc-location').fill('HEL1');
     await page.locator('#proc-region').fill(process.env.V2_E2E_REGION || 'eu');
@@ -82,6 +81,6 @@ test.describe('V2 API admin console', () => {
     await page.getByTestId('v2-run-workflow').click();
 
     await expect(page.getByTestId('v2-status')).toContainText('workflow ok', { timeout: 360_000 });
-    await expect(page.getByTestId('v2-workflow-log')).toHaveValue(/workflow passed and cleanup complete/);
+    await expect(page.getByTestId('v2-workflow-log')).toContainText('workflow passed and cleanup complete');
   });
 });

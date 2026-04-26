@@ -2,21 +2,21 @@ import type { ReactNode } from 'react';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 import { ToastStack } from './ToastStack';
+import { CommandPalette } from './CommandPalette';
 
 export function Layout({ children }: { children: ReactNode }) {
   return (
-    <div className="app">
+    <div className="app-shell">
       <Sidebar />
-      <main className="main">
+      <main>
         <Topbar />
         {children}
         <div className="footer-meta">
-          Standalone admin served by <code>apps/v2-api</code> at <code>/admin-ui</code>. UI built with Vite + React.{' '}
-          <span className="kbd">cmd</span>
-          <span className="kbd">k</span> to focus search.
+          Standalone admin served by <code className="mono">apps/v2-api</code> · UI in <code className="mono">apps/admin-web</code>
         </div>
       </main>
       <ToastStack />
+      <CommandPalette />
     </div>
   );
 }

@@ -1,9 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useStore } from '../lib/store';
+import { PageHeader } from '../components/ui/PageHeader';
+import { Card, CardHeader } from '../components/ui/Card';
+import { Tag } from '../components/ui/Tag';
+import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
+import { Empty } from '../components/ui/Empty';
+import { Status } from '../components/ui/Status';
 import { CreateMachineDialog } from '../features/machines/CreateMachineDialog';
 import { MachineDetail } from '../features/machines/MachineDetail';
-import { useStore } from '../lib/store';
 import { cx, shortId, statusTone } from '../lib/utils';
+import { IconBolt, IconPlus, IconRefresh, IconSearch, IconTrash } from '../components/ui/icons';
 
 export function MachinesPage() {
   const { state, request, runAction, refreshAll, setSelectedMachineId } = useStore();
@@ -12,12 +20,9 @@ export function MachinesPage() {
   const [filter, setFilter] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
 
-  // Sync selected from URL.
   useEffect(() => {
     if (params.id) {
       setSelectedMachineId(params.id);
-    } else if (state.selectedMachineId && state.machines.find((m) => m.id === state.selectedMachineId)) {
-      // keep
     } else {
       setSelectedMachineId(null);
     }
@@ -35,26 +40,17 @@ export function MachinesPage() {
     });
   }, [filter, state.machines]);
 
+  const containerCount = state.machines.filter((m) => m.type === 'container').length;
+  const vmCount = state.machines.filter((m) => m.type === 'vm').length;
+
   function selectMachine(id: string) {
     setSelectedMachineId(id);
     navigate(`/machines/${encodeURIComponent(id)}`);
   }
 
-  async function lifecycleQuick(id: string, action: 'start' | 'stop') {
-    await runAction(`${action} machine ${id}`, async () => {
-      const data = await request(`/machines/${encodeURIComponent(id)}/${action}`, { method: 'POST' });
-      await refreshAll();
-      return data;
-    });
-  }
-
-  async function deleteMachine(id: string) {
-    await runAction(`delete machine ${id}`, async () => {
-      const data = await request(`/machines/${encodeURIComponent(id)}`, { method: 'DELETE' });
-      if (id === state.selectedMachineId) setSelectedMachineId(null);
-      await refreshAll();
-      return data;
-    });
+  function closeDetail() {
+    setSelectedMachineId(null);
+    navigate('/machines');
   }
 
   async function cleanupTests() {
@@ -92,129 +88,126 @@ export function MachinesPage() {
 
   return (
     <section className="page" data-route="machines">
-      <div className="panel">
-        <div className="panel-head">
-          <h2>Machines</h2>
-          <div className="toolbar">
-            <input
-              id="machine-search"
-              className="input compact"
-              placeholder="Filter machines"
-              value={filter}
-              onChange={(event) => setFilter(event.target.value)}
-            />
-            <button type="button" id="open-create" className="button" disabled={state.busy} onClick={() => setCreateOpen(true)}>
-              Create Machine
-            </button>
-            <button type="button" id="cleanup-tests" className="button danger" disabled={state.busy} onClick={() => cleanupTests().catch(() => {})}>
-              Cleanup Tests
-            </button>
-          </div>
-        </div>
-        <div className="scroll">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Region</th>
-                <th>Member</th>
-                <th>Source</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="machines-tbody">
-              {filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={7}>
-                    <div className="empty">{filter ? 'No machines match this filter.' : 'No machines yet — create your first.'}</div>
-                  </td>
-                </tr>
-              ) : (
-                filtered.map((m) => {
-                  const active = m.id === state.selectedMachineId;
-                  return (
-                    <tr
-                      key={m.id}
-                      className={cx('row-clickable', active && 'row-active')}
-                      data-machine-id={m.id}
-                      onClick={() => selectMachine(m.id)}
-                    >
-                      <td>
-                        <div style={{ fontWeight: 600 }}>{m.name || m.id}</div>
-                        <div style={{ color: 'var(--muted)', fontSize: 11 }}>{shortId(m.id, 18)}</div>
-                      </td>
-                      <td>{m.type ?? ''}</td>
-                      <td>
-                        <span className={cx('badge', statusTone(m.status))}>{m.status ?? ''}</span>
-                      </td>
-                      <td>{m.cluster?.region ?? m.region ?? '-'}</td>
-                      <td>{m.location ?? m.incus?.member_name ?? '-'}</td>
-                      <td>
-                        <code>{(m.source as { type?: string } | undefined)?.type ?? '-'}</code>
-                      </td>
-                      <td>
-                        <div className="row-actions" onClick={(event) => event.stopPropagation()}>
-                          <button
-                            type="button"
-                            className="button small secondary"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              selectMachine(m.id);
-                            }}
-                          >
-                            select
-                          </button>
-                          <button
-                            type="button"
-                            className="button small"
-                            disabled={state.busy}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              lifecycleQuick(m.id, 'start').catch(() => {});
-                            }}
-                          >
-                            start
-                          </button>
-                          <button
-                            type="button"
-                            className="button small"
-                            disabled={state.busy}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              lifecycleQuick(m.id, 'stop').catch(() => {});
-                            }}
-                          >
-                            stop
-                          </button>
-                          <button
-                            type="button"
-                            className="button small danger"
-                            disabled={state.busy}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              deleteMachine(m.id).catch(() => {});
-                            }}
-                          >
-                            delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+      <PageHeader
+        title="Machines"
+        description="Create, inspect, and manage Incus-backed machines across configured clusters."
+        actions={
+          <>
+            <Button variant="secondary" leftIcon={<IconRefresh />} disabled={state.busy} onClick={() => refreshAll().catch(() => {})}>
+              Refresh
+            </Button>
+            <Button variant="danger-ghost" leftIcon={<IconTrash />} disabled={state.busy} onClick={() => cleanupTests().catch(() => {})} id="cleanup-tests">
+              Cleanup tests
+            </Button>
+            <Button leftIcon={<IconPlus />} disabled={state.busy} onClick={() => setCreateOpen(true)} id="open-create">
+              Create machine
+            </Button>
+          </>
+        }
+      />
+
+      <div className="card-grid card-grid--4">
+        <SummaryStat label="Total" value={state.machines.length} />
+        <SummaryStat label="Containers" value={containerCount} />
+        <SummaryStat label="VMs" value={vmCount} />
+        <SummaryStat label="Running" value={state.machines.filter((m) => String(m.status ?? '').toLowerCase() === 'running').length} accent="ok" />
       </div>
 
-      {selected ? <MachineDetail machine={selected} /> : (
-        <div className="panel">
-          <div className="empty">Select a machine to inspect lifecycle, snapshots, backups, images, and the daemon.</div>
+      <Card>
+        <CardHeader
+          title="All machines"
+          actions={
+            <div className="search" style={{ width: 260 }}>
+              <span className="search-icon">
+                <IconSearch />
+              </span>
+              <Input
+                id="machine-search"
+                inputSize="sm"
+                placeholder="Filter by name, id, region, status…"
+                value={filter}
+                onChange={(event) => setFilter(event.target.value)}
+              />
+            </div>
+          }
+        />
+        <div className="table-wrap">
+          <div className="table-scroll">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                  <th>Region</th>
+                  <th>Member</th>
+                  <th>Source</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="machines-tbody">
+                {filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={7}>
+                      <Empty
+                        title={filter ? 'No machines match this filter' : 'No machines yet'}
+                        description={filter ? 'Try a different search.' : 'Create a machine to populate this table.'}
+                        action={
+                          !filter ? (
+                            <Button leftIcon={<IconBolt />} onClick={() => setCreateOpen(true)}>
+                              Create machine
+                            </Button>
+                          ) : null
+                        }
+                      />
+                    </td>
+                  </tr>
+                ) : (
+                  filtered.map((m) => {
+                    const active = m.id === state.selectedMachineId;
+                    return (
+                      <tr
+                        key={m.id}
+                        className={cx('is-clickable', active && 'is-active')}
+                        data-machine-id={m.id}
+                        onClick={() => selectMachine(m.id)}
+                      >
+                        <td>
+                          <div className="cell-primary">{m.name || m.id}</div>
+                          <div className="cell-meta mono">{shortId(m.id, 22)}</div>
+                        </td>
+                        <td><Tag tone={m.type === 'vm' ? 'violet' : 'ghost'}>{m.type ?? '?'}</Tag></td>
+                        <td>
+                          <Status tone={statusTone(m.status) || 'neutral'} label={m.status} />
+                        </td>
+                        <td>{m.cluster?.region ?? m.region ?? '—'}</td>
+                        <td className="text-muted text-mono">{m.location ?? m.incus?.member_name ?? '—'}</td>
+                        <td><span className="mono text-muted">{(m.source as { type?: string } | undefined)?.type ?? '—'}</span></td>
+                        <td>
+                          <div className="cell-actions" onClick={(event) => event.stopPropagation()}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                selectMachine(m.id);
+                              }}
+                            >
+                              Open
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      )}
+      </Card>
+
+      {selected ? <MachineDetail machine={selected} onClose={closeDetail} /> : null}
 
       <CreateMachineDialog
         open={createOpen}
@@ -224,5 +217,17 @@ export function MachinesPage() {
         }}
       />
     </section>
+  );
+}
+
+function SummaryStat({ label, value, accent }: { label: string; value: number; accent?: 'ok' }) {
+  return (
+    <div className="stat">
+      <div className="stat-label">
+        {label}
+        {accent === 'ok' ? <Tag tone="ok">live</Tag> : null}
+      </div>
+      <div className="stat-value">{value}</div>
+    </div>
   );
 }
