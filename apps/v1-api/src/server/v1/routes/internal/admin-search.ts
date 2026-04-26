@@ -266,7 +266,7 @@ adminSearchApp.get('/search', async (c) => {
         slug: r.slug,
         label: r.name,
         sub_label: r.ip ?? r.providerServerId ?? r.slug,
-        href: `/v2/admin/machines?highlight=${r.id}`,
+        href: `/admin/machines?highlight=${r.id}`,
       });
     }
     for (const r of accountById) {
@@ -277,7 +277,7 @@ adminSearchApp.get('/search', async (c) => {
         slug: r.slug,
         label: r.name,
         sub_label: r.type,
-        href: `/v2/admin/accounts?highlight=${r.id}`,
+        href: `/admin/accounts?highlight=${r.id}`,
       });
     }
     for (const r of userById) {
@@ -287,7 +287,7 @@ adminSearchApp.get('/search', async (c) => {
         id: r.id,
         label: r.email,
         sub_label: r.name,
-        href: `/v2/admin/accounts?highlight=${r.id}&tab=users`,
+        href: `/admin/accounts?highlight=${r.id}&tab=users`,
       });
     }
     for (const r of hostById) {
@@ -297,7 +297,7 @@ adminSearchApp.get('/search', async (c) => {
         id: r.id,
         label: r.name,
         sub_label: [r.region, r.location].filter(Boolean).join(' / ') || null,
-        href: `/v2/admin/hosts/${r.id}`,
+        href: `/admin/hosts/${r.id}`,
       });
     }
     for (const r of procurementById) {
@@ -307,7 +307,7 @@ adminSearchApp.get('/search', async (c) => {
         id: r.id,
         label: r.productId,
         sub_label: [r.status, r.location].filter(Boolean).join(' · ') || null,
-        href: `/v2/admin/procurements?highlight=${r.id}`,
+        href: `/admin/procurements?highlight=${r.id}`,
       });
     }
     for (const r of webhookById) {
@@ -317,7 +317,7 @@ adminSearchApp.get('/search', async (c) => {
         id: r.id,
         label: r.url,
         sub_label: r.active ? 'active' : 'disabled',
-        href: `/v2/admin/webhooks?highlight=${r.id}`,
+        href: `/admin/webhooks?highlight=${r.id}`,
       });
     }
     for (const r of imageById) {
@@ -327,7 +327,7 @@ adminSearchApp.get('/search', async (c) => {
         id: r.id,
         label: r.name,
         sub_label: r.isTemplate ? 'template' : 'user snapshot',
-        href: `/v2/admin/images?highlight=${r.id}`,
+        href: `/admin/images?highlight=${r.id}`,
       });
     }
     for (const r of subscriptionById) {
@@ -337,7 +337,7 @@ adminSearchApp.get('/search', async (c) => {
         id: r.id,
         label: r.stripeSubscriptionId,
         sub_label: r.status,
-        href: `/v2/admin/billing?highlight=${r.id}`,
+        href: `/admin/billing?highlight=${r.id}`,
       });
     }
     for (const r of sshKeyById) {
@@ -347,7 +347,7 @@ adminSearchApp.get('/search', async (c) => {
         id: r.id,
         label: r.name,
         sub_label: r.fingerprint,
-        href: `/v2/admin/keys?highlight=${r.id}&tab=ssh`,
+        href: `/admin/keys?highlight=${r.id}&tab=ssh`,
       });
     }
     for (const r of apiKeyById) {
@@ -357,7 +357,7 @@ adminSearchApp.get('/search', async (c) => {
         id: r.id,
         label: r.name,
         sub_label: r.keyPrefix,
-        href: `/v2/admin/keys?highlight=${r.id}&tab=api`,
+        href: `/admin/keys?highlight=${r.id}&tab=api`,
       });
     }
   }
@@ -542,7 +542,7 @@ adminSearchApp.get('/search', async (c) => {
       slug: r.slug,
       label: r.name,
       sub_label: r.ip ?? r.providerServerId ?? r.slug,
-      href: `/v2/admin/machines?highlight=${r.id}`,
+      href: `/admin/machines?highlight=${r.id}`,
     });
   }
   for (const r of accountRows) {
@@ -553,7 +553,7 @@ adminSearchApp.get('/search', async (c) => {
       slug: r.slug,
       label: r.name,
       sub_label: r.type,
-      href: `/v2/admin/accounts?highlight=${r.id}`,
+      href: `/admin/accounts?highlight=${r.id}`,
     });
   }
   for (const r of userRows) {
@@ -563,7 +563,7 @@ adminSearchApp.get('/search', async (c) => {
       id: r.id,
       label: r.email,
       sub_label: r.name,
-      href: `/v2/admin/accounts?highlight=${r.id}&tab=users`,
+      href: `/admin/accounts?highlight=${r.id}&tab=users`,
     });
   }
   for (const r of hostRows) {
@@ -573,7 +573,7 @@ adminSearchApp.get('/search', async (c) => {
       id: r.id,
       label: r.name,
       sub_label: [r.region, r.location].filter(Boolean).join(' / ') || null,
-      href: `/v2/admin/hosts/${r.id}`,
+      href: `/admin/hosts/${r.id}`,
     });
   }
   for (const r of procurementRows) {
@@ -583,7 +583,7 @@ adminSearchApp.get('/search', async (c) => {
       id: r.id,
       label: r.productId,
       sub_label: [r.status, r.location].filter(Boolean).join(' · ') || null,
-      href: `/v2/admin/procurements?highlight=${r.id}`,
+      href: `/admin/procurements?highlight=${r.id}`,
     });
   }
   for (const r of webhookRows) {
@@ -593,7 +593,7 @@ adminSearchApp.get('/search', async (c) => {
       id: r.id,
       label: r.url,
       sub_label: r.active ? 'active' : 'disabled',
-      href: `/v2/admin/webhooks?highlight=${r.id}`,
+      href: `/admin/webhooks?highlight=${r.id}`,
     });
   }
   for (const r of imageRows) {
@@ -603,7 +603,7 @@ adminSearchApp.get('/search', async (c) => {
       id: r.id,
       label: r.name,
       sub_label: r.isTemplate ? 'template' : 'user snapshot',
-      href: `/v2/admin/images?highlight=${r.id}`,
+      href: `/admin/images?highlight=${r.id}`,
     });
   }
   for (const r of subscriptionRows) {
@@ -613,7 +613,7 @@ adminSearchApp.get('/search', async (c) => {
       id: r.id,
       label: r.stripeSubscriptionId,
       sub_label: r.status,
-      href: `/v2/admin/billing?highlight=${r.id}`,
+      href: `/admin/billing?highlight=${r.id}`,
     });
   }
   for (const r of sshKeyRows) {
@@ -623,7 +623,7 @@ adminSearchApp.get('/search', async (c) => {
       id: r.id,
       label: r.name,
       sub_label: r.fingerprint,
-      href: `/v2/admin/keys?highlight=${r.id}&tab=ssh`,
+      href: `/admin/keys?highlight=${r.id}&tab=ssh`,
     });
   }
   for (const r of apiKeyRows) {
@@ -633,7 +633,7 @@ adminSearchApp.get('/search', async (c) => {
       id: r.id,
       label: r.name,
       sub_label: r.keyPrefix,
-      href: `/v2/admin/keys?highlight=${r.id}&tab=api`,
+      href: `/admin/keys?highlight=${r.id}&tab=api`,
     });
   }
 

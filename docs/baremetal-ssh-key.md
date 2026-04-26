@@ -71,8 +71,8 @@ different authorized_keys. Two options:
 1. **Rescue & rebuild:** boot the host into Hetzner rescue, overwrite
    `/root/.ssh/authorized_keys` with `justavps_host.pub`, reboot.
 2. **Retire it:** delete the row from `baremetal_hosts` and re-order a
-   fresh box through `/v2/admin/procurements` — the new one will have the
-   canonical key baked in automatically.
+   fresh box through the V2 admin procurement pipeline (apps/v2-api) — the
+   new one will have the canonical key baked in automatically.
 
 As of 2026-04-21:
 - `135.181.129.188` (HEL1-DC4) — canonical key authorized ✓

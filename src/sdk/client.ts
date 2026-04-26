@@ -108,17 +108,6 @@ export interface JustAVPSConfig {
   timeout?: number;
 }
 
-export interface JustAVPSV2Config extends Omit<JustAVPSConfig, 'baseUrl'> {
-  baseUrl?: string;
-}
-
-function normalizeV2BaseUrl(input?: string) {
-  const raw = (input || 'https://justavps.com').replace(/\/$/, '');
-  if (/\/api\/v2$/i.test(raw)) return raw;
-  if (/\/api$/i.test(raw)) return `${raw}/v2`;
-  return `${raw}/api/v2`;
-}
-
 // ─── Errors ─────────────────────────────────────────────────────────────────
 
 export class JustAVPSError extends Error {
@@ -235,17 +224,26 @@ class HttpClient {
   }
 }
 
-// ─── Type aliases for request bodies (from generated types) ─────────────────
+// ─── Inline request body types (was generated, now hand-written) ───────────
 
-import type {
-  PostApiV1MachinesData,
-  PostApiV1MachinesByIdResizeData,
-  PostApiV1MachinesByIdImageData,
-} from './generated/types.gen';
+type CreateMachineBody = {
+  name?: string;
+  image_id?: string;
+  server_type: string;
+  region: string;
+  ssh_key_ids?: string[];
+  user_data?: string;
+  cloud_init_script?: string;
+  enable_backup?: boolean;
+};
 
-type CreateMachineBody = NonNullable<PostApiV1MachinesData['body']>;
-type CreateSnapshotBody = NonNullable<PostApiV1MachinesByIdImageData['body']>;
-type ResizeMachineBody = NonNullable<PostApiV1MachinesByIdResizeData['body']>;
+type CreateSnapshotBody = {
+  name: string;
+};
+
+type ResizeMachineBody = {
+  server_type: string;
+};
 
 // ─── Resource Namespaces ────────────────────────────────────────────────────
 
@@ -595,11 +593,3 @@ export class JustAVPS {
   }
 }
 
-export class JustAVPSV2 extends JustAVPS {
-  constructor(config: JustAVPSV2Config) {
-    super({
-      ...config,
-      baseUrl: normalizeV2BaseUrl(config.baseUrl),
-    });
-  }
-}

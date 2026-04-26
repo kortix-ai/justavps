@@ -27,9 +27,10 @@ export default defineConfig(() => {
       },
     },
     resolve: {
-      alias: {
-        '@': path.resolve(__dirname, './src'),
-      },
+      alias: [
+        { find: /^@\/server\/(.*)$/, replacement: path.resolve(__dirname, './apps/v1-api/src/server') + '/$1' },
+        { find: /^@\/(.*)$/, replacement: path.resolve(__dirname, './src') + '/$1' },
+      ],
     },
   };
 });

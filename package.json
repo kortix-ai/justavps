@@ -34,10 +34,6 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "sdk:generate": "tsx scripts/ops/fetch-openapi.ts && npx @hey-api/openapi-ts && openapi-python-client generate --path src/sdk/openapi.json --output-path src/sdk/python --overwrite",
-    "sdk:generate:ts": "tsx scripts/ops/fetch-openapi.ts && npx @hey-api/openapi-ts",
-    "sdk:generate:python": "tsx scripts/ops/fetch-openapi.ts && openapi-python-client generate --path src/sdk/openapi.json --output-path src/sdk/python --overwrite",
-    "sdk:check": "pnpm sdk:generate && git diff --exit-code src/sdk/",
     "e2e:v1:ui": "playwright test tests/e2e/e2e/01-landing.spec.ts tests/e2e/e2e/02-auth.spec.ts tests/e2e/e2e/03-machines.spec.ts tests/e2e/e2e/04-provision-wizard.spec.ts tests/e2e/e2e/05-settings.spec.ts tests/e2e/e2e/06-navigation.spec.ts tests/e2e/e2e/07-machine-detail.spec.ts tests/e2e/e2e/08-proxy-auth.spec.ts tests/e2e/e2e/09-account-org.spec.ts tests/e2e/e2e/10-account-invite-redeem.spec.ts tests/e2e/e2e/11-account-resource-scope.spec.ts tests/e2e/e2e/12-account-proxy-billing.spec.ts",
     "e2e:v1:billing": "tsx -r dotenv/config tests/scripts/v1/e2e-billing.ts",
     "e2e:v1:direct-checkout": "tsx -r dotenv/config tests/scripts/v1/e2e-direct-checkout.ts",
@@ -98,7 +94,6 @@
     "zod": "4.3.6"
   },
   "devDependencies": {
-    "@hey-api/openapi-ts": "0.94.2",
     "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4",
     "@testing-library/react": "^16.3.2",

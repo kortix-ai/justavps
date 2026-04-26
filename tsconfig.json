@@ -31,5 +31,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "apps/proxy-worker", "apps/agent", "apps/daemon", "apps/broker", "src/sdk/ts", "src/sdk/python", "worktrees"]
+  "exclude": ["node_modules", "apps/admin-web", "apps/v1-api", "apps/v2-api", "apps/proxy-worker", "apps/agent", "apps/daemon", "apps/broker", "worktrees"]
 }

@@ -68,7 +68,7 @@ const STATIC_FLAGS: OperationalFlagDescriptor[] = [
     key: 'procurement_orders_paused',
     label: 'Pause procurement orders',
     description:
-      'Blocks new Hetzner Robot orders. The Approve button in /v2/admin/procurements becomes a no-op.',
+      'Blocks new Hetzner Robot orders. The Approve button in the V2 admin procurement pipeline becomes a no-op.',
     group: 'vendor_flows',
     kind: 'boolean',
   },

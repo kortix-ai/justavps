@@ -172,15 +172,15 @@ describe('admin search route', () => {
     expect(data.results).toHaveLength(2);
     expect(data.counts_by_type).toEqual({ machine: 1, account: 1 });
 
-    // Machine result uses href template /v2/admin/machines?highlight=<id>
+    // Machine result uses href template /admin/machines?highlight=<id>
     const machine = data.results.find((r: any) => r.type === 'machine');
     expect(machine.id).toBe(MACHINE_ID);
-    expect(machine.href).toBe(`/v2/admin/machines?highlight=${MACHINE_ID}`);
+    expect(machine.href).toBe(`/admin/machines?highlight=${MACHINE_ID}`);
     expect(machine.label).toBe('foo-bar');
 
-    // Account result uses /v2/admin/accounts?highlight=<id>
+    // Account result uses /admin/accounts?highlight=<id>
     const account = data.results.find((r: any) => r.type === 'account');
-    expect(account.href).toBe(`/v2/admin/accounts?highlight=${ACCOUNT_ID}`);
+    expect(account.href).toBe(`/admin/accounts?highlight=${ACCOUNT_ID}`);
     expect(account.sub_label).toBe('organization');
   });
 

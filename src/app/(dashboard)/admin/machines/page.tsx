@@ -730,12 +730,6 @@ function MachineDetailDialog({
               <div className="rounded-xl border p-4 space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Host</div>
-                  <a
-                    href={`/v2/admin/hosts?highlight=${data.host.id}`}
-                    className="text-xs text-primary hover:underline"
-                  >
-                    Open host →
-                  </a>
                 </div>
                 <DetailRow label="Name" value={data.host.name} />
                 <DetailRow label="Region" value={data.host.region} />

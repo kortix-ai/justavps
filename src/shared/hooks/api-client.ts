@@ -1,5 +1,4 @@
 const API_BASE_V1 = "/api/v1";
-const API_BASE_V2 = "/api/v2";
 
 export class ApiError extends Error {
   /** Parsed JSON body from the error response (if available) */
@@ -77,4 +76,3 @@ function createApi(base: string) {
 }
 
 export const api = createApi(API_BASE_V1);
-export const apiV2 = createApi(API_BASE_V2);

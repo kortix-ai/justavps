@@ -1,7 +1,7 @@
 /**
  * Admin Operational Controls — emergency kill switches and feature flags.
  *
- * Read/write surface for the /v2/admin/controls page. The actual enforcement
+ * Read/write surface for the admin controls page. The actual enforcement
  * happens at create-time via `assertNotPaused` in `operational-flags.ts`.
  */
 import { OpenAPIHono } from '@hono/zod-openapi';
