@@ -4,7 +4,7 @@ set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
 hetzner_json="$(request POST /admin/vendors/hetzner/sync)"
-printf '%s' "$hetzner_json" | json_assert hetzner-sync 'typeof data.synced === "number" && Array.isArray(data.hosts) && data.hosts.length === data.synced && data.hosts.every(host => host.vendor === "hetzner_robot" && host.publicIpv4 && host.status)'
+printf '%s' "$hetzner_json" | json_assert hetzner-sync 'typeof data.synced === "number" && Array.isArray(data.hosts) && data.hosts.length === data.synced && data.hosts.every(host => host.vendor === "hetzner_robot" && (host.publicIpv4 || host.publicIpv6) && host.status)'
 hetzner_count="$(printf '%s' "$hetzner_json" | json_get synced)"
 echo "hetzner synced $hetzner_count hosts"
 

@@ -1,0 +1,23 @@
+{
+  "name": "justavps-v2-proxy-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "V2-only Cloudflare Worker for UUID-addressed sandbox HTTP proxying",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:dev": "wrangler deploy --env dev",
+    "deploy:production": "wrangler deploy --env production",
+    "build": "wrangler deploy --dry-run",
+    "test": "vitest --run",
+    "test:watch": "vitest --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241218.0",
+    "typescript": "^5.0.0",
+    "vitest": "^2.0.0",
+    "wrangler": "^3.89.0"
+  }
+}

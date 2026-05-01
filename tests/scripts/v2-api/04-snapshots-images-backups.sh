@@ -11,6 +11,8 @@ snapshot_clone_name="v2e2e-snapshot-${RANDOM}-${RANDOM}"
 snapshot_clone_id=""
 empty_machine_name="v2e2e-empty-${RANDOM}-${RANDOM}"
 empty_machine_id=""
+backup_clone_name="v2e2e-backup-${RANDOM}-${RANDOM}"
+backup_clone_id=""
 snapshot_name="snap-${RANDOM}-${RANDOM}"
 snapshot_id=""
 backup_name="backup-${RANDOM}-${RANDOM}"
@@ -22,6 +24,9 @@ cleanup() {
   fi
   if [ -n "$empty_machine_id" ]; then
     request DELETE "/machines/$empty_machine_id" >/dev/null || true
+  fi
+  if [ -n "$backup_clone_id" ]; then
+    request DELETE "/machines/$backup_clone_id" >/dev/null || true
   fi
   if [ -n "$machine_id" ]; then
     if [ -n "$image_id" ]; then
@@ -64,5 +69,16 @@ image_id="$(printf '%s' "$image_json" | json_get image.id)"
 
 request POST "/machines/$machine_id/backups" "{\"name\":\"$backup_name\"}" | json_assert create-backup 'data.backup && data.operation && data.operation.status === "Success"'
 request GET "/machines/$machine_id/backups" | json_assert list-backups "Array.isArray(data.backups) && data.backups.some(backup => backup.name === '$backup_name')"
+
+# Create a NEW machine from the backup tarball (native Incus export + import).
+backup_clone_body="$(node -e 'console.log(JSON.stringify({region:process.env.V2_E2E_REGION||"eu",type:"container",name:process.argv[1],resources:{vcpu:1,memory_gb:1,disk_gb:Number(process.env.V2_E2E_DISK_GB||10)},source:{type:"backup",backup_id:process.argv[2]}}))' "$backup_clone_name" "$machine_id/$backup_name")"
+backup_clone_json="$(request POST /machines "$backup_clone_body")"
+printf '%s' "$backup_clone_json" | json_assert create-from-backup 'data.machine && data.machine.source && data.machine.source.type === "backup" && data.machine.incus && data.machine.incus.cluster_id'
+backup_clone_id="$(printf '%s' "$backup_clone_json" | json_get machine.id)"
+request GET "/machines/$backup_clone_id" | json_assert get-backup-clone 'data.machine && data.machine.id && data.machine.incus && data.machine.incus.observed'
+
+# Restore the original machine from its own backup (force-delete + tarball import in place).
+request POST "/machines/$machine_id/backups/$backup_name/restore" '{}' | json_assert restore-backup 'data.ok === true && data.operation && data.operation.status === "Success"'
+request GET "/machines/$machine_id" | json_assert get-after-restore 'data.machine && data.machine.id && data.machine.incus && data.machine.incus.observed'
 
 echo "snapshots/images/backups ok: $machine_id"

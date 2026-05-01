@@ -8,7 +8,7 @@
 // and standalone (opened in a new tab for a full terminal experience).
 //
 // Localhost URLs (localhost:PORT, 127.0.0.1:PORT, 0.0.0.0:PORT) are
-// automatically rewritten to public port-forwarded URLs (PORT--slug.domain).
+// automatically rewritten to public port-forwarded URLs from config.
 
 package main
 
@@ -18,7 +18,7 @@ import (
 	"strings"
 )
 
-func buildTerminalHTML(slug, domain string) string {
+func buildTerminalHTML(slug, portURLTemplate string) string {
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -93,7 +93,7 @@ import{WebLinksAddon}from'https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.
 
 // ── Port forwarding config (injected by daemon) ────────────────────────
 const SLUG = '%s';
-const DOMAIN = '%s';
+const PORT_URL_TEMPLATE = '%s';
 
 // ── Localhost URL rewriting ─────────────────────────────────────────────
 // Matches: http://localhost:PORT, http://127.0.0.1:PORT, http://0.0.0.0:PORT
@@ -103,7 +103,7 @@ const LOCAL_URL_RE = /(?:https?:\/\/)?(?:localhost|127\.0\.0\.1|0\.0\.0\.0):(\d{
 function rewriteLocalUrl(match, port, path) {
   const p = parseInt(port, 10);
   if (p <= 0 || p > 65535 || p === 22 || p === 80 || p === 7777) return null;
-  return 'https://' + p + '--' + SLUG + '.' + DOMAIN + (path || '');
+  return PORT_URL_TEMPLATE.replaceAll('{{port}}', String(p)).replaceAll('{port}', String(p)) + (path || '');
 }
 
 // Custom link provider that detects localhost URLs and opens the port-forwarded URL
@@ -174,8 +174,8 @@ window._term = term;
 const fit = new FitAddon();
 term.loadAddon(fit);
 term.loadAddon(new WebLinksAddon());
-// Register localhost URL rewriting (Port → PORT--SLUG.DOMAIN)
-if (SLUG && DOMAIN) {
+// Register localhost URL rewriting (Port → configured public URL template)
+if (SLUG && PORT_URL_TEMPLATE) {
   term.registerLinkProvider(new LocalhostLinkProvider());
 }
 term.open(document.getElementById('terminal'));
@@ -266,24 +266,20 @@ window.addEventListener('message', (e) => {
 connect();
 </script>
 </body>
-</html>`, slug, domain)
+</html>`, slug, portURLTemplate)
 }
 
 func handleTerminalPage(w http.ResponseWriter, r *http.Request, cfg *Config) {
-	domain := cfg.ProxyDomain
-	if domain == "" {
-		domain = "kortix.cloud"
-	}
 	// Sanitize slug for safe embedding in JS string literal
 	slug := strings.ReplaceAll(cfg.Slug, "'", "")
 	slug = strings.ReplaceAll(slug, "\\", "")
-	domain = strings.ReplaceAll(domain, "'", "")
-	domain = strings.ReplaceAll(domain, "\\", "")
+	portURLTemplate := strings.ReplaceAll(cfg.PortURLTemplate(), "'", "")
+	portURLTemplate = strings.ReplaceAll(portURLTemplate, "\\", "")
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	// Allow iframe embedding from any origin (the dashboard embeds this)
 	w.Header().Set("X-Frame-Options", "ALLOWALL")
 	w.Header().Del("X-Frame-Options")
-	w.Write([]byte(buildTerminalHTML(slug, domain)))
+	w.Write([]byte(buildTerminalHTML(slug, portURLTemplate)))
 }

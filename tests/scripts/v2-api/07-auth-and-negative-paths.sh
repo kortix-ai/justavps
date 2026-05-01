@@ -48,9 +48,9 @@ fi
 
 expect_status bad-create "$(status_with_auth POST /machines '{"region":"eu","type":"container","resources":{"vcpu":0,"memory_gb":0,"disk_gb":0},"source":{"type":"image","image_id":"missing"}}')" 400
 expect_status missing-snapshot-source "$(status_with_auth POST /machines '{"region":"eu","type":"container","resources":{"vcpu":1,"memory_gb":1,"disk_gb":10},"source":{"type":"snapshot","snapshot_id":"missing"}}')" 404
-expect_status unsupported-backup-source "$(status_with_auth POST /machines '{"region":"eu","type":"container","resources":{"vcpu":1,"memory_gb":1,"disk_gb":10},"source":{"type":"backup","backup_id":"missing"}}')" 501
+expect_status missing-backup-source "$(status_with_auth POST /machines '{"region":"eu","type":"container","resources":{"vcpu":1,"memory_gb":1,"disk_gb":10},"source":{"type":"backup","backup_id":"missing"}}')" 404
 expect_status missing-machine "$(status_with_auth GET /machines/v2e2e-does-not-exist)" 404
-expect_status backup-restore-unimplemented "$(status_with_auth POST /machines/v2e2e-does-not-exist/backups/nope/restore '{}')" 501
+expect_status backup-restore-missing-machine "$(status_with_auth POST /machines/v2e2e-does-not-exist/backups/nope/restore '{}')" 404
 expect_status missing-toolbox-config "$(status_with_auth GET /machines/v2e2e-does-not-exist/toolbox-config)" 404
 expect_status missing-toolbox-command "$(status_with_auth POST /machines/v2e2e-does-not-exist/toolbox-command '{"command":"true"}')" 404
 

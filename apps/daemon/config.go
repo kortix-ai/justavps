@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // Config is read from /etc/justavps/config.json (written by cloud-init).
@@ -11,12 +12,16 @@ type Config struct {
 	Slug         string `json:"slug"`
 	CallbackURL  string `json:"callback_url"`
 	MachineToken string `json:"machine_token"`
-	ProxyDomain  string `json:"proxy_domain"` // e.g. "kortix.cloud" — used for port URL generation
+	ProxyDomain  string `json:"proxy_domain"`      // e.g. "kortix.cloud" — used for port URL generation
+	PortURLTmpl  string `json:"port_url_template"` // e.g. "http://{{port}}--uuid.localhost:4200/"
 }
 
 // PortURLTemplate returns the URL template for accessing a port on this machine.
 // Example: https://{{port}}--xoydduba.kortix.cloud
 func (c *Config) PortURLTemplate() string {
+	if c.PortURLTmpl != "" {
+		return c.PortURLTmpl
+	}
 	domain := c.ProxyDomain
 	if domain == "" {
 		domain = "kortix.cloud"
@@ -26,11 +31,10 @@ func (c *Config) PortURLTemplate() string {
 
 // PortURL returns the public URL for a specific port on this machine.
 func (c *Config) PortURL(port int) string {
-	domain := c.ProxyDomain
-	if domain == "" {
-		domain = "kortix.cloud"
-	}
-	return fmt.Sprintf("https://%d--%s.%s", port, c.Slug, domain)
+	tmpl := c.PortURLTemplate()
+	url := strings.ReplaceAll(tmpl, "{{port}}", fmt.Sprintf("%d", port))
+	url = strings.ReplaceAll(url, "{port}", fmt.Sprintf("%d", port))
+	return url
 }
 
 func LoadConfig(path string) (*Config, error) {

@@ -9,27 +9,37 @@ datasource db {
 }
 
 model Host {
-  id                   String   @id @default(cuid())
+  id                   String    @id @default(cuid())
   vendor               String
-  providerServerNumber String?  @map("provider_server_number")
-  hostClass            String   @map("host_class")
-  productId            String?  @map("product_id")
+  providerServerNumber String?   @map("provider_server_number")
+  hostClass            String    @map("host_class")
+  productId            String?   @map("product_id")
   region               String
   location             String
   name                 String
   status               String
-  schedulable          Boolean  @default(false)
-  publicIpv4           String?  @map("public_ipv4")
-  publicIpv6           String?  @map("public_ipv6")
-  incusClusterId       String?  @map("incus_cluster_id")
-  incusMemberName      String?  @map("incus_member_name")
-  metadata             Json     @default("{}")
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
+  schedulable          Boolean   @default(false)
+  publicIpv4           String?   @map("public_ipv4")
+  publicIpv6           String?   @map("public_ipv6")
+  incusClusterId       String?   @map("incus_cluster_id")
+  incusMemberName      String?   @map("incus_member_name")
+  // Fleet-management columns. lifecycleState is the source of truth for
+  // ops-time questions ("can autoscale schedule on this?", "is it draining
+  // now?"). sku + costEurMonthly drive the cost ledger.
+  lifecycleState       String    @default("online") @map("lifecycle_state")
+  sku                  String?
+  costEurMonthly       Decimal?  @map("cost_eur_monthly") @db.Decimal(10, 2)
+  joinedAt             DateTime? @map("joined_at")
+  drainedAt            DateTime? @map("drained_at")
+  terminatedAt         DateTime? @map("terminated_at")
+  metadata             Json      @default("{}")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   @@unique([vendor, providerServerNumber])
   @@index([region, status])
   @@index([incusClusterId, incusMemberName])
+  @@index([lifecycleState])
   @@map("hosts")
   @@schema("v2_core")
 }
@@ -59,17 +69,17 @@ model Machine {
 }
 
 model Image {
-  id                String   @id @default(cuid())
-  accountId         String?  @map("account_id")
-  visibility        String
-  name              String
-  incusClusterId    String   @map("incus_cluster_id")
-  incusProject      String   @map("incus_project")
-  incusFingerprint  String   @map("incus_fingerprint")
-  sourceMachineId   String?  @map("source_machine_id")
-  sourceSnapshotId  String?  @map("source_snapshot_id")
-  metadata          Json     @default("{}")
-  createdAt         DateTime @default(now()) @map("created_at")
+  id               String   @id @default(cuid())
+  accountId        String?  @map("account_id")
+  visibility       String
+  name             String
+  incusClusterId   String   @map("incus_cluster_id")
+  incusProject     String   @map("incus_project")
+  incusFingerprint String   @map("incus_fingerprint")
+  sourceMachineId  String?  @map("source_machine_id")
+  sourceSnapshotId String?  @map("source_snapshot_id")
+  metadata         Json     @default("{}")
+  createdAt        DateTime @default(now()) @map("created_at")
 
   @@unique([incusClusterId, incusProject, incusFingerprint])
   @@index([accountId, visibility])
@@ -110,13 +120,17 @@ model Backup {
 }
 
 model IncusCluster {
-  id           String   @id
+  id           String    @id
   name         String
   region       String
   endpoint     String
   project      String
+  // Full IncusClusterConfig (certs paths, SKU, channel, root pool, etc.).
+  // Set when registered via POST /admin/clusters; merged with env clusters
+  // at request time so operator can add clusters without an API restart.
+  config       Json      @default("{}")
   lastSyncedAt DateTime? @map("last_synced_at")
-  observed     Json     @default("{}")
+  observed     Json      @default("{}")
 
   @@map("clusters")
   @@schema("v2_incus")
@@ -205,5 +219,164 @@ model Procurement {
 
   @@index([vendor, status])
   @@map("procurements")
+  @@schema("v2_ops")
+}
+
+// Region: explicit metadata about each datacenter location we operate in.
+// Soft-referenced by `region` strings on Host / Cluster (we don't enforce
+// FKs to keep migrations cheap and string-codes readable in logs).
+model Region {
+  code         String   @id // 'eu', 'us-east', 'ap-south' — the public-facing key
+  providerCode String   @map("provider_code") // Hetzner location: HEL1, FSN1, NBG1
+  vendor       String   @default("hetzner")
+  displayName  String   @map("display_name")
+  defaultSku   String   @map("default_sku")
+  active       Boolean  @default(true)
+  metadata     Json     @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("regions")
+  @@schema("v2_core")
+}
+
+// Per-node utilization sample. Append-only timeseries written by the
+// utilization-snapshot worker. Indexed by host + ts so we can query "fill
+// over the last 7 days" cheaply. Compresses well; partition by month at
+// 10M rows.
+model NodeUtilizationSample {
+  hostId           String   @map("host_id")
+  ts               DateTime
+  vcpuUsed         Int      @map("vcpu_used")
+  ramGbUsed        Float    @map("ram_gb_used")
+  storageGbUsed    Float    @map("storage_gb_used")
+  instancesRunning Int      @map("instances_running")
+  instancesTotal   Int      @map("instances_total")
+
+  @@id([hostId, ts])
+  @@index([ts])
+  @@map("node_utilization_samples")
+  @@schema("v2_ops")
+}
+
+// Sandbox usage session. One row per "session" (running → stopped span)
+// plus the storage-tail accounting beyond stop. Closed by usage-billing
+// worker on each lifecycle transition; aggregated to RevenueLedgerEntry
+// at billing-period boundaries.
+model SandboxUsageSession {
+  id                      String    @id @default(cuid())
+  machineId               String    @map("machine_id")
+  customerId              String?   @map("customer_id")
+  startedAt               DateTime  @map("started_at")
+  endedAt                 DateTime? @map("ended_at")
+  // Resource shape at session start. We capture once because runtime
+  // resize is an explicit op that ends the prior session.
+  vcpus                   Int
+  ramGb                   Float     @map("ram_gb")
+  storageGb               Float     @map("storage_gb")
+  // Accumulated resource·seconds. Billing rate × these gives micro-eur.
+  vcpuSeconds             Float     @default(0) @map("vcpu_seconds")
+  ramGbSeconds            Float     @default(0) @map("ram_gb_seconds")
+  storageGbSecondsLocal   Float     @default(0) @map("storage_gb_seconds_local")
+  storageGbSecondsArchive Float     @default(0) @map("storage_gb_seconds_archive")
+  state                   String    @default("running")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  @@index([customerId, startedAt])
+  @@index([machineId, state])
+  @@map("sandbox_usage_sessions")
+  @@schema("v2_ops")
+}
+
+// Append-only ledger of cost we paid Hetzner per node per billing window.
+// Written hourly by cost-tick worker. Reconciled against actual Hetzner
+// invoices nightly — drift > €5 raises an alert.
+model CostLedgerEntry {
+  id         String   @id @default(cuid())
+  hostId     String   @map("host_id")
+  tsFrom     DateTime @map("ts_from")
+  tsTo       DateTime @map("ts_to")
+  microEur   BigInt   @map("micro_eur")
+  sku        String?
+  reconciled Boolean  @default(false)
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([hostId, tsFrom])
+  @@index([tsFrom, reconciled])
+  @@map("cost_ledger_entries")
+  @@schema("v2_ops")
+}
+
+// Append-only ledger of revenue we billed customers per usage window.
+// Written by usage-billing worker as sandbox sessions close.
+model RevenueLedgerEntry {
+  id         String   @id @default(cuid())
+  sessionId  String?  @map("session_id")
+  machineId  String?  @map("machine_id")
+  customerId String?  @map("customer_id")
+  tsFrom     DateTime @map("ts_from")
+  tsTo       DateTime @map("ts_to")
+  microEur   BigInt   @map("micro_eur")
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([customerId, tsFrom])
+  @@index([machineId, tsFrom])
+  @@map("revenue_ledger_entries")
+  @@schema("v2_ops")
+}
+
+// Autoscale proposals. Written by the autoscale-proposer worker; approved
+// (or rejected) by the operator. Approved proposals fire the existing
+// add-member / drain endpoints.
+model ScalingProposal {
+  id              String    @id @default(cuid())
+  kind            String // 'add-node' | 'drain-node' | 'terminate-node'
+  clusterId       String    @map("cluster_id")
+  hostId          String?   @map("host_id")
+  proposedSku     String?   @map("proposed_sku")
+  rationale       String
+  costImpactEurMo Float     @map("cost_impact_eur_mo")
+  status          String    @default("pending") // pending | approved | rejected | expired | executed
+  approvedBy      String?   @map("approved_by")
+  approvedAt      DateTime? @map("approved_at")
+  executedAt      DateTime? @map("executed_at")
+  expiresAt       DateTime  @map("expires_at")
+  metadata        Json      @default("{}")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([clusterId, status])
+  @@index([status, expiresAt])
+  @@map("scaling_proposals")
+  @@schema("v2_ops")
+}
+
+// Node provisioning runs — orchestrate the "add a node to an Incus cluster"
+// flow end-to-end. One row per attempt. Steps array is appended to as the
+// runner advances. The same runner can be re-driven via /retry — completed
+// steps are skipped, failed step re-runs from scratch.
+model NodeProvisioningRun {
+  id                  String    @id @default(cuid())
+  clusterId           String    @map("cluster_id")
+  source              String // 'byo' | 'hetzner-buy'
+  targetOs            String    @default("ubuntu-incus") @map("target_os") // 'ubuntu-incus' | 'incus-os'
+  sshHost             String?   @map("ssh_host")
+  sshUser             String    @default("root") @map("ssh_user")
+  sshPort             Int       @default(22) @map("ssh_port")
+  hetznerServerNumber Int?      @map("hetzner_server_number")
+  status              String    @default("pending") // pending | running | succeeded | failed | cancelled
+  currentStep         String?   @map("current_step")
+  lastError           String?   @map("last_error")
+  steps               Json      @default("[]")
+  metadata            Json      @default("{}")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  startedAt           DateTime? @map("started_at")
+  endedAt             DateTime? @map("ended_at")
+
+  @@index([clusterId, status])
+  @@map("node_provisioning_runs")
   @@schema("v2_ops")
 }

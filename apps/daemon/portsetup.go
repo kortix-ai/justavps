@@ -20,13 +20,10 @@ import (
 // SetupPortForwarding writes shell integration scripts to the filesystem.
 // Called once at daemon startup.
 func SetupPortForwarding(cfg *Config) error {
-	domain := cfg.ProxyDomain
-	if domain == "" {
-		domain = "kortix.cloud"
-	}
+	template := cfg.PortURLTemplate()
 
 	// Write /etc/profile.d/justavps-ports.sh — sourced on every login
-	profileScript := generateProfileScript(cfg.Slug, domain)
+	profileScript := generateProfileScript(cfg.Slug, template)
 	if err := os.MkdirAll("/etc/profile.d", 0755); err != nil {
 		return err
 	}
@@ -35,7 +32,7 @@ func SetupPortForwarding(cfg *Config) error {
 	}
 
 	// Write /usr/local/bin/porturl — standalone CLI command
-	porturlScript := generatePorturlScript(cfg.Slug, domain)
+	porturlScript := generatePorturlScript(cfg.Slug, template)
 	if err := os.WriteFile("/usr/local/bin/porturl", []byte(porturlScript), 0755); err != nil {
 		return err
 	}
@@ -43,16 +40,16 @@ func SetupPortForwarding(cfg *Config) error {
 	// Ensure event directory exists
 	os.MkdirAll("/run/justavps", 0755)
 
-	log.Printf("[ports] Shell integration installed (slug=%s, domain=%s)", cfg.Slug, domain)
+	log.Printf("[ports] Shell integration installed (slug=%s, template=%s)", cfg.Slug, template)
 	return nil
 }
 
-func generateProfileScript(slug, domain string) string {
+func generateProfileScript(slug, template string) string {
 	script := `# JustAVPS port forwarding integration
 # Sourced automatically on login — provides port URL helpers and notifications.
 #
 # Services on this machine are accessible via:
-#   https://PORT--__SLUG__.__DOMAIN__
+#   __TEMPLATE_DISPLAY__
 #
 # Commands:
 #   porturl PORT     — Print the public URL for a port
@@ -60,26 +57,31 @@ func generateProfileScript(slug, domain string) string {
 #   portwatch        — Watch for new ports in the background (auto-notify)
 
 export JUSTAVPS_SLUG="__SLUG__"
-export JUSTAVPS_DOMAIN="__DOMAIN__"
-export JUSTAVPS_PORT_URL_TEMPLATE="https://{{port}}--__SLUG__.__DOMAIN__"
+export JUSTAVPS_PORT_URL_TEMPLATE="__TEMPLATE__"
 
 # ── porturl command ──────────────────────────────────────────────────────
 porturl() {
   if [ -n "$1" ]; then
-    echo "https://$1--__SLUG__.__DOMAIN__"
+    local _url="$JUSTAVPS_PORT_URL_TEMPLATE"
+    _url="${_url//\{\{port\}\}/$1}"
+    _url="${_url//\{port\}/$1}"
+    echo "$_url"
     return
   fi
 
   # No arg — list all listening ports
   echo "Listening ports on __SLUG__:"
   echo ""
-  ss -tlnp 2>/dev/null | awk 'NR>1 {
+  ss -tlnp 2>/dev/null | awk -v tmpl="$JUSTAVPS_PORT_URL_TEMPLATE" 'NR>1 {
     split($4, a, ":");
     port = a[length(a)];
     if (port+0 > 0 && port+0 < 49152 && port != 22 && port != 80 && port != 7777 && port != 2468) {
       proc = ""
       if (match($0, /users:\(\("([^"]+)"/, m)) proc = m[1]
-      printf "  \033[1;36m%-6s\033[0m → https://%s--__SLUG__.__DOMAIN__", port, port
+      url = tmpl
+      gsub(/\{\{port\}\}/, port, url)
+      gsub(/\{port\}/, port, url)
+      printf "  \033[1;36m%-6s\033[0m → %s", port, url
       if (proc != "") printf "  (%s)", proc
       printf "\n"
     }
@@ -120,7 +122,7 @@ if [ -n "$PS1" ] && [ -z "$JUSTAVPS_BANNER_SHOWN" ]; then
   echo ""
   echo -e "  \033[1;37m⚡ JustAVPS\033[0m — \033[90m__SLUG__\033[0m"
   echo -e "  \033[90m─────────────────────────────────────────\033[0m"
-  echo -e "  \033[37mPorts:\033[0m  https://\033[1;36mPORT\033[0m--__SLUG__.__DOMAIN__"
+  echo -e "  \033[37mPorts:\033[0m  __TEMPLATE_DISPLAY__"
   echo -e "  \033[37mHelp:\033[0m   \033[33mporturl\033[0m \033[90m[PORT]\033[0m  — get public URL"
   echo ""
 
@@ -134,7 +136,7 @@ if [ -n "$PS1" ] && [ -z "$JUSTAVPS_BANNER_SHOWN" ]; then
   if [ -n "$_active_ports" ]; then
     echo -e "  \033[90mActive ports:\033[0m"
     for _p in $_active_ports; do
-      echo -e "    \033[1;36m$_p\033[0m → https://$_p--__SLUG__.__DOMAIN__"
+      echo -e "    \033[1;36m$_p\033[0m → $(porturl $_p)"
     done
     echo ""
   fi
@@ -164,36 +166,43 @@ if [ -n "$PS1" ] && [ -z "$JUSTAVPS_BANNER_SHOWN" ]; then
 fi
 `
 	script = strings.ReplaceAll(script, "__SLUG__", slug)
-	script = strings.ReplaceAll(script, "__DOMAIN__", domain)
+	script = strings.ReplaceAll(script, "__TEMPLATE__", template)
+	script = strings.ReplaceAll(script, "__TEMPLATE_DISPLAY__", strings.ReplaceAll(strings.ReplaceAll(template, "{{port}}", "PORT"), "{port}", "PORT"))
 	return script
 }
 
-func generatePorturlScript(slug, domain string) string {
+func generatePorturlScript(slug, template string) string {
 	script := `#!/bin/bash
 # porturl — Print the public URL for a port on this JustAVPS machine.
 #
 # Usage:
-#   porturl 3000       → https://3000--__SLUG__.__DOMAIN__
+#   porturl 3000       → __EXAMPLE__
 #   porturl            → list all listening ports with URLs
 
 SLUG="__SLUG__"
-DOMAIN="__DOMAIN__"
+TEMPLATE="__TEMPLATE__"
 
 if [ -n "$1" ]; then
-  echo "https://$1--${SLUG}.${DOMAIN}"
+  url="$TEMPLATE"
+  url="${url//\{\{port\}\}/$1}"
+  url="${url//\{port\}/$1}"
+  echo "$url"
   exit 0
 fi
 
 # List all listening ports
 echo "Listening ports on ${SLUG}:"
 echo ""
-ss -tlnp 2>/dev/null | awk -v slug="$SLUG" -v domain="$DOMAIN" 'NR>1 {
+ss -tlnp 2>/dev/null | awk -v slug="$SLUG" -v tmpl="$TEMPLATE" 'NR>1 {
   split($4, a, ":");
   port = a[length(a)];
   if (port+0 > 0 && port+0 < 49152 && port != 22 && port != 80 && port != 7777 && port != 2468) {
     proc = ""
     if (match($0, /users:\(\("([^"]+)"/, m)) proc = m[1]
-    printf "  \033[1;36m%-6s\033[0m → https://%s--%s.%s", port, port, slug, domain
+    url = tmpl
+    gsub(/\{\{port\}\}/, port, url)
+    gsub(/\{port\}/, port, url)
+    printf "  \033[1;36m%-6s\033[0m → %s", port, url
     if (proc != "") printf "  (%s)", proc
     printf "\n"
   }
@@ -201,6 +210,7 @@ ss -tlnp 2>/dev/null | awk -v slug="$SLUG" -v domain="$DOMAIN" 'NR>1 {
 echo ""
 `
 	script = strings.ReplaceAll(script, "__SLUG__", slug)
-	script = strings.ReplaceAll(script, "__DOMAIN__", domain)
+	script = strings.ReplaceAll(script, "__TEMPLATE__", template)
+	script = strings.ReplaceAll(script, "__EXAMPLE__", strings.ReplaceAll(strings.ReplaceAll(template, "{{port}}", "3000"), "{port}", "3000"))
 	return script
 }

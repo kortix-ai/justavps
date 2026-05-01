@@ -12,7 +12,6 @@ import {
   type ImageItem,
   type InventoryHost,
   type Machine,
-  type ProcurementItem,
   type SnapshotItem,
   type ToolboxRoutes,
 } from './api';
@@ -35,13 +34,11 @@ type State = {
   inventory: InventoryHost[];
   machines: Machine[];
   images: ImageItem[];
-  procurements: ProcurementItem[];
   servers: unknown[];
   products: unknown[];
   snapshots: SnapshotItem[];
   backups: BackupItem[];
   selectedMachineId: string | null;
-  selectedProcurementId: string | null;
   workflowLog: WorkflowEntry[];
   toolbox: ToolboxRoutes | null;
   lastResult: { label: string; data: unknown } | null;
@@ -66,7 +63,6 @@ type StoreContext = {
   runAction: <T>(label: string, fn: () => Promise<T>, options?: { silent?: boolean }) => Promise<T>;
   refreshAll: () => Promise<void>;
   setSelectedMachineId: (id: string | null) => void;
-  setSelectedProcurementId: (id: string | null) => void;
   setSnapshots: (snapshots: SnapshotItem[]) => void;
   setBackups: (backups: BackupItem[]) => void;
   setToolbox: (toolbox: ToolboxRoutes | null) => void;
@@ -88,13 +84,11 @@ const initialState: State = {
   inventory: [],
   machines: [],
   images: [],
-  procurements: [],
   servers: [],
   products: [],
   snapshots: [],
   backups: [],
   selectedMachineId: null,
-  selectedProcurementId: null,
   workflowLog: [],
   toolbox: null,
   lastResult: null,
@@ -105,7 +99,18 @@ const STORAGE_KEYS = { baseUrl: 'v2-admin:url', token: 'v2-admin:token' };
 
 function defaultBaseUrl() {
   if (typeof window === 'undefined') return '';
+  // Build-time override (e.g., dev mode pointing at a separate API host).
+  // Set via NEXT_PUBLIC_V2_API_URL in .env.local. Without it, the UI calls
+  // its own origin — fine in production where v2-api serves /admin-ui static,
+  // wrong in dev where admin-web on :4300 needs to hit the API on :4200.
+  const envOverride = process.env.NEXT_PUBLIC_V2_API_URL?.trim();
+  if (envOverride) return envOverride;
   return window.location.origin;
+}
+
+function defaultToken() {
+  if (typeof window === 'undefined') return '';
+  return process.env.NEXT_PUBLIC_V2_ADMIN_TOKEN?.trim() ?? '';
 }
 
 function readLocal(key: string): string {
@@ -122,11 +127,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const toastSeq = useRef(0);
 
   // Hydrate from localStorage on first client render to avoid SSR mismatch.
+  // Env override (NEXT_PUBLIC_V2_API_URL) wins over localStorage. localStorage
+  // was the runtime override for the Settings dialog, but if the dev/prod
+  // env deliberately points at a known API URL, a stale localStorage entry
+  // (e.g. from a previous run on a different port) silently breaks every
+  // request. Prefer env, fall back to localStorage, then origin.
   useEffect(() => {
+    const env = process.env.NEXT_PUBLIC_V2_API_URL?.trim();
+    const envToken = process.env.NEXT_PUBLIC_V2_ADMIN_TOKEN?.trim();
+    const baseUrl = env || readLocal(STORAGE_KEYS.baseUrl) || defaultBaseUrl();
+    if (env && readLocal(STORAGE_KEYS.baseUrl) && readLocal(STORAGE_KEYS.baseUrl) !== env) {
+      window.localStorage.setItem(STORAGE_KEYS.baseUrl, env);
+    }
+    if (envToken && readLocal(STORAGE_KEYS.token) !== envToken) {
+      window.localStorage.setItem(STORAGE_KEYS.token, envToken);
+    }
     internalSet((prev) => ({
       ...prev,
-      baseUrl: readLocal(STORAGE_KEYS.baseUrl) || defaultBaseUrl(),
-      token: readLocal(STORAGE_KEYS.token),
+      baseUrl,
+      token: envToken || readLocal(STORAGE_KEYS.token) || defaultToken(),
     }));
     setHydrated(true);
   }, []);
@@ -211,7 +230,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const refreshAll = useCallback(async () => {
     await runAction('refresh', async () => {
-      const [health, regions, images, machines, clusters, hosts, inventory, procurements] = await Promise.all([
+      const [health, regions, images, machines, clusters, hosts, inventory] = await Promise.all([
         request<Health>('/health', { auth: false }),
         request<{ regions: string[] }>('/regions', { auth: false }),
         request<{ images: ImageItem[] }>('/images', { auth: false }),
@@ -219,7 +238,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         request<{ clusters: ClusterRow[] }>('/admin/clusters'),
         request<{ hosts: HostMember[] }>('/admin/hosts'),
         request<{ hosts: InventoryHost[] }>('/admin/hosts/inventory'),
-        request<{ procurements: ProcurementItem[] }>('/admin/procurements'),
       ]);
       setState((prev) => ({
         ...prev,
@@ -230,7 +248,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         clusters: clusters.clusters ?? [],
         hosts: hosts.hosts ?? [],
         inventory: inventory.hosts ?? [],
-        procurements: procurements.procurements ?? [],
         lastRefreshAt: new Date().toLocaleTimeString(),
       }));
       return {
@@ -240,7 +257,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         inventory: (inventory.hosts ?? []).length,
         machines: (machines.machines ?? []).length,
         images: (images.images ?? []).length,
-        procurements: (procurements.procurements ?? []).length,
       };
     });
   }, [request, runAction, setState]);
@@ -253,10 +269,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       backups: id === prev.selectedMachineId ? prev.backups : [],
       toolbox: id === prev.selectedMachineId ? prev.toolbox : null,
     }));
-  }, [setState]);
-
-  const setSelectedProcurementId = useCallback((id: string | null) => {
-    setState((prev) => ({ ...prev, selectedProcurementId: id }));
   }, [setState]);
 
   const setSnapshots = useCallback((snapshots: SnapshotItem[]) => {
@@ -303,7 +315,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       runAction,
       refreshAll,
       setSelectedMachineId,
-      setSelectedProcurementId,
       setSnapshots,
       setBackups,
       setToolbox,
@@ -326,7 +337,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       runAction,
       refreshAll,
       setSelectedMachineId,
-      setSelectedProcurementId,
       setSnapshots,
       setBackups,
       setToolbox,

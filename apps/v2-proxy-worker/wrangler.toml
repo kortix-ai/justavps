@@ -1,0 +1,43 @@
+name = "justavps-v2-proxy"
+main = "src/index.ts"
+compatibility_date = "2024-12-18"
+compatibility_flags = ["global_fetch_strictly_public"]
+
+# Bind a V2-only KV namespace before deploying:
+# [[kv_namespaces]]
+# binding = "KV"
+# id = "<v2-proxy-kv-namespace-id>"
+# preview_id = "<v2-proxy-kv-preview-namespace-id>"
+
+[vars]
+ENVIRONMENT = "development"
+PLATFORM_URL = "http://localhost:4300"
+PROXY_DOMAINS = "kortix-dev.cloud"
+
+[env.dev]
+name = "justavps-v2-proxy-dev"
+
+[env.dev.vars]
+ENVIRONMENT = "development"
+PLATFORM_URL = "http://localhost:4300"
+PROXY_DOMAINS = "kortix-dev.cloud"
+
+[env.production]
+name = "justavps-v2-proxy"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+PLATFORM_URL = "https://justavps.com"
+# Prod must be explicit. Do not use kortix.cloud unless this V2 Worker owns the
+# production wildcard route.
+PROXY_DOMAINS = "kortix.cloud"
+
+[placement]
+mode = "smart"
+[[env.dev.kv_namespaces]]
+binding = "KV"
+id = "30b11d4b604e4128b11afabe1692676d"
+
+[[env.production.kv_namespaces]]
+binding = "KV"
+id = "30b11d4b604e4128b11afabe1692676d"

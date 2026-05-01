@@ -22,12 +22,18 @@ function normalizeBase(input: string): string {
   return value.endsWith('/') ? value.slice(0, -1) : value;
 }
 
+function normalizePath(path: string): string {
+  const value = path.startsWith('/') ? path : `/${path}`;
+  return value.length > 1 && value.endsWith('/') ? value.slice(0, -1) : value;
+}
+
 export async function api<T = unknown>(ctx: ApiContext, path: string, opts: ApiOptions = {}): Promise<T> {
+  const normalizedPath = normalizePath(path);
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
   if (opts.auth !== false && ctx.token) headers.Authorization = `Bearer ${ctx.token}`;
 
-  const response = await fetch(normalizeBase(ctx.baseUrl) + path, {
+  const response = await fetch(normalizeBase(ctx.baseUrl) + normalizedPath, {
     method: opts.method ?? 'GET',
     headers,
     body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
@@ -47,9 +53,9 @@ export async function api<T = unknown>(ctx: ApiContext, path: string, opts: ApiO
   if (opts.expectedStatus !== undefined) {
     if (response.status !== opts.expectedStatus) {
       throw new ApiError(
-        `${opts.method ?? 'GET'} ${path} expected ${opts.expectedStatus}, got ${response.status}`,
+        `${opts.method ?? 'GET'} ${normalizedPath} expected ${opts.expectedStatus}, got ${response.status}`,
         response.status,
-        path,
+        normalizedPath,
         data,
       );
     }
@@ -60,7 +66,7 @@ export async function api<T = unknown>(ctx: ApiContext, path: string, opts: ApiO
     const message =
       (data as { message?: string })?.message ??
       (typeof data === 'string' ? data : `HTTP ${response.status}`);
-    throw new ApiError(`${opts.method ?? 'GET'} ${path} failed: ${response.status} ${message}`, response.status, path, data);
+    throw new ApiError(`${opts.method ?? 'GET'} ${normalizedPath} failed: ${response.status} ${message}`, response.status, normalizedPath, data);
   }
 
   return data as T;
@@ -115,10 +121,24 @@ export type InventoryHost = {
   publicIpv6?: string | null;
   incusClusterId?: string | null;
   incusMemberName?: string | null;
+  // Fleet-management lifecycle: requested → ordered → delivered →
+  // bootstrapping → joining → online ↔ cordoned ↔ draining → terminated.
+  // Drives cordon/drain/terminate UI buttons + autoscale eligibility.
+  lifecycleState?: string | null;
+  rawLifecycleState?: string | null;
+  capacityState?: string | null;
+  fleetIssue?: string | null;
+  clusterConfigured?: boolean;
+  bootstrapAddress?: string | null;
+  bootstrapAddressFamily?: 'ipv4' | 'ipv6' | string | null;
+  sku?: string | null;
+  costEurMonthly?: number | string | null;
+  metadata?: Record<string, unknown>;
 };
 
 export type Machine = {
   id: string;
+  slug?: string;
   name: string;
   type: 'container' | 'vm' | string;
   status: string;
@@ -128,6 +148,11 @@ export type Machine = {
   source?: { type: string; id: string | null } | { type: string };
   resources?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
+  urls?: {
+    proxy?: string;
+    terminal?: string;
+    port_template?: string;
+  };
   incus?: {
     cluster_id?: string;
     project?: string;
@@ -135,6 +160,38 @@ export type Machine = {
     member_name?: string | null;
     observed?: unknown;
   } & Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type ProxyToken = {
+  id: string;
+  token?: string;
+  token_prefix: string;
+  label: string | null;
+  machine_id: string;
+  machine_slug: string;
+  ports: number[] | null;
+  expires_at: string;
+  proxy_url?: string;
+  created_at: string;
+};
+
+export type SshToken = {
+  id: string;
+  token?: string;
+  token_prefix: string;
+  label: string | null;
+  machine_id: string;
+  expires_at: string;
+  ssh_command?: string;
+  ssh_config?: string;
+  target?: {
+    host?: string | null;
+    port?: number;
+    user?: string;
+  };
+  created_at: string;
 };
 
 export type ImageItem = {
@@ -150,36 +207,49 @@ export type ImageItem = {
   uploaded_at?: string | null;
 };
 
+export type ArtifactCostAttribution = {
+  account_id?: string;
+  machine_id?: string;
+  machine_name?: string;
+  cluster_id?: string;
+  incus_project?: string;
+  kind?: 'snapshot' | 'backup' | string;
+  storage_class?: 'local' | 'archive' | string;
+  metered_bytes?: number;
+  billable_gib?: number;
+  estimated?: boolean;
+  eur_per_month?: number;
+  pricing_key?: string;
+  pricing_micro_eur_per_sec?: number;
+  note?: string;
+  components?: Array<{ label: string; metered_bytes: number; billable_gib: number }>;
+};
+
 export type SnapshotItem = {
+  id?: string;
   name: string;
   created_at?: string;
   stateful?: boolean;
   expires_at?: string | null;
   size?: number;
+  account_id?: string;
+  machine_id?: string;
+  cost_attribution?: ArtifactCostAttribution;
 };
 
 export type BackupItem = {
+  id?: string;
   name: string;
+  incus_backup_name?: string;
   created_at?: string;
   expires_at?: string | null;
   instance_only?: boolean;
-};
-
-export type ProcurementItem = {
-  id: string;
-  vendor: string;
-  productId?: string;
-  product_id?: string;
-  hostClass: string;
-  region: string;
-  location: string;
-  status: string;
-  hostId?: string | null;
-  host_id?: string | null;
-  request?: unknown;
-  result?: unknown;
-  createdAt?: string;
-  updatedAt?: string;
+  optimized_storage?: boolean;
+  size?: number;
+  account_id?: string;
+  machine_id?: string;
+  restore_snapshot?: string;
+  cost_attribution?: ArtifactCostAttribution;
 };
 
 export type ToolboxRoutes = {

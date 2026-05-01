@@ -1,47 +1,77 @@
 'use client';
-
 import { useStore } from '@/lib/store';
-import { PageHeader } from '@/components/ui/page-header';
-import { Card, CardHeader } from '@/components/ui/card';
-import { Field } from '@/components/ui/field';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { Tag } from '@/components/ui/tag';
-import { RefreshCw } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { useUiPrefs } from '@/lib/ui-prefs';
+import { useState } from 'react';
 
 export default function SettingsPage() {
-  const { state, setBaseUrl, setToken, refreshAll } = useStore();
+  const { state, setBaseUrl, setToken } = useStore();
+  const {
+    defaultStatefulSnapshots,
+    setDefaultStatefulSnapshots,
+    defaultFullBackups,
+    setDefaultFullBackups,
+    defaultOptimizedBackups,
+    setDefaultOptimizedBackups,
+  } = useUiPrefs();
+  const [base, setBase] = useState(state.baseUrl);
+  const [token, setTokenLocal] = useState(state.token);
   return (
-    <section className="mx-auto flex w-full max-w-[1280px] flex-col gap-6 px-7 pb-10 pt-6" data-route="settings">
-      <PageHeader
-        title="Settings"
-        description="Connection to the V2 API. Stored in browser localStorage; never sent to the server."
-      />
-
+    <div className="flex flex-col gap-6">
+      <header><h1 className="text-2xl font-semibold tracking-tight">Settings</h1><p className="text-sm text-muted-foreground">API base URL and admin token.</p></header>
       <Card>
-        <CardHeader title="V2 API connection" desc="The standalone apps/v2-api endpoint that this UI talks to." />
-        <div className="grid grid-cols-2 gap-3 max-[720px]:grid-cols-1">
-          <Field label="V2 API base URL" htmlFor="api-url" span="full" help="Defaults to the same origin that serves this admin UI.">
-            <Input id="api-url" value={state.baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="http://localhost:4200" />
-          </Field>
-          <Field label="Admin token" htmlFor="admin-token" span="full" help="Sent as Authorization: Bearer ... on every mutating call. Required for any /admin/* surface.">
-            <Input id="admin-token" type="password" autoComplete="off" value={state.token} onChange={(event) => setToken(event.target.value)} placeholder="v2 admin token" />
-          </Field>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button leftIcon={<RefreshCw className="size-3.5" />} disabled={state.busy} onClick={() => refreshAll().catch(() => {})}>Refresh now</Button>
-          <span className="flex-1" />
-          <Tag tone={state.token ? 'violet' : 'ghost'}>{state.token ? 'token set' : 'no token'}</Tag>
-          <Tag tone={state.health?.status === 'ok' ? 'ok' : state.health ? 'warn' : 'ghost'}>health · {state.health?.status ?? '—'}</Tag>
-        </div>
+        <CardHeader><CardTitle>API connection</CardTitle><CardDescription>Stored in localStorage; survives reloads.</CardDescription></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="base">V2 API base URL</Label>
+            <Input id="base" value={base} onChange={(e) => setBase(e.target.value)} className="font-mono text-sm" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="token">Admin token</Label>
+            <Input id="token" type="password" value={token} onChange={(e) => setTokenLocal(e.target.value)} className="font-mono text-sm" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Button onClick={() => { setBaseUrl(base); setToken(token); }}>Save</Button>
+            <Badge variant={state.health?.status === 'ok' ? 'default' : 'secondary'}>
+              {state.health?.status ?? 'unknown'}
+            </Badge>
+          </div>
+        </CardContent>
       </Card>
-
       <Card>
-        <CardHeader title="Diagnostics" desc="Last known V2 API health response." />
-        <pre className="min-h-[180px] overflow-auto whitespace-pre-wrap rounded-[8px] border border-border bg-bg p-3 font-mono text-[12px] leading-relaxed text-zinc-300">
-          {state.health ? JSON.stringify(state.health, null, 2) : '— No /health response yet.'}
-        </pre>
+        <CardHeader>
+          <CardTitle>Artifact defaults</CardTitle>
+          <CardDescription>Defaults for snapshot and backup dialogs. Stored locally in this admin browser.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+            <div className="space-y-1">
+              <Label htmlFor="default-stateful-snapshots" className="cursor-pointer">Create VM snapshots statefully by default</Label>
+              <p className="text-xs text-muted-foreground">For VMs only: captures runtime memory state as well as disk. Containers stay disk-only.</p>
+            </div>
+            <Switch id="default-stateful-snapshots" checked={defaultStatefulSnapshots} onCheckedChange={setDefaultStatefulSnapshots} />
+          </div>
+          <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+            <div className="space-y-1">
+              <Label htmlFor="default-full-backups" className="cursor-pointer">Create full backups by default</Label>
+              <p className="text-xs text-muted-foreground">Full backups include the instance and its snapshots. Turn off for smaller instance-only backups.</p>
+            </div>
+            <Switch id="default-full-backups" checked={defaultFullBackups} onCheckedChange={setDefaultFullBackups} />
+          </div>
+          <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+            <div className="space-y-1">
+              <Label htmlFor="default-optimized-backups" className="cursor-pointer">Use optimized storage backups by default</Label>
+              <p className="text-xs text-muted-foreground">Faster/native Incus backup format where supported; best for same-storage-driver restores.</p>
+            </div>
+            <Switch id="default-optimized-backups" checked={defaultOptimizedBackups} onCheckedChange={setDefaultOptimizedBackups} />
+          </div>
+        </CardContent>
       </Card>
-    </section>
+    </div>
   );
 }

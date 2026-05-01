@@ -2,23 +2,40 @@
   "name": "justavps-v2-api",
   "private": true,
   "type": "module",
+  "bin": {
+    "justavps": "./cli/index.ts"
+  },
   "scripts": {
+    "cli": "tsx cli/index.ts",
     "build": "prisma generate && tsc -p tsconfig.json",
+    "sdk:snapshot": "node -e \"const u=process.env.V2_API_URL||'http://localhost:4200'; fetch(u+'/docs/openapi.json').then(r=>r.text()).then(t=>require('node:fs').writeFileSync('sdk/openapi.json', t)).then(()=>console.log('snapshotted from '+u+' -> sdk/openapi.json'))\"",
+    "sdk:gen:ts": "openapi-ts",
+    "sdk:gen:python": "tsx scripts/generate-python-sdk.ts",
+    "sdk:gen": "pnpm sdk:snapshot && pnpm sdk:gen:ts && pnpm sdk:gen:python",
     "db:generate": "tsx src/scripts/prisma.ts generate",
     "db:migrate": "tsx src/scripts/prisma.ts migrate deploy",
     "db:migrate:dev": "tsx src/scripts/prisma.ts migrate dev",
     "dev": "prisma generate && tsx src/index.ts",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "tsx --test 'src/**/*.test.ts'",
+    "test:watch": "tsx --test --watch 'src/**/*.test.ts'",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.11",
+    "@hono/zod-openapi": "^1.3.0",
     "@prisma/client": "^6.19.0",
+    "@scalar/hono-api-reference": "^0.10.10",
+    "commander": "^14.0.3",
     "dotenv": "^17.3.1",
     "hono": "^4.12.8",
+    "ws": "^8.20.0",
     "zod": "4.3.6"
   },
   "devDependencies": {
+    "@hey-api/openapi-ts": "^0.96.1",
     "@types/node": "^20",
+    "@types/ws": "^8.18.1",
     "prisma": "^6.19.0",
     "tsx": "^4.21.0",
     "typescript": "^5"

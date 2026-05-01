@@ -123,6 +123,21 @@ func TestConfigPortURLDefaultDomain(t *testing.T) {
 	}
 }
 
+func TestConfigPortURLExplicitTemplate(t *testing.T) {
+	cfg := &Config{Slug: "abc123", ProxyDomain: "kortix.cloud", PortURLTmpl: "http://{{port}}--abc123.localhost:4200/"}
+
+	url := cfg.PortURL(3000)
+	expected := "http://3000--abc123.localhost:4200/"
+	if url != expected {
+		t.Errorf("PortURL(3000) = %q, expected %q", url, expected)
+	}
+
+	tmpl := cfg.PortURLTemplate()
+	if tmpl != cfg.PortURLTmpl {
+		t.Errorf("PortURLTemplate() = %q, expected explicit template %q", tmpl, cfg.PortURLTmpl)
+	}
+}
+
 func TestTrimEventFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "events")

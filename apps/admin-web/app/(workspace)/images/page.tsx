@@ -1,199 +1,309 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '@/lib/store';
-import { PageHeader } from '@/components/ui/page-header';
-import { Card, CardHeader } from '@/components/ui/card';
-import { Tag } from '@/components/ui/tag';
+import {
+  Card, CardContent, CardDescription, CardHeader, CardTitle,
+} from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Empty } from '@/components/ui/empty';
-import { Segmented } from '@/components/ui/segmented';
-import { Download, ImageIcon, RefreshCw, Search, Trash2 } from 'lucide-react';
-import { formatBytes, shortId } from '@/lib/utils';
-import { PullImageDialog } from '@/components/features/pull-image-dialog';
+import { Label } from '@/components/ui/label';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import { Switch } from '@/components/ui/switch';
+import { useConfirm } from '@/components/confirm';
+import { toast } from 'sonner';
+import { formatBytes } from '@/lib/utils';
+import type { ImageItem } from '@/lib/api';
+import {
+  CATALOG_IMAGES,
+  catalogForImage,
+  imageAliases,
+  imageClusterLabel,
+  imageDisplayName,
+  imageIdForCreate,
+  imageTypeLabel,
+} from '@/lib/image-sources';
+import { Trash2, Plus, RefreshCw } from 'lucide-react';
 
-type SourceFilter = 'all' | 'docker' | 'incus';
+type ImageClusterState = { id: string; cached: boolean; fingerprint: string | null; size: number | null };
+type EnrichedCatalogImage = { id: string; clusters: ImageClusterState[] };
 
 export default function ImagesPage() {
-  const { state, runAction, request, refreshAll } = useStore();
-  const [filter, setFilter] = useState('');
-  const [source, setSource] = useState<SourceFilter>('all');
+  const { state, request, runAction, refreshAll } = useStore();
+  const { confirm } = useConfirm();
+  const [enrichment, setEnrichment] = useState<Record<string, EnrichedCatalogImage>>({});
+  const [liveImages, setLiveImages] = useState<ImageItem[]>([]);
   const [pullOpen, setPullOpen] = useState(false);
 
-  const filtered = useMemo(() => {
-    const lower = filter.trim().toLowerCase();
-    return state.images.filter((image) => {
-      const sourceKind = (image.properties ?? {})['justavps.source'];
-      if (source === 'docker' && sourceKind !== 'docker') return false;
-      if (source === 'incus' && sourceKind === 'docker') return false;
-      if (!lower) return true;
-      const aliases = (image.aliases ?? []).map((a) => a.name).join(' ');
-      return `${aliases} ${image.fingerprint} ${image.cluster?.id ?? ''} ${image.type ?? ''}`.toLowerCase().includes(lower);
-    });
-  }, [filter, source, state.images]);
+  // Fetch cluster cache state in the background. Never blocks render —
+  // the static catalog is the source of truth for what's available.
+  useEffect(() => {
+    if (!state.baseUrl) return;
+    let cancelled = false;
+    async function tick() {
+      try {
+        const [templateData, imageData] = await Promise.all([
+          request<{ templates: EnrichedCatalogImage[] }>('/templates'),
+          request<{ images: ImageItem[] }>('/images', { auth: false }),
+        ]);
+        if (cancelled) return;
+        const map: Record<string, EnrichedCatalogImage> = {};
+        for (const t of templateData.templates) map[t.id] = t;
+        setEnrichment(map);
+        setLiveImages(imageData.images ?? []);
+      } catch { /* surfaced via store */ }
+    }
+    tick();
+    const id = setInterval(tick, 8000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [request, state.baseUrl, state.token]);
 
-  async function deleteImage(id: string) {
-    await runAction(`delete image ${id}`, async () => {
-      const data = await request(`/images/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  const imageRows = liveImages.length > 0 ? liveImages : state.images;
+
+  const extras = useMemo(() => {
+    const catalogIds = new Set(CATALOG_IMAGES.map((t) => t.id));
+    return imageRows.filter((i) => !((i.aliases ?? []).some((a) => catalogIds.has(a.name))));
+  }, [imageRows]);
+
+  async function purgeExtras() {
+    if (!await confirm({
+      title: `Clear ${extras.length} non-catalog image(s) from cluster cache?`,
+      description: 'Sweeps every Incus cluster cache. Catalog images above are kept. Running instances are not affected.',
+      confirmLabel: 'Clear cache',
+      destructive: true,
+    })) return;
+    await runAction('clear cache extras', async () => {
+      const r = await request<{ deleted: number; kept: number; errors: { message: string }[] }>('/templates/cache/extras', { method: 'DELETE' });
       await refreshAll();
-      return data;
+      toast.success(`Cleared ${r.deleted} image(s)`);
+      return r;
     });
   }
 
-  const dockerImages = state.images.filter((image) => (image.properties ?? {})['justavps.source'] === 'docker').length;
-  const publicCount = state.images.filter((i) => i.public).length;
-  const totalBytes = state.images.reduce((acc, i) => acc + (typeof i.size === 'number' ? i.size : 0), 0);
-
   return (
-    <section className="mx-auto flex w-full max-w-[1280px] flex-col gap-6 px-7 pb-10 pt-6" data-route="images">
-      <PageHeader
-        title="Images"
-        description="The image catalog this workspace can launch machines from. Pull a Docker image once, then pick it from the source picker when creating a machine."
-        actions={
-          <>
-            <Button variant="secondary" leftIcon={<RefreshCw className="size-3.5" />} disabled={state.busy} onClick={() => refreshAll().catch(() => {})}>
-              Refresh
-            </Button>
-            <Button leftIcon={<Download className="size-3.5" />} disabled={state.busy} onClick={() => setPullOpen(true)} id="open-pull-image">
-              Pull from registry
-            </Button>
-          </>
-        }
-      />
-
-      {state.images.length === 0 ? (
-        <Card>
-          <div className="flex flex-col items-start gap-4 p-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5 flex size-9 items-center justify-center rounded-[10px] border border-border bg-bg-2">
-                <Download className="size-4 text-fg-muted" />
-              </div>
-              <div>
-                <div className="text-[15px] font-semibold tracking-tight">Pull your first Docker image</div>
-                <div className="mt-0.5 text-[12.5px] text-fg-muted">
-                  Native Incus OCI import — pin a tag (e.g. <code className="font-mono">ubuntu:22.04</code>). The pull happens on the
-                  cluster you choose; the alias becomes selectable when creating a machine.
-                </div>
-              </div>
-            </div>
-            <Button leftIcon={<Download className="size-3.5" />} onClick={() => setPullOpen(true)} id="open-pull-image-hero">
-              Pull from registry
-            </Button>
-          </div>
-        </Card>
-      ) : null}
-
-      <div className="grid grid-cols-3 gap-3.5 max-[1100px]:grid-cols-2 max-[720px]:grid-cols-1">
-        <div className="flex flex-col gap-1.5 rounded-[12px] border border-border bg-bg-1 p-4">
-          <div className="text-[12px] font-medium text-fg-muted">Images</div>
-          <div className="text-[26px] font-semibold leading-none tracking-[-0.04em]">{state.images.length}</div>
-          <div className="text-[12px] text-fg-subtle">{dockerImages} from Docker · {state.images.length - dockerImages} from Incus</div>
+    <div className="space-y-6">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Images</h1>
+          <p className="text-sm text-muted-foreground">
+            Simple launch images first. Incus aliases and fingerprints are tucked away under technical details.
+          </p>
         </div>
-        <div className="flex flex-col gap-1.5 rounded-[12px] border border-border bg-bg-1 p-4">
-          <div className="text-[12px] font-medium text-fg-muted">Visibility</div>
-          <div className="text-[26px] font-semibold leading-none tracking-[-0.04em]">{publicCount}</div>
-          <div className="text-[12px] text-fg-subtle">{publicCount} public · {state.images.length - publicCount} private</div>
-        </div>
-        <div className="flex flex-col gap-1.5 rounded-[12px] border border-border bg-bg-1 p-4">
-          <div className="text-[12px] font-medium text-fg-muted">Total size</div>
-          <div className="text-[26px] font-semibold leading-none tracking-[-0.04em]">{formatBytes(totalBytes)}</div>
-          <div className="text-[12px] text-fg-subtle">approximate</div>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" onClick={() => refreshAll().catch(() => {})} title="Refresh">
+            <RefreshCw className="size-4" />
+          </Button>
+          <Button onClick={() => setPullOpen(true)}>
+            <Plus className="size-3.5" /> Pull image
+          </Button>
         </div>
       </div>
 
-      <Card>
-        <CardHeader
-          title="Image catalog"
-          desc="/images endpoint"
-          actions={
-            <div className="flex flex-wrap items-center gap-2">
-              <Segmented<SourceFilter>
-                value={source}
-                onChange={(id) => setSource(id)}
-                ariaLabel="Source filter"
-                items={[
-                  { id: 'all', label: 'All' },
-                  { id: 'docker', label: 'Docker' },
-                  { id: 'incus', label: 'Incus' },
-                ]}
-              />
-              <div className="w-[260px]">
-                <Input inputSize="sm" placeholder="Filter by alias, cluster, fingerprint…" leftIcon={<Search className="size-3.5" />} value={filter} onChange={(event) => setFilter(event.target.value)} />
-              </div>
-            </div>
-          }
-        />
-        <div className="overflow-hidden rounded-[12px] border border-border bg-bg-1">
-          <div className="overflow-auto">
-            <table className="w-full min-w-[720px] border-collapse">
-              <thead>
-                <tr>
-                  {['Aliases', 'Type', 'Visibility', 'Source', 'Size', 'Cluster', 'Fingerprint', ''].map((h) => (
-                    <th key={h} className="sticky top-0 bg-bg-1 px-3.5 py-2.5 text-left text-[11px] font-medium uppercase tracking-[0.06em] text-fg-muted">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody id="images-tbody">
-                {filtered.length === 0 ? (
-                  <tr>
-                    <td colSpan={8}>
-                      {state.images.length === 0 ? (
-                        <Empty
-                          title={
-                            <span className="inline-flex items-center gap-2">
-                              <ImageIcon className="size-4 text-fg-muted" />
-                              No images yet
-                            </span>
-                          }
-                          description="Once you pull a Docker image (or publish one from a running machine), it shows up here and becomes selectable when creating a machine."
-                          action={<Button leftIcon={<Download className="size-3.5" />} onClick={() => setPullOpen(true)}>Pull from registry</Button>}
-                        />
-                      ) : (
-                        <Empty title={filter || source !== 'all' ? 'No images match' : 'No images'} description="Try a different filter, or remove it to see all images." />
-                      )}
-                    </td>
-                  </tr>
-                ) : filtered.map((image) => {
-                  const aliases = (image.aliases ?? []).map((alias) => alias.name).join(', ') || '—';
-                  const deleteId = image.aliases?.[0]?.name ?? image.fingerprint ?? image.id;
-                  const dockerRef = (image.properties ?? {})['justavps.docker_ref'];
-                  const sourceKind = (image.properties ?? {})['justavps.source'];
-                  return (
-                    <tr key={image.fingerprint ?? image.id} className="border-b border-border last:border-0">
-                      <td className="px-3.5 py-2.5">
-                        <div className="font-medium">{aliases}</div>
-                      </td>
-                      <td className="px-3.5 py-2.5"><Tag tone="ghost">{image.type ?? '—'}</Tag></td>
-                      <td className="px-3.5 py-2.5">{image.public ? <Tag tone="info">public</Tag> : <Tag>private</Tag>}</td>
-                      <td className="px-3.5 py-2.5">
-                        {sourceKind === 'docker' ? (
-                          <span className="inline-flex flex-col gap-0.5">
-                            <Tag tone="violet">docker</Tag>
-                            {dockerRef ? <span className="font-mono text-[11px] text-fg-subtle">{dockerRef}</span> : null}
-                          </span>
-                        ) : (
-                          <Tag tone="ghost">incus</Tag>
-                        )}
-                      </td>
-                      <td className="px-3.5 py-2.5 text-fg-muted">{formatBytes(image.size)}</td>
-                      <td className="px-3.5 py-2.5 font-mono text-fg-muted">{image.cluster?.id ?? '—'}</td>
-                      <td className="px-3.5 py-2.5"><code className="font-mono text-fg-muted">{shortId(image.fingerprint, 18)}</code></td>
-                      <td className="px-3.5 py-2.5">
-                        <Button variant="danger-ghost" size="sm" leftIcon={<Trash2 className="size-3.5" />} disabled={state.busy} onClick={() => deleteImage(deleteId).catch(() => {})}>
-                          Delete
-                        </Button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </Card>
+      <div className="grid gap-4 md:grid-cols-2">
+        {imageRows.map((image) => {
+          const catalog = catalogForImage(image);
+          const aliases = imageAliases(image);
+          const createId = imageIdForCreate(image);
+          const e = catalog ? enrichment[catalog.id] : null;
+          const description = catalog?.description || image.properties?.description || 'Cached Incus image.';
+          return (
+            <Card key={`${image.cluster?.id ?? 'cluster'}-${image.fingerprint}`}>
+              <CardHeader>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-base">{imageDisplayName(image)}</CardTitle>
+                      {catalog ? <Badge variant="default" className="text-2xs">base</Badge> : <Badge variant="secondary" className="text-2xs">cached</Badge>}
+                    </div>
+                    <CardDescription className="text-xs">{description}</CardDescription>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <Badge variant="outline" className="font-mono text-xs">{imageTypeLabel(image.type)}</Badge>
+                    <Badge variant="outline" className="font-mono text-2xs">{imageClusterLabel(image)}</Badge>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                  {image.size != null ? <span className="font-mono">{formatBytes(Number(image.size))}</span> : null}
+                  {image.uploaded_at ? <span>uploaded {new Date(image.uploaded_at).toLocaleString()}</span> : null}
+                </div>
+                <details className="rounded-md border bg-muted/20 px-3 py-2 text-xs">
+                  <summary className="cursor-pointer select-none text-muted-foreground">Technical details</summary>
+                  <div className="mt-2 space-y-2">
+                    <code className="block truncate rounded bg-background px-2 py-1 text-2xs">launch id: {createId}</code>
+                    <code className="block truncate rounded bg-background px-2 py-1 text-2xs">fingerprint: {image.fingerprint}</code>
+                    {aliases.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {aliases.map((alias) => (
+                          <Badge key={alias} variant={alias === createId ? 'default' : 'secondary'} className="font-mono text-2xs">{alias}</Badge>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </details>
+                {e && e.clusters.length > 0 ? (
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                    <span className="text-muted-foreground">Base image cached on</span>
+                    {e.clusters.map((c) => (
+                      <Badge key={c.id} variant={c.cached ? 'default' : 'secondary'} className="font-mono text-2xs">
+                        {c.id}{c.cached ? ' ✓' : ' ·'}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
 
-      <PullImageDialog open={pullOpen} onClose={() => setPullOpen(false)} onCreated={() => setPullOpen(false)} />
-    </section>
+      {imageRows.length === 0 ? (
+        <div className="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">
+          No cached images returned by the API yet.
+        </div>
+      ) : null}
+
+      {extras.length > 0 ? (
+        <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
+          <div>
+            <p className="text-sm font-medium">{extras.length} extra cached image(s)</p>
+            <p className="text-xs text-muted-foreground">
+              They are shown above too. Clear only if you intentionally want to purge non-base cache extras; running instances keep their copy.
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={purgeExtras} disabled={state.busy}>
+            <Trash2 className="size-3.5" /> Clear cache
+          </Button>
+        </div>
+      ) : null}
+
+      <PullImageDialog
+        open={pullOpen}
+        onOpenChange={setPullOpen}
+        clusters={state.clusters.map((c) => c.id)}
+        request={request}
+        runAction={runAction}
+        refreshAll={refreshAll}
+        busy={state.busy}
+      />
+    </div>
+  );
+}
+
+function PullImageDialog({
+  open, onOpenChange, clusters, request, runAction, refreshAll, busy,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  clusters: string[];
+  request: ReturnType<typeof useStore>['request'];
+  runAction: ReturnType<typeof useStore>['runAction'];
+  refreshAll: ReturnType<typeof useStore>['refreshAll'];
+  busy: boolean;
+}) {
+  const [source, setSource] = useState<'docker' | 'simplestreams'>('simplestreams');
+  const [name, setName] = useState('');
+  const [ref, setRef] = useState('ubuntu/24.04');
+  const [server, setServer] = useState('');
+  const [asVm, setAsVm] = useState(false);
+  const [clusterId, setClusterId] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  // Sensible default servers per source. User can override.
+  const defaultServer = source === 'docker' ? 'https://docker.io' : 'https://images.linuxcontainers.org';
+  const effectiveServer = server.trim() || defaultServer;
+  const placeholder = source === 'docker' ? 'kortix/computer:dev-latest' : 'ubuntu/24.04';
+
+  async function pull() {
+    setError(null);
+    if (!ref.trim()) return setError('Image reference required.');
+    const body: Record<string, unknown> = {
+      name: name.trim() || undefined,
+      cluster_id: clusterId || undefined,
+    };
+    if (source === 'docker') body.docker = { ref: ref.trim(), server: effectiveServer, as_vm: asVm };
+    else body.simplestreams = { ref: ref.trim(), server: effectiveServer, as_vm: asVm };
+
+    try {
+      await runAction(`pull ${ref}`, async () => {
+        const r = await request('/images', { method: 'POST', body: body as never });
+        await refreshAll();
+        toast.success(`Pulled ${name || ref}`);
+        onOpenChange(false);
+        setName('');
+        setRef('ubuntu/24.04');
+        return r;
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Pull image</DialogTitle>
+          <DialogDescription>
+            Pull from a public registry into the cluster cache. Use a local alias so it appears in the New Machine image picker.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div className="space-y-1.5">
+            <Label>Source</Label>
+            <Select value={source} onValueChange={(v) => setSource(v as 'docker' | 'simplestreams')}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="simplestreams">Simplestreams (linuxcontainers.org — Ubuntu, Debian, Alpine, supports VM)</SelectItem>
+                <SelectItem value="docker">Docker / OCI registry (Docker Hub, GHCR, etc.)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ref">Reference</Label>
+            <Input id="ref" value={ref} onChange={(e) => setRef(e.target.value)} placeholder={placeholder} className="font-mono" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="server">Server (optional)</Label>
+            <Input id="server" value={server} onChange={(e) => setServer(e.target.value)} placeholder={defaultServer} className="font-mono text-xs" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="alias">Local alias (optional)</Label>
+            <Input id="alias" value={name} onChange={(e) => setName(e.target.value)} placeholder="auto-generated" className="font-mono text-xs" />
+            <p className="text-2xs text-muted-foreground">What appears in the New Machine → Images picker.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Cluster</Label>
+              <Select value={clusterId || 'first-available'} onValueChange={(v) => setClusterId(v === 'first-available' ? '' : v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="first-available">First available</SelectItem>
+                  {clusters.map((id) => <SelectItem key={id} value={id}>{id}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center justify-between rounded-md border px-3">
+              <Label htmlFor="as-vm" className="cursor-pointer">As VM</Label>
+              <Switch id="as-vm" checked={asVm} onCheckedChange={setAsVm} />
+            </div>
+          </div>
+          {error ? (
+            <div className="whitespace-pre-line rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</div>
+          ) : null}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={pull} disabled={busy || !ref.trim()}>Pull</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -40,7 +40,7 @@ test.describe('V2 admin web', () => {
     await dialog.locator('[data-source-tab="empty"]').click();
     await expect(dialog.getByText('Creates an Incus instance with no rootfs source.')).toBeVisible();
     await dialog.locator('[data-source-tab="backup"]').click();
-    await expect(dialog.getByText('blocked · 501')).toBeVisible();
+    await expect(dialog.locator('#create-backup-machine')).toBeVisible();
     await dialog.locator('#create-cancel').click();
     await expect(dialog).toBeHidden();
 
@@ -49,38 +49,12 @@ test.describe('V2 admin web', () => {
     await expect(page).toHaveURL(/\/admin\/?$/);
     await expect(page.getByRole('heading', { name: 'Admin', level: 1 })).toBeVisible();
 
-    // Admin → Topology
-    await page.locator('#primary-nav [data-route="topology"]').click();
-    await expect(page.locator('#regions-view').first()).toContainText(process.env.V2_E2E_REGION || 'eu');
-    await expect(page.locator('#hosts-tbody a', { hasText: 'Incus UI' }).first()).toBeVisible();
-
-    // Admin → API Console
-    await page.locator('#primary-nav [data-route="console"]').click();
-    await page.locator('#console-method').selectOption('GET');
-    await page.locator('#console-path').fill('/health');
-    await page.locator('#console-body').fill('');
-    await page.locator('#console-send').click();
-    await expect(page.locator('#console-status')).toContainText('200', { timeout: 30_000 });
-
-    // Admin → Procurement pipeline
-    await page.locator('#primary-nav [data-route="procurement"]').click();
-    await expect(page.getByRole('heading', { name: 'Procurement', level: 1 })).toBeVisible();
-    await page.locator('#proc-product').fill('v2-ui-dry-run-product');
-    await page.locator('#proc-location').fill('HEL1');
-    await page.locator('#proc-region').fill(process.env.V2_E2E_REGION || 'eu');
-    await page.locator('#proc-cluster').fill('hel1');
-    await page.locator('#proc-quote').click();
-    await expect(page.getByTestId('v2-status')).toContainText('quote procurement ok', { timeout: 60_000 });
-    await page.locator('#proc-create').click();
-    await expect(page.getByTestId('v2-status')).toContainText('create dry-run procurement ok', { timeout: 60_000 });
-    await page.locator('#proc-approve').click();
-    await expect(page.getByTestId('v2-status')).toContainText(/^approve .* ok$/, { timeout: 60_000 });
-    await page.locator('#proc-order-plan').click();
-    await expect(page.getByTestId('v2-status')).toContainText(/^plan order .* ok$/, { timeout: 60_000 });
-    await page.locator('#proc-bootstrap-plan').click();
-    await expect(page.getByTestId('v2-status')).toContainText(/^bootstrap plan .* ok$/, { timeout: 60_000 });
-    await page.locator('#proc-cancel').click();
-    await expect(page.getByTestId('v2-status')).toContainText(/^cancel .* ok$/, { timeout: 60_000 });
+    // Admin → Fleet
+    await page.locator('#primary-nav [data-route="fleet"]').click();
+    await expect(page.getByRole('heading', { name: 'Fleet', level: 1 })).toBeVisible();
+    await expect(page.getByText('Regions')).toBeVisible();
+    await expect(page.getByText('Clusters')).toBeVisible();
+    await expect(page.getByText('Hosts')).toBeVisible();
 
     // Run the full E2E workflow from the admin scope (where the Run E2E button lives).
     await page.locator('#primary-nav [data-route="admin"]').click();

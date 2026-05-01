@@ -2,9 +2,11 @@ import './globals.css';
 import type { Metadata, Viewport } from 'next';
 import { GeistSans } from 'geist/font/sans';
 import { GeistMono } from 'geist/font/mono';
-import { ToastStack } from '@/components/shell/toast-stack';
-import { CommandPaletteProvider } from '@/components/shell/command-palette';
+import { Toaster } from '@/components/ui/sonner';
 import { StoreProvider } from '@/lib/store';
+import { UiPrefsProvider } from '@/lib/ui-prefs';
+import { ConfirmProvider } from '@/components/confirm';
+import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = {
   title: 'JustAVPS V2',
@@ -17,13 +19,15 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`} suppressHydrationWarning>
-      <body className="min-h-screen bg-bg text-fg">
+    <html lang="en" className={cn(GeistSans.variable, GeistMono.variable)} suppressHydrationWarning>
+      <body className="min-h-screen bg-background text-foreground antialiased">
         <StoreProvider>
-          <CommandPaletteProvider>
-            {children}
-            <ToastStack />
-          </CommandPaletteProvider>
+          <UiPrefsProvider>
+            <ConfirmProvider>
+              {children}
+              <Toaster richColors position="bottom-right" />
+            </ConfirmProvider>
+          </UiPrefsProvider>
         </StoreProvider>
       </body>
     </html>

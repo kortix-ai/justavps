@@ -72,19 +72,23 @@ function safeJoin(root: string, requested: string): string | null {
   return target;
 }
 
-export function registerAdminUi(app: Hono): { distRoot: string } {
+// Accept either plain `Hono` or `OpenAPIHono` (which extends it). The handlers
+// only use `app.get`, which both share, so widening the parameter type avoids
+// dragging the OpenAPI generic plumbing through the callers.
+type AnyHono = { get: (path: string, ...handlers: Array<(c: Context) => Response | Promise<Response>>) => unknown };
+export function registerAdminUi(app: AnyHono): { distRoot: string } {
   const distRoot = resolveDistRoot();
   const indexPath = join(distRoot, 'index.html');
 
-  app.get(ADMIN_UI_PREFIX, async (c) => {
+  app.get(ADMIN_UI_PREFIX, async (c: Context) => {
     return serveIndex(c, distRoot, indexPath);
   });
 
-  app.get(`${ADMIN_UI_PREFIX}/`, async (c) => {
+  app.get(`${ADMIN_UI_PREFIX}/`, async (c: Context) => {
     return serveIndex(c, distRoot, indexPath);
   });
 
-  app.get(`${ADMIN_UI_PREFIX}/*`, async (c) => {
+  app.get(`${ADMIN_UI_PREFIX}/*`, async (c: Context) => {
     const path = c.req.path;
     const remainder = path.slice(ADMIN_UI_PREFIX.length); // includes leading "/"
     if (!remainder || remainder === '/') {
@@ -110,11 +114,11 @@ export function registerAdminUi(app: Hono): { distRoot: string } {
       }
     }
 
-    // 2. Next-style trailing-slash route: /admin-ui/topology → out/topology/index.html
+    // 2. Next-style trailing-slash route: /admin-ui/fleet → out/fleet/index.html
     const dirIndex = `${target}/index.html`;
     if (existsSync(dirIndex)) return await sendFile(c, dirIndex);
 
-    // 3. Static-export non-trailing variant: out/topology.html
+    // 3. Static-export non-trailing variant: out/fleet.html
     const htmlSibling = `${target}.html`;
     if (existsSync(htmlSibling)) return await sendFile(c, htmlSibling);
 

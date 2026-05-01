@@ -9,6 +9,7 @@ export type IncusEnvelope<T> = {
 
 export type IncusServer = {
   environment?: {
+    certificate?: string;
     server_name?: string;
     server_clustered?: boolean;
     server_version?: string;
@@ -47,6 +48,29 @@ export type IncusInstance = {
   created_at?: string;
 };
 
+export type IncusInstanceState = {
+  status?: string;
+  status_code?: number;
+  disk?: Record<string, unknown>;
+  memory?: Record<string, unknown>;
+  network?: Record<string, {
+    addresses?: Array<{
+      family?: string;
+      address?: string;
+      netmask?: string;
+      scope?: string;
+    }>;
+    counters?: Record<string, unknown>;
+    hwaddr?: string;
+    host_name?: string;
+    mtu?: number;
+    state?: string;
+    type?: string;
+  }>;
+  pid?: number;
+  processes?: number;
+};
+
 export type IncusOperation = {
   id: string;
   class: string;
@@ -63,6 +87,7 @@ export type IncusSnapshot = {
   created_at?: string;
   expires_at?: string;
   stateful?: boolean;
+  size?: number;
   config?: Record<string, string>;
   devices?: Record<string, Record<string, string>>;
 };
