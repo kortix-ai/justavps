@@ -11,5 +11,43 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.12
+    container_name: justavps-clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    environment:
+      CLICKHOUSE_DB: justavps_telemetry
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: justavps123
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--user", "default", "--password", "justavps123", "--query", "SELECT 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.117.0
+    container_name: justavps-otel-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    restart: unless-stopped
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "13133:13133"
+    volumes:
+      - ./apps/v2-api/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+
 volumes:
   pgdata:
+  clickhouse-data:

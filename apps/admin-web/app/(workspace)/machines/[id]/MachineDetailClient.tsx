@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/lib/store';
@@ -29,13 +29,16 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Progress } from '@/components/ui/progress';
 import {
-  ArrowLeft, Play, Square, RotateCcw, Trash2, RefreshCw,
+  Activity, ArrowLeft, Play, Square, RotateCcw, Trash2, RefreshCw,
   Terminal, Info, Server, Database, Braces, Camera, Archive, Plus, ExternalLink,
   Globe, Copy, Check, Link2, Share2, KeyRound, SlidersHorizontal,
-  X,
+  X, Cpu, MemoryStick, HardDrive, Network, Gauge, Clock3, AlertTriangle, Search,
+  ListFilter, Radio, ShieldCheck, Wrench,
+  type LucideIcon,
 } from 'lucide-react';
-import type { BackupItem, Machine, ProxyToken, SnapshotItem, SshToken } from '@/lib/api';
+import type { BackupItem, Machine, MachineTelemetryEvent, MachineTelemetryLatest, MachineTelemetryLog, MachineTelemetryMetric, MachineTelemetryTrace, ProxyToken, SnapshotItem, SshToken, TelemetryStoreInfo } from '@/lib/api';
 import type { Terminal as XTerm } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
 
@@ -62,10 +65,48 @@ const tabTriggerClass = '!h-11 justify-start gap-2 rounded-lg px-3 text-sm sm:ju
 const sshAccessEnabled = process.env.NEXT_PUBLIC_V2_SSH_GATEWAY_ENABLED === 'true'
   || process.env.NEXT_PUBLIC_V2_SSH_ACCESS_ENABLED === 'true';
 
+type TelemetryWindow = '15m' | '1h' | '6h' | '24h';
+type TelemetryLevel = 'all' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
+
+const TELEMETRY_WINDOWS: Array<{ value: TelemetryWindow; label: string; ms: number }> = [
+  { value: '15m', label: 'Last 15 min', ms: 15 * 60 * 1000 },
+  { value: '1h', label: 'Last hour', ms: 60 * 60 * 1000 },
+  { value: '6h', label: 'Last 6 hours', ms: 6 * 60 * 60 * 1000 },
+  { value: '24h', label: 'Last 24 hours', ms: 24 * 60 * 60 * 1000 },
+];
+
+const TELEMETRY_LEVELS: Array<{ value: TelemetryLevel; label: string }> = [
+  { value: 'all', label: 'All levels' },
+  { value: 'debug', label: 'Debug+' },
+  { value: 'info', label: 'Info+' },
+  { value: 'warn', label: 'Warn+' },
+  { value: 'error', label: 'Error+' },
+  { value: 'fatal', label: 'Fatal only' },
+];
+
+const CORE_METRICS: Array<{ key: string; label: string; description: string; icon: LucideIcon }> = [
+  { key: 'justavps.sandbox.cpu.utilization', label: 'CPU', description: 'Guest CPU utilization', icon: Cpu },
+  { key: 'justavps.sandbox.memory.utilization', label: 'Memory', description: 'Guest memory utilization', icon: MemoryStick },
+  { key: 'justavps.sandbox.filesystem.utilization', label: 'Disk', description: 'Root filesystem utilization', icon: HardDrive },
+  { key: 'justavps.sandbox.network.rx_rate', label: 'RX rate', description: 'Inbound network throughput', icon: Network },
+  { key: 'justavps.sandbox.network.tx_rate', label: 'TX rate', description: 'Outbound network throughput', icon: Network },
+  { key: 'justavps.sandbox.network.connections', label: 'Connections', description: 'Observed network connections', icon: Gauge },
+  { key: 'justavps.sandbox.uptime', label: 'Uptime', description: 'Guest daemon uptime', icon: Clock3 },
+  { key: 'justavps.daemon.up', label: 'Daemon', description: 'Managed daemon heartbeat', icon: Radio },
+];
+
+const MACHINE_DETAIL_TABS = new Set(['terminal', 'overview', 'observability', 'proxy', 'ssh', 'incus', 'snapshots', 'backups', 'metadata', 'raw']);
+
+function initialMachineDetailTab() {
+  if (typeof window === 'undefined') return 'terminal';
+  const value = new URLSearchParams(window.location.search).get('tab') ?? '';
+  return MACHINE_DETAIL_TABS.has(value) ? value : 'terminal';
+}
+
 export default function MachineDetailClient({ id, onBack }: { id: string; onBack?: () => void }) {
   const router = useRouter();
   const { state, request, runAction, refreshAll, pushToast } = useStore();
-  const { defaultStatefulSnapshots, defaultFullBackups, defaultOptimizedBackups } = useUiPrefs();
+  const { defaultFullBackups, defaultOptimizedBackups } = useUiPrefs();
   const { confirm } = useConfirm();
   const [machine, setMachine] = useState<Machine | null>(
     () => state.machines.find((m) => m.id === id) ?? null,
@@ -74,13 +115,36 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
   const [backups, setBackups] = useState<BackupItem[]>([]);
   const [proxyTokens, setProxyTokens] = useState<ProxyToken[]>([]);
   const [sshTokens, setSshTokens] = useState<SshToken[]>([]);
+  const [telemetryLatest, setTelemetryLatest] = useState<MachineTelemetryLatest | null>(null);
+  const [telemetryMetrics, setTelemetryMetrics] = useState<MachineTelemetryMetric[]>([]);
+  const [telemetryLogs, setTelemetryLogs] = useState<MachineTelemetryLog[]>([]);
+  const [telemetryTraces, setTelemetryTraces] = useState<MachineTelemetryTrace[]>([]);
+  const [telemetryEvents, setTelemetryEvents] = useState<MachineTelemetryEvent[]>([]);
+  const [telemetryStore, setTelemetryStore] = useState<TelemetryStoreInfo | null>(null);
+  const [telemetryWindow, setTelemetryWindow] = useState<TelemetryWindow>('1h');
+  const [telemetryLogLevel, setTelemetryLogLevel] = useState<TelemetryLevel>('all');
+  const [telemetryLogSource, setTelemetryLogSource] = useState('all');
+  const [telemetryLogSearch, setTelemetryLogSearch] = useState('');
+  const [telemetryTraceOperation, setTelemetryTraceOperation] = useState('all');
+  const [telemetryAutoRefresh, setTelemetryAutoRefresh] = useState(true);
+  const [daemonEnsureLoading, setDaemonEnsureLoading] = useState(false);
   const [artifactsLoading, setArtifactsLoading] = useState(false);
   const [proxyTokensLoading, setProxyTokensLoading] = useState(false);
   const [sshTokensLoading, setSshTokensLoading] = useState(false);
+  const [telemetryLoading, setTelemetryLoading] = useState(false);
   const [snapshotCreateOpen, setSnapshotCreateOpen] = useState(false);
   const [backupCreateOpen, setBackupCreateOpen] = useState(false);
   const [resizeOpen, setResizeOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState('terminal');
+  const [activeTab, setActiveTab] = useState(initialMachineDetailTab);
+
+  const selectTab = useCallback((value: string) => {
+    setActiveTab(value);
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (value === 'terminal') url.searchParams.delete('tab');
+    else url.searchParams.set('tab', value);
+    window.history.replaceState({}, '', url.toString());
+  }, []);
 
   const refreshArtifacts = async () => {
     setArtifactsLoading(true);
@@ -106,6 +170,10 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
     }
   };
 
+  useEffect(() => {
+    setActiveTab(initialMachineDetailTab());
+  }, [id]);
+
   const refreshSshTokens = async () => {
     setSshTokensLoading(true);
     try {
@@ -115,6 +183,39 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
       setSshTokensLoading(false);
     }
   };
+
+  const refreshTelemetry = useCallback(async () => {
+    setTelemetryLoading(true);
+    try {
+      const range = telemetryWindowRange(telemetryWindow);
+      const metricParams = new URLSearchParams({ from: range.from, to: range.to, limit: '2000' });
+      const logParams = new URLSearchParams({ from: range.from, to: range.to, limit: '250' });
+      const traceParams = new URLSearchParams({ from: range.from, to: range.to, limit: '200' });
+      const eventParams = new URLSearchParams({ from: range.from, to: range.to, limit: '200' });
+      const logSearch = telemetryLogSearch.trim();
+
+      if (telemetryLogLevel !== 'all') logParams.set('level', telemetryLogLevel);
+      if (telemetryLogSource !== 'all') logParams.set('source', telemetryLogSource);
+      if (logSearch) logParams.set('search', logSearch);
+      if (telemetryTraceOperation !== 'all') traceParams.set('operation', telemetryTraceOperation);
+
+      const [latest, metrics, logs, traces, events] = await Promise.all([
+        request<{ latest: MachineTelemetryLatest; store?: TelemetryStoreInfo }>(`/admin/telemetry/machines/${encodeURIComponent(id)}/latest`),
+        request<{ metrics: MachineTelemetryMetric[]; store?: TelemetryStoreInfo }>(`/admin/telemetry/machines/${encodeURIComponent(id)}/metrics?${metricParams.toString()}`),
+        request<{ logs: MachineTelemetryLog[]; store?: TelemetryStoreInfo }>(`/admin/telemetry/machines/${encodeURIComponent(id)}/logs?${logParams.toString()}`),
+        request<{ traces: MachineTelemetryTrace[]; store?: TelemetryStoreInfo }>(`/admin/telemetry/machines/${encodeURIComponent(id)}/traces?${traceParams.toString()}`),
+        request<{ events: MachineTelemetryEvent[]; store?: TelemetryStoreInfo }>(`/admin/telemetry/machines/${encodeURIComponent(id)}/events?${eventParams.toString()}`),
+      ]);
+      setTelemetryLatest(latest.latest ?? null);
+      setTelemetryStore(latest.store ?? metrics.store ?? logs.store ?? traces.store ?? events.store ?? null);
+      setTelemetryMetrics(metrics.metrics ?? []);
+      setTelemetryLogs(logs.logs ?? []);
+      setTelemetryTraces(traces.traces ?? []);
+      setTelemetryEvents(events.events ?? []);
+    } finally {
+      setTelemetryLoading(false);
+    }
+  }, [id, request, telemetryLogLevel, telemetryLogSearch, telemetryLogSource, telemetryTraceOperation, telemetryWindow]);
 
   useEffect(() => {
     let cancelled = false;
@@ -145,6 +246,13 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  useEffect(() => {
+    refreshTelemetry().catch(() => undefined);
+    if (!telemetryAutoRefresh) return undefined;
+    const t = setInterval(() => refreshTelemetry().catch(() => undefined), 10_000);
+    return () => clearInterval(t);
+  }, [refreshTelemetry, telemetryAutoRefresh]);
+
   const fire = async (label: string, fn: () => Promise<unknown>) => {
     await runAction(label, async () => {
       const r = await fn();
@@ -163,11 +271,44 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
     });
   };
 
+  const repairDaemonTelemetry = async () => {
+    setDaemonEnsureLoading(true);
+    try {
+      await runAction(`repair daemon telemetry for ${machine?.name ?? id}`, async () => {
+        const result = await request(`/machines/${encodeURIComponent(id)}/daemon/ensure`, { method: 'POST', body: {} });
+        await refreshTelemetry();
+        return result;
+      });
+    } catch {
+      // runAction already records the failure in the workflow log and toast.
+      // Do not rethrow into Next's client runtime overlay.
+    } finally {
+      setDaemonEnsureLoading(false);
+    }
+  };
+
   if (!machine) {
     return (
       <div className="space-y-4">
         <BackToMachines onBack={onBack} />
         <p className="text-sm text-muted-foreground">Loading {id}…</p>
+      </div>
+    );
+  }
+
+  if (machine.type !== 'container') {
+    return (
+      <div className="space-y-4">
+        <BackToMachines onBack={onBack} />
+        <Card>
+          <CardHeader>
+            <CardTitle>Machine unavailable</CardTitle>
+            <CardDescription>This machine type is inactive in the current web UI.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="outline" onClick={() => (onBack ? onBack() : router.push('/machines'))}>Back to machines</Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -228,21 +369,26 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
         <Stat label="vCPU" value={String(resources.vcpu ?? '—')} />
         <Stat label="RAM" value={`${resources.memory_gb ?? '—'} GB`} />
         <Stat label="Disk" value={`${resources.disk_gb ?? '—'} GB`} />
         <Stat label="Region" value={machine.region ?? '—'} />
+        <Stat label="Telemetry" value={telemetryLatest?.health ?? 'unknown'} />
+        <Stat label="Last seen" value={formatRelativeTime(telemetryLatest?.last_seen_at)} />
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-col gap-4">
+      <Tabs value={activeTab} onValueChange={selectTab} className="flex-col gap-4">
         <div className="w-full rounded-xl border bg-card p-2 shadow-sm">
-          <TabsList className={`!grid !h-auto w-full grid-cols-2 gap-1 rounded-lg bg-muted/40 p-1 ${sshAccessEnabled ? 'sm:grid-cols-9' : 'sm:grid-cols-8'}`}>
+          <TabsList className={`!grid !h-auto w-full grid-cols-2 gap-1 rounded-lg bg-muted/40 p-1 ${sshAccessEnabled ? 'sm:grid-cols-10' : 'sm:grid-cols-9'}`}>
             <TabsTrigger value="terminal" className={tabTriggerClass}>
               <Terminal className="size-4" /> Terminal
             </TabsTrigger>
             <TabsTrigger value="overview" className={tabTriggerClass}>
               <Info className="size-4" /> Overview
+            </TabsTrigger>
+            <TabsTrigger value="observability" className={tabTriggerClass}>
+              <Activity className="size-4" /> Observability
             </TabsTrigger>
             <TabsTrigger value="proxy" className={tabTriggerClass}>
               <Globe className="size-4" /> Proxy
@@ -275,21 +421,59 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
         </TabsContent>
 
         <TabsContent value="overview" className="mt-0 space-y-4">
-          <Card>
-            <CardHeader><CardTitle>Identity</CardTitle></CardHeader>
-            <CardContent>
-              <Table>
-                <TableBody>
-                  <TableRow><TableCell className="font-medium w-40">Name</TableCell><TableCell>{machine.name}</TableCell></TableRow>
-                  <TableRow><TableCell className="font-medium">ID</TableCell><TableCell className="font-mono text-xs">{machine.id}</TableCell></TableRow>
-                  <TableRow><TableCell className="font-medium">Type</TableCell><TableCell>{machine.type}</TableCell></TableRow>
-                  <TableRow><TableCell className="font-medium">Status</TableCell><TableCell><Badge variant={running ? 'default' : 'secondary'}>{machine.status}</Badge></TableCell></TableRow>
-                  <TableRow><TableCell className="font-medium">Region</TableCell><TableCell>{machine.region ?? '—'}</TableCell></TableRow>
-                  <TableRow><TableCell className="font-medium">Source</TableCell><TableCell className="font-mono text-xs">{machine.source ? `${machine.source.type}: ${('id' in machine.source ? machine.source.id : '') ?? ''}` : '—'}</TableCell></TableRow>
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.7fr)]">
+            <Card>
+              <CardHeader><CardTitle>Identity</CardTitle></CardHeader>
+              <CardContent>
+                <Table>
+                  <TableBody>
+                    <TableRow><TableCell className="font-medium w-40">Name</TableCell><TableCell>{machine.name}</TableCell></TableRow>
+                    <TableRow><TableCell className="font-medium">ID</TableCell><TableCell className="font-mono text-xs">{machine.id}</TableCell></TableRow>
+                    <TableRow><TableCell className="font-medium">Type</TableCell><TableCell>{machine.type}</TableCell></TableRow>
+                    <TableRow><TableCell className="font-medium">Status</TableCell><TableCell><Badge variant={running ? 'default' : 'secondary'}>{machine.status}</Badge></TableCell></TableRow>
+                    <TableRow><TableCell className="font-medium">Region</TableCell><TableCell>{machine.region ?? '—'}</TableCell></TableRow>
+                    <TableRow><TableCell className="font-medium">Source</TableCell><TableCell className="font-mono text-xs">{machine.source ? `${machine.source.type}: ${('id' in machine.source ? machine.source.id : '') ?? ''}` : '—'}</TableCell></TableRow>
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+
+            <TelemetryOverviewCard
+              latest={telemetryLatest}
+              logs={telemetryLogs}
+              traces={telemetryTraces}
+              events={telemetryEvents}
+              onOpen={() => selectTab('observability')}
+            />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="observability" className="mt-0 space-y-4">
+          <ObservabilityPanel
+            machine={machine}
+            latest={telemetryLatest}
+            metrics={telemetryMetrics}
+            logs={telemetryLogs}
+            traces={telemetryTraces}
+            events={telemetryEvents}
+            store={telemetryStore}
+            loading={telemetryLoading}
+            daemonEnsureLoading={daemonEnsureLoading}
+            telemetryWindow={telemetryWindow}
+            onTelemetryWindowChange={setTelemetryWindow}
+            logLevel={telemetryLogLevel}
+            onLogLevelChange={setTelemetryLogLevel}
+            logSource={telemetryLogSource}
+            onLogSourceChange={setTelemetryLogSource}
+            logSearch={telemetryLogSearch}
+            onLogSearchChange={setTelemetryLogSearch}
+            traceOperation={telemetryTraceOperation}
+            onTraceOperationChange={setTelemetryTraceOperation}
+            autoRefresh={telemetryAutoRefresh}
+            onAutoRefreshChange={setTelemetryAutoRefresh}
+            onRepairDaemonTelemetry={repairDaemonTelemetry}
+            onRefresh={() => refreshTelemetry().catch(() => undefined)}
+          />
         </TabsContent>
 
         <TabsContent value="proxy" className="mt-0 space-y-4">
@@ -381,9 +565,7 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
                           <Button size="sm" variant="outline" onClick={async () => {
                             if (!await confirm({
                               title: `Restore snapshot ${snapshot.name}?`,
-                              description: snapshot.stateful
-                                ? 'This reverts disk and asks Incus to restore the captured VM runtime state from this exact stateful snapshot. Current changes after that snapshot can be lost.'
-                                : 'This reverts the machine rootfs to this exact snapshot. Current changes after that snapshot can be lost.',
+                              description: 'This reverts the machine rootfs to this exact snapshot. Current changes after that snapshot can be lost.',
                               confirmLabel: 'Restore',
                               destructive: true,
                             })) return;
@@ -411,13 +593,11 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
             </CardContent>
           </Card>
           <CreateSnapshotDialog
-            key={`snapshot-${String(defaultStatefulSnapshots)}`}
             open={snapshotCreateOpen}
             onOpenChange={setSnapshotCreateOpen}
             machine={machine}
             request={request}
             artifactAction={artifactAction}
-            defaultStateful={defaultStatefulSnapshots}
           />
         </TabsContent>
 
@@ -545,6 +725,579 @@ function formatDate(value?: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
+}
+
+function formatMetric(metric: { value: number; unit: string } | undefined) {
+  if (!metric) return '—';
+  if (metric.unit === 'seconds') return formatSeconds(metric.value);
+  if (metric.unit === 'percent') return `${metric.value.toFixed(1)}%`;
+  if (metric.unit === 'bytes') return `${(metric.value / 1024 / 1024).toFixed(1)} MiB`;
+  if (metric.unit === 'bytes/s') return `${(metric.value / 1024).toFixed(1)} KiB/s`;
+  if (metric.unit === '1') return metric.value >= 1 ? 'up' : 'down';
+  return `${Number.isInteger(metric.value) ? metric.value : metric.value.toFixed(2)}${metric.unit ? ` ${metric.unit}` : ''}`;
+}
+
+function telemetryWindowRange(value: TelemetryWindow) {
+  const windowDef = TELEMETRY_WINDOWS.find((option) => option.value === value) ?? TELEMETRY_WINDOWS[1];
+  const to = new Date();
+  const from = new Date(to.getTime() - windowDef.ms);
+  return { from: from.toISOString(), to: to.toISOString() };
+}
+
+function formatRelativeTime(value?: string | null) {
+  if (!value) return 'never';
+  const ts = new Date(value).getTime();
+  if (!Number.isFinite(ts)) return 'unknown';
+  const diff = Date.now() - ts;
+  if (diff < 15_000) return 'just now';
+  if (diff < 60_000) return `${Math.round(diff / 1000)}s ago`;
+  const minutes = Math.round(diff / 60_000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+function formatSeconds(value: number) {
+  if (!Number.isFinite(value)) return '—';
+  if (value < 60) return `${Math.round(value)}s`;
+  const minutes = Math.floor(value / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+  if (hours < 48) return restMinutes ? `${hours}h ${restMinutes}m` : `${hours}h`;
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+}
+
+function formatDurationMs(value?: number | null) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+  if (value < 1000) return `${Math.round(value)}ms`;
+  const seconds = value / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+  return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+}
+
+function metricSeries(metrics: MachineTelemetryMetric[], name: string) {
+  return metrics
+    .filter((metric) => metric.name === name && Number.isFinite(metric.value))
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+}
+
+function healthBadgeVariant(health?: string | null) {
+  const normalized = health?.toLowerCase();
+  if (!normalized) return 'outline' as const;
+  if (normalized === 'healthy') return 'default' as const;
+  if (normalized === 'stale') return 'secondary' as const;
+  if (normalized === 'unknown') return 'outline' as const;
+  return 'destructive' as const;
+}
+
+function severityBadgeVariant(severity?: string | null) {
+  const normalized = severity?.toLowerCase();
+  if (normalized === 'error' || normalized === 'fatal') return 'destructive' as const;
+  if (normalized === 'warn' || normalized === 'warning') return 'secondary' as const;
+  return 'outline' as const;
+}
+
+function prettyJson(value?: Record<string, unknown>) {
+  if (!value || Object.keys(value).length === 0) return '';
+  return JSON.stringify(value, null, 2);
+}
+
+function ObservabilityPanel({
+  machine,
+  latest,
+  metrics,
+  logs,
+  traces,
+  events,
+  store,
+  loading,
+  daemonEnsureLoading,
+  telemetryWindow,
+  onTelemetryWindowChange,
+  logLevel,
+  onLogLevelChange,
+  logSource,
+  onLogSourceChange,
+  logSearch,
+  onLogSearchChange,
+  traceOperation,
+  onTraceOperationChange,
+  autoRefresh,
+  onAutoRefreshChange,
+  onRepairDaemonTelemetry,
+  onRefresh,
+}: {
+  machine: Machine;
+  latest: MachineTelemetryLatest | null;
+  metrics: MachineTelemetryMetric[];
+  logs: MachineTelemetryLog[];
+  traces: MachineTelemetryTrace[];
+  events: MachineTelemetryEvent[];
+  store: TelemetryStoreInfo | null;
+  loading: boolean;
+  daemonEnsureLoading: boolean;
+  telemetryWindow: TelemetryWindow;
+  onTelemetryWindowChange: (value: TelemetryWindow) => void;
+  logLevel: TelemetryLevel;
+  onLogLevelChange: (value: TelemetryLevel) => void;
+  logSource: string;
+  onLogSourceChange: (value: string) => void;
+  logSearch: string;
+  onLogSearchChange: (value: string) => void;
+  traceOperation: string;
+  onTraceOperationChange: (value: string) => void;
+  autoRefresh: boolean;
+  onAutoRefreshChange: (value: boolean) => void;
+  onRepairDaemonTelemetry: () => void;
+  onRefresh: () => void;
+}) {
+  const latestMetrics = latest?.metrics ?? {};
+  const sourceOptions = useMemo(() => {
+    const seen = new Set(logs.map((log) => log.source || log.stream).filter(Boolean));
+    if (logSource !== 'all') seen.add(logSource);
+    return Array.from(seen).sort();
+  }, [logSource, logs]);
+  const operationOptions = useMemo(() => {
+    const seen = new Set(traces.map((trace) => trace.operation).filter(Boolean));
+    if (traceOperation !== 'all') seen.add(traceOperation);
+    return Array.from(seen).sort();
+  }, [traceOperation, traces]);
+  const metricNames = useMemo(() => Array.from(new Set(metrics.map((metric) => metric.name))).sort(), [metrics]);
+  const timeline = useMemo(() => {
+    const rows = [
+      ...logs.map((log) => ({
+        id: `log-${log.timestamp}-${log.body}`,
+        kind: 'log' as const,
+        time: log.timestamp,
+        title: `${log.severity || 'info'} · ${log.source || log.stream || 'log'}`,
+        body: log.body,
+        badge: log.severity || 'info',
+      })),
+      ...traces.map((trace) => ({
+        id: `trace-${trace.trace_id}-${trace.span_id}`,
+        kind: 'trace' as const,
+        time: trace.started_at,
+        title: trace.operation || trace.name,
+        body: `${trace.name}${trace.duration_ms !== null && trace.duration_ms !== undefined ? ` · ${formatDurationMs(trace.duration_ms)}` : ''}`,
+        badge: trace.status || 'span',
+      })),
+      ...events.map((event) => ({
+        id: `event-${event.timestamp}-${event.type}`,
+        kind: 'event' as const,
+        time: event.timestamp,
+        title: event.type,
+        body: event.body || event.category || 'event',
+        badge: event.category || 'event',
+      })),
+    ];
+    return rows
+      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
+      .slice(0, 14);
+  }, [events, logs, traces]);
+  const errorLogs = logs.filter((log) => ['error', 'fatal'].includes(log.severity?.toLowerCase()));
+  const hasSignals = metrics.length > 0 || logs.length > 0 || traces.length > 0 || events.length > 0 || Boolean(latest?.last_seen_at);
+  const backendLabel = store?.enabled === false ? 'disabled' : store?.driver ?? 'unknown';
+
+  return (
+    <div className="space-y-4">
+      <Card className="overflow-hidden">
+        <CardHeader className="border-b bg-muted/20">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Activity className="size-5" /> Sandbox observability
+                </CardTitle>
+                <Badge variant={healthBadgeVariant(latest?.health)}>{latest?.health ?? 'unknown'}</Badge>
+                {loading ? <Badge variant="secondary">refreshing…</Badge> : null}
+              </div>
+              <CardDescription>
+                Default per-sandbox metrics, logs, traces, and lifecycle events for <span className="font-mono">{machine.name}</span>.
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2 rounded-md border bg-background px-3 py-2">
+                <Switch id="telemetry-auto-refresh" checked={autoRefresh} onCheckedChange={onAutoRefreshChange} />
+                <Label htmlFor="telemetry-auto-refresh" className="text-xs">Auto-refresh</Label>
+              </div>
+              <Button size="sm" variant="outline" onClick={onRepairDaemonTelemetry} disabled={daemonEnsureLoading}>
+                <Wrench className={cn('size-3.5', daemonEnsureLoading && 'animate-pulse')} /> Repair daemon
+              </Button>
+              <Button size="sm" variant="outline" onClick={onRefresh} disabled={loading}>
+                <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} /> Refresh
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4 pt-4">
+          {!hasSignals ? (
+            <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 font-medium text-amber-900 dark:text-amber-200">
+                    <AlertTriangle className="size-4" /> No telemetry has reached this backend yet
+                  </div>
+                  <p className="max-w-3xl text-sm text-muted-foreground">
+                    The UI is connected and the telemetry endpoints are responding, but this machine has no metric/log/trace/event rows in the selected backend. Typical causes: the managed daemon has not been installed/repaired since telemetry was enabled, the API was started with the in-memory telemetry backend, ClickHouse is down, or the daemon telemetry URL is not reachable from inside the sandbox.
+                  </p>
+                </div>
+                <Button size="sm" onClick={onRepairDaemonTelemetry} disabled={daemonEnsureLoading}>
+                  <Wrench className={cn('size-3.5', daemonEnsureLoading && 'animate-pulse')} /> Repair daemon telemetry
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <HealthSummaryTile icon={ShieldCheck} label="Health" value={latest?.health ?? 'unknown'} sub={`last seen ${formatRelativeTime(latest?.last_seen_at)}`} tone={latest?.health ?? 'unknown'} />
+            <HealthSummaryTile icon={Gauge} label="Metric rows" value={metrics.length.toString()} sub={`${metricNames.length} unique series`} />
+            <HealthSummaryTile icon={AlertTriangle} label="Errors" value={errorLogs.length.toString()} sub={`${logs.length} logs in selected window`} tone={errorLogs.length > 0 ? 'error' : 'healthy'} />
+            <HealthSummaryTile icon={ListFilter} label="Backend" value={backendLabel} sub={store?.clickhouse_database ? `database ${store.clickhouse_database}` : 'telemetry store'} tone={store?.enabled === false ? 'error' : undefined} />
+          </div>
+
+          <div className="grid gap-2 rounded-xl border bg-background p-3 lg:grid-cols-[170px_160px_170px_1fr_180px]">
+            <Select value={telemetryWindow} onValueChange={(value) => onTelemetryWindowChange(value as TelemetryWindow)}>
+              <SelectTrigger><Clock3 className="size-3.5" /><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {TELEMETRY_WINDOWS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={logLevel} onValueChange={(value) => onLogLevelChange(value as TelemetryLevel)}>
+              <SelectTrigger><AlertTriangle className="size-3.5" /><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {TELEMETRY_LEVELS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={logSource} onValueChange={onLogSourceChange}>
+              <SelectTrigger><ListFilter className="size-3.5" /><SelectValue placeholder="Log source" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All sources</SelectItem>
+                {sourceOptions.map((source) => <SelectItem key={source} value={source}>{source}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input value={logSearch} onChange={(event) => onLogSearchChange(event.target.value)} placeholder="Search logs…" className="pl-8" />
+            </div>
+            <Select value={traceOperation} onValueChange={onTraceOperationChange}>
+              <SelectTrigger><Activity className="size-3.5" /><SelectValue placeholder="Trace operation" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All operations</SelectItem>
+                {operationOptions.map((operation) => <SelectItem key={operation} value={operation}>{operation}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {CORE_METRICS.map((definition) => (
+          <MetricSignalCard
+            key={definition.key}
+            definition={definition}
+            latest={latestMetrics[definition.key]}
+            series={metricSeries(metrics, definition.key)}
+          />
+        ))}
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
+        <LogsPanel logs={logs} loading={loading} />
+        <TimelinePanel items={timeline} loading={loading} />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <TracesPanel traces={traces} loading={loading} />
+        <EventsPanel events={events} loading={loading} />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Raw metric series</CardTitle>
+          <CardDescription>All metric names returned for the selected window. Useful for debugging daemon/app telemetry coverage.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {metricNames.length === 0 ? <ArtifactEmpty label={loading ? 'Loading metrics…' : 'No metric rows in this window'} /> : (
+            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {metricNames.map((name) => {
+                const rows = metricSeries(metrics, name);
+                const latestRow = rows.at(-1);
+                return (
+                  <div key={name} className="rounded-lg border p-3">
+                    <div className="truncate font-mono text-xs">{name}</div>
+                    <div className="mt-2 flex items-end justify-between gap-3">
+                      <div className="text-lg font-semibold tabular-nums">{formatMetric(latestRow)}</div>
+                      <div className="text-xs text-muted-foreground">{rows.length} samples</div>
+                    </div>
+                    <Sparkline values={rows.map((row) => row.value)} className="mt-2" />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function TelemetryOverviewCard({
+  latest, logs, traces, events, onOpen,
+}: {
+  latest: MachineTelemetryLatest | null;
+  logs: MachineTelemetryLog[];
+  traces: MachineTelemetryTrace[];
+  events: MachineTelemetryEvent[];
+  onOpen: () => void;
+}) {
+  const metrics = latest?.metrics ?? {};
+  const errorLogs = logs.filter((log) => ['error', 'fatal'].includes(log.severity?.toLowerCase())).length;
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2"><Activity className="size-4" /> Live health</CardTitle>
+            <CardDescription>At-a-glance sandbox telemetry, refreshed with the details page.</CardDescription>
+          </div>
+          <Badge variant={healthBadgeVariant(latest?.health)}>{latest?.health ?? 'unknown'}</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-3 gap-2">
+          <MiniTelemetryStat label="CPU" value={formatMetric(metrics['justavps.sandbox.cpu.utilization'])} />
+          <MiniTelemetryStat label="Memory" value={formatMetric(metrics['justavps.sandbox.memory.utilization'])} />
+          <MiniTelemetryStat label="Disk" value={formatMetric(metrics['justavps.sandbox.filesystem.utilization'])} />
+        </div>
+        <div className="rounded-lg border bg-muted/20 p-3 text-xs text-muted-foreground">
+          Last signal <span className="font-medium text-foreground">{formatRelativeTime(latest?.last_seen_at)}</span> · {logs.length} logs · {traces.length} traces · {events.length} events · {errorLogs} errors
+        </div>
+        <Button variant="outline" className="w-full" onClick={onOpen}>
+          <Activity className="size-3.5" /> Open observability
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MiniTelemetryStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border bg-background p-3">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 truncate text-sm font-semibold tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+function HealthSummaryTile({
+  icon: Icon, label, value, sub, tone,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  sub: string;
+  tone?: string;
+}) {
+  const danger = tone?.toLowerCase() === 'error' || tone?.toLowerCase() === 'fatal';
+  const healthy = tone?.toLowerCase() === 'healthy';
+  return (
+    <div className={cn('rounded-xl border p-3', danger ? 'border-destructive/30 bg-destructive/10' : healthy ? 'border-emerald-500/30 bg-emerald-500/10' : 'bg-background')}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="rounded-lg bg-muted p-2 text-muted-foreground"><Icon className="size-4" /></div>
+        <Badge variant={healthBadgeVariant(tone)}>{label}</Badge>
+      </div>
+      <div className="mt-3 text-xl font-semibold tabular-nums">{value}</div>
+      <div className="mt-1 text-xs text-muted-foreground">{sub}</div>
+    </div>
+  );
+}
+
+function MetricSignalCard({
+  definition, latest, series,
+}: {
+  definition: { key: string; label: string; description: string; icon: LucideIcon };
+  latest?: { value: number; unit: string; timestamp: string };
+  series: MachineTelemetryMetric[];
+}) {
+  const Icon = definition.icon;
+  const percent = latest?.unit === 'percent' ? Math.max(0, Math.min(100, latest.value)) : null;
+  const isDaemonUp = definition.key === 'justavps.daemon.up' && latest?.value === 1;
+  return (
+    <Card size="sm" className={cn(isDaemonUp && 'border-emerald-500/30 bg-emerald-500/5')}>
+      <CardContent className="space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="rounded-lg bg-muted p-2 text-muted-foreground"><Icon className="size-4" /></div>
+            <div className="min-w-0">
+              <div className="font-medium">{definition.label}</div>
+              <div className="truncate text-xs text-muted-foreground">{definition.description}</div>
+            </div>
+          </div>
+          <Badge variant="outline">{series.length}</Badge>
+        </div>
+        <div>
+          <div className="text-2xl font-semibold tabular-nums">{formatMetric(latest)}</div>
+          <div className="text-xs text-muted-foreground">{latest ? `updated ${formatRelativeTime(latest.timestamp)}` : 'no samples yet'}</div>
+        </div>
+        {percent !== null ? <Progress value={percent} /> : null}
+        <Sparkline values={series.map((sample) => sample.value)} />
+      </CardContent>
+    </Card>
+  );
+}
+
+function Sparkline({ values, className }: { values: number[]; className?: string }) {
+  if (values.length < 2) return <div className={cn('h-8 rounded bg-muted/40', className)} />;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  const points = values.map((value, index) => {
+    const x = values.length === 1 ? 0 : (index / (values.length - 1)) * 100;
+    const y = 30 - ((value - min) / span) * 28;
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  }).join(' ');
+  return (
+    <svg className={cn('h-8 w-full overflow-visible text-primary', className)} viewBox="0 0 100 32" preserveAspectRatio="none" aria-hidden="true">
+      <polyline points={points} fill="none" stroke="currentColor" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
+function LogsPanel({ logs, loading }: { logs: MachineTelemetryLog[]; loading: boolean }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Logs</CardTitle>
+        <CardDescription>Platform, daemon, process stdout/stderr, and app logs matched by the filters above.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {logs.length === 0 ? <ArtifactEmpty label={loading ? 'Loading logs…' : 'No logs match this filter'} /> : (
+          <div className="max-h-[560px] space-y-2 overflow-auto pr-1">
+            {logs.map((log, idx) => (
+              <details key={`${log.timestamp}-${idx}`} className="group rounded-lg border bg-background open:bg-muted/20">
+                <summary className="flex cursor-pointer list-none items-start gap-3 p-3">
+                  <Badge variant={severityBadgeVariant(log.severity)}>{log.severity || 'info'}</Badge>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                      <span>{formatDate(log.timestamp)}</span>
+                      <span className="font-mono">{log.source || log.stream || 'unknown'}</span>
+                      {log.trace_id ? <span className="font-mono">trace {log.trace_id.slice(0, 10)}</span> : null}
+                    </div>
+                    <div className="mt-1 truncate font-mono text-xs text-foreground">{log.body}</div>
+                  </div>
+                </summary>
+                <div className="border-t p-3">
+                  <pre className="max-h-52 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-xs">{log.body}</pre>
+                  {prettyJson(log.attributes) ? <pre className="mt-2 max-h-48 overflow-auto rounded-md bg-muted p-3 font-mono text-xs">{prettyJson(log.attributes)}</pre> : null}
+                </div>
+              </details>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TimelinePanel({
+  items,
+  loading,
+}: {
+  items: Array<{ id: string; kind: 'log' | 'trace' | 'event'; time: string; title: string; body: string; badge: string }>;
+  loading: boolean;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Unified activity</CardTitle>
+        <CardDescription>Latest logs, spans, and events in one timeline.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {items.length === 0 ? <ArtifactEmpty label={loading ? 'Loading activity…' : 'No activity in this window'} /> : (
+          <div className="relative space-y-3 pl-4 before:absolute before:bottom-0 before:left-1 before:top-1 before:w-px before:bg-border">
+            {items.map((item) => (
+              <div key={item.id} className="relative rounded-lg border bg-background p-3 before:absolute before:-left-[18px] before:top-4 before:size-2 before:rounded-full before:bg-primary">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Badge variant="outline">{item.kind}</Badge>
+                    <div className="truncate text-sm font-medium">{item.title}</div>
+                  </div>
+                  <span className="text-xs text-muted-foreground">{formatRelativeTime(item.time)}</span>
+                </div>
+                <div className="mt-1 truncate text-xs text-muted-foreground">{item.body}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TracesPanel({ traces, loading }: { traces: MachineTelemetryTrace[]; loading: boolean }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Traces</CardTitle>
+        <CardDescription>Toolbox, API, lifecycle, and app spans from the selected window.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {traces.length === 0 ? <ArtifactEmpty label={loading ? 'Loading traces…' : 'No traces match this filter'} /> : (
+          <Table>
+            <TableHeader><TableRow><TableHead>Time</TableHead><TableHead>Operation</TableHead><TableHead>Span</TableHead><TableHead>Status</TableHead><TableHead>Duration</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {traces.map((trace) => (
+                <TableRow key={`${trace.trace_id}-${trace.span_id}`}>
+                  <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(trace.started_at)}</TableCell>
+                  <TableCell className="font-mono text-xs">{trace.operation || '—'}</TableCell>
+                  <TableCell className="max-w-[280px]">
+                    <div className="truncate text-xs">{trace.name}</div>
+                    <div className="truncate font-mono text-2xs text-muted-foreground">{trace.trace_id}</div>
+                    {trace.error ? <div className="mt-1 truncate text-2xs text-destructive">{trace.error}</div> : null}
+                  </TableCell>
+                  <TableCell><Badge variant={trace.status === 'error' ? 'destructive' : 'secondary'}>{trace.status || 'ok'}</Badge></TableCell>
+                  <TableCell className="text-xs tabular-nums">{formatDurationMs(trace.duration_ms)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function EventsPanel({ events, loading }: { events: MachineTelemetryEvent[]; loading: boolean }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Events</CardTitle>
+        <CardDescription>Lifecycle, telemetry ingest, daemon, and routing events.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {events.length === 0 ? <ArtifactEmpty label={loading ? 'Loading events…' : 'No events in this window'} /> : (
+          <Table>
+            <TableHeader><TableRow><TableHead>Time</TableHead><TableHead>Category</TableHead><TableHead>Type</TableHead><TableHead>Body</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {events.map((event, idx) => (
+                <TableRow key={`${event.timestamp}-${event.type}-${idx}`}>
+                  <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(event.timestamp)}</TableCell>
+                  <TableCell><Badge variant="outline">{event.category || 'event'}</Badge></TableCell>
+                  <TableCell className="font-mono text-xs">{event.type}</TableCell>
+                  <TableCell className="max-w-[460px]">
+                    <div className="truncate text-xs">{event.body || '—'}</div>
+                    {prettyJson(event.attributes) ? <pre className="mt-1 max-h-24 overflow-auto rounded bg-muted p-2 font-mono text-2xs">{prettyJson(event.attributes)}</pre> : null}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 function ArtifactEmpty({ label }: { label: string }) {
@@ -1138,19 +1891,16 @@ function CreateSshTokenDialog({
 }
 
 function CreateSnapshotDialog({
-  open, onOpenChange, machine, request, artifactAction, defaultStateful,
+  open, onOpenChange, machine, request, artifactAction,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   machine: Machine;
   request: ReturnType<typeof useStore>['request'];
   artifactAction: (label: string, fn: () => Promise<unknown>) => Promise<void>;
-  defaultStateful: boolean;
 }) {
   const [name, setName] = useState('');
-  const [stateful, setStateful] = useState(defaultStateful);
   const [error, setError] = useState<string | null>(null);
-  const isVm = machine.type === 'vm';
 
   const slugify = (s: string) => s
     .toLowerCase()
@@ -1161,7 +1911,6 @@ function CreateSnapshotDialog({
   const resetAndClose = () => {
     onOpenChange(false);
     setName('');
-    setStateful(defaultStateful);
     setError(null);
   };
 
@@ -1169,11 +1918,11 @@ function CreateSnapshotDialog({
     setError(null);
     const cleanName = slugify(name);
     if (name && !cleanName) return setError('Snapshot name must contain at least one letter or number.');
-    const body: { name?: string; stateful: boolean } = { stateful: isVm && stateful };
+    const body: { name?: string; stateful: boolean } = { stateful: false };
     if (cleanName) body.name = cleanName;
     try {
       await artifactAction(
-        `create ${isVm && stateful ? 'stateful ' : ''}snapshot ${machine.name}`,
+        `create snapshot ${machine.name}`,
         () => request(`/machines/${encodeURIComponent(machine.id)}/snapshots`, { method: 'POST', body }),
       );
       resetAndClose();
@@ -1205,17 +1954,8 @@ function CreateSnapshotDialog({
             />
             <p className="text-2xs text-muted-foreground">Lowercase letters, numbers, dots, underscores, and dashes.</p>
           </div>
-          <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
-            <div className="space-y-1">
-              <Label htmlFor="snapshot-stateful" className="cursor-pointer">Stateful snapshot</Label>
-              <p className="text-xs text-muted-foreground">
-                Captures VM memory/runtime state as well as disk. Restore will pass <code className="rounded bg-muted px-1">stateful=true</code> for stateful snapshots.
-              </p>
-              {!isVm ? (
-                <p className="text-xs text-amber-600 dark:text-amber-400">Stateful snapshots are VM-only here. Containers can still create disk-only snapshots.</p>
-              ) : null}
-            </div>
-            <Switch id="snapshot-stateful" checked={isVm && stateful} onCheckedChange={setStateful} disabled={!isVm} />
+          <div className="rounded-lg border bg-muted/20 p-3 text-xs text-muted-foreground">
+            Snapshots capture the container root filesystem. Runtime memory state is not captured.
           </div>
           {error ? (
             <div className="whitespace-pre-line rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</div>
@@ -1223,7 +1963,7 @@ function CreateSnapshotDialog({
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={resetAndClose}>Cancel</Button>
-          <Button onClick={submit}>{isVm && stateful ? 'Create stateful snapshot' : 'Create snapshot'}</Button>
+          <Button onClick={submit}>Create snapshot</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1365,9 +2105,10 @@ function normalizeTerminalWorkspace(value: unknown): TerminalWorkspace {
   if (!value || typeof value !== 'object') return defaultTerminalWorkspace();
   const raw = value as { sessions?: unknown; activeSessionId?: unknown };
   const seen = new Set<string>();
-  const hasSessionArray = Array.isArray(raw.sessions);
-  const sessions = hasSessionArray
-    ? raw.sessions.flatMap((entry): TerminalSessionMeta[] => {
+  const rawSessions = Array.isArray(raw.sessions) ? raw.sessions as unknown[] : null;
+  const hasSessionArray = Boolean(rawSessions);
+  const sessions = rawSessions
+    ? rawSessions.flatMap((entry): TerminalSessionMeta[] => {
       if (!entry || typeof entry !== 'object') return [];
       const candidate = entry as Partial<TerminalSessionMeta>;
       const id = typeof candidate.id === 'string' && candidate.id.trim() ? candidate.id.trim().slice(0, 96) : '';
@@ -1382,7 +2123,7 @@ function normalizeTerminalWorkspace(value: unknown): TerminalWorkspace {
     : [];
   const safeSessions = sessions.slice(0, 12);
   if (safeSessions.length === 0) return hasSessionArray ? { sessions: [], activeSessionId: null } : defaultTerminalWorkspace();
-  const activeSessionId = typeof raw.activeSessionId === 'string' && safeSessions.some((session) => session.id === raw.activeSessionId)
+  const activeSessionId = typeof raw.activeSessionId === 'string' && safeSessions.some((session: TerminalSessionMeta) => session.id === raw.activeSessionId)
     ? raw.activeSessionId
     : safeSessions[0].id;
   return { sessions: safeSessions, activeSessionId };

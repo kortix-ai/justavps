@@ -68,6 +68,28 @@ model Machine {
   @@schema("v2_core")
 }
 
+model WarmPoolPolicy {
+  id          String   @id @default(cuid())
+  accountId   String   @map("account_id")
+  name        String
+  status      String   @default("active")
+  region      String
+  type        String
+  sourceType  String   @map("source_type")
+  sourceId    String   @map("source_id")
+  target      Int      @default(1)
+  resources   Json
+  billingMode String   @default("reserved") @map("billing_mode")
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([accountId, status])
+  @@index([region, type, sourceType, sourceId])
+  @@map("warm_pool_policies")
+  @@schema("v2_core")
+}
+
 model Image {
   id               String   @id @default(cuid())
   accountId        String?  @map("account_id")

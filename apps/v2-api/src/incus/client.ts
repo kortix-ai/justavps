@@ -44,6 +44,10 @@ function operationPath(operation: string) {
   return `${url.pathname}${url.search}`;
 }
 
+function containerShmTmpfsMiB(memoryGb: number) {
+  return Math.max(64, Math.min(1024, memoryGb * 512));
+}
+
 // Hardened defaults applied to every instance we create. These prioritize
 // isolation over flexibility — workloads that need (e.g.) nesting or devlxd
 // must opt back in explicitly, never inherit it by default.
@@ -218,6 +222,13 @@ export class IncusClient {
     return this.request('GET', this.projectPath(`/instances/${encodeURIComponent(name)}/state`));
   }
 
+  getStorageVolumeState(input: { pool: string; type: 'container' | 'virtual-machine'; name: string; targetMember?: string | null }): Promise<Record<string, unknown>> {
+    return this.request('GET', this.projectPath(
+      `/storage-pools/${encodeURIComponent(input.pool)}/volumes/${encodeURIComponent(input.type)}/${encodeURIComponent(input.name)}/state`,
+      { target: input.targetMember ?? undefined },
+    ));
+  }
+
   async createInstance(input: {
     name: string;
     machineType: 'container' | 'vm';
@@ -240,6 +251,30 @@ export class IncusClient {
         pool: this.cluster.rootPool,
         path: '/',
         size: `${input.resources.diskGb}GiB`,
+      };
+    }
+    if (input.machineType === 'container') {
+      // Put the customer-isolation devices on the initial Incus create request
+      // instead of creating, then patching, then starting. The patch path is
+      // still retained by the API as a safety net for clones/imports/drift, but
+      // the common image-create path should be a single Incus operation.
+      devices.eth0 = {
+        type: 'nic',
+        name: 'eth0',
+        nictype: 'bridged',
+        parent: 'incusbr0',
+        'security.mac_filtering': 'true',
+        'security.ipv4_filtering': 'true',
+        'security.ipv6_filtering': 'false',
+      };
+      devices.justavps_shm = {
+        type: 'disk',
+        source: 'tmpfs:',
+        path: '/dev/shm',
+        size: `${containerShmTmpfsMiB(input.resources.memoryGb)}MiB`,
+        'initial.mode': '1777',
+        'initial.uid': '0',
+        'initial.gid': '0',
       };
     }
 

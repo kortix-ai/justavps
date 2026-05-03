@@ -23,6 +23,12 @@ export const HealthResponseSchema = z.object({
   database_configured: z.boolean(),
   incus_clusters_configured: z.number().int(),
   hetzner_robot_configured: z.boolean(),
+  telemetry: z.object({
+    enabled: z.boolean(),
+    driver: z.enum(['clickhouse', 'memory', 'disabled']),
+    ingest_reachable_from_sandbox: z.boolean(),
+    warnings: z.array(z.string()),
+  }).optional(),
 }).openapi('HealthResponse');
 
 export const RegionsResponseSchema = z.object({
@@ -57,7 +63,7 @@ export const LifecycleSchema = z.object({
 
 export const CreateMachineBodySchema = z.object({
   region: z.enum(['eu', 'us']).default('eu'),
-  type: z.enum(['container', 'vm']).default('container'),
+  type: z.literal('container').default('container'),
   name: z.string().trim().min(1).max(80).optional().openapi({ description: 'Display/search label only. The Incus hostname is always a generated UUID to avoid collisions.' }),
   resources: ResourcesSchema,
   source: SourceSchema,
@@ -211,10 +217,9 @@ export const RestoreBodySchema = z.object({
 
 // Mirrors the inline `createImageSchema` validator the route uses at runtime.
 // Three mutually-exclusive flavors driven by which sub-object is present:
-//   • `docker: { ref, server?, as_vm? }` → OCI pull (Docker Hub etc).
-//   • `simplestreams: { ref, server?, as_vm? }` → simplestreams pull
-//     (linuxcontainers.org). This is the right path for VM-bootable public
-//     catalog images; OCI/Docker rarely publishes VM manifests.
+//   • `docker: { ref, server? }` → OCI pull (Docker Hub etc).
+//   • `simplestreams: { ref, server? }` → simplestreams pull
+//     (linuxcontainers.org).
 //   • `machine_id` (+ optional `snapshot_id`) → publish from a running instance.
 export const CreateImageBodySchema = z.object({
   machine_id: z.string().uuid().optional(),
@@ -227,12 +232,12 @@ export const CreateImageBodySchema = z.object({
   docker: z.object({
     ref: z.string().min(1),
     server: z.string().url().optional(),
-    as_vm: z.boolean().optional().openapi({ description: 'Pull as VM (image_type=virtual-machine). Note: most Docker Hub images do NOT publish VM manifests; prefer the simplestreams source for VM imports.' }),
+    as_vm: z.literal(false).optional().openapi({ description: 'VM image imports are disabled; containers only.' }),
   }).optional(),
   simplestreams: z.object({
     ref: z.string().min(1).openapi({ example: 'ubuntu/22.04' }),
     server: z.string().url().optional(),
-    as_vm: z.boolean().optional(),
+    as_vm: z.literal(false).optional().openapi({ description: 'VM image imports are disabled; containers only.' }),
   }).optional(),
 }).openapi('CreateImageBody');
 

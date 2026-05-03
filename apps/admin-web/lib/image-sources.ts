@@ -1,15 +1,17 @@
 import type { ImageItem } from '@/lib/api';
 import { TEMPLATES as CATALOG_IMAGES } from '@/lib/templates';
 
-export type MachineCreateType = 'container' | 'vm';
-export type IncusImageType = 'container' | 'virtual-machine';
+export type MachineCreateType = 'container';
+export type IncusImageType = 'container';
 
-export function machineTypeToImageType(type: MachineCreateType): IncusImageType {
-  return type === 'vm' ? 'virtual-machine' : 'container';
+export function machineTypeToImageType(_type: MachineCreateType): IncusImageType {
+  void _type;
+  return 'container';
 }
 
-export function catalogImageType(type: 'container' | 'vm'): IncusImageType {
-  return type === 'vm' ? 'virtual-machine' : 'container';
+export function catalogImageType(_type: 'container'): IncusImageType {
+  void _type;
+  return 'container';
 }
 
 export function imageAliases(image: ImageItem) {
@@ -43,9 +45,8 @@ export function imageDisplayName(image: ImageItem) {
 }
 
 export function imageTypeLabel(type?: string | null) {
-  if (type === 'virtual-machine') return 'VM';
   if (type === 'container') return 'Container';
-  return 'Any type';
+  return 'Unsupported';
 }
 
 export function imageMatchesMachineType(image: ImageItem, type: MachineCreateType) {

@@ -5,7 +5,7 @@ export type Template = {
   id: string;            // alias the user references when launching
   name: string;
   description: string;
-  type: 'container' | 'vm';
+  type: 'container';
 };
 
 export const TEMPLATES: Template[] = [
@@ -14,11 +14,5 @@ export const TEMPLATES: Template[] = [
     name: 'Ubuntu 24.04',
     description: 'Base Ubuntu 24.04 container. Fast default for most machines.',
     type: 'container',
-  },
-  {
-    id: 'justavps-golden',
-    name: 'Ubuntu 24.04 VM',
-    description: 'Base Ubuntu 24.04 virtual machine with full kernel isolation.',
-    type: 'vm',
   },
 ];

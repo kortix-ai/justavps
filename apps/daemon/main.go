@@ -83,6 +83,7 @@ func main() {
 
 	StartToolBootstrap(ctx)
 	go heartbeat.Run(ctx)
+	go heartbeat.RunTelemetry(ctx)
 	go portWatcher.Run(ctx)
 
 	go func() {

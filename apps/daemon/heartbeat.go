@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -85,6 +86,32 @@ func (h *Heartbeater) Run(ctx context.Context) {
 	}
 }
 
+// RunTelemetry sends OTEL-shaped sandbox metrics to the V2 telemetry API.
+func (h *Heartbeater) RunTelemetry(ctx context.Context) {
+	if strings.TrimSpace(h.cfg.TelemetryURL) == "" {
+		return
+	}
+
+	h.sendTelemetryLog("info", "daemon", "justavps-daemon telemetry online")
+	h.sendTelemetry()
+
+	interval := time.Duration(h.cfg.TelemetryIntervalSeconds) * time.Second
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			h.sendTelemetry()
+		}
+	}
+}
+
 func (h *Heartbeater) send() {
 	snap := h.health.Collect()
 
@@ -152,6 +179,92 @@ func (h *Heartbeater) send() {
 
 	if hbResp.Update != nil {
 		h.updater.MaybeUpdate(*hbResp.Update)
+	}
+}
+
+func (h *Heartbeater) telemetryEndpoint(suffix string) string {
+	return strings.TrimRight(h.cfg.TelemetryURL, "/") + suffix
+}
+
+func (h *Heartbeater) sendTelemetryRequest(path string, payload any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal telemetry: %w", err)
+	}
+	req, err := http.NewRequest("POST", h.telemetryEndpoint(path), bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create telemetry request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if h.cfg.TelemetryToken != "" {
+		req.Header.Set("X-JustAVPS-Telemetry-Token", h.cfg.TelemetryToken)
+	}
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("send telemetry: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("telemetry rejected: %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func (h *Heartbeater) sendTelemetry() {
+	snap := h.health.Collect()
+	payload := map[string]any{
+		"machine_id":     h.cfg.MachineID,
+		"machine_token":  h.cfg.MachineToken,
+		"daemon_version": version,
+		"source":         "daemon",
+		"uptime":         snap.Uptime,
+		"services":       snap.Services,
+		"load": map[string]float64{
+			"cpu":    snap.CPU,
+			"memory": snap.Memory,
+			"disk":   snap.Disk,
+		},
+		"network": map[string]any{
+			"bytes_in":    snap.Network.BytesIn,
+			"bytes_out":   snap.Network.BytesOut,
+			"rate_in":     snap.Network.RateIn,
+			"rate_out":    snap.Network.RateOut,
+			"connections": snap.Network.Connections,
+		},
+		"security": snap.Security,
+		"resource_attributes": map[string]string{
+			"service.name":            "justavps-daemon",
+			"justavps.machine.id":     h.cfg.MachineID,
+			"justavps.daemon.version": version,
+		},
+	}
+	if err := h.sendTelemetryRequest("/metrics", payload); err != nil {
+		log.Printf("Telemetry metrics failed: %v", err)
+	}
+}
+
+func (h *Heartbeater) sendTelemetryLog(level, source, message string) {
+	if strings.TrimSpace(h.cfg.TelemetryURL) == "" {
+		return
+	}
+	payload := map[string]any{
+		"machine_id":    h.cfg.MachineID,
+		"machine_token": h.cfg.MachineToken,
+		"source":        source,
+		"logs": []map[string]any{{
+			"severity": level,
+			"source":   source,
+			"stream":   "daemon",
+			"body":     message,
+		}},
+		"resource_attributes": map[string]string{
+			"service.name":            "justavps-daemon",
+			"justavps.machine.id":     h.cfg.MachineID,
+			"justavps.daemon.version": version,
+		},
+	}
+	if err := h.sendTelemetryRequest("/logs", payload); err != nil {
+		log.Printf("Telemetry log failed: %v", err)
 	}
 }
 

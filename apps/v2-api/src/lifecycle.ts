@@ -49,7 +49,7 @@ export async function sweepOnce(config: AppConfig, clientFor: (cluster: IncusClu
   const prisma = getPrisma();
 
   const candidates = await prisma.machine.findMany({
-    where: { status: { notIn: ['deleted', 'archived'] } },
+    where: { status: { notIn: ['deleted', 'archived', 'warm_pool', 'warm_pool_claiming'] } },
   });
   result.scanned = candidates.length;
 

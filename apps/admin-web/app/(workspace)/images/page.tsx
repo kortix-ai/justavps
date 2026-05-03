@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
@@ -15,7 +16,6 @@ import {
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { Switch } from '@/components/ui/switch';
 import { useConfirm } from '@/components/confirm';
 import { toast } from 'sonner';
 import { formatBytes } from '@/lib/utils';
@@ -64,7 +64,7 @@ export default function ImagesPage() {
     return () => { cancelled = true; clearInterval(id); };
   }, [request, state.baseUrl, state.token]);
 
-  const imageRows = liveImages.length > 0 ? liveImages : state.images;
+  const imageRows = (liveImages.length > 0 ? liveImages : state.images).filter((image) => !image.type || image.type === 'container');
 
   const extras = useMemo(() => {
     const catalogIds = new Set(CATALOG_IMAGES.map((t) => t.id));
@@ -112,6 +112,7 @@ export default function ImagesPage() {
           const createId = imageIdForCreate(image);
           const e = catalog ? enrichment[catalog.id] : null;
           const description = catalog?.description || image.properties?.description || 'Cached Incus image.';
+          const poolHref = `/pools?source=image&image_id=${encodeURIComponent(createId)}&type=container`;
           return (
             <Card key={`${image.cluster?.id ?? 'cluster'}-${image.fingerprint}`}>
               <CardHeader>
@@ -158,6 +159,15 @@ export default function ImagesPage() {
                     ))}
                   </div>
                 ) : null}
+                <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2">
+                  <div>
+                    <div className="text-xs font-medium">Pool</div>
+                    <div className="text-2xs text-muted-foreground">Prime target N stopped slots for this source; standby is storage-only until claim.</div>
+                  </div>
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={poolHref}>Configure pool</Link>
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           );
@@ -212,7 +222,6 @@ function PullImageDialog({
   const [name, setName] = useState('');
   const [ref, setRef] = useState('ubuntu/24.04');
   const [server, setServer] = useState('');
-  const [asVm, setAsVm] = useState(false);
   const [clusterId, setClusterId] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -228,8 +237,8 @@ function PullImageDialog({
       name: name.trim() || undefined,
       cluster_id: clusterId || undefined,
     };
-    if (source === 'docker') body.docker = { ref: ref.trim(), server: effectiveServer, as_vm: asVm };
-    else body.simplestreams = { ref: ref.trim(), server: effectiveServer, as_vm: asVm };
+    if (source === 'docker') body.docker = { ref: ref.trim(), server: effectiveServer };
+    else body.simplestreams = { ref: ref.trim(), server: effectiveServer };
 
     try {
       await runAction(`pull ${ref}`, async () => {
@@ -261,7 +270,7 @@ function PullImageDialog({
             <Select value={source} onValueChange={(v) => setSource(v as 'docker' | 'simplestreams')}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="simplestreams">Simplestreams (linuxcontainers.org — Ubuntu, Debian, Alpine, supports VM)</SelectItem>
+                <SelectItem value="simplestreams">Simplestreams (linuxcontainers.org — Ubuntu, Debian, Alpine)</SelectItem>
                 <SelectItem value="docker">Docker / OCI registry (Docker Hub, GHCR, etc.)</SelectItem>
               </SelectContent>
             </Select>
@@ -279,21 +288,16 @@ function PullImageDialog({
             <Input id="alias" value={name} onChange={(e) => setName(e.target.value)} placeholder="auto-generated" className="font-mono text-xs" />
             <p className="text-2xs text-muted-foreground">What appears in the New Machine → Images picker.</p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Cluster</Label>
-              <Select value={clusterId || 'first-available'} onValueChange={(v) => setClusterId(v === 'first-available' ? '' : v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="first-available">First available</SelectItem>
-                  {clusters.map((id) => <SelectItem key={id} value={id}>{id}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center justify-between rounded-md border px-3">
-              <Label htmlFor="as-vm" className="cursor-pointer">As VM</Label>
-              <Switch id="as-vm" checked={asVm} onCheckedChange={setAsVm} />
-            </div>
+          <div className="space-y-1.5">
+            <Label>Cluster</Label>
+            <Select value={clusterId || 'first-available'} onValueChange={(v) => setClusterId(v === 'first-available' ? '' : v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="first-available">First available</SelectItem>
+                {clusters.map((id) => <SelectItem key={id} value={id}>{id}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <p className="text-2xs text-muted-foreground">Image imports are container-only.</p>
           </div>
           {error ? (
             <div className="whitespace-pre-line rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</div>

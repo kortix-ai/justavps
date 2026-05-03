@@ -79,6 +79,24 @@ type AnyHono = { get: (path: string, ...handlers: Array<(c: Context) => Response
 export function registerAdminUi(app: AnyHono): { distRoot: string } {
   const distRoot = resolveDistRoot();
   const indexPath = join(distRoot, 'index.html');
+  const devUrl = process.env.V2_ADMIN_UI_DEV_URL?.trim();
+
+  if (devUrl) {
+    const redirectToDev = (c: Context) => {
+      const source = new URL(c.req.url);
+      const target = new URL(devUrl);
+      const suffix = source.pathname.slice(ADMIN_UI_PREFIX.length);
+      target.pathname = suffix && suffix !== '/' ? suffix : '/';
+      target.search = source.search;
+      return c.redirect(target.toString());
+    };
+
+    app.get(ADMIN_UI_PREFIX, redirectToDev);
+    app.get(`${ADMIN_UI_PREFIX}/`, redirectToDev);
+    app.get(`${ADMIN_UI_PREFIX}/*`, redirectToDev);
+
+    return { distRoot };
+  }
 
   app.get(ADMIN_UI_PREFIX, async (c: Context) => {
     return serveIndex(c, distRoot, indexPath);

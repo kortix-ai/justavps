@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // ── Config tests ─────────────────────────────────────────────────────────
@@ -14,7 +15,7 @@ import (
 func TestLoadConfig(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.json")
-	data := `{"slug":"test","callback_url":"http://localhost","machine_token":"mt_123"}`
+	data := `{"slug":"test","callback_url":"http://localhost","machine_token":"mt_123","telemetry_interval_seconds":5}`
 	if err := os.WriteFile(cfgPath, []byte(data), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -32,6 +33,12 @@ func TestLoadConfig(t *testing.T) {
 	}
 	if cfg.MachineToken != "mt_123" {
 		t.Errorf("expected machine_token 'mt_123', got '%s'", cfg.MachineToken)
+	}
+	if cfg.MachineID != "test" {
+		t.Errorf("expected machine_id fallback 'test', got '%s'", cfg.MachineID)
+	}
+	if cfg.TelemetryIntervalSeconds != 5 {
+		t.Errorf("expected telemetry interval 5, got %d", cfg.TelemetryIntervalSeconds)
 	}
 }
 
@@ -162,12 +169,52 @@ func TestHeartbeatPayload(t *testing.T) {
 	hb := NewHeartbeater(cfg, health, NewUpdater())
 	hb.send()
 
-	p := <-received
+	var p heartbeatPayload
+	select {
+	case p = <-received:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for heartbeat payload")
+	}
 	if p.Slug != "hb-test" {
 		t.Errorf("expected slug 'hb-test', got '%s'", p.Slug)
 	}
 	if p.MachineToken != "mt_hb" {
 		t.Errorf("expected token 'mt_hb', got '%s'", p.MachineToken)
+	}
+}
+
+func TestTelemetryPayload(t *testing.T) {
+	received := make(chan map[string]any, 1)
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/internal/telemetry/machines/hb-test/metrics" {
+			t.Errorf("unexpected telemetry path %s", r.URL.Path)
+		}
+		if r.Header.Get("X-JustAVPS-Telemetry-Token") != "shared" {
+			t.Errorf("expected telemetry token header")
+		}
+		var p map[string]any
+		json.NewDecoder(r.Body).Decode(&p)
+		received <- p
+		w.WriteHeader(200)
+	}))
+	defer mock.Close()
+
+	cfg := &Config{Slug: "hb-test", MachineID: "hb-test", CallbackURL: mock.URL, MachineToken: "mt_hb", TelemetryURL: mock.URL + "/internal/telemetry/machines/hb-test", TelemetryToken: "shared", TelemetryIntervalSeconds: 5}
+	health := NewHealthChecker()
+	hb := NewHeartbeater(cfg, health, NewUpdater())
+	hb.sendTelemetry()
+
+	var p map[string]any
+	select {
+	case p = <-received:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for telemetry payload")
+	}
+	if p["machine_token"] != "mt_hb" {
+		t.Errorf("expected telemetry machine token, got %v", p["machine_token"])
+	}
+	if p["source"] != "daemon" {
+		t.Errorf("expected daemon source, got %v", p["source"])
 	}
 }
 

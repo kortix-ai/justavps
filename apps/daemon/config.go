@@ -9,11 +9,16 @@ import (
 
 // Config is read from /etc/justavps/config.json (written by cloud-init).
 type Config struct {
-	Slug         string `json:"slug"`
-	CallbackURL  string `json:"callback_url"`
-	MachineToken string `json:"machine_token"`
-	ProxyDomain  string `json:"proxy_domain"`      // e.g. "kortix.cloud" — used for port URL generation
-	PortURLTmpl  string `json:"port_url_template"` // e.g. "http://{{port}}--uuid.localhost:4200/"
+	Slug                     string `json:"slug"`
+	MachineID                string `json:"machine_id"`
+	CallbackURL              string `json:"callback_url"`
+	MachineToken             string `json:"machine_token"`
+	ProxyDomain              string `json:"proxy_domain"`      // e.g. "kortix.cloud" — used for port URL generation
+	PortURLTmpl              string `json:"port_url_template"` // e.g. "http://{{port}}--uuid.localhost:4200/"
+	TelemetryURL             string `json:"telemetry_url"`     // Base: /internal/telemetry/machines/{id}
+	TelemetryToken           string `json:"telemetry_token"`
+	TelemetryIntervalSeconds int    `json:"telemetry_interval_seconds"`
+	OTLPEndpoint             string `json:"otlp_endpoint"`
 }
 
 // PortURLTemplate returns the URL template for accessing a port on this machine.
@@ -56,6 +61,12 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if cfg.MachineToken == "" {
 		return nil, fmt.Errorf("config missing 'machine_token'")
+	}
+	if cfg.MachineID == "" {
+		cfg.MachineID = cfg.Slug
+	}
+	if cfg.TelemetryIntervalSeconds <= 0 {
+		cfg.TelemetryIntervalSeconds = 5
 	}
 
 	return &cfg, nil

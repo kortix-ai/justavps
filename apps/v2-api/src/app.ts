@@ -1,6 +1,6 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 
-import type { Host, Prisma } from '@prisma/client';
+import type { Host, Machine as PrismaMachine, WarmPoolPolicy as PrismaWarmPoolPolicy, Prisma } from '@prisma/client';
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { Scalar } from '@scalar/hono-api-reference';
 
@@ -38,7 +38,7 @@ import { normalizeClusterConfig } from './config.js';
 import { registerAdminUi } from './admin-ui-static.js';
 import { getPrisma } from './db/client.js';
 import { IncusApiError, IncusClient, hardenedSecurityConfig, type CreateInstanceSource } from './incus/client.js';
-import type { IncusInstance, IncusOperation } from './incus/types.js';
+import type { IncusInstance, IncusInstanceState, IncusOperation } from './incus/types.js';
 import { sweepOnce, startLifecycleSweeper } from './lifecycle.js';
 import { driveRun, type Step } from './services/nodeProvisioning.js';
 import { applyTransition, type NodeLifecycleState } from './lifecycle/nodeLifecycle.js';
@@ -50,10 +50,27 @@ import { forecastExhaustion, type FillSample } from './economics/autoscale.js';
 import { DEFAULT_PRICING } from './economics/pricing.js';
 import { syncHetznerServers, mapHetznerServer } from './services/hetznerInventory.js';
 import { syncIncusObservation, type IncusObservation } from './services/incusSync.js';
-import { ensureManagedDaemon, markManagedDaemonQueued } from './services/managedDaemon.js';
+import { bakeManagedDaemonIntoInstance, ensureManagedDaemon, markManagedDaemonQueued, restartManagedDaemonService, waitForCloudInitDone, waitForGuestExecReady, waitForJustavpsLive, waitForManagedDaemonHealth } from './services/managedDaemon.js';
 import { ensureGuestSshAccess, mergeSshMetadata } from './services/sshAccess.js';
 import { HetznerRobotApiError, HetznerRobotClient, type HetznerRobotProduct } from './vendors/hetznerRobot.js';
 import { TEMPLATES, TEMPLATE_IDS, imageMatchesTemplate } from './templates/catalog.js';
+import {
+  completeMachineCreationTelemetry,
+  failMachineCreationTelemetry,
+  getMachineCreationTelemetry,
+  listMachineCreationTelemetry,
+  type MachineCreationTelemetry,
+  startMachineCreationTelemetry,
+  updateMachineCreationLabels,
+  withTelemetrySpan,
+} from './telemetry.js';
+import {
+  eventEntriesFromPayload,
+  getTelemetryStore,
+  logEntriesFromPayload,
+  metricSamplesFromPayload,
+  traceSpansFromPayload,
+} from './telemetry-store.js';
 import {
   generateProxyToken,
   proxySlugForMachineId,
@@ -65,9 +82,27 @@ import {
 const SUPPORTED_REGIONS = ['eu', 'us'] as const;
 type SupportedRegion = typeof SUPPORTED_REGIONS[number];
 
+function envInt(name: string, fallback: number, min: number, max: number) {
+  const parsed = Number.parseInt(process.env[name] ?? '', 10);
+  const value = Number.isFinite(parsed) ? parsed : fallback;
+  return Math.max(min, Math.min(max, value));
+}
+
+const WARM_POOL_POLICY_TARGET_MAX = envInt('V2_WARM_POOL_POLICY_TARGET_MAX', 500, 1, 10_000);
+const CONTAINERS_ONLY_MESSAGE = 'VM usage is disabled; JustAVPS currently supports containers only';
+const WARM_POOL_STOPPED_MODE = 'primed_stopped_exact' as const;
+const WARM_POOL_RUNNING_MODE = 'primed_running_exact' as const;
+const WARM_POOL_DEFAULT_MODE = WARM_POOL_STOPPED_MODE;
+const WARM_POOL_MODE_INPUTS = ['stopped', 'running', WARM_POOL_STOPPED_MODE, WARM_POOL_RUNNING_MODE] as const;
+type WarmPoolMode = typeof WARM_POOL_STOPPED_MODE | typeof WARM_POOL_RUNNING_MODE;
+
+function normalizeWarmPoolMode(value: unknown): WarmPoolMode {
+  return value === 'running' || value === WARM_POOL_RUNNING_MODE ? WARM_POOL_RUNNING_MODE : WARM_POOL_STOPPED_MODE;
+}
+
 const createMachineSchema = z.object({
   region: z.enum(SUPPORTED_REGIONS).default('eu'),
-  type: z.enum(['container', 'vm']).default('container'),
+  type: z.literal('container').default('container'),
   // Product display/search label only. Never used as the Incus hostname.
   // Incus instance names are generated UUIDs to avoid customer collisions.
   name: z.string().trim().min(1).max(80).optional(),
@@ -95,6 +130,33 @@ const createMachineSchema = z.object({
 });
 
 type CreateMachineInput = z.infer<typeof createMachineSchema>;
+
+const warmPoolSourceSchema = z.object({ type: z.literal('image'), image_id: z.string().min(1) });
+
+const warmPoolPolicySchema = z.object({
+  name: z.string().trim().min(1).max(80).optional(),
+  region: z.enum(SUPPORTED_REGIONS).default('eu'),
+  type: z.literal('container').default('container'),
+  mode: z.enum(WARM_POOL_MODE_INPUTS).optional(),
+  billing_mode: z.enum(WARM_POOL_MODE_INPUTS).optional(),
+  resources: z.object({
+    vcpu: z.number().int().min(1).max(256),
+    memory_gb: z.number().int().min(1).max(2048),
+    disk_gb: z.number().int().min(1).max(100_000),
+  }),
+  source: warmPoolSourceSchema,
+  target: z.number().int().min(0).max(WARM_POOL_POLICY_TARGET_MAX).default(1),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const patchWarmPoolPolicySchema = warmPoolPolicySchema.partial().extend({
+  status: z.enum(['active', 'paused']).optional(),
+});
+
+type WarmPoolPolicyInput = z.infer<typeof warmPoolPolicySchema>;
+type WarmPoolPolicyValidation =
+  | { source: { sourceType: 'image'; sourceId: string } }
+  | { error: { status: 400 | 404 | 409; body: { error: true; message: string } } };
 
 const nodeOrderSchema = z.object({
   product_id: z.string().min(1),
@@ -149,22 +211,16 @@ const createImageSchema = z
       .object({
         ref: z.string().min(1).max(200),
         server: z.string().url().optional(),
-        // Pull as a VM-bootable image instead of a container rootfs. Caveat:
-        // most Docker Hub images don't expose VM manifests — Incus will
-        // return "Image not found" for those. For VM imports prefer the
-        // `simplestreams` source below, which targets the linuxcontainers
-        // image server that does publish VM variants.
-        as_vm: z.boolean().optional().default(false),
+        as_vm: z.literal(false).optional().default(false),
       })
       .optional(),
     // Simplestreams is the canonical Incus image protocol — Ubuntu / Debian
-    // / Fedora / Alpine all publish here in both container and VM variants.
-    // Use this when you want a VM from a public catalog.
+    // / Fedora / Alpine all publish here as container rootfs images.
     simplestreams: z
       .object({
         ref: z.string().min(1).max(200),
         server: z.string().url().optional(),
-        as_vm: z.boolean().optional().default(false),
+        as_vm: z.literal(false).optional().default(false),
       })
       .optional(),
     region: z.string().min(1).optional(),
@@ -247,7 +303,9 @@ const sshValidateResponseSchema = z.object({
 }).openapi('SshValidateResponse');
 
 const ensureDaemonBodySchema = z.object({
-  verify_port: z.number().int().min(1).max(65535).optional(),
+  // Older admin-web builds sent `false` to mean "skip port verification".
+  // Accept it for compatibility; normalize to null at the route boundary.
+  verify_port: z.union([z.number().int().min(1).max(65535), z.literal(false), z.null()]).optional(),
 }).optional();
 
 const ensureDaemonResponseSchema = z.object({
@@ -468,6 +526,952 @@ function loadConfigSafeDatabaseConfigured() {
   return Boolean(process.env.DATABASE_URL);
 }
 
+const WARM_POOL_STATUS = 'warm_pool';
+const WARM_POOL_CLAIMING_STATUS = 'warm_pool_claiming';
+const WARM_POOL_ACCOUNT_ID = 'system:warm-pool';
+type WarmPoolSpec = {
+  accountId?: string | null;
+  policyId?: string | null;
+  mode?: WarmPoolMode;
+  region: SupportedRegion;
+  type: 'container' | 'vm';
+  sourceType: 'image' | 'snapshot';
+  sourceId: string;
+  resources: { vcpu: number; memory_gb: number; disk_gb: number };
+  key: string;
+};
+
+function isWarmPoolStatus(status: string | null | undefined) {
+  return status === WARM_POOL_STATUS || status === WARM_POOL_CLAIMING_STATUS;
+}
+
+function warmPoolProfiles() {
+  const raw = process.env.V2_WARM_POOL_PROFILES?.trim();
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        const profiles = parsed.flatMap((item) => {
+          const r = jsonRecord(item);
+          const vcpu = Number(r.vcpu);
+          const memoryGb = Number(r.memory_gb ?? r.memoryGb);
+          const diskGb = Number(r.disk_gb ?? r.diskGb);
+          return Number.isInteger(vcpu) && Number.isInteger(memoryGb) && Number.isInteger(diskGb) && vcpu > 0 && memoryGb > 0 && diskGb > 0
+            ? [{ vcpu, memory_gb: memoryGb, disk_gb: diskGb }]
+            : [];
+        });
+        if (profiles.length) return profiles;
+      }
+    } catch {
+      // fall back to the product default profile
+    }
+  }
+  return [{ vcpu: 2, memory_gb: 2, disk_gb: 10 }];
+}
+
+function warmPoolTarget() {
+  const parsed = Number.parseInt(process.env.V2_WARM_POOL_TARGET ?? '1', 10);
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(WARM_POOL_POLICY_TARGET_MAX, parsed)) : 1;
+}
+
+function imagePreparationResources(base?: { vcpu?: number | null; memory_gb?: number | null; disk_gb?: number | null }) {
+  return {
+    vcpu: Math.max(Number(base?.vcpu ?? 0) || 0, envInt('V2_IMAGE_PREP_VCPU', 2, 1, 32)),
+    memory_gb: Math.max(Number(base?.memory_gb ?? 0) || 0, envInt('V2_IMAGE_PREP_MEMORY_GB', 2, 1, 128)),
+    disk_gb: Math.max(Number(base?.disk_gb ?? 0) || 0, envInt('V2_IMAGE_PREP_DISK_GB', 10, 4, 10_000)),
+  };
+}
+
+function warmPoolMaintainerEnabled() {
+  return ['1', 'true', 'on', 'yes'].includes((process.env.V2_WARM_POOL_ENABLED ?? '').toLowerCase());
+}
+
+function warmPoolKey(input: { region: string; type: string; sourceType: string; sourceId: string; resources: { vcpu: number; memory_gb: number; disk_gb: number } }) {
+  return `${input.region}:${input.type}:${input.sourceType}:${input.sourceId}:${input.resources.vcpu}c:${input.resources.memory_gb}g:${input.resources.disk_gb}d`;
+}
+
+function warmPoolSpecFromCreate(input: CreateMachineInput): WarmPoolSpec | null {
+  if (input.source.type !== 'image') return null;
+  const sourceId = input.source.image_id;
+  return {
+    region: input.region,
+    type: input.type,
+    sourceType: 'image',
+    sourceId,
+    resources: input.resources,
+    key: warmPoolKey({ region: input.region, type: input.type, sourceType: 'image', sourceId, resources: input.resources }),
+  };
+}
+
+function warmPoolSpecFromPolicy(policy: PrismaWarmPoolPolicy): WarmPoolSpec {
+  const resources = machineResourceKey(policy.resources);
+  const sourceType = policy.sourceType === 'snapshot' ? 'snapshot' : 'image';
+  return {
+    accountId: policy.accountId,
+    policyId: policy.id,
+    mode: normalizeWarmPoolMode(policy.billingMode),
+    region: policy.region as SupportedRegion,
+    type: policy.type === 'vm' ? 'vm' : 'container',
+    sourceType,
+    sourceId: policy.sourceId,
+    resources,
+    key: warmPoolKey({ region: policy.region, type: policy.type, sourceType, sourceId: policy.sourceId, resources }),
+  };
+}
+
+function machineResourceKey(resources: unknown) {
+  const r = jsonRecord(resources);
+  return {
+    vcpu: Number(r.vcpu ?? 0),
+    memory_gb: Number(r.memory_gb ?? 0),
+    disk_gb: Number(r.disk_gb ?? 0),
+  };
+}
+
+function matchesWarmPoolSpec(machine: PrismaMachine, spec: WarmPoolSpec) {
+  const r = machineResourceKey(machine.resources);
+  return matchesWarmPoolSourceSpec(machine, spec)
+    && machine.type === spec.type
+    && machine.sourceType === spec.sourceType
+    && machine.sourceId === spec.sourceId
+    && r.vcpu === spec.resources.vcpu
+    && r.memory_gb === spec.resources.memory_gb
+    && r.disk_gb === spec.resources.disk_gb;
+}
+
+function matchesWarmPoolSourceSpec(machine: PrismaMachine, spec: WarmPoolSpec) {
+  return isWarmPoolStatus(machine.status)
+    && machine.region === spec.region
+    && machine.type === spec.type
+    && machine.sourceType === spec.sourceType
+    && machine.sourceId === spec.sourceId;
+}
+
+function resourcesEqual(a: { vcpu: number; memory_gb: number; disk_gb: number }, b: { vcpu: number; memory_gb: number; disk_gb: number }) {
+  return a.vcpu === b.vcpu && a.memory_gb === b.memory_gb && a.disk_gb === b.disk_gb;
+}
+
+function warmPoolResizeScore(base: { vcpu: number; memory_gb: number; disk_gb: number }, target: { vcpu: number; memory_gb: number; disk_gb: number }) {
+  if (resourcesEqual(base, target)) return 0;
+  const diskShrinkPenalty = base.disk_gb > target.disk_gb ? 1_000 : 0;
+  return 1
+    + diskShrinkPenalty
+    + Math.abs(base.vcpu - target.vcpu) / Math.max(target.vcpu, 1)
+    + Math.abs(base.memory_gb - target.memory_gb) / Math.max(target.memory_gb, 1)
+    + Math.abs(base.disk_gb - target.disk_gb) / Math.max(target.disk_gb, 1);
+}
+
+function customerVisibleMachineWhere(): Prisma.MachineWhereInput {
+  return { NOT: { status: { in: ['deleted', WARM_POOL_STATUS, WARM_POOL_CLAIMING_STATUS] } } };
+}
+
+function clusterById(config: AppConfig, clusterId: string) {
+  return config.clusters.find((cluster) => cluster.id === clusterId) ?? null;
+}
+
+function warmPoolSourceIdentity(source: WarmPoolPolicyInput['source'] | CreateMachineInput['source']) {
+  if (source.type !== 'image') return null;
+  return { sourceType: 'image' as const, sourceId: source.image_id };
+}
+
+const BYTES_PER_GIB = 1024 ** 3;
+
+function billableGib(bytes: number) {
+  return bytes / BYTES_PER_GIB;
+}
+
+function exactPositiveBytes(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return null;
+}
+
+function usageBytesFromRecord(value: unknown): number | null {
+  const record = jsonRecord(value);
+  const direct = exactPositiveBytes(record.usage) ?? exactPositiveBytes(record.used) ?? exactPositiveBytes(record.bytes) ?? exactPositiveBytes(record.metered_bytes);
+  if (direct) return direct;
+  for (const key of ['usage', 'used']) {
+    const nested = record[key];
+    if (nested && typeof nested === 'object') {
+      const nestedValue = usageBytesFromRecord(nested);
+      if (nestedValue) return nestedValue;
+    }
+  }
+  return null;
+}
+
+function rootDiskUsageBytesFromState(state: IncusInstanceState | Record<string, unknown> | null | undefined): number | null {
+  const disk = jsonRecord(jsonRecord(state).disk);
+  const entries = Object.entries(disk);
+  const root = entries.find(([name, value]) => name === 'root' || name === '/' || jsonRecord(value).path === '/');
+  if (root) {
+    const value = usageBytesFromRecord(root[1]);
+    if (value) return value;
+  }
+  const candidates = entries.map(([, value]) => usageBytesFromRecord(value)).filter((value): value is number => Boolean(value));
+  return candidates.length ? Math.max(...candidates) : null;
+}
+
+function storageVolumeUsageBytesFromState(state: Record<string, unknown> | null | undefined): number | null {
+  return usageBytesFromRecord(state);
+}
+
+function storageUsageAttribution(input: {
+  bytes: number;
+  source: string;
+  measuredAt?: string;
+  diskLimitGb?: number;
+  estimated?: boolean;
+  error?: string;
+}) {
+  const gib = billableGib(input.bytes);
+  return {
+    storage_class: 'local',
+    metered_bytes: Math.round(input.bytes),
+    billable_gib: Number(gib.toFixed(9)),
+    disk_limit_gb: input.diskLimitGb ?? null,
+    estimated: input.estimated === true,
+    measured_at: input.measuredAt ?? nowIso(),
+    source: input.source,
+    eur_per_month: Number(storageEurPerMonth(gib, 'local').toFixed(6)),
+    pricing_key: 'storage_gb_local_micro_eur_per_sec',
+    pricing_micro_eur_per_sec: DEFAULT_PRICING.storage_gb_local_micro_eur_per_sec,
+    ...(input.error ? { error: input.error } : {}),
+  };
+}
+
+function warmPoolStorageUsage(row: PrismaMachine) {
+  const usage = jsonRecord(jsonRecord(row.metadata).warm_pool).storage_usage;
+  const r = jsonRecord(usage);
+  const bytes = exactPositiveBytes(r.metered_bytes);
+  if (!bytes) return null;
+  return storageUsageAttribution({
+    bytes,
+    source: typeof r.source === 'string' ? r.source : 'stored',
+    measuredAt: typeof r.measured_at === 'string' ? r.measured_at : undefined,
+    diskLimitGb: Number(r.disk_limit_gb ?? machineResourceKey(row.resources).disk_gb) || undefined,
+    estimated: r.estimated === true,
+    error: typeof r.error === 'string' ? r.error : undefined,
+  });
+}
+
+function warmPoolEstimateFromStorageUsages(
+  resources: { vcpu: number; memory_gb: number; disk_gb: number },
+  target: number,
+  usages: Array<ReturnType<typeof storageUsageAttribution>>,
+  rowCount: number,
+  mode: WarmPoolMode = WARM_POOL_DEFAULT_MODE,
+) {
+  const exactUsages = usages.filter((usage) => usage.estimated !== true);
+  const totalBytes = exactUsages.reduce((sum, usage) => sum + usage.metered_bytes, 0);
+  const totalGib = billableGib(totalBytes);
+  const storageEur = storageEurPerMonth(totalGib, 'local');
+  const hotEur = mode === WARM_POOL_RUNNING_MODE ? hotResourceEurPerMonth(resources, rowCount) : 0;
+  const totalEur = storageEur + hotEur;
+  const measuredCount = exactUsages.length;
+  return {
+    mode,
+    pool_mode: mode === WARM_POOL_RUNNING_MODE ? 'running' : 'stopped',
+    target,
+    metered_bytes: totalBytes,
+    billable_gib: Number(totalGib.toFixed(9)),
+    measured_instances: measuredCount,
+    estimated_instances: usages.length - measuredCount,
+    unmeasured_instances: Math.max(0, rowCount - measuredCount),
+    running_instances: mode === WARM_POOL_RUNNING_MODE ? rowCount : 0,
+    disk_limit_gb_per_instance: resources.disk_gb,
+    disk_limit_gb_total_cap: resources.disk_gb * target,
+    per_instance_eur_month: rowCount ? Number((totalEur / rowCount).toFixed(6)) : 0,
+    total_eur_month: Number(totalEur.toFixed(6)),
+    storage_eur_month: Number(storageEur.toFixed(6)),
+    hot_resource_eur_month: Number(hotEur.toFixed(6)),
+    pricing_key: mode === WARM_POOL_RUNNING_MODE ? 'vcpu_ram_hot_plus_storage_gb_local' : 'storage_gb_local_micro_eur_per_sec',
+    pricing_micro_eur_per_sec: DEFAULT_PRICING.storage_gb_local_micro_eur_per_sec,
+    hot_pricing: {
+      vcpu_hot_micro_eur_per_sec: DEFAULT_PRICING.vcpu_hot_micro_eur_per_sec,
+      ram_gb_hot_micro_eur_per_sec: DEFAULT_PRICING.ram_gb_hot_micro_eur_per_sec,
+    },
+    note: mode === WARM_POOL_RUNNING_MODE
+      ? 'Running pool reservations keep CPU/RAM hot for instant takeover and add actual measured local storage. disk_gb is only the per-instance cap.'
+      : 'Stopped pool reservations are billed from actual measured local storage used by primed rows. disk_gb is only the per-instance cap; CPU/RAM billing starts after claim.',
+  };
+}
+
+function warmPoolEstimate(resources: { vcpu: number; memory_gb: number; disk_gb: number }, target: number, rows: PrismaMachine[] = [], mode: WarmPoolMode = WARM_POOL_DEFAULT_MODE) {
+  const usages = rows.map(warmPoolStorageUsage).filter((usage): usage is ReturnType<typeof storageUsageAttribution> => Boolean(usage));
+  return warmPoolEstimateFromStorageUsages(resources, target, usages, rows.length, mode);
+}
+
+function storedWarmPoolStorageUsageRecord(row: PrismaMachine) {
+  const usage = jsonRecord(jsonRecord(row.metadata).warm_pool).storage_usage;
+  const r = jsonRecord(usage);
+  return typeof r.measured_at === 'string' && typeof r.metered_bytes === 'number' ? r : null;
+}
+
+async function measureInstanceStorageUsage(input: {
+  client: IncusClient;
+  cluster: IncusClusterConfig;
+  instanceName: string;
+  memberName?: string | null;
+  machineType: 'container' | 'vm';
+  diskLimitGb?: number;
+  allowExecFallback?: boolean;
+}) {
+  const measuredAt = nowIso();
+  const errors: string[] = [];
+  if (input.cluster.rootPool) {
+    try {
+      const volumeState = await input.client.getStorageVolumeState({
+        pool: input.cluster.rootPool,
+        type: input.machineType === 'vm' ? 'virtual-machine' : 'container',
+        name: input.instanceName,
+        targetMember: input.memberName,
+      });
+      const bytes = storageVolumeUsageBytesFromState(volumeState);
+      if (bytes) return storageUsageAttribution({ bytes, source: 'incus-storage-volume-state', measuredAt, diskLimitGb: input.diskLimitGb });
+      errors.push('storage volume state did not contain usage bytes');
+    } catch (error) {
+      errors.push(`storage volume state: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  } else {
+    errors.push('cluster rootPool not configured');
+  }
+  try {
+    const instanceState = await input.client.getInstanceState(input.instanceName);
+    const bytes = rootDiskUsageBytesFromState(instanceState);
+    if (bytes) return storageUsageAttribution({ bytes, source: 'incus-instance-state', measuredAt, diskLimitGb: input.diskLimitGb });
+    errors.push('instance state did not contain root disk usage bytes');
+  } catch (error) {
+    errors.push(`instance state: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (input.allowExecFallback) {
+    try {
+      const result = await input.client.exec(input.instanceName, { command: ['/bin/sh', '-lc', 'du -sB1x / 2>/dev/null | cut -f1'], timeoutMs: 30_000 });
+      const bytes = exactPositiveBytes(result.stdout.trim());
+      if (bytes) return storageUsageAttribution({ bytes, source: 'guest-du-logical-fallback', measuredAt, diskLimitGb: input.diskLimitGb, estimated: true });
+      errors.push(`guest du did not return bytes: ${result.stderr || result.stdout}`);
+    } catch (error) {
+      errors.push(`guest du: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return storageUsageAttribution({ bytes: 0, source: 'unmeasured', measuredAt, diskLimitGb: input.diskLimitGb, estimated: true, error: errors.join('; ') });
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function elapsedMs(startedAt: number) {
+  return Math.max(0, Date.now() - startedAt);
+}
+
+function compactUsabilityResult(value: unknown) {
+  const r = jsonRecord(value);
+  return Object.fromEntries(Object.entries({
+    ok: r.ok,
+    duration_ms: r.duration_ms,
+    attempts: r.attempts,
+    present: r.present,
+    active: r.active,
+    exit_code: r.exit_code,
+    version: r.version,
+    daemon_source: r.daemon_source,
+    token_prefix: r.token_prefix,
+    health: r.health,
+    error: typeof r.error === 'string' ? r.error.slice(0, 1000) : r.error,
+  }).filter(([, item]) => item !== undefined));
+}
+
+async function timedUsabilityStep<T>(input: {
+  steps: Record<string, unknown>[];
+  name: string;
+  telemetry?: MachineCreationTelemetry | null;
+  details?: Record<string, unknown>;
+  run: () => Promise<T>;
+}) {
+  const startedAtMs = Date.now();
+  const startedAt = nowIso();
+  try {
+    const result = input.telemetry
+      ? await withTelemetrySpan(input.telemetry, `usable: ${input.name}`, input.run, input.details)
+      : await input.run();
+    input.steps.push({
+      name: input.name,
+      status: 'ok',
+      started_at: startedAt,
+      ended_at: nowIso(),
+      duration_ms: elapsedMs(startedAtMs),
+      result: compactUsabilityResult(result),
+    });
+    return result;
+  } catch (error) {
+    input.steps.push({
+      name: input.name,
+      status: 'error',
+      started_at: startedAt,
+      ended_at: nowIso(),
+      duration_ms: elapsedMs(startedAtMs),
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+}
+
+async function ensureMachineUsable(input: {
+  config: AppConfig;
+  client: IncusClient;
+  instanceName: string;
+  machineId: string;
+  mode: 'warm-pool-prime' | 'warm-pool-prime-second-boot' | 'warm-pool-claim' | 'cold-create' | 'machine-start' | 'image-bake';
+  telemetry?: MachineCreationTelemetry | null;
+  installManagedDaemon?: boolean;
+  repairManagedDaemon?: boolean;
+  waitForCloudInit?: boolean;
+  actualLiveProbe?: boolean;
+  verifyPort?: number | null;
+  execTimeoutMs?: number;
+  cloudInitTimeoutMs?: number;
+  daemonHealthTimeoutMs?: number;
+}) {
+  const startedAtMs = Date.now();
+  const startedAt = nowIso();
+  const steps: Record<string, unknown>[] = [];
+
+  if (input.actualLiveProbe && !input.installManagedDaemon) {
+    let live = await timedUsabilityStep({
+      steps,
+      name: 'actual live: command file daemon',
+      telemetry: input.telemetry,
+      details: { mode: input.mode, instance: input.instanceName },
+      run: () => waitForJustavpsLive({ client: input.client, instanceName: input.instanceName, timeoutMs: input.execTimeoutMs ?? 90_000 }),
+    });
+    let managedDaemon: Record<string, unknown> | null = null;
+    let repairedManagedDaemon = false;
+    if (!live.ok && input.repairManagedDaemon) {
+      repairedManagedDaemon = true;
+      const restarted = await timedUsabilityStep({
+        steps,
+        name: 'restart managed daemon service',
+        telemetry: input.telemetry,
+        details: { mode: input.mode, instance: input.instanceName },
+        run: () => restartManagedDaemonService({ client: input.client, instanceName: input.instanceName, timeoutMs: 10_000 }),
+      });
+      if (restarted.ok) {
+        live = await timedUsabilityStep({
+          steps,
+          name: 'actual live: command file daemon after restart',
+          telemetry: input.telemetry,
+          details: { mode: input.mode, instance: input.instanceName },
+          run: () => waitForJustavpsLive({ client: input.client, instanceName: input.instanceName, timeoutMs: 15_000 }),
+        });
+      }
+      if (!live.ok) {
+        const daemon = await timedUsabilityStep({
+          steps,
+          name: 'repair managed daemon',
+          telemetry: input.telemetry,
+          details: { mode: input.mode, instance: input.instanceName },
+          run: () => ensureManagedDaemon({
+            config: input.config,
+            client: input.client,
+            instanceName: input.instanceName,
+            machineId: input.machineId,
+            verifyPort: input.verifyPort ?? null,
+          }),
+        });
+        managedDaemon = daemon as unknown as Record<string, unknown>;
+        if (!daemon.ok) throw new Error(`Managed daemon repair did not make ${input.machineId} actually live: ${daemon.error ?? 'unknown daemon error'}`);
+        live = await timedUsabilityStep({
+          steps,
+          name: 'actual live: command file daemon after repair',
+          telemetry: input.telemetry,
+          details: { mode: input.mode, instance: input.instanceName },
+          run: () => waitForJustavpsLive({ client: input.client, instanceName: input.instanceName, timeoutMs: 15_000 }),
+        });
+      }
+    }
+    if (!live.ok) throw new Error(`Machine ${input.machineId} did not become actually live: ${live.error ?? live.stderr ?? 'timeout'}`);
+    const endedAt = nowIso();
+    return {
+      ok: true,
+      mode: input.mode,
+      contract: 'actual-live',
+      started_at: startedAt,
+      ended_at: endedAt,
+      ready_at: endedAt,
+      duration_ms: elapsedMs(startedAtMs),
+      exec_ready: compactUsabilityResult(live),
+      cloud_init: { ok: true, duration_ms: 0, skipped: true, reason: 'not part of claim hot path' },
+      daemon_health: compactUsabilityResult(live),
+      file_api_ready: true,
+      command_api_ready: true,
+      managed_daemon: managedDaemon,
+      managed_daemon_state: 'ready',
+      repaired_managed_daemon: repairedManagedDaemon,
+      warnings: [],
+      steps,
+    };
+  }
+
+  const execReady = await timedUsabilityStep({
+    steps,
+    name: 'incus exec ready',
+    telemetry: input.telemetry,
+    details: { mode: input.mode, instance: input.instanceName },
+    run: () => waitForGuestExecReady({ client: input.client, instanceName: input.instanceName, timeoutMs: input.execTimeoutMs ?? 90_000 }),
+  });
+  if (!execReady.ok) throw new Error(`Machine ${input.machineId} did not become Incus-exec-ready: ${execReady.error ?? execReady.stderr ?? 'timeout'}`);
+
+  const cloudInit = input.waitForCloudInit === false
+    ? { ok: true, checked_at: nowIso(), duration_ms: 0, present: false, exit_code: 0, stdout: 'JUSTAVPS_CLOUD_INIT_SKIPPED_FOR_PRIMED_INSTANCE', stderr: '' }
+    : await timedUsabilityStep({
+      steps,
+      name: 'cloud-init done',
+      telemetry: input.telemetry,
+      details: { mode: input.mode, instance: input.instanceName },
+      run: () => waitForCloudInitDone({ client: input.client, instanceName: input.instanceName, timeoutMs: input.cloudInitTimeoutMs ?? 180_000 }),
+    });
+  if (input.waitForCloudInit === false) {
+    steps.push({ name: 'cloud-init done', status: 'skipped', started_at: cloudInit.checked_at, ended_at: cloudInit.checked_at, duration_ms: 0, result: compactUsabilityResult(cloudInit), reason: 'already completed during warm-pool priming' });
+  }
+
+  let managedDaemon: Record<string, unknown> | null = null;
+  let daemonHealth: Record<string, unknown> | null = null;
+  let repairedManagedDaemon = false;
+
+  if (input.installManagedDaemon) {
+    const daemon = await timedUsabilityStep({
+      steps,
+      name: 'install managed daemon',
+      telemetry: input.telemetry,
+      details: { mode: input.mode, instance: input.instanceName },
+      run: () => ensureManagedDaemon({
+        config: input.config,
+        client: input.client,
+        instanceName: input.instanceName,
+        machineId: input.machineId,
+        verifyPort: input.verifyPort ?? null,
+      }),
+    });
+    managedDaemon = daemon as unknown as Record<string, unknown>;
+    daemonHealth = compactUsabilityResult(daemon);
+    if (!daemon.ok) throw new Error(`Managed daemon did not become ready for ${input.machineId}: ${daemon.error ?? 'unknown daemon error'}`);
+  } else {
+    const health = await timedUsabilityStep({
+      steps,
+      name: 'managed daemon health',
+      telemetry: input.telemetry,
+      details: { mode: input.mode, instance: input.instanceName },
+      run: () => waitForManagedDaemonHealth({ client: input.client, instanceName: input.instanceName, timeoutMs: input.daemonHealthTimeoutMs ?? 60_000 }),
+    });
+    daemonHealth = health as unknown as Record<string, unknown>;
+    if (!health.ok && input.repairManagedDaemon) {
+      repairedManagedDaemon = true;
+      const restarted = await timedUsabilityStep({
+        steps,
+        name: 'restart managed daemon service',
+        telemetry: input.telemetry,
+        details: { mode: input.mode, instance: input.instanceName },
+        run: () => restartManagedDaemonService({
+          client: input.client,
+          instanceName: input.instanceName,
+          timeoutMs: 10_000,
+        }),
+      });
+      daemonHealth = restarted as unknown as Record<string, unknown>;
+      if (!restarted.ok) {
+        const daemon = await timedUsabilityStep({
+          steps,
+          name: 'repair managed daemon',
+          telemetry: input.telemetry,
+          details: { mode: input.mode, instance: input.instanceName },
+          run: () => ensureManagedDaemon({
+            config: input.config,
+            client: input.client,
+            instanceName: input.instanceName,
+            machineId: input.machineId,
+            verifyPort: input.verifyPort ?? null,
+          }),
+        });
+        managedDaemon = daemon as unknown as Record<string, unknown>;
+        daemonHealth = compactUsabilityResult(daemon);
+        if (!daemon.ok) throw new Error(`Managed daemon repair did not make ${input.machineId} usable: ${daemon.error ?? 'unknown daemon error'}`);
+      }
+    } else if (!health.ok) {
+      throw new Error(`Managed daemon health did not become ready for ${input.machineId}: ${health.error ?? health.stderr ?? 'timeout'}`);
+    }
+  }
+
+  const endedAt = nowIso();
+  return {
+    ok: true,
+    mode: input.mode,
+    started_at: startedAt,
+    ended_at: endedAt,
+    ready_at: endedAt,
+    duration_ms: elapsedMs(startedAtMs),
+    exec_ready: compactUsabilityResult(execReady),
+    cloud_init: compactUsabilityResult(cloudInit),
+    daemon_health: daemonHealth ? compactUsabilityResult(daemonHealth) : null,
+    managed_daemon: managedDaemon,
+    managed_daemon_state: 'ready',
+    repaired_managed_daemon: repairedManagedDaemon,
+    warnings: cloudInit.ok ? [] : [`cloud-init did not report clean completion: ${cloudInit.error ?? cloudInit.stderr ?? cloudInit.stdout ?? 'unknown'}`],
+    steps,
+  };
+}
+
+function p50(values: number[]) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor((sorted.length - 1) / 2)] ?? null;
+}
+
+function warmPoolRowUsableLatencyMs(row: PrismaMachine) {
+  const meta = jsonRecord(row.metadata);
+  const usability = jsonRecord(meta.usability);
+  const warmPool = jsonRecord(meta.warm_pool);
+  const claimUsability = jsonRecord(warmPool.claim_usability);
+  const primeTelemetry = jsonRecord(warmPool.prime_telemetry);
+  for (const value of [claimUsability.duration_ms, usability.duration_ms, primeTelemetry.duration_ms]) {
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  const creationTelemetry = jsonRecord(meta.creation_telemetry);
+  const spans = Array.isArray(creationTelemetry.spans) ? creationTelemetry.spans : [];
+  const usableSpans = spans.flatMap((span) => {
+    const s = jsonRecord(span);
+    return typeof s.name === 'string' && s.name.startsWith('usable:') ? [Number(s.duration_ms)] : [];
+  }).filter((value) => Number.isFinite(value) && value > 0);
+  return p50(usableSpans as number[]);
+}
+
+async function fastestWarmPoolPlacementHint(spec: WarmPoolSpec, preferredClusterId?: string | null) {
+  if (!loadConfigSafeDatabaseConfigured()) return null;
+  const rows = await getPrisma().machine.findMany({
+    where: {
+      region: spec.region,
+      type: spec.type,
+      sourceType: spec.sourceType,
+      sourceId: spec.sourceId,
+      status: { not: 'deleted' },
+    },
+    orderBy: { updatedAt: 'desc' },
+    take: 500,
+  }).catch(() => []);
+  const samples = new Map<string, { clusterId: string; memberName: string; values: number[] }>();
+  for (const row of rows) {
+    if (!row.incusMemberName) continue;
+    const resources = machineResourceKey(row.resources);
+    if (resources.vcpu !== spec.resources.vcpu || resources.memory_gb !== spec.resources.memory_gb || resources.disk_gb !== spec.resources.disk_gb) continue;
+    if (preferredClusterId && row.incusClusterId !== preferredClusterId) continue;
+    const value = warmPoolRowUsableLatencyMs(row);
+    if (!value) continue;
+    const key = `${row.incusClusterId}:${row.incusMemberName}`;
+    const group = samples.get(key) ?? { clusterId: row.incusClusterId, memberName: row.incusMemberName, values: [] as number[] };
+    group.values.push(value);
+    samples.set(key, group);
+  }
+  const ranked = [...samples.values()]
+    .map((sample) => ({ ...sample, p50_ms: p50(sample.values), samples: sample.values.length }))
+    .filter((sample): sample is { clusterId: string; memberName: string; values: number[]; p50_ms: number; samples: number } => sample.p50_ms !== null)
+    .sort((a, b) => a.p50_ms - b.p50_ms || b.samples - a.samples);
+  const best = ranked[0];
+  return best ? { cluster_id: best.clusterId, member_name: best.memberName, p50_ms: best.p50_ms, samples: best.samples, source: 'warm-pool-usable-latency' } : null;
+}
+
+async function activeWarmPoolPoliciesForSpec(accountId: string, spec: WarmPoolSpec) {
+  const policies = await activeWarmPoolPoliciesForSource(accountId, spec);
+  return policies.filter((policy) => {
+    const resources = machineResourceKey(policy.resources);
+    return resources.vcpu === spec.resources.vcpu
+      && resources.memory_gb === spec.resources.memory_gb
+      && resources.disk_gb === spec.resources.disk_gb;
+  });
+}
+
+async function activeWarmPoolPoliciesForSource(accountId: string, spec: WarmPoolSpec) {
+  return getPrisma().warmPoolPolicy.findMany({
+    where: {
+      accountId,
+      status: 'active',
+      region: spec.region,
+      type: spec.type,
+      sourceType: spec.sourceType,
+      sourceId: spec.sourceId,
+      target: { gt: 0 },
+    },
+    orderBy: { updatedAt: 'desc' },
+  });
+}
+
+function serializeWarmPoolPolicy(policy: PrismaWarmPoolPolicy, poolRows: PrismaMachine[] = []) {
+  const spec = warmPoolSpecFromPolicy(policy);
+  const mode = normalizeWarmPoolMode(policy.billingMode);
+  const matchingRows = poolRows.filter((row) => {
+    const warm = jsonRecord(jsonRecord(row.metadata).warm_pool);
+    return matchesWarmPoolSpec(row, spec) && warm.policy_id === policy.id && normalizeWarmPoolMode(warm.mode) === mode;
+  });
+  const ready = matchingRows.filter((row) => row.status === WARM_POOL_STATUS).length;
+  const claiming = matchingRows.filter((row) => row.status === WARM_POOL_CLAIMING_STATUS).length;
+  return {
+    id: policy.id,
+    account_id: policy.accountId,
+    name: policy.name,
+    status: policy.status,
+    mode,
+    pool_mode: mode === WARM_POOL_RUNNING_MODE ? 'running' : 'stopped',
+    region: policy.region,
+    type: policy.type,
+    source: { type: policy.sourceType, id: policy.sourceId },
+    resources: spec.resources,
+    target: policy.target,
+    ready,
+    claiming,
+    billing: warmPoolEstimate(spec.resources, policy.target, matchingRows, mode),
+    metadata: policy.metadata,
+    created_at: policy.createdAt.toISOString(),
+    updated_at: policy.updatedAt.toISOString(),
+  };
+}
+
+function warmPoolSpecLockKey(spec: WarmPoolSpec) {
+  return `${spec.accountId ?? WARM_POOL_ACCOUNT_ID}:${spec.policyId ?? 'legacy'}:${normalizeWarmPoolMode(spec.mode)}:${spec.key}`;
+}
+
+async function validateWarmPoolPolicyInput(_config: AppConfig, input: WarmPoolPolicyInput, _accountId: string): Promise<WarmPoolPolicyValidation> {
+  const source = warmPoolSourceIdentity(input.source);
+  if (!source) return { error: { status: 400, body: { error: true as const, message: 'Pool policies currently support image sources only' } } };
+  if (source.sourceType === 'image') {
+    return { source };
+  }
+  return { error: { status: 400, body: { error: true as const, message: 'Pool policies currently support image sources only' } } };
+}
+
+async function claimWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec, input: CreateMachineInput, displayName: string, accountId: string, telemetry?: MachineCreationTelemetry) {
+  if (!config.databaseConfigured) return null;
+  if (spec.type !== 'container') return null;
+  const prisma = getPrisma();
+  const span = <T>(name: string, fn: () => Promise<T>, details?: Record<string, unknown>) => (
+    telemetry ? withTelemetrySpan(telemetry, name, fn, details) : fn()
+  );
+  const policies = await span('warm pool: load active policies', () => activeWarmPoolPoliciesForSource(accountId, spec), { source_key: spec.key, requested_resources: spec.resources });
+  if (!policies.length) return null;
+  const policiesById = new Map(policies.map((policy) => [policy.id, policy]));
+  const policyIds = new Set(policies.map((policy) => policy.id));
+  const candidates = await span('warm pool: load template candidates', () => prisma.machine.findMany({
+    where: {
+      accountId,
+      status: WARM_POOL_STATUS,
+      region: spec.region,
+      type: spec.type,
+      sourceType: spec.sourceType,
+      sourceId: spec.sourceId,
+    },
+    orderBy: { updatedAt: 'asc' },
+    take: 20,
+  }), { policy_count: policies.length, flexible_template_match: true });
+
+  const rankedCandidates = [...candidates].sort((a, b) => {
+    const aWarm = jsonRecord(jsonRecord(a.metadata).warm_pool);
+    const bWarm = jsonRecord(jsonRecord(b.metadata).warm_pool);
+    const aPolicy = policiesById.get(String(aWarm.policy_id ?? ''));
+    const bPolicy = policiesById.get(String(bWarm.policy_id ?? ''));
+    const aModeRank = normalizeWarmPoolMode(aWarm.mode ?? aPolicy?.billingMode) === WARM_POOL_RUNNING_MODE ? 0 : 1;
+    const bModeRank = normalizeWarmPoolMode(bWarm.mode ?? bPolicy?.billingMode) === WARM_POOL_RUNNING_MODE ? 0 : 1;
+    const aResources = machineResourceKey(a.resources);
+    const bResources = machineResourceKey(b.resources);
+    const aResizeScore = warmPoolResizeScore(aResources, spec.resources);
+    const bResizeScore = warmPoolResizeScore(bResources, spec.resources);
+    const aPrimed = aWarm.primed === true ? 0 : 1;
+    const bPrimed = bWarm.primed === true ? 0 : 1;
+    const aLatency = warmPoolRowUsableLatencyMs(a) ?? Number.POSITIVE_INFINITY;
+    const bLatency = warmPoolRowUsableLatencyMs(b) ?? Number.POSITIVE_INFINITY;
+    return aResizeScore - bResizeScore || aModeRank - bModeRank || aPrimed - bPrimed || aLatency - bLatency || a.updatedAt.getTime() - b.updatedAt.getTime();
+  });
+
+  for (const candidate of rankedCandidates) {
+    if (!matchesWarmPoolSourceSpec(candidate, spec)) continue;
+    const poolMeta = jsonRecord(jsonRecord(candidate.metadata).warm_pool);
+    const policyId = typeof poolMeta.policy_id === 'string' ? poolMeta.policy_id : null;
+    if (!policyId || !policyIds.has(policyId)) continue;
+    const policy = policiesById.get(policyId);
+    if (!policy) continue;
+    const refillSpec = warmPoolSpecFromPolicy(policy);
+    const poolMode = normalizeWarmPoolMode(poolMeta.mode ?? policy.billingMode);
+    const candidateResources = machineResourceKey(candidate.resources);
+    const resizeNeeded = !resourcesEqual(candidateResources, spec.resources);
+    const claimed = await span('warm pool: reserve candidate row', () => prisma.machine.updateMany({
+      where: { id: candidate.id, status: WARM_POOL_STATUS, accountId },
+      data: {
+        status: WARM_POOL_CLAIMING_STATUS,
+        metadata: {
+          ...jsonRecord(candidate.metadata),
+          warm_pool: { ...poolMeta, claimed_at: new Date().toISOString(), claimed_by: accountId },
+        } as Prisma.InputJsonValue,
+      },
+    }), { candidate_id: candidate.id, policy_id: policyId });
+    if (claimed.count !== 1) continue;
+
+    const cluster = clusterById(config, candidate.incusClusterId);
+    if (!cluster) {
+      await prisma.machine.update({ where: { id: candidate.id }, data: { status: WARM_POOL_STATUS } }).catch(() => undefined);
+      continue;
+    }
+    const client = clientFor(cluster);
+    let startedForClaim = false;
+    let stopOnClaimFailure = false;
+    let resizeAttempted = false;
+    try {
+      const previousMeta = jsonRecord(candidate.metadata);
+      let resourceOperation: Record<string, unknown> = { synced: true, mode: poolMode === WARM_POOL_RUNNING_MODE ? 'warm-pool-running-takeover' : 'warm-pool-stopped-started', at: new Date().toISOString(), resources: input.resources };
+      let isolationCheck = previousMeta.isolation_check ?? null;
+      if (resizeNeeded) {
+        resizeAttempted = true;
+        const resized = await span('warm pool: resize template slot', () => applyResourceConfig(client, candidate.incusInstanceName, cluster, input.resources, {
+          machineId: candidate.id,
+          displayName,
+          machineType: 'container',
+          accountId,
+        }), {
+          candidate_id: candidate.id,
+          from_resources: candidateResources,
+          to_resources: input.resources,
+          policy_id: policyId,
+        });
+        isolationCheck = resized;
+        resourceOperation = {
+          synced: true,
+          mode: poolMode === WARM_POOL_RUNNING_MODE ? 'warm-pool-running-template-resize-before-takeover' : 'warm-pool-template-resize-before-start',
+          at: new Date().toISOString(),
+          from_resources: candidateResources,
+          resources: input.resources,
+          config_operation: resized.config_operation,
+          restarted_for_device_patch: resized.restarted_for_device_patch,
+        };
+      }
+      let started: Awaited<ReturnType<typeof startCreatedMachine>> | { operation: null; noop: true } = { operation: null, noop: true };
+      let usability: Awaited<ReturnType<typeof ensureMachineUsable>> | Record<string, unknown>;
+      let observed: IncusInstance | null = null;
+      if (poolMode === WARM_POOL_RUNNING_MODE) {
+        observed = await span('warm pool: verify running template slot', () => client.getInstance(candidate.incusInstanceName), { candidate_id: candidate.id, member_name: candidate.incusMemberName });
+        if (observed.status?.toLowerCase() !== 'running') {
+          started = await span('warm pool: recover running template slot start', () => startCreatedMachine(client, candidate.incusInstanceName), { candidate_id: candidate.id, observed_status: observed.status ?? null });
+          startedForClaim = true;
+          observed = await client.getInstance(candidate.incusInstanceName).catch(() => observed);
+        }
+        if (!observed || observed.status?.toLowerCase() !== 'running') throw new Error(`Running pool slot ${candidate.id} is not Running; observed ${observed?.status ?? 'unknown'}`);
+        usability = {
+          ok: true,
+          duration_ms: 0,
+          ready_at: new Date().toISOString(),
+          mode: 'warm-pool-running-claim',
+          reused_live_pool_slot: true,
+          repaired_managed_daemon: false,
+          source: 'running-pool-validated-at-prime',
+        };
+      } else {
+        started = await span('warm pool: incus start stopped instance', () => startCreatedMachine(client, candidate.incusInstanceName), { candidate_id: candidate.id, member_name: candidate.incusMemberName });
+        startedForClaim = true;
+        stopOnClaimFailure = true;
+        usability = await ensureMachineUsable({
+          config,
+          client,
+          instanceName: candidate.incusInstanceName,
+          machineId: candidate.id,
+          mode: 'warm-pool-claim',
+          telemetry,
+          installManagedDaemon: false,
+          repairManagedDaemon: true,
+          waitForCloudInit: false,
+          actualLiveProbe: true,
+          execTimeoutMs: 90_000,
+          daemonHealthTimeoutMs: 5_000,
+        });
+      }
+      const machine = await span('warm pool: persist claimed machine row', () => prisma.machine.update({
+        where: { id: candidate.id },
+        data: {
+          accountId,
+          name: displayName,
+          status: 'Running',
+          resources: input.resources,
+          metadata: {
+            ...previousMeta,
+            display_name: displayName,
+            incus_hostname: candidate.incusInstanceName,
+            env: input.env ?? {},
+            labels: input.labels ?? {},
+            lifecycle: input.lifecycle ?? {},
+            last_used_at: new Date().toISOString(),
+            warm_pool: {
+              ...jsonRecord(previousMeta.warm_pool),
+              claimed_at: new Date().toISOString(),
+              claimed_by: accountId,
+              policy_id: policyId,
+              source_key: spec.key,
+              mode: poolMode,
+              pool_mode: poolMode === WARM_POOL_RUNNING_MODE ? 'running' : 'stopped',
+              runtime_state: 'claimed_running',
+              template_resources: candidateResources,
+              requested_resources: input.resources,
+              resized_on_claim: resizeNeeded,
+              running_takeover: poolMode === WARM_POOL_RUNNING_MODE,
+              claim_usability: {
+                ok: usability.ok === true,
+                duration_ms: typeof usability.duration_ms === 'number' ? usability.duration_ms : 0,
+                ready_at: typeof usability.ready_at === 'string' ? usability.ready_at : new Date().toISOString(),
+                repaired_managed_daemon: usability.repaired_managed_daemon === true,
+              },
+            },
+            resource_operation: resourceOperation,
+            isolation_check: isolationCheck,
+            config_operation: resizeNeeded ? resourceOperation.config_operation ?? null : null,
+            config_patch_async: { queued_at: new Date().toISOString(), mode: 'warm-pool-claim' },
+            start_operation: started.operation,
+            start_noop: started.noop,
+            usability,
+            managed_daemon: (usability as Record<string, unknown>).managed_daemon ?? previousMeta.managed_daemon ?? (usability as Record<string, unknown>).daemon_health,
+            managed_daemon_state: 'ready',
+            managed_daemon_checked_at: typeof usability.ready_at === 'string' ? usability.ready_at : new Date().toISOString(),
+          } as Prisma.InputJsonValue,
+        },
+      }), { candidate_id: candidate.id });
+      void client.updateInstanceConfig(candidate.incusInstanceName, {
+        'user.justavps.machine_id': candidate.id,
+        'user.justavps.machine_name': displayName,
+        'user.justavps.display_name': displayName,
+        'user.justavps.hostname': candidate.incusInstanceName,
+        'user.justavps.account_id': accountId,
+      }).catch((error) => console.warn(`[v2-api] async warm pool metadata patch failed for ${candidate.id}:`, error instanceof Error ? error.message : String(error)));
+      return { machine, cluster, client, observed, isolation: isolationCheck, startOperation: started.operation, startNoop: started.noop, policyId, refillSpec, resizedOnClaim: resizeNeeded, runningTakeover: poolMode === WARM_POOL_RUNNING_MODE };
+    } catch (error) {
+      if (startedForClaim && stopOnClaimFailure) {
+        await client.stopInstance(candidate.incusInstanceName).catch((stopError) => {
+          if (!isLifecycleNoop(stopError, 'stop')) console.warn(`[v2-api] failed to stop warm pool claim failure ${candidate.id}:`, stopError instanceof Error ? stopError.message : String(stopError));
+        });
+      }
+      if (resizeAttempted) {
+        await client.deleteInstance(candidate.incusInstanceName, { force: true }).catch(() => undefined);
+        await prisma.machine.update({
+          where: { id: candidate.id },
+          data: { status: 'deleted', metadata: { ...jsonRecord(candidate.metadata), warm_pool_last_claim_error: error instanceof Error ? error.message : String(error), warm_pool_resized_claim_deleted_at: new Date().toISOString() } as Prisma.InputJsonValue },
+        }).catch(() => undefined);
+        void ensureWarmPoolForSpec(config, refillSpec).catch((refillError) => console.warn('[v2-api] async warm pool refill after resize-claim failure failed:', refillError instanceof Error ? refillError.message : String(refillError)));
+        continue;
+      }
+      await prisma.machine.update({
+        where: { id: candidate.id },
+        data: { status: WARM_POOL_STATUS, metadata: { ...jsonRecord(candidate.metadata), warm_pool_last_claim_error: error instanceof Error ? error.message : String(error) } as Prisma.InputJsonValue },
+      }).catch(() => undefined);
+    }
+  }
+  return null;
+}
+
 async function selectPlacement(config: AppConfig, input: {
   region: SupportedRegion;
   resources: { vcpu: number; memory_gb: number; disk_gb: number };
@@ -484,10 +1488,13 @@ async function selectPlacement(config: AppConfig, input: {
   const attempts = await Promise.all(candidates.map(async (cluster) => {
     const client = clientFor(cluster);
     try {
-      const [members, instances] = await Promise.all([client.listClusterMembers(), client.listInstances()]);
-      if (config.databaseConfigured) {
-        await syncIncusObservation(getPrisma(), cluster, { server: await client.getServer(), members, images: [], instances }).catch(() => undefined);
-      }
+      const [members, machineRows] = await Promise.all([
+        client.listClusterMembers(),
+        config.databaseConfigured
+          ? getPrisma().machine.findMany({ where: { incusClusterId: cluster.id, status: { not: 'deleted' } } }).catch(() => [])
+          : Promise.resolve([]),
+      ]);
+      const liveInstances = config.databaseConfigured ? [] : await client.listInstances();
       const online = members.filter((member) => member.status === 'Online');
       const hostState = await hostSchedulabilityByMember(cluster.id, online.map((member) => member.server_name));
       const sku = clusterSku(cluster);
@@ -495,12 +1502,21 @@ async function selectPlacement(config: AppConfig, input: {
       const memberScores = online.map((member) => {
         const host = hostState.get(member.server_name);
         const hostAllowsScheduling = host ? host.schedulable : true;
-        const placed = instances.filter((instance) => instance.location === member.server_name);
-        const allocated = placed.reduce((acc, instance) => {
-          const r = instanceAllocatedResources(instance, sku.ramGb);
-          acc.vcpu += r.vcpu;
-          acc.memory_gb += r.memory_gb;
-          acc.disk_gb += r.disk_gb;
+        const placedMachines = machineRows.filter((machine) => machine.incusMemberName === member.server_name);
+        const allocatedMachines = placedMachines.filter((machine) => {
+          if (!isWarmPoolStatus(machine.status)) return true;
+          const warm = jsonRecord(jsonRecord(machine.metadata).warm_pool);
+          return machine.status === WARM_POOL_CLAIMING_STATUS || normalizeWarmPoolMode(warm.mode) === WARM_POOL_RUNNING_MODE;
+        });
+        const placedInstances = liveInstances.filter((instance) => instance.location === member.server_name);
+        const placedCount = config.databaseConfigured ? allocatedMachines.length : placedInstances.length;
+        const allocated = (config.databaseConfigured ? allocatedMachines : placedInstances).reduce((acc, item) => {
+          const r = config.databaseConfigured
+            ? persistedResources((item as PrismaMachine).resources, null)
+            : instanceAllocatedResources(item as IncusInstance, sku.ramGb);
+          acc.vcpu += r.vcpu ?? 0;
+          acc.memory_gb += r.memory_gb ?? 0;
+          acc.disk_gb += r.disk_gb ?? 0;
           return acc;
         }, { vcpu: 0, memory_gb: 0, disk_gb: 0 });
         const capacity = { vcpu: sku.vcpus, memory_gb: sku.ramGb, disk_gb: sku.usableStorageGb };
@@ -520,10 +1536,10 @@ async function selectPlacement(config: AppConfig, input: {
           remaining.vcpu / Math.max(input.resources.vcpu, 1),
           remaining.memory_gb / Math.max(input.resources.memory_gb, 1),
           remaining.disk_gb / Math.max(input.resources.disk_gb, 1),
-        ) - (placed.length * 0.01);
-        return { member, host, capacity, sellable_capacity: sellable, policy, allocated, remaining, fits, score, placed_instances: placed.length };
+        ) - (placedCount * 0.01);
+        return { member, host, capacity, sellable_capacity: sellable, policy, allocated, remaining, fits, score, placed_instances: placedCount };
       }).sort((a, b) => b.score - a.score);
-      return { cluster, client, members, instances, memberScores, best: memberScores.find((score) => score.fits) ?? null, error: null as string | null };
+      return { cluster, client, members, instances: liveInstances, memberScores, best: memberScores.find((score) => score.fits) ?? null, error: null as string | null };
     } catch (error) {
       return { cluster, client, members: [], instances: [], memberScores: [], best: null, error: error instanceof Error ? error.message : String(error) };
     }
@@ -585,7 +1601,7 @@ async function validateFleetNodeOrder(config: AppConfig, input: NodeOrderInput) 
 
 async function buildFleetTopology(config: AppConfig, options: { sync: boolean }) {
   const machineRows = config.databaseConfigured
-    ? await getPrisma().machine.findMany({ where: { status: { not: 'deleted' } } }).catch(() => [])
+    ? await getPrisma().machine.findMany({ where: customerVisibleMachineWhere() }).catch(() => [])
     : [];
   const hostRows = config.databaseConfigured
     ? await getPrisma().host.findMany({ where: { lifecycleState: { not: 'terminated' } } }).catch(() => [])
@@ -999,7 +2015,7 @@ function publicSshToken(config: AppConfig, descriptor: SshTokenDescriptor, rawTo
 function findActiveSshToken(config: AppConfig, rawToken: string) {
   if (!config.databaseConfigured) return null;
   const hash = sha256Hex(rawToken);
-  return getPrisma().machine.findMany({ where: { status: { not: 'deleted' } } }).then((machines) => {
+  return getPrisma().machine.findMany({ where: customerVisibleMachineWhere() }).then((machines) => {
     for (const machine of machines) {
       const token = activeSshTokenDescriptors(machine).find((entry) => entry.token_sha256 === hash);
       if (token) return { machine, token };
@@ -1185,7 +2201,9 @@ async function proxyViaIncusExec(resolved: NonNullable<Awaited<ReturnType<typeof
   }
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const target = viaDaemon
-    ? `http://127.0.0.1/_port/${port}${normalizedPath === '/' ? '' : normalizedPath}${cleanProxySearch(search)}`
+    ? (port === 80
+      ? `http://127.0.0.1${normalizedPath}${cleanProxySearch(search)}`
+      : `http://127.0.0.1/_port/${port}${normalizedPath === '/' ? '' : normalizedPath}${cleanProxySearch(search)}`)
     : `http://127.0.0.1:${port}${normalizedPath}${cleanProxySearch(search)}`;
   const command = ['curl', '-sS', '-i', '--max-time', '25'];
   if (request.method === 'HEAD') command.push('--head');
@@ -1617,12 +2635,21 @@ async function startCreatedMachine(client: IncusClient, name: string): Promise<{
   }
 }
 
-async function ensureCreatedMachineRunning(client: IncusClient, name: string): Promise<{
+async function stopCreatedMachine(client: IncusClient, name: string): Promise<{ operation: IncusOperation | Record<string, unknown>; noop: boolean }> {
+  try {
+    return { operation: await client.stopInstance(name), noop: false };
+  } catch (error) {
+    if (!isLifecycleNoop(error, 'stop')) throw error;
+    return { operation: { noop: true, action: 'stop' }, noop: true };
+  }
+}
+
+async function ensureCreatedMachineRunning(client: IncusClient, name: string, initialObserved?: IncusInstance | null): Promise<{
   observed: IncusInstance | null;
   startOperation: IncusOperation | Record<string, unknown> | null;
   startNoop: boolean;
 }> {
-  let observed = await client.getInstance(name).catch(() => null);
+  let observed = initialObserved ?? await client.getInstance(name).catch(() => null);
   if (observed?.status?.toLowerCase() === 'running') {
     return { observed, startOperation: null, startNoop: true };
   }
@@ -1645,6 +2672,28 @@ async function enforceCreatedMachineResources(input: {
   machineType: 'container' | 'vm';
   accountId?: string | null;
 }) {
+  const observed = await input.client.getInstance(input.instanceName);
+  const fastIsolation = validateMachineIsolation({
+    incus: observed,
+    machineId: input.machineId,
+    incusHostname: input.instanceName,
+    displayName: input.displayName,
+    machineType: input.machineType,
+    resources: input.resources,
+    accountId: input.accountId,
+  });
+  if (fastIsolation.ok) {
+    return {
+      observed,
+      isolation: {
+        ...fastIsolation,
+        config_operation: null,
+        restarted_for_device_patch: false,
+        fast_path: true,
+      },
+    };
+  }
+
   const isolation = await applyResourceConfig(input.client, input.instanceName, input.cluster, input.resources, {
     machineId: input.machineId,
     displayName: input.displayName,
@@ -1654,10 +2703,525 @@ async function enforceCreatedMachineResources(input: {
   return { observed: await input.client.getInstance(input.instanceName), isolation };
 }
 
+async function createWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec) {
+  if (!config.databaseConfigured) throw new Error('Database not configured');
+  if (spec.type !== 'container') throw new Error(CONTAINERS_ONLY_MESSAGE);
+  if (spec.sourceType !== 'image') throw new Error('Pool priming is image-only; snapshot-backed pools are disabled');
+  const poolMode = normalizeWarmPoolMode(spec.mode);
+  let preferredClusterId: string | null = null;
+  let preferredMemberName: string | null = null;
+  const performanceHint = await fastestWarmPoolPlacementHint(spec, preferredClusterId);
+  if (performanceHint && (!preferredClusterId || performanceHint.cluster_id === preferredClusterId)) {
+    preferredClusterId = performanceHint.cluster_id;
+    preferredMemberName = performanceHint.member_name;
+  }
+  const placement = await selectPlacement(config, { region: spec.region as SupportedRegion, resources: spec.resources, preferredClusterId, preferredMemberName });
+  const { cluster, client, member } = placement;
+  const sourceInput: CreateMachineInput = {
+    region: spec.region as SupportedRegion,
+    type: 'container',
+    resources: spec.resources,
+    source: { type: 'image', image_id: spec.sourceId },
+  };
+  const resolvedSource = await resolveCreateInstanceSource(config, sourceInput, cluster);
+  if ('error' in resolvedSource) throw new Error(resolvedSource.error.body.message);
+
+  const machineId = generatedMachineId();
+  const poolAccountId = spec.accountId ?? WARM_POOL_ACCOUNT_ID;
+  const displayName = `warm-${spec.type}-${spec.sourceType}-${spec.sourceId}`.replace(/[^a-zA-Z0-9_.-]/g, '-').slice(0, 80);
+  let operation: IncusOperation | Record<string, unknown> | null = null;
+  let observed: IncusInstance | null = null;
+  let isolationCheck: ReturnType<typeof validateMachineIsolation> | null = null;
+  let startOperation: IncusOperation | Record<string, unknown> | null = null;
+  let stopOperation: IncusOperation | Record<string, unknown> | null = null;
+  let secondStartOperation: IncusOperation | Record<string, unknown> | null = null;
+  let secondStopOperation: IncusOperation | Record<string, unknown> | null = null;
+  let startNoop = false;
+  let stopNoop = false;
+  let secondStartNoop = false;
+  let secondStopNoop = false;
+  let primeUsability: Awaited<ReturnType<typeof ensureMachineUsable>> | null = null;
+  let secondBootUsability: Awaited<ReturnType<typeof ensureMachineUsable>> | null = null;
+  let storageUsage: ReturnType<typeof storageUsageAttribution> | null = null;
+  try {
+    operation = await client.createInstance({
+      name: machineId,
+      machineType: spec.type as 'container' | 'vm',
+      source: resolvedSource.source,
+      targetMember: member.server_name,
+      resources: { vcpu: spec.resources.vcpu, memoryGb: spec.resources.memory_gb, diskGb: spec.resources.disk_gb },
+      start: false,
+      machineId,
+      displayName,
+      accountId: poolAccountId,
+    });
+    const enforced = await enforceCreatedMachineResources({
+      client,
+      cluster,
+      instanceName: machineId,
+      resources: spec.resources,
+      machineId,
+      displayName,
+      machineType: spec.type as 'container' | 'vm',
+      accountId: poolAccountId,
+    });
+    isolationCheck = enforced.isolation;
+    observed = enforced.observed;
+    const started = await startCreatedMachine(client, machineId);
+    startOperation = started.operation;
+    startNoop = started.noop;
+    primeUsability = await ensureMachineUsable({
+      config,
+      client,
+      instanceName: machineId,
+      machineId,
+      mode: 'warm-pool-prime',
+      installManagedDaemon: true,
+      repairManagedDaemon: false,
+      execTimeoutMs: 120_000,
+      cloudInitTimeoutMs: 180_000,
+      daemonHealthTimeoutMs: 60_000,
+    });
+    const stopped = await stopCreatedMachine(client, machineId);
+    stopOperation = stopped.operation;
+    stopNoop = stopped.noop;
+    observed = await client.getInstance(machineId).catch(() => observed);
+    if (observed?.status && observed.status.toLowerCase() !== 'stopped') {
+      throw new Error(`Primed warm pool machine ${machineId} did not stop cleanly; observed ${observed.status}`);
+    }
+    const secondStarted = await startCreatedMachine(client, machineId);
+    secondStartOperation = secondStarted.operation;
+    secondStartNoop = secondStarted.noop;
+    secondBootUsability = await ensureMachineUsable({
+      config,
+      client,
+      instanceName: machineId,
+      machineId,
+      mode: 'warm-pool-prime-second-boot',
+      installManagedDaemon: false,
+      repairManagedDaemon: true,
+      waitForCloudInit: false,
+      actualLiveProbe: true,
+      execTimeoutMs: 120_000,
+      daemonHealthTimeoutMs: 5_000,
+    });
+    if (poolMode === WARM_POOL_STOPPED_MODE) {
+      const secondStopped = await stopCreatedMachine(client, machineId);
+      secondStopOperation = secondStopped.operation;
+      secondStopNoop = secondStopped.noop;
+      observed = await client.getInstance(machineId).catch(() => observed);
+      if (observed?.status && observed.status.toLowerCase() !== 'stopped') {
+        throw new Error(`Second-boot-validated pool machine ${machineId} did not stop cleanly; observed ${observed.status}`);
+      }
+    } else {
+      observed = await client.getInstance(machineId).catch(() => observed);
+      if (observed?.status && observed.status.toLowerCase() !== 'running') {
+        throw new Error(`Running pool machine ${machineId} did not stay running after validation; observed ${observed.status}`);
+      }
+    }
+    storageUsage = await measureInstanceStorageUsage({
+      client,
+      cluster,
+      instanceName: machineId,
+      memberName: observed?.location ?? member.server_name,
+      machineType: spec.type as 'container' | 'vm',
+      diskLimitGb: spec.resources.disk_gb,
+      allowExecFallback: false,
+    });
+    if (storageUsage.estimated) {
+      throw new Error(`Pool machine ${machineId} storage usage was not exactly measurable: ${storageUsage.error ?? 'unknown measurement error'}`);
+    }
+  } catch (error) {
+    await client.deleteInstance(machineId, { force: true }).catch(() => undefined);
+    throw error;
+  }
+
+  return getPrisma().machine.create({
+    data: {
+      id: machineId,
+      accountId: poolAccountId,
+      name: displayName,
+      region: spec.region,
+      type: spec.type,
+      status: WARM_POOL_STATUS,
+      sourceType: spec.sourceType,
+      sourceId: spec.sourceId,
+      incusClusterId: cluster.id,
+      incusProject: cluster.project,
+      incusInstanceName: machineId,
+      incusMemberName: observed?.location ?? member.server_name,
+      resources: spec.resources,
+      metadata: {
+        warm_pool: {
+          key: spec.key,
+          mode: poolMode,
+          pool_mode: poolMode === WARM_POOL_RUNNING_MODE ? 'running' : 'stopped',
+          runtime_state: poolMode === WARM_POOL_RUNNING_MODE ? 'running' : 'stopped',
+          primed: true,
+          primed_at: primeUsability?.ready_at ?? new Date().toISOString(),
+          prime_usability_ms: primeUsability?.duration_ms ?? null,
+          prime_telemetry: primeUsability,
+          second_boot_validated: true,
+          second_boot_validated_at: secondBootUsability?.ready_at ?? new Date().toISOString(),
+          second_boot_usability_ms: secondBootUsability?.duration_ms ?? null,
+          second_boot_telemetry: secondBootUsability,
+          policy_id: spec.policyId ?? null,
+          owner_account_id: poolAccountId,
+          ready_at: new Date().toISOString(),
+          storage_usage: storageUsage,
+          ...(spec.policyId ? {} : { target: warmPoolTarget() }),
+          billing: storageUsage ? warmPoolEstimateFromStorageUsages(spec.resources, 1, [storageUsage], 1, poolMode) : warmPoolEstimate(spec.resources, 1, [], poolMode),
+        },
+        incus_operation: operation,
+        start_operation: startOperation,
+        start_noop: startNoop,
+        stop_operation: stopOperation,
+        stop_noop: stopNoop,
+        second_start_operation: secondStartOperation,
+        second_start_noop: secondStartNoop,
+        second_stop_operation: secondStopOperation,
+        second_stop_noop: secondStopNoop,
+        isolation_check: isolationCheck,
+        scheduler_placement: placement.placement,
+        scheduler_performance_hint: performanceHint,
+        usability: secondBootUsability ?? primeUsability,
+        managed_daemon: secondBootUsability?.managed_daemon ?? secondBootUsability?.daemon_health ?? primeUsability?.managed_daemon ?? primeUsability?.daemon_health ?? null,
+        managed_daemon_state: secondBootUsability?.managed_daemon_state ?? primeUsability?.managed_daemon_state ?? 'ready',
+        managed_daemon_checked_at: secondBootUsability?.ready_at ?? primeUsability?.ready_at ?? new Date().toISOString(),
+        display_name: displayName,
+        incus_hostname: machineId,
+      } as Prisma.InputJsonValue,
+    },
+  });
+}
+
+async function refreshWarmPoolStorageMeasurements(config: AppConfig, rows: PrismaMachine[], opts: { force?: boolean } = {}) {
+  if (!config.databaseConfigured || rows.length === 0) return rows;
+  const prisma = getPrisma();
+  const refreshed: PrismaMachine[] = [];
+  for (const row of rows) {
+    if (!opts.force && storedWarmPoolStorageUsageRecord(row)) {
+      refreshed.push(row);
+      continue;
+    }
+    if (!isWarmPoolStatus(row.status)) {
+      refreshed.push(row);
+      continue;
+    }
+    const resources = machineResourceKey(row.resources);
+    const cluster = clusterById(config, row.incusClusterId);
+    let storageUsage: ReturnType<typeof storageUsageAttribution>;
+    if (!cluster) {
+      storageUsage = storageUsageAttribution({
+        bytes: 0,
+        source: 'unmeasured',
+        diskLimitGb: resources.disk_gb,
+        estimated: true,
+        error: `cluster ${row.incusClusterId} is not configured`,
+      });
+    } else {
+      storageUsage = await measureInstanceStorageUsage({
+        client: clientFor(cluster),
+        cluster,
+        instanceName: row.incusInstanceName,
+        memberName: row.incusMemberName,
+        machineType: row.type === 'vm' ? 'vm' : 'container',
+        diskLimitGb: resources.disk_gb,
+        allowExecFallback: false,
+      });
+    }
+    const metadata = jsonRecord(row.metadata);
+    const warm = jsonRecord(metadata.warm_pool);
+    const poolMode = normalizeWarmPoolMode(warm.mode);
+    const updated = await prisma.machine.update({
+      where: { id: row.id },
+      data: {
+        metadata: {
+          ...metadata,
+          warm_pool: {
+            ...warm,
+            storage_usage: storageUsage,
+            storage_usage_checked_at: storageUsage.measured_at,
+            billing: warmPoolEstimateFromStorageUsages(resources, 1, [storageUsage], 1, poolMode),
+          },
+        } as Prisma.InputJsonValue,
+      },
+    });
+    refreshed.push(updated);
+  }
+  return refreshed;
+}
+
+async function prepareAndPublishJustavpsImage(config: AppConfig, input: {
+  cluster: IncusClusterConfig;
+  source: CreateInstanceSource;
+  imageType: 'container' | 'vm';
+  alias: string;
+  description: string;
+  properties: Record<string, string>;
+  public: boolean;
+  accountId: string;
+  baseResources?: { vcpu?: number | null; memory_gb?: number | null; disk_gb?: number | null };
+  preferredMemberName?: string | null;
+}) {
+  const resources = imagePreparationResources(input.baseResources);
+  const placement = await selectPlacement(config, {
+    region: input.cluster.region as SupportedRegion,
+    resources,
+    targetClusterId: input.cluster.id,
+    preferredMemberName: input.preferredMemberName,
+  });
+  const { client, member } = placement;
+  const tempName = generatedMachineId();
+  const displayName = `image-prep-${input.alias}`.replace(/[^a-zA-Z0-9_.-]/g, '-').slice(0, 80);
+  let createOperation: IncusOperation | Record<string, unknown> | null = null;
+  let firstStart: Awaited<ReturnType<typeof startCreatedMachine>> | null = null;
+  let firstStop: Awaited<ReturnType<typeof stopCreatedMachine>> | null = null;
+  let secondStart: Awaited<ReturnType<typeof startCreatedMachine>> | null = null;
+  let secondStop: Awaited<ReturnType<typeof stopCreatedMachine>> | null = null;
+  try {
+    createOperation = await client.createInstance({
+      name: tempName,
+      machineType: input.imageType,
+      source: input.source,
+      targetMember: member.server_name,
+      resources: { vcpu: resources.vcpu, memoryGb: resources.memory_gb, diskGb: resources.disk_gb },
+      start: false,
+      machineId: tempName,
+      displayName,
+      accountId: input.accountId,
+    });
+    await enforceCreatedMachineResources({
+      client,
+      cluster: input.cluster,
+      instanceName: tempName,
+      resources,
+      machineId: tempName,
+      displayName,
+      machineType: input.imageType,
+      accountId: input.accountId,
+    });
+    firstStart = await startCreatedMachine(client, tempName);
+    const firstUsability = await ensureMachineUsable({
+      config,
+      client,
+      instanceName: tempName,
+      machineId: tempName,
+      mode: 'image-bake',
+      installManagedDaemon: true,
+      repairManagedDaemon: false,
+      execTimeoutMs: 120_000,
+      cloudInitTimeoutMs: 180_000,
+      daemonHealthTimeoutMs: 60_000,
+    });
+    const initialBake = await bakeManagedDaemonIntoInstance({ config, client, instanceName: tempName });
+    if (!initialBake.ok) throw new Error(initialBake.error ?? 'failed to bake JustAVPS daemon into image prep instance');
+    firstStop = await stopCreatedMachine(client, tempName);
+
+    secondStart = await startCreatedMachine(client, tempName);
+    const secondBootUsability = await ensureMachineUsable({
+      config,
+      client,
+      instanceName: tempName,
+      machineId: tempName,
+      mode: 'image-bake',
+      installManagedDaemon: false,
+      repairManagedDaemon: true,
+      waitForCloudInit: false,
+      actualLiveProbe: true,
+      execTimeoutMs: 120_000,
+      daemonHealthTimeoutMs: 5_000,
+    });
+    const finalBake = await bakeManagedDaemonIntoInstance({ config, client, instanceName: tempName });
+    if (!finalBake.ok) throw new Error(finalBake.error ?? 'failed to clean reusable JustAVPS image config after second-boot validation');
+    secondStop = await stopCreatedMachine(client, tempName);
+
+    const operation = await client.createImageFromInstance({
+      instanceName: tempName,
+      aliases: [{ name: input.alias, description: input.description }],
+      properties: {
+        ...input.properties,
+        'justavps.daemon_baked': 'true',
+        'justavps.daemon_first_boot_verified': String(firstUsability.ok),
+        'justavps.daemon_second_boot_verified': String(secondBootUsability.ok),
+        'justavps.daemon_bake_strategy': 'temporary-instance-second-boot-validation',
+        'justavps.image_type': input.imageType === 'vm' ? 'virtual-machine' : 'container',
+      },
+      public: input.public,
+    });
+
+    await client.deleteInstance(tempName, { force: true }).catch(() => undefined);
+    return {
+      operation,
+      temp_instance: tempName,
+      create_operation: createOperation,
+      first_start: firstStart,
+      first_stop: firstStop,
+      second_start: secondStart,
+      second_stop: secondStop,
+      first_usability: firstUsability,
+      initial_bake: initialBake,
+      second_boot_usability: secondBootUsability,
+      final_bake: finalBake,
+      placement: placement.placement,
+      resources,
+    };
+  } catch (error) {
+    await client.deleteInstance(tempName, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+let warmPoolSpecEnsurePromises = new Map<string, Promise<Awaited<ReturnType<typeof ensureWarmPoolForSpecNow>>>>();
+
+async function ensureWarmPoolForSpec(config: AppConfig, spec: WarmPoolSpec) {
+  const lockKey = warmPoolSpecLockKey(spec);
+  const existing = warmPoolSpecEnsurePromises.get(lockKey);
+  if (existing) return existing;
+  const promise = ensureWarmPoolForSpecNow(config, spec).finally(() => warmPoolSpecEnsurePromises.delete(lockKey));
+  warmPoolSpecEnsurePromises.set(lockKey, promise);
+  return promise;
+}
+
+async function ensureWarmPoolForSpecNow(config: AppConfig, spec: WarmPoolSpec) {
+  if (!config.databaseConfigured) return { key: spec.key, target: 0, ready: 0, creating: 0, created: 0, skipped: 'database not configured' };
+  if (spec.type !== 'container') return { key: spec.key, target: 0, ready: 0, creating: 0, created: 0, skipped: 'VM pools disabled; containers only' };
+  if (spec.sourceType !== 'image') return { key: spec.key, target: 0, ready: 0, creating: 0, created: 0, skipped: 'snapshot-backed pools disabled; image pools only' };
+  const policy = spec.policyId ? await getPrisma().warmPoolPolicy.findUnique({ where: { id: spec.policyId } }) : null;
+  const poolMode = normalizeWarmPoolMode(spec.mode ?? policy?.billingMode);
+  const target = spec.policyId ? (policy?.status === 'active' ? policy.target : 0) : warmPoolTarget();
+  if (!target) return { key: spec.key, target, ready: 0, creating: 0, created: 0 };
+  const poolAccountId = spec.accountId ?? WARM_POOL_ACCOUNT_ID;
+  const rows = await getPrisma().machine.findMany({
+    where: {
+      accountId: poolAccountId,
+      status: { in: [WARM_POOL_STATUS, WARM_POOL_CLAIMING_STATUS] },
+      region: spec.region,
+      type: spec.type,
+      sourceType: spec.sourceType,
+      sourceId: spec.sourceId,
+    },
+  });
+  const matching = rows.filter((row) => {
+    if (!matchesWarmPoolSpec(row, spec)) return false;
+    const warm = jsonRecord(jsonRecord(row.metadata).warm_pool);
+    const policyId = warm.policy_id;
+    const rowMode = normalizeWarmPoolMode(warm.mode);
+    return rowMode === poolMode && (spec.policyId ? policyId === spec.policyId : !policyId);
+  });
+  await refreshWarmPoolStorageMeasurements(config, matching.filter((row) => !storedWarmPoolStorageUsageRecord(row)));
+  const ready = matching.filter((row) => row.status === WARM_POOL_STATUS).length;
+  const creating = matching.length - ready;
+  const missing = Math.max(0, target - matching.length);
+  let created = 0;
+  for (let i = 0; i < missing; i += 1) {
+    await createWarmPoolMachine(config, spec);
+    created += 1;
+  }
+  return { key: spec.key, target, ready, creating, created };
+}
+
+async function drainWarmPoolPolicy(config: AppConfig, policy: PrismaWarmPoolPolicy) {
+  if (!config.databaseConfigured) return { drained: 0, errors: [] as string[] };
+  const spec = warmPoolSpecFromPolicy(policy);
+  const inFlight = warmPoolSpecEnsurePromises.get(warmPoolSpecLockKey(spec));
+  if (inFlight) await inFlight.catch(() => undefined);
+  const rows = await getPrisma().machine.findMany({
+    where: {
+      accountId: policy.accountId,
+      status: { in: [WARM_POOL_STATUS, WARM_POOL_CLAIMING_STATUS] },
+      region: policy.region,
+      type: policy.type,
+      sourceType: policy.sourceType,
+      sourceId: policy.sourceId,
+    },
+  });
+  let drained = 0;
+  const errors: string[] = [];
+  for (const row of rows.filter((item) => matchesWarmPoolSpec(item, spec) && jsonRecord(jsonRecord(item.metadata).warm_pool).policy_id === policy.id)) {
+    const cluster = clusterById(config, row.incusClusterId);
+    try {
+      if (cluster) await clientFor(cluster).deleteInstance(row.incusInstanceName, { force: true }).catch(() => undefined);
+      await getPrisma().machine.update({ where: { id: row.id }, data: { status: 'deleted' } });
+      drained += 1;
+    } catch (error) {
+      errors.push(`${row.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return { drained, errors };
+}
+
+let warmPoolRefillPromise: ReturnType<typeof refillWarmPoolNow> | null = null;
+
+async function refillWarmPoolNow(config: AppConfig) {
+  const results: Awaited<ReturnType<typeof ensureWarmPoolForSpec>>[] = [];
+  if (!config.databaseConfigured) return { ok: true as const, results };
+  const policies = await getPrisma().warmPoolPolicy.findMany({
+    where: { status: 'active', target: { gt: 0 }, sourceType: 'image', type: 'container' },
+    orderBy: { updatedAt: 'asc' },
+  });
+  for (const policy of policies) {
+    results.push(await ensureWarmPoolForSpec(config, warmPoolSpecFromPolicy(policy)));
+  }
+  return { ok: true as const, results };
+}
+
+async function refillWarmPool(config: AppConfig) {
+  if (warmPoolRefillPromise) return warmPoolRefillPromise;
+  warmPoolRefillPromise = refillWarmPoolNow(config).finally(() => {
+    warmPoolRefillPromise = null;
+  });
+  return warmPoolRefillPromise;
+}
+
+let warmPoolMaintainerStarted = false;
+
+function startWarmPoolMaintainer(config: AppConfig) {
+  if (warmPoolMaintainerStarted || !warmPoolMaintainerEnabled() || !config.databaseConfigured) return;
+  warmPoolMaintainerStarted = true;
+  const run = () => void refillWarmPool(config).catch((error) => console.warn('[v2-api] warm pool refill failed:', error instanceof Error ? error.message : String(error)));
+  run();
+  setInterval(run, Math.max(30_000, Number.parseInt(process.env.V2_WARM_POOL_INTERVAL_MS ?? '120000', 10) || 120_000));
+}
+
 function adminGuard(config: AppConfig, authorization: string | undefined) {
   if (!config.adminToken) return null;
   const allowedTokens = config.adminToken.split(',').map((token) => token.trim()).filter(Boolean);
   return allowedTokens.some((token) => authorization === `Bearer ${token}`) ? null : { error: true, message: 'Unauthorized' };
+}
+
+function timingSafeStringEqual(a: string, b: string) {
+  const aa = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return aa.length === bb.length && timingSafeEqual(aa, bb);
+}
+
+function telemetryQuery(c: { req: { query: (name: string) => string | undefined } }) {
+  const limitRaw = c.req.query('limit');
+  return {
+    from: c.req.query('from') ?? c.req.query('cursor') ?? undefined,
+    to: c.req.query('to') ?? undefined,
+    limit: limitRaw ? Number.parseInt(limitRaw, 10) : undefined,
+  };
+}
+
+async function telemetryIngestGuard(config: AppConfig, authorization: string | undefined, machineId: string, payload: Record<string, unknown>, headerToken?: string) {
+  if (!adminGuard(config, authorization)) return null;
+  if (config.telemetry.ingestToken && headerToken && timingSafeStringEqual(headerToken, config.telemetry.ingestToken)) return null;
+
+  const machineToken = typeof payload.machine_token === 'string' ? payload.machine_token : '';
+  if (machineToken && config.databaseConfigured) {
+    const machine = await getPrisma().machine.findUnique({ where: { id: machineId } }).catch(() => null);
+    const managed = machine?.metadata && typeof machine.metadata === 'object' && !Array.isArray(machine.metadata)
+      ? (machine.metadata as Record<string, unknown>).managed_daemon
+      : null;
+    const tokenSha = managed && typeof managed === 'object' && !Array.isArray(managed)
+      ? (managed as Record<string, unknown>).token_sha256
+      : null;
+    if (typeof tokenSha === 'string' && timingSafeStringEqual(sha256Hex(machineToken), tokenSha)) return null;
+  }
+
+  return { error: true, message: 'Unauthorized' };
 }
 
 type ObservedInstance = IncusInstance & {
@@ -1821,6 +3385,12 @@ function storageEurPerMonth(gib: number, storageClass: 'local' | 'archive' = 'lo
   return (gib * rate * BILLING_SECONDS_PER_MONTH) / 1_000_000;
 }
 
+function hotResourceEurPerMonth(resources: { vcpu: number; memory_gb: number }, instances: number) {
+  const microPerSecond = resources.vcpu * DEFAULT_PRICING.vcpu_hot_micro_eur_per_sec
+    + resources.memory_gb * DEFAULT_PRICING.ram_gb_hot_micro_eur_per_sec;
+  return (microPerSecond * BILLING_SECONDS_PER_MONTH * instances) / 1_000_000;
+}
+
 function exactBytes(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
   if (typeof value !== 'string') return undefined;
@@ -1890,7 +3460,7 @@ async function loadProductMachine(config: AppConfig, id: string) {
   const machineId = requireMachineUuid(id);
   if (config.databaseConfigured) {
     const machine = await getPrisma().machine.findUnique({ where: { id: machineId } });
-    if (machine) return machine;
+    if (machine && !isWarmPoolStatus(machine.status)) return machine;
   }
   for (const cluster of config.clusters) {
     const instances = await clientFor(cluster).listInstances();
@@ -2119,8 +3689,9 @@ export function createApp(config: AppConfig) {
     if (allowedOrigin) {
       c.header('Access-Control-Allow-Origin', allowedOrigin);
       c.header('Vary', 'Origin');
-      c.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+      c.header('Access-Control-Allow-Headers', c.req.header('access-control-request-headers') || 'Authorization, Content-Type, X-JustAVPS-Request-Id');
       c.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+      c.header('Access-Control-Expose-Headers', 'X-JustAVPS-Request-Id');
       c.header('Access-Control-Max-Age', '600');
     }
     if (c.req.method === 'OPTIONS') return c.body(null, 204);
@@ -2140,7 +3711,7 @@ export function createApp(config: AppConfig) {
   });
 
   app.use('*', async (c, next) => {
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && !c.req.path.startsWith('/admin/')) {
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && !c.req.path.startsWith('/admin/') && !c.req.path.startsWith('/internal/telemetry/')) {
       const error = adminGuard(config, c.req.header('authorization'));
       if (error) return c.json(error, 401);
     }
@@ -2170,6 +3741,12 @@ export function createApp(config: AppConfig) {
       database_configured: config.databaseConfigured,
       incus_clusters_configured: config.clusters.length,
       hetzner_robot_configured: Boolean(config.hetznerRobot),
+      telemetry: {
+        enabled: config.telemetry.enabled,
+        driver: config.telemetry.driver,
+        ingest_reachable_from_sandbox: config.telemetry.ingestReachableFromSandbox,
+        warnings: config.telemetry.warnings,
+      },
     }),
   );
 
@@ -2232,6 +3809,7 @@ export function createApp(config: AppConfig) {
 
   app.get('/', (c) => c.redirect('/admin-ui/'));
   registerAdminUi(app);
+  startWarmPoolMaintainer(config);
 
   // One-shot sweep for debug + integration tests; the periodic sweeper is
   // kicked off from `index.ts` so the test harness can opt in.
@@ -3808,6 +5386,378 @@ export function createApp(config: AppConfig) {
     }
   });
 
+  app.get('/admin/telemetry/creations', async (c) => {
+    const authError = adminGuard(config, c.req.header('authorization'));
+    if (authError) return c.json(authError, 401);
+    return c.json({ machine_creations: listMachineCreationTelemetry() });
+  });
+
+  app.get('/admin/telemetry/creations/:id', async (c) => {
+    const authError = adminGuard(config, c.req.header('authorization'));
+    if (authError) return c.json(authError, 401);
+    const trace = getMachineCreationTelemetry(c.req.param('id'));
+    if (!trace) return c.json({ error: true, message: 'Machine creation trace not found' }, 404);
+    return c.json({ trace });
+  });
+
+  app.get('/admin/telemetry/overview', async (c) => {
+    try {
+      const authError = adminGuard(config, c.req.header('authorization'));
+      if (authError) return c.json(authError, 401);
+      const overview = await getTelemetryStore(config).overview(telemetryQuery(c));
+      return c.json(overview);
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.get('/admin/telemetry/machines/:id/latest', async (c) => {
+    try {
+      const authError = adminGuard(config, c.req.header('authorization'));
+      if (authError) return c.json(authError, 401);
+      const latest = await getTelemetryStore(config).latest(c.req.param('id'));
+      return c.json({ latest, store: getTelemetryStore(config).info() });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.get('/admin/telemetry/machines/:id/metrics', async (c) => {
+    try {
+      const authError = adminGuard(config, c.req.header('authorization'));
+      if (authError) return c.json(authError, 401);
+      const metrics = await getTelemetryStore(config).metrics(c.req.param('id'), telemetryQuery(c));
+      return c.json({ metrics, store: getTelemetryStore(config).info() });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.get('/admin/telemetry/machines/:id/logs', async (c) => {
+    try {
+      const authError = adminGuard(config, c.req.header('authorization'));
+      if (authError) return c.json(authError, 401);
+      const logs = await getTelemetryStore(config).logs(c.req.param('id'), {
+        ...telemetryQuery(c),
+        direction: c.req.query('direction') === 'forward' ? 'forward' : 'backward',
+        level: c.req.query('level'),
+        source: c.req.query('source'),
+        search: c.req.query('search'),
+      });
+      return c.json({ logs, store: getTelemetryStore(config).info() });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.get('/admin/telemetry/machines/:id/traces', async (c) => {
+    try {
+      const authError = adminGuard(config, c.req.header('authorization'));
+      if (authError) return c.json(authError, 401);
+      const traces = await getTelemetryStore(config).traces(c.req.param('id'), { ...telemetryQuery(c), operation: c.req.query('operation') });
+      return c.json({ traces, store: getTelemetryStore(config).info() });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.get('/admin/telemetry/machines/:id/events', async (c) => {
+    try {
+      const authError = adminGuard(config, c.req.header('authorization'));
+      if (authError) return c.json(authError, 401);
+      const events = await getTelemetryStore(config).events(c.req.param('id'), telemetryQuery(c));
+      return c.json({ events, store: getTelemetryStore(config).info() });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.post('/internal/telemetry/machines/:id/metrics', async (c) => {
+    try {
+      const machineId = c.req.param('id');
+      const payload = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+      const authError = await telemetryIngestGuard(config, c.req.header('authorization'), machineId, payload, c.req.header('x-justavps-telemetry-token'));
+      if (authError) return c.json(authError, 401);
+      const rows = metricSamplesFromPayload(machineId, payload);
+      const inserted = await getTelemetryStore(config).insertMetrics(rows);
+      if (inserted > 0) {
+        await getTelemetryStore(config).insertEvents([{ machine_id: machineId, account_id: typeof payload.account_id === 'string' ? payload.account_id : undefined, type: 'sandbox.telemetry.metrics', category: 'telemetry', body: `ingested ${inserted} metric samples` }]).catch(() => 0);
+      }
+      return c.json({ ok: true, inserted, store: getTelemetryStore(config).info() });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.post('/internal/telemetry/machines/:id/logs', async (c) => {
+    try {
+      const machineId = c.req.param('id');
+      const payload = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+      const authError = await telemetryIngestGuard(config, c.req.header('authorization'), machineId, payload, c.req.header('x-justavps-telemetry-token'));
+      if (authError) return c.json(authError, 401);
+      const rows = logEntriesFromPayload(machineId, payload);
+      const inserted = await getTelemetryStore(config).insertLogs(rows);
+      return c.json({ ok: true, inserted, store: getTelemetryStore(config).info() });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.post('/internal/telemetry/machines/:id/traces', async (c) => {
+    try {
+      const machineId = c.req.param('id');
+      const payload = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+      const authError = await telemetryIngestGuard(config, c.req.header('authorization'), machineId, payload, c.req.header('x-justavps-telemetry-token'));
+      if (authError) return c.json(authError, 401);
+      const rows = traceSpansFromPayload(machineId, payload);
+      const inserted = await getTelemetryStore(config).insertTraces(rows);
+      return c.json({ ok: true, inserted, store: getTelemetryStore(config).info() });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.post('/internal/telemetry/machines/:id/events', async (c) => {
+    try {
+      const machineId = c.req.param('id');
+      const payload = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+      const authError = await telemetryIngestGuard(config, c.req.header('authorization'), machineId, payload, c.req.header('x-justavps-telemetry-token'));
+      if (authError) return c.json(authError, 401);
+      const rows = eventEntriesFromPayload(machineId, payload);
+      const inserted = await getTelemetryStore(config).insertEvents(rows);
+      return c.json({ ok: true, inserted, store: getTelemetryStore(config).info() });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.get('/warm-pool-policies', async (c) => {
+    const authError = adminGuard(config, c.req.header('authorization'));
+    if (authError) return c.json(authError, 401);
+    if (!config.databaseConfigured) return c.json({ policies: [] });
+    const accountId = c.req.header('x-account-id') || 'system';
+    const [policies, poolRows] = await Promise.all([
+      getPrisma().warmPoolPolicy.findMany({ where: { accountId, status: { not: 'deleted' } }, orderBy: { updatedAt: 'desc' } }),
+      getPrisma().machine.findMany({ where: { accountId, status: { in: [WARM_POOL_STATUS, WARM_POOL_CLAIMING_STATUS] } } }),
+    ]);
+    const measuredPoolRows = await refreshWarmPoolStorageMeasurements(config, poolRows);
+    return c.json({ policies: policies.map((policy) => serializeWarmPoolPolicy(policy, measuredPoolRows)) });
+  });
+
+  app.post('/warm-pool-policies', async (c) => {
+    try {
+      const authError = adminGuard(config, c.req.header('authorization'));
+      if (authError) return c.json(authError, 401);
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const accountId = c.req.header('x-account-id') || 'system';
+      const input = warmPoolPolicySchema.parse(await c.req.json());
+      const validated = await validateWarmPoolPolicyInput(config, input, accountId);
+      if ('error' in validated) return c.json(validated.error.body, validated.error.status as never);
+      const source = validated.source;
+      const mode = normalizeWarmPoolMode(input.mode ?? input.billing_mode);
+      const policy = await getPrisma().warmPoolPolicy.create({
+        data: {
+          accountId,
+          name: input.name ?? `Warm ${input.type} pool`,
+          status: 'active',
+          region: input.region,
+          type: input.type,
+          sourceType: source.sourceType,
+          sourceId: source.sourceId,
+          target: input.target,
+          resources: input.resources,
+          billingMode: mode,
+          metadata: { ...(input.metadata ?? {}), billing: warmPoolEstimate(input.resources, input.target, [], mode) } as Prisma.InputJsonValue,
+        },
+      });
+      void ensureWarmPoolForSpec(config, warmPoolSpecFromPolicy(policy)).catch((error) => console.warn(`[v2-api] warm pool policy ${policy.id} initial refill failed:`, error instanceof Error ? error.message : String(error)));
+      return c.json({ policy: serializeWarmPoolPolicy(policy) }, 201);
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.get('/warm-pool-policies/:id', async (c) => {
+    const authError = adminGuard(config, c.req.header('authorization'));
+    if (authError) return c.json(authError, 401);
+    if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+    const accountId = c.req.header('x-account-id') || 'system';
+    const policy = await getPrisma().warmPoolPolicy.findFirst({ where: { id: c.req.param('id'), accountId, status: { not: 'deleted' } } });
+    if (!policy) return c.json({ error: true, message: 'Warm pool policy not found' }, 404);
+    const poolRows = await refreshWarmPoolStorageMeasurements(config, await getPrisma().machine.findMany({ where: { accountId, status: { in: [WARM_POOL_STATUS, WARM_POOL_CLAIMING_STATUS] } } }));
+    return c.json({ policy: serializeWarmPoolPolicy(policy, poolRows) });
+  });
+
+  app.patch('/warm-pool-policies/:id', async (c) => {
+    try {
+      const authError = adminGuard(config, c.req.header('authorization'));
+      if (authError) return c.json(authError, 401);
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const accountId = c.req.header('x-account-id') || 'system';
+      const existing = await getPrisma().warmPoolPolicy.findFirst({ where: { id: c.req.param('id'), accountId, status: { not: 'deleted' } } });
+      if (!existing) return c.json({ error: true, message: 'Warm pool policy not found' }, 404);
+      const patch = patchWarmPoolPolicySchema.parse(await c.req.json());
+      if (existing.type !== 'container' && !patch.type) {
+        return c.json({ error: true, message: 'VM pools are disabled; delete this policy or update it to container' }, 400);
+      }
+      if (existing.sourceType !== 'image' && !patch.source) {
+        return c.json({ error: true, message: 'Snapshot-backed pools are disabled; delete this policy or update it to an image source' }, 400);
+      }
+      const existingSource = { type: 'image' as const, image_id: existing.sourceId };
+      const mergedInput: WarmPoolPolicyInput = {
+        name: patch.name ?? existing.name,
+        region: patch.region ?? existing.region as SupportedRegion,
+        type: patch.type ?? 'container',
+        mode: patch.mode ?? patch.billing_mode ?? normalizeWarmPoolMode(existing.billingMode),
+        billing_mode: patch.billing_mode ?? patch.mode ?? normalizeWarmPoolMode(existing.billingMode),
+        resources: patch.resources ?? machineResourceKey(existing.resources),
+        source: patch.source ?? existingSource,
+        target: patch.target ?? existing.target,
+        metadata: patch.metadata ?? jsonRecord(existing.metadata),
+      };
+      const validated = await validateWarmPoolPolicyInput(config, mergedInput, accountId);
+      if ('error' in validated) return c.json(validated.error.body, validated.error.status as never);
+      const source = validated.source;
+      const nextMode = normalizeWarmPoolMode(mergedInput.mode ?? mergedInput.billing_mode);
+      const existingResources = machineResourceKey(existing.resources);
+      const stalePoolDefinition = existing.region !== mergedInput.region
+        || existing.type !== mergedInput.type
+        || existing.sourceType !== source.sourceType
+        || existing.sourceId !== source.sourceId
+        || !resourcesEqual(existingResources, mergedInput.resources)
+        || normalizeWarmPoolMode(existing.billingMode) !== nextMode;
+      if (stalePoolDefinition) await drainWarmPoolPolicy(config, existing).catch((error) => console.warn(`[v2-api] warm pool policy ${existing.id} stale-row drain failed:`, error instanceof Error ? error.message : String(error)));
+      const updated = await getPrisma().warmPoolPolicy.update({
+        where: { id: existing.id },
+        data: {
+          name: mergedInput.name ?? existing.name,
+          status: patch.status ?? existing.status,
+          region: mergedInput.region,
+          type: mergedInput.type,
+          sourceType: source.sourceType,
+          sourceId: source.sourceId,
+          target: mergedInput.target,
+          resources: mergedInput.resources,
+          billingMode: nextMode,
+          metadata: { ...jsonRecord(mergedInput.metadata), billing: warmPoolEstimate(mergedInput.resources, mergedInput.target, [], nextMode) } as Prisma.InputJsonValue,
+        },
+      });
+      if (updated.status === 'active') void ensureWarmPoolForSpec(config, warmPoolSpecFromPolicy(updated)).catch((error) => console.warn(`[v2-api] warm pool policy ${updated.id} refill failed:`, error instanceof Error ? error.message : String(error)));
+      if (updated.status === 'paused' || updated.target === 0) void drainWarmPoolPolicy(config, updated).catch((error) => console.warn(`[v2-api] warm pool policy ${updated.id} drain failed:`, error instanceof Error ? error.message : String(error)));
+      const poolRows = await refreshWarmPoolStorageMeasurements(config, await getPrisma().machine.findMany({ where: { accountId, status: { in: [WARM_POOL_STATUS, WARM_POOL_CLAIMING_STATUS] } } }));
+      return c.json({ policy: serializeWarmPoolPolicy(updated, poolRows) });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.post('/warm-pool-policies/:id/refill', async (c) => {
+    try {
+      const authError = adminGuard(config, c.req.header('authorization'));
+      if (authError) return c.json(authError, 401);
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const accountId = c.req.header('x-account-id') || 'system';
+      const policy = await getPrisma().warmPoolPolicy.findFirst({ where: { id: c.req.param('id'), accountId, status: { not: 'deleted' } } });
+      if (!policy) return c.json({ error: true, message: 'Warm pool policy not found' }, 404);
+      const result = await ensureWarmPoolForSpec(config, warmPoolSpecFromPolicy(policy));
+      const rows = await getPrisma().machine.findMany({ where: { accountId, status: { in: [WARM_POOL_STATUS, WARM_POOL_CLAIMING_STATUS] } } });
+      await refreshWarmPoolStorageMeasurements(config, rows);
+      return c.json(result);
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.delete('/warm-pool-policies/:id', async (c) => {
+    try {
+      const authError = adminGuard(config, c.req.header('authorization'));
+      if (authError) return c.json(authError, 401);
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const accountId = c.req.header('x-account-id') || 'system';
+      const existing = await getPrisma().warmPoolPolicy.findFirst({ where: { id: c.req.param('id'), accountId, status: { not: 'deleted' } } });
+      if (!existing) return c.json({ error: true, message: 'Warm pool policy not found' }, 404);
+      const disabled = await getPrisma().warmPoolPolicy.update({ where: { id: existing.id }, data: { status: 'deleted', target: 0, metadata: { ...jsonRecord(existing.metadata), deleted_at: new Date().toISOString() } as Prisma.InputJsonValue } });
+      const drained = await drainWarmPoolPolicy(config, disabled);
+      const policy = await getPrisma().warmPoolPolicy.update({ where: { id: existing.id }, data: { metadata: { ...jsonRecord(disabled.metadata), drain: drained } as Prisma.InputJsonValue } });
+      return c.json({ policy: serializeWarmPoolPolicy(policy), drain: drained });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.get('/admin/warm-pool', async (c) => {
+    const authError = adminGuard(config, c.req.header('authorization'));
+    if (authError) return c.json(authError, 401);
+    if (!config.databaseConfigured) return c.json({ enabled: warmPoolMaintainerEnabled(), target: warmPoolTarget(), machines: [], groups: [] });
+    const [rows, policies] = await Promise.all([
+      getPrisma().machine.findMany({
+        where: { status: { in: [WARM_POOL_STATUS, WARM_POOL_CLAIMING_STATUS] } },
+        orderBy: [{ accountId: 'asc' }, { region: 'asc' }, { type: 'asc' }, { sourceId: 'asc' }, { updatedAt: 'asc' }],
+      }),
+      getPrisma().warmPoolPolicy.findMany({ where: { status: { not: 'deleted' } }, orderBy: { updatedAt: 'desc' } }),
+    ]);
+    const measuredRows = await refreshWarmPoolStorageMeasurements(config, rows);
+    const groups = new Map<string, { key: string; account_id: string; policy_id: string | null; ready: number; claiming: number; total: number; machines: string[] }>();
+    for (const row of measuredRows) {
+      const resources = machineResourceKey(row.resources);
+      const poolMeta = jsonRecord(jsonRecord(row.metadata).warm_pool);
+      const policyId = typeof poolMeta.policy_id === 'string' ? poolMeta.policy_id : null;
+      const key = warmPoolKey({ region: row.region, type: row.type, sourceType: row.sourceType, sourceId: row.sourceId ?? 'unknown', resources });
+      const groupKey = `${row.accountId}:${policyId ?? 'legacy'}:${key}`;
+      const group = groups.get(groupKey) ?? { key, account_id: row.accountId, policy_id: policyId, ready: 0, claiming: 0, total: 0, machines: [] };
+      group.total += 1;
+      if (row.status === WARM_POOL_STATUS) group.ready += 1;
+      if (row.status === WARM_POOL_CLAIMING_STATUS) group.claiming += 1;
+      group.machines.push(row.id);
+      groups.set(groupKey, group);
+    }
+    return c.json({
+      enabled: warmPoolMaintainerEnabled(),
+      legacy_target: warmPoolTarget(),
+      policies: policies.map((policy) => serializeWarmPoolPolicy(policy, measuredRows)),
+      groups: [...groups.values()],
+      machines: measuredRows.map((row) => ({
+        id: row.id,
+        account_id: row.accountId,
+        status: row.status,
+        region: row.region,
+        type: row.type,
+        source_type: row.sourceType,
+        source_id: row.sourceId,
+        resources: row.resources,
+        cluster_id: row.incusClusterId,
+        member_name: row.incusMemberName,
+        policy_id: jsonRecord(jsonRecord(row.metadata).warm_pool).policy_id ?? null,
+        warm_pool: jsonRecord(jsonRecord(row.metadata).warm_pool),
+        storage_usage: jsonRecord(jsonRecord(jsonRecord(row.metadata).warm_pool).storage_usage),
+        usability: jsonRecord(jsonRecord(row.metadata).usability),
+        managed_daemon_state: jsonRecord(row.metadata).managed_daemon_state ?? null,
+        updated_at: row.updatedAt.toISOString(),
+      })),
+    });
+  });
+
+  app.post('/admin/warm-pool/refill', async (c) => {
+    const authError = adminGuard(config, c.req.header('authorization'));
+    if (authError) return c.json(authError, 401);
+    if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+    return c.json(await refillWarmPool(config));
+  });
+
   app.openapi(
     createRoute({
       method: 'get',
@@ -3885,10 +5835,12 @@ export function createApp(config: AppConfig) {
           const productRows = config.databaseConfigured && productIds.length
             ? await getPrisma().machine.findMany({ where: { id: { in: productIds } } })
             : [];
-          const productById = new Map(productRows.map((machine) => [machine.id, machine]));
+          const hiddenProductIds = new Set(productRows.filter((machine) => isWarmPoolStatus(machine.status)).map((machine) => machine.id));
+          const productById = new Map(productRows.filter((machine) => !isWarmPoolStatus(machine.status)).map((machine) => [machine.id, machine]));
           return normalizedObserved.flatMap((instance) => {
             const id = instance.config?.['user.justavps.machine_id'] ?? null;
             if (!isMachineUuid(id)) return [];
+            if (hiddenProductIds.has(id)) return [];
             const productMachine = productById.get(id);
             if (!productMachine) {
               const serializedObserved = serializeObservedMachine(config, cluster, instance);
@@ -3962,7 +5914,7 @@ export function createApp(config: AppConfig) {
         const input = c.req.header('content-type')?.includes('application/json')
           ? ensureDaemonBodySchema.parse(await c.req.json().catch(() => undefined))
           : undefined;
-        const ensured = await ensureResolvedManagedDaemon(config, resolved, { verifyPort: input?.verify_port });
+        const ensured = await ensureResolvedManagedDaemon(config, resolved, { verifyPort: typeof input?.verify_port === 'number' ? input.verify_port : null });
         return c.json({ ok: ensured.daemon.ok, daemon: ensured.daemon, machine: serializeMachine(config, ensured.machine) });
       } catch (error) {
         const response = routeError(error);
@@ -3993,7 +5945,7 @@ export function createApp(config: AppConfig) {
         const machineId = c.req.query('machine_id')?.trim();
         const machines = machineId
           ? await getPrisma().machine.findMany({ where: { id: machineId } })
-          : await getPrisma().machine.findMany({ where: { status: { not: 'deleted' } } });
+          : await getPrisma().machine.findMany({ where: customerVisibleMachineWhere() });
 
         const proxyTokens = machines
           .flatMap((machine) => activeProxyTokenDescriptors(machine))
@@ -4145,7 +6097,7 @@ export function createApp(config: AppConfig) {
         const machineId = c.req.query('machine_id')?.trim();
         const machines = machineId
           ? await getPrisma().machine.findMany({ where: { id: machineId } })
-          : await getPrisma().machine.findMany({ where: { status: { not: 'deleted' } } });
+          : await getPrisma().machine.findMany({ where: customerVisibleMachineWhere() });
         const tokens = machines.flatMap((machine) => activeSshTokenDescriptors(machine))
           .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
           .map((token) => publicSshToken(config, token));
@@ -4290,46 +6242,111 @@ export function createApp(config: AppConfig) {
       },
     }),
     oapi(async (c) => {
+    const telemetryId = c.req.header('x-justavps-request-id')?.trim() || randomUUID();
+    const telemetry = startMachineCreationTelemetry(telemetryId, {
+      request_id: telemetryId,
+      account_id: c.req.header('x-account-id') || 'system',
+      remote: c.req.header('x-forwarded-for') ?? null,
+    });
+    c.header('X-JustAVPS-Request-Id', telemetryId);
     try {
       const authError = adminGuard(config, c.req.header('authorization'));
-      if (authError) return c.json(authError, 401);
+      if (authError) {
+        failMachineCreationTelemetry(telemetry, authError.message ?? 'Unauthorized');
+        return c.json(authError, 401);
+      }
 
-      const input = createMachineSchema.parse(await c.req.json());
+      const input = await withTelemetrySpan(telemetry, 'parse request', async () => createMachineSchema.parse(await c.req.json()));
+      const sourceTelemetryId = input.source.type === 'image'
+        ? input.source.image_id
+        : input.source.type === 'snapshot'
+          ? input.source.snapshot_id
+          : input.source.backup_id;
+      updateMachineCreationLabels(telemetry, {
+        name: input.name ?? null,
+        type: input.type,
+        region: input.region,
+        source_type: input.source.type,
+        source_id: sourceTelemetryId,
+        vcpu: input.resources.vcpu,
+        memory_gb: input.resources.memory_gb,
+        disk_gb: input.resources.disk_gb,
+      });
+
+      const accountId = c.req.header('x-account-id') || 'system';
+      const warmSpec = warmPoolSpecFromCreate(input);
+      if (warmSpec && config.databaseConfigured) {
+        const warmDisplayName = displayMachineName(input.name, generatedMachineId());
+        const claimed = await withTelemetrySpan(telemetry, 'claim warm pool machine', () => claimWarmPoolMachine(config, warmSpec, input, warmDisplayName, accountId, telemetry), { source_key: warmSpec.key });
+        if (claimed) {
+          updateMachineCreationLabels(telemetry, { cluster_id: claimed.cluster.id, member_name: claimed.observed?.location ?? claimed.machine.incusMemberName ?? null, warm_pool_hit: true, warm_pool_resized_on_claim: claimed.resizedOnClaim, warm_pool_running_takeover: claimed.runningTakeover });
+          let proxySync: Record<string, unknown> | null = null;
+          let daemonEnsure: Record<string, unknown> | null = null;
+          proxySync = await withTelemetrySpan(telemetry, 'sync proxy routes', () => syncResolvedMachineProxy(config, { machine: claimed.machine, cluster: claimed.cluster, client: claimed.client }, claimed.observed)).catch((error) => ({
+            synced: false,
+            reason: error instanceof Error ? error.message : String(error),
+          }));
+          const claimedDaemon = jsonRecord(claimed.machine.metadata).managed_daemon;
+          daemonEnsure = claimedDaemon && typeof claimedDaemon === 'object' && !Array.isArray(claimedDaemon) ? claimedDaemon as Record<string, unknown> : null;
+          const finalTelemetry = completeMachineCreationTelemetry(telemetry);
+          await getPrisma().machine.update({
+            where: { id: claimed.machine.id },
+            data: { metadata: { ...jsonRecord(claimed.machine.metadata), proxy_sync: proxySync, managed_daemon: daemonEnsure, managed_daemon_state: 'ready', creation_telemetry: finalTelemetry } as Prisma.InputJsonValue },
+          }).catch(() => undefined);
+          const finalMachine = await getPrisma().machine.findUnique({ where: { id: claimed.machine.id } }) ?? claimed.machine;
+          void ensureWarmPoolForSpec(config, claimed.refillSpec).catch((error) => console.warn('[v2-api] async warm pool refill after claim failed:', error instanceof Error ? error.message : String(error)));
+          return c.json({ machine: serializeMachine(config, finalMachine, claimed.observed) }, 201);
+        }
+        updateMachineCreationLabels(telemetry, { warm_pool_hit: false });
+      }
+
       let backupResolvedForPlacement: BackupResolution | null = null;
       let preferredClusterId: string | null = null;
       let preferredMemberName: string | null = null;
       if (input.source.type === 'backup') {
-        backupResolvedForPlacement = await resolveBackupForSource(config, input.source.backup_id);
-        if ('error' in backupResolvedForPlacement) return c.json(backupResolvedForPlacement.error.body, backupResolvedForPlacement.error.status as never);
+        const backupId = input.source.backup_id;
+        backupResolvedForPlacement = await withTelemetrySpan(telemetry, 'resolve backup source', () => resolveBackupForSource(config, backupId));
+        if ('error' in backupResolvedForPlacement) {
+          failMachineCreationTelemetry(telemetry, backupResolvedForPlacement.error.body.message ?? 'Backup source resolution failed');
+          return c.json(backupResolvedForPlacement.error.body, backupResolvedForPlacement.error.status as never);
+        }
         preferredClusterId = backupResolvedForPlacement.sourceMachine.incusClusterId;
         preferredMemberName = backupResolvedForPlacement.sourceMachine.incusMemberName;
       } else if (input.source.type === 'snapshot' && config.databaseConfigured) {
-        const snapshot = await getPrisma().snapshot.findUnique({ where: { id: input.source.snapshot_id } })
-          ?? await getPrisma().snapshot.findFirst({ where: { incusSnapshotName: input.source.snapshot_id }, orderBy: { createdAt: 'desc' } });
+        const snapshotId = input.source.snapshot_id;
+        const snapshot = await withTelemetrySpan(telemetry, 'resolve snapshot placement hint', async () => await getPrisma().snapshot.findUnique({ where: { id: snapshotId } })
+          ?? await getPrisma().snapshot.findFirst({ where: { incusSnapshotName: snapshotId }, orderBy: { createdAt: 'desc' } }));
         if (snapshot) {
           const sourceMachine = await getPrisma().machine.findUnique({ where: { id: snapshot.machineId } });
           preferredClusterId = sourceMachine?.incusClusterId ?? null;
           preferredMemberName = sourceMachine?.incusMemberName ?? null;
         }
       }
-      const placement = await selectPlacement(config, {
+      const placement = await withTelemetrySpan(telemetry, 'select placement', () => selectPlacement(config, {
         region: input.region,
         resources: input.resources,
         targetClusterId: input.target_cluster_id ?? null,
         preferredClusterId,
         preferredMemberName,
-      });
+      }));
       const { cluster, client, member } = placement;
+      updateMachineCreationLabels(telemetry, { cluster_id: cluster.id, member_name: member.server_name });
 
       // Backup source: native Incus tarball import. Bypasses createInstance entirely.
       if (input.source.type === 'backup') {
-        const backupResolved = backupResolvedForPlacement ?? await resolveBackupForSource(config, input.source.backup_id);
-        if ('error' in backupResolved) return c.json(backupResolved.error.body, backupResolved.error.status as never);
+        const backupId = input.source.backup_id;
+        const backupResolved = backupResolvedForPlacement ?? await resolveBackupForSource(config, backupId);
+        if ('error' in backupResolved) {
+          failMachineCreationTelemetry(telemetry, backupResolved.error.body.message ?? 'Backup source resolution failed');
+          return c.json(backupResolved.error.body, backupResolved.error.status as never);
+        }
         const { sourceMachine, backupName } = backupResolved;
         if (sourceMachine.incusClusterId !== cluster.id) {
+          failMachineCreationTelemetry(telemetry, 'Backup source is in a different Incus cluster');
           return c.json({ error: true, message: 'Backup source is in a different Incus cluster' }, 409);
         }
         if (sourceMachine.type !== input.type) {
+          failMachineCreationTelemetry(telemetry, 'Backup source type does not match requested machine type');
           return c.json({ error: true, message: 'Backup source type does not match requested machine type' }, 409);
         }
         const machineId = generatedMachineId();
@@ -4351,28 +6368,28 @@ export function createApp(config: AppConfig) {
         let startOp: IncusOperation | Record<string, unknown> | null = null;
         let startNoop = false;
         if (sameProject) {
-          importOp = await client.createInstance({
+          importOp = await withTelemetrySpan(telemetry, 'clone backup source in Incus', () => client.createInstance({
             name: incusName,
             machineType: input.type,
             source: { type: 'snapshot', source: sourceMachine.incusInstanceName },
             targetMember: member.server_name,
             resources: { vcpu: input.resources.vcpu, memoryGb: input.resources.memory_gb, diskGb: input.resources.disk_gb },
-            start: false,
+            start: input.type === 'container',
             machineId,
             displayName,
             accountId: c.req.header('x-account-id') || 'system',
-          });
+          }), { instance: incusName, member: member.server_name });
           startOp = null;
         } else {
-          const tarball = await client.exportBackup(sourceMachine.incusInstanceName, backupName);
-          importOp = await client.importInstanceFromTarball({
+          const tarball = await withTelemetrySpan(telemetry, 'export backup tarball', () => client.exportBackup(sourceMachine.incusInstanceName, backupName), { source_instance: sourceMachine.incusInstanceName, backup: backupName });
+          importOp = await withTelemetrySpan(telemetry, 'import backup tarball', () => client.importInstanceFromTarball({
             tarball,
             targetName: incusName,
             targetMember: member.server_name,
-          });
-          await applyResourceConfig(client, incusName, cluster, input.resources, { machineId, displayName, machineType: input.type, accountId: c.req.header('x-account-id') || 'system' });
+          }), { instance: incusName, member: member.server_name });
+          await withTelemetrySpan(telemetry, 'apply resource config', () => applyResourceConfig(client, incusName, cluster, input.resources, { machineId, displayName, machineType: input.type, accountId: c.req.header('x-account-id') || 'system' }));
           try {
-            const started = await startCreatedMachine(client, incusName);
+            const started = await withTelemetrySpan(telemetry, 'start machine', () => startCreatedMachine(client, incusName));
             startOp = started.operation;
             startNoop = started.noop;
           } catch (error) {
@@ -4384,8 +6401,9 @@ export function createApp(config: AppConfig) {
         let observed: IncusInstance | null = null;
         let resourceOperation: Record<string, unknown> | null = null;
         let isolationCheck: ReturnType<typeof validateMachineIsolation> | null = null;
+        let usability: Awaited<ReturnType<typeof ensureMachineUsable>> | null = null;
         try {
-          const enforced = await enforceCreatedMachineResources({
+          const enforced = await withTelemetrySpan(telemetry, 'verify isolation and resource limits', () => enforceCreatedMachineResources({
             client,
             cluster,
             instanceName: incusName,
@@ -4394,24 +6412,37 @@ export function createApp(config: AppConfig) {
             displayName,
             machineType: input.type,
             accountId: c.req.header('x-account-id') || 'system',
-          });
+          }));
           observed = enforced.observed;
           isolationCheck = enforced.isolation;
           resourceOperation = { synced: true, mode: 'post-create-resource-enforce', at: new Date().toISOString(), resources: input.resources };
-          const running = await ensureCreatedMachineRunning(client, incusName);
+          const running = await withTelemetrySpan(telemetry, 'ensure machine running', () => ensureCreatedMachineRunning(client, incusName, observed));
           observed = running.observed;
           if (running.startOperation) startOp = running.startOperation;
           startNoop = running.startNoop;
+          usability = await ensureMachineUsable({
+            config,
+            client,
+            instanceName: incusName,
+            machineId,
+            mode: 'cold-create',
+            telemetry,
+            installManagedDaemon: true,
+            repairManagedDaemon: false,
+            execTimeoutMs: 120_000,
+            cloudInitTimeoutMs: 180_000,
+            daemonHealthTimeoutMs: 60_000,
+          });
         } catch (error) {
           await client.deleteInstance(incusName, { force: true }).catch(() => undefined);
           throw error;
         }
 
-        let productMachine = null;
+        let productMachine: PrismaMachine | null = null;
         let proxySync: Record<string, unknown> | null = null;
         let daemonEnsure: Record<string, unknown> | null = null;
         if (config.databaseConfigured) {
-          productMachine = await getPrisma().machine.create({
+          productMachine = await withTelemetrySpan(telemetry, 'persist machine row', () => getPrisma().machine.create({
             data: {
               id: machineId,
               accountId: c.req.header('x-account-id') || 'system',
@@ -4420,7 +6451,7 @@ export function createApp(config: AppConfig) {
               type: input.type,
               status: observed?.status ?? 'Running',
               sourceType: 'backup',
-              sourceId: input.source.backup_id,
+              sourceId: backupId,
               incusClusterId: cluster.id,
               incusProject: cluster.project,
               incusInstanceName: incusName,
@@ -4440,20 +6471,27 @@ export function createApp(config: AppConfig) {
                 labels: input.labels ?? {},
                 lifecycle: input.lifecycle ?? {},
                 last_used_at: new Date().toISOString(),
+                usability,
+                managed_daemon: usability?.managed_daemon ?? usability?.daemon_health ?? null,
+                managed_daemon_state: usability?.managed_daemon_state ?? 'ready',
+                managed_daemon_checked_at: usability?.ready_at ?? new Date().toISOString(),
+                creation_telemetry: telemetry,
               } as Prisma.InputJsonValue,
             },
-          });
-          proxySync = await syncResolvedMachineProxy(config, { machine: productMachine, cluster, client }, observed).catch((error) => ({
+          }));
+          proxySync = await withTelemetrySpan(telemetry, 'sync proxy routes', () => syncResolvedMachineProxy(config, { machine: productMachine!, cluster, client }, observed)).catch((error) => ({
             synced: false,
             reason: error instanceof Error ? error.message : String(error),
           }));
+          daemonEnsure = usability?.managed_daemon ?? usability?.daemon_health ?? null;
+          const finalTelemetry = completeMachineCreationTelemetry(telemetry);
           await getPrisma().machine.update({
             where: { id: productMachine.id },
-            data: { metadata: { ...jsonRecord(productMachine.metadata), proxy_sync: proxySync } as Prisma.InputJsonValue },
+            data: { metadata: { ...jsonRecord(productMachine.metadata), proxy_sync: proxySync, managed_daemon: daemonEnsure, managed_daemon_state: 'ready', creation_telemetry: finalTelemetry } as Prisma.InputJsonValue },
           }).catch(() => undefined);
-          await queueResolvedManagedDaemonEnsure(config, { machine: productMachine, cluster, client }, { verifyPort: null });
-          daemonEnsure = { ok: false, mode: 'guest-daemon', state: 'installing', queued_at: new Date().toISOString() };
           productMachine = await getPrisma().machine.findUnique({ where: { id: productMachine.id } }) ?? productMachine;
+        } else {
+          completeMachineCreationTelemetry(telemetry);
         }
 
         return c.json({
@@ -4480,13 +6518,16 @@ export function createApp(config: AppConfig) {
         }, 201);
       }
 
-      const resolvedSource = await resolveCreateInstanceSource(config, input, cluster);
-      if ('error' in resolvedSource) return c.json(resolvedSource.error.body, resolvedSource.error.status as never);
+      const resolvedSource = await withTelemetrySpan(telemetry, 'resolve source image/snapshot', () => resolveCreateInstanceSource(config, input, cluster));
+      if ('error' in resolvedSource) {
+        failMachineCreationTelemetry(telemetry, resolvedSource.error.body.message ?? 'Source resolution failed');
+        return c.json(resolvedSource.error.body, resolvedSource.error.status as never);
+      }
 
       const machineId = generatedMachineId();
       const displayName = displayMachineName(input.name, machineId);
       const incusName = machineId;
-      const operation = await client.createInstance({
+      const operation = await withTelemetrySpan(telemetry, 'create Incus instance', () => client.createInstance({
         name: incusName,
         machineType: input.type,
         source: resolvedSource.source,
@@ -4496,19 +6537,20 @@ export function createApp(config: AppConfig) {
           memoryGb: input.resources.memory_gb,
           diskGb: input.resources.disk_gb,
         },
-        start: false,
+        start: input.type === 'container',
         machineId,
         displayName,
         accountId: c.req.header('x-account-id') || 'system',
-      });
+      }), { instance: incusName, member: member.server_name, source: input.source.type });
 
       let observed: IncusInstance | null = null;
       let startOperation: IncusOperation | Record<string, unknown> | null = operation;
       let startNoop = false;
       let resourceOperation: Record<string, unknown> | null = null;
       let isolationCheck: ReturnType<typeof validateMachineIsolation> | null = null;
+      let usability: Awaited<ReturnType<typeof ensureMachineUsable>> | null = null;
       try {
-        const enforced = await enforceCreatedMachineResources({
+        const enforced = await withTelemetrySpan(telemetry, 'verify isolation and resource limits', () => enforceCreatedMachineResources({
           client,
           cluster,
           instanceName: incusName,
@@ -4517,24 +6559,37 @@ export function createApp(config: AppConfig) {
           displayName,
           machineType: input.type,
           accountId: c.req.header('x-account-id') || 'system',
-        });
+        }));
         observed = enforced.observed;
         isolationCheck = enforced.isolation;
         resourceOperation = { synced: true, mode: 'post-create-resource-enforce', at: new Date().toISOString(), resources: input.resources };
-        const running = await ensureCreatedMachineRunning(client, incusName);
+        const running = await withTelemetrySpan(telemetry, 'ensure machine running', () => ensureCreatedMachineRunning(client, incusName, observed));
         observed = running.observed;
         if (running.startOperation) startOperation = running.startOperation;
         startNoop = running.startNoop;
+        usability = await ensureMachineUsable({
+          config,
+          client,
+          instanceName: incusName,
+          machineId,
+          mode: 'cold-create',
+          telemetry,
+          installManagedDaemon: true,
+          repairManagedDaemon: false,
+          execTimeoutMs: 120_000,
+          cloudInitTimeoutMs: 180_000,
+          daemonHealthTimeoutMs: 60_000,
+        });
       } catch (error) {
         await client.deleteInstance(incusName, { force: true }).catch(() => undefined);
         throw error;
       }
 
-      let productMachine = null;
+      let productMachine: PrismaMachine | null = null;
       let proxySync: Record<string, unknown> | null = null;
       let daemonEnsure: Record<string, unknown> | null = null;
       if (config.databaseConfigured) {
-        productMachine = await getPrisma().machine.create({
+        productMachine = await withTelemetrySpan(telemetry, 'persist machine row', () => getPrisma().machine.create({
           data: {
             id: machineId,
             accountId: c.req.header('x-account-id') || 'system',
@@ -4562,20 +6617,33 @@ export function createApp(config: AppConfig) {
               labels: input.labels ?? {},
               lifecycle: input.lifecycle ?? {},
               last_used_at: new Date().toISOString(),
+              usability,
+              managed_daemon: usability?.managed_daemon ?? usability?.daemon_health ?? null,
+              managed_daemon_state: usability?.managed_daemon_state ?? 'ready',
+              managed_daemon_checked_at: usability?.ready_at ?? new Date().toISOString(),
+              creation_telemetry: telemetry,
             } as Prisma.InputJsonValue,
           },
-        });
-        proxySync = await syncResolvedMachineProxy(config, { machine: productMachine, cluster, client }, observed).catch((error) => ({
+        }));
+        proxySync = await withTelemetrySpan(telemetry, 'sync proxy routes', () => syncResolvedMachineProxy(config, { machine: productMachine!, cluster, client }, observed)).catch((error) => ({
           synced: false,
           reason: error instanceof Error ? error.message : String(error),
         }));
+        daemonEnsure = usability?.managed_daemon ?? usability?.daemon_health ?? null;
+        const finalTelemetry = completeMachineCreationTelemetry(telemetry);
         await getPrisma().machine.update({
           where: { id: productMachine.id },
-          data: { metadata: { ...jsonRecord(productMachine.metadata), proxy_sync: proxySync } as Prisma.InputJsonValue },
+          data: { metadata: { ...jsonRecord(productMachine.metadata), proxy_sync: proxySync, managed_daemon: daemonEnsure, managed_daemon_state: 'ready', creation_telemetry: finalTelemetry } as Prisma.InputJsonValue },
         }).catch(() => undefined);
-        await queueResolvedManagedDaemonEnsure(config, { machine: productMachine, cluster, client }, { verifyPort: null });
-        daemonEnsure = { ok: false, mode: 'guest-daemon', state: 'installing', queued_at: new Date().toISOString() };
         productMachine = await getPrisma().machine.findUnique({ where: { id: productMachine.id } }) ?? productMachine;
+      } else {
+        completeMachineCreationTelemetry(telemetry);
+      }
+
+      if (warmSpec && config.databaseConfigured) {
+        void activeWarmPoolPoliciesForSource(accountId, warmSpec)
+          .then((policies) => Promise.all(policies.map((policy) => ensureWarmPoolForSpec(config, warmPoolSpecFromPolicy(policy)))))
+          .catch((error) => console.warn('[v2-api] async warm pool refill after cold create failed:', error instanceof Error ? error.message : String(error)));
       }
 
       return c.json({
@@ -4601,6 +6669,7 @@ export function createApp(config: AppConfig) {
         },
       }, 201);
     } catch (error) {
+      failMachineCreationTelemetry(telemetry, error);
       const response = routeError(error);
       return c.json(response.body, response.status as never);
     }
@@ -4639,16 +6708,29 @@ export function createApp(config: AppConfig) {
             operation = { noop: true, action };
           }
           const observed = await resolved.client.getInstance(resolved.machine.incusInstanceName).catch(() => null);
+          const lifecycleUsability = action === 'start'
+            ? await ensureMachineUsable({
+              config,
+              client: resolved.client,
+              instanceName: resolved.machine.incusInstanceName,
+              machineId: resolved.machine.id,
+              mode: 'machine-start',
+              installManagedDaemon: false,
+              repairManagedDaemon: true,
+              waitForCloudInit: false,
+              actualLiveProbe: true,
+              execTimeoutMs: 90_000,
+              daemonHealthTimeoutMs: 5_000,
+            })
+            : null;
           if (config.databaseConfigured) {
             const prevMeta = jsonRecord(resolved.machine.metadata);
             const proxySync = await syncResolvedMachineProxy(config, resolved, observed).catch((error) => ({
               synced: false,
               reason: error instanceof Error ? error.message : String(error),
             }));
-            const daemonEnsure = action === 'start'
-              ? (await queueResolvedManagedDaemonEnsure(config, resolved, { verifyPort: null }).then(() => ({ ok: false, mode: 'guest-daemon', state: 'installing', queued_at: new Date().toISOString() })).catch((error) => ({
-                ok: false, error: error instanceof Error ? error.message : String(error), mode: 'guest-daemon', state: 'failed', queued_at: new Date().toISOString(),
-              })))
+            const daemonEnsure = lifecycleUsability
+              ? lifecycleUsability.managed_daemon ?? prevMeta.managed_daemon ?? lifecycleUsability.daemon_health
               : undefined;
             const nextMeta: Record<string, unknown> = {
               ...prevMeta,
@@ -4656,7 +6738,7 @@ export function createApp(config: AppConfig) {
               last_observed_status: observed?.status ?? null,
               last_observed_at: new Date().toISOString(),
               proxy_sync: proxySync,
-              ...(daemonEnsure ? { managed_daemon: daemonEnsure, managed_daemon_state: 'installing' } : {}),
+              ...(lifecycleUsability ? { usability: lifecycleUsability, managed_daemon: daemonEnsure, managed_daemon_state: 'ready', managed_daemon_checked_at: lifecycleUsability.ready_at } : {}),
             };
             // Bump last_used_at on start (for the auto-stop timer); set
             // stopped_at on stop (for the auto-archive / auto-delete timers).
@@ -5014,7 +7096,9 @@ export function createApp(config: AppConfig) {
       const input = createImageSchema.parse(await c.req.json());
       const alias = input.name ?? generatedResourceName('img');
 
-      // Branch 1: pull from a Docker/OCI registry into a cluster's Incus image catalog.
+      // Branch 1: pull from a Docker/OCI registry, then publish a JustAVPS-ready
+      // derivative image. The raw pull is temporary; the final image has the
+      // daemon binary/unit baked in and has passed first + second boot checks.
       if (input.docker) {
         const cluster = input.cluster_id
           ? findCluster(config, input.cluster_id)
@@ -5023,15 +7107,28 @@ export function createApp(config: AppConfig) {
             : (config.clusters[0] ?? null);
         if (!cluster) return c.json({ error: true, message: 'No Incus cluster available for the requested region/cluster_id' }, 409);
         const server = input.docker.server ?? 'https://docker.io';
-        const imageType = input.docker.as_vm ? 'virtual-machine' as const : 'container' as const;
+        const imageType = 'container' as const;
+        const machineType = 'container' as const;
+        const rawAlias = generatedResourceName('imgraw');
         const operation = await clientFor(cluster).createImageFromOci({
           server,
           ociRef: input.docker.ref,
           imageType,
-          aliases: [{ name: alias, description: `JustAVPS image ${alias} (OCI: ${input.docker.ref}${input.docker.as_vm ? ', vm' : ''})` }],
+          aliases: [{ name: rawAlias, description: `Temporary raw JustAVPS image ${rawAlias} (OCI: ${input.docker.ref})` }],
+          properties: { ...input.properties, 'justavps.source': 'docker', 'justavps.docker_ref': input.docker.ref, 'justavps.docker_server': server, 'justavps.image_type': imageType, 'justavps.raw_for': alias },
+          public: false,
+        });
+        const prepared = await prepareAndPublishJustavpsImage(config, {
+          cluster,
+          source: { type: 'image', image: rawAlias },
+          imageType: machineType,
+          alias,
+          description: `JustAVPS image ${alias} (OCI: ${input.docker.ref})`,
           properties: { ...input.properties, 'justavps.source': 'docker', 'justavps.docker_ref': input.docker.ref, 'justavps.docker_server': server, 'justavps.image_type': imageType },
           public: input.public,
+          accountId: c.req.header('x-account-id') || 'system',
         });
+        await clientFor(cluster).deleteImage(rawAlias).catch(() => undefined);
 
         let image = null;
         if (config.databaseConfigured) {
@@ -5045,17 +7142,16 @@ export function createApp(config: AppConfig) {
               incusFingerprint: alias,
               sourceMachineId: null,
               sourceSnapshotId: null,
-              metadata: { incus_operation: operation, alias, docker_ref: input.docker.ref, docker_server: server },
+              metadata: { incus_operation: prepared.operation, raw_pull_operation: operation, alias, docker_ref: input.docker.ref, docker_server: server, justavps_preparation: prepared } as Prisma.InputJsonValue,
             },
           });
         }
-        return c.json({ image: image ?? { id: alias, name: alias, source: 'docker', docker_ref: input.docker.ref }, operation }, 201);
+        return c.json({ image: image ?? { id: alias, name: alias, source: 'docker', docker_ref: input.docker.ref }, operation: prepared.operation, raw_operation: operation, justavps_preparation: prepared }, 201);
       }
 
       // Branch 1b: pull from simplestreams (linuxcontainers.org). Same shape
       // as the OCI branch — the only differences are the protocol on the
-      // Incus side and the property tag on our side. This is the right path
-      // for VM-bootable public catalog images.
+      // Incus side and the property tag on our side.
       if (input.simplestreams) {
         const cluster = input.cluster_id
           ? findCluster(config, input.cluster_id)
@@ -5064,15 +7160,28 @@ export function createApp(config: AppConfig) {
             : (config.clusters[0] ?? null);
         if (!cluster) return c.json({ error: true, message: 'No Incus cluster available for the requested region/cluster_id' }, 409);
         const server = input.simplestreams.server ?? 'https://images.linuxcontainers.org';
-        const imageType = input.simplestreams.as_vm ? 'virtual-machine' as const : 'container' as const;
+        const imageType = 'container' as const;
+        const machineType = 'container' as const;
+        const rawAlias = generatedResourceName('imgraw');
         const operation = await clientFor(cluster).createImageFromSimplestreams({
           server,
           alias: input.simplestreams.ref,
           imageType,
-          aliases: [{ name: alias, description: `JustAVPS image ${alias} (simplestreams: ${input.simplestreams.ref}${input.simplestreams.as_vm ? ', vm' : ''})` }],
+          aliases: [{ name: rawAlias, description: `Temporary raw JustAVPS image ${rawAlias} (simplestreams: ${input.simplestreams.ref})` }],
+          properties: { ...input.properties, 'justavps.source': 'simplestreams', 'justavps.simplestreams_ref': input.simplestreams.ref, 'justavps.simplestreams_server': server, 'justavps.image_type': imageType, 'justavps.raw_for': alias },
+          public: false,
+        });
+        const prepared = await prepareAndPublishJustavpsImage(config, {
+          cluster,
+          source: { type: 'image', image: rawAlias },
+          imageType: machineType,
+          alias,
+          description: `JustAVPS image ${alias} (simplestreams: ${input.simplestreams.ref})`,
           properties: { ...input.properties, 'justavps.source': 'simplestreams', 'justavps.simplestreams_ref': input.simplestreams.ref, 'justavps.simplestreams_server': server, 'justavps.image_type': imageType },
           public: input.public,
+          accountId: c.req.header('x-account-id') || 'system',
         });
+        await clientFor(cluster).deleteImage(rawAlias).catch(() => undefined);
         let image = null;
         if (config.databaseConfigured) {
           image = await getPrisma().image.create({
@@ -5085,22 +7194,39 @@ export function createApp(config: AppConfig) {
               incusFingerprint: alias,
               sourceMachineId: null,
               sourceSnapshotId: null,
-              metadata: { incus_operation: operation, alias, simplestreams_ref: input.simplestreams.ref, simplestreams_server: server, image_type: imageType },
+              metadata: { incus_operation: prepared.operation, raw_pull_operation: operation, alias, simplestreams_ref: input.simplestreams.ref, simplestreams_server: server, image_type: imageType, justavps_preparation: prepared } as Prisma.InputJsonValue,
             },
           });
         }
-        return c.json({ image: image ?? { id: alias, name: alias, source: 'simplestreams', simplestreams_ref: input.simplestreams.ref }, operation }, 201);
+        return c.json({ image: image ?? { id: alias, name: alias, source: 'simplestreams', simplestreams_ref: input.simplestreams.ref }, operation: prepared.operation, raw_operation: operation, justavps_preparation: prepared }, 201);
       }
 
       // Branch 2: publish from an existing machine (with optional snapshot).
       const resolved = await machineClient(config, input.machine_id!);
       if (!resolved) return c.json({ error: true, message: 'Machine not found' }, 404);
-      const operation = await resolved.client.createImageFromInstance({
-        instanceName: resolved.machine.incusInstanceName,
-        snapshotName: input.snapshot_id,
-        aliases: [{ name: alias, description: `JustAVPS image ${alias}` }],
+      if (resolved.machine.type !== 'container') return c.json({ error: true, message: CONTAINERS_ONLY_MESSAGE }, 409);
+      let snapshotName = input.snapshot_id ?? null;
+      let sourceSnapshotId: string | null = input.snapshot_id ?? null;
+      if (snapshotName && config.databaseConfigured) {
+        const snapshot = await getPrisma().snapshot.findUnique({ where: { id: snapshotName } })
+          ?? await getPrisma().snapshot.findFirst({ where: { machineId: resolved.machine.id, incusSnapshotName: snapshotName }, orderBy: { createdAt: 'desc' } });
+        if (snapshot) {
+          snapshotName = snapshot.incusSnapshotName;
+          sourceSnapshotId = snapshot.id;
+        }
+      }
+      const machineResources = persistedResources(resolved.machine.resources, null);
+      const prepared = await prepareAndPublishJustavpsImage(config, {
+        cluster: resolved.cluster,
+        source: { type: 'snapshot', source: snapshotName ? `${resolved.machine.incusInstanceName}/${snapshotName}` : resolved.machine.incusInstanceName },
+        imageType: 'container',
+        alias,
+        description: `JustAVPS image ${alias}`,
         properties: input.properties,
         public: input.public,
+        accountId: resolved.machine.accountId,
+        baseResources: machineResources,
+        preferredMemberName: resolved.machine.incusMemberName,
       });
       let image = null;
       if (config.databaseConfigured) {
@@ -5109,16 +7235,16 @@ export function createApp(config: AppConfig) {
             accountId: resolved.machine.accountId,
             visibility: input.public ? 'catalog' : 'private',
             name: alias,
-            incusClusterId: resolved.cluster.id,
-            incusProject: resolved.cluster.project,
-            incusFingerprint: alias,
-            sourceMachineId: resolved.machine.id,
-            sourceSnapshotId: input.snapshot_id ?? null,
-            metadata: { incus_operation: operation, alias },
-          },
-        });
-      }
-      return c.json({ image: image ?? { id: alias, name: alias }, operation }, 201);
+              incusClusterId: resolved.cluster.id,
+              incusProject: resolved.cluster.project,
+              incusFingerprint: alias,
+              sourceMachineId: resolved.machine.id,
+              sourceSnapshotId,
+              metadata: { incus_operation: prepared.operation, alias, justavps_preparation: prepared } as Prisma.InputJsonValue,
+            },
+          });
+        }
+      return c.json({ image: image ?? { id: alias, name: alias }, operation: prepared.operation, justavps_preparation: prepared }, 201);
     } catch (error) {
       const response = routeError(error);
       return c.json(response.body, response.status as never);
@@ -5552,6 +7678,8 @@ export function createApp(config: AppConfig) {
         const machineMeta = jsonRecord(resolved.machine.metadata);
         const machineEnv = (machineMeta.env && typeof machineMeta.env === 'object') ? machineMeta.env as Record<string, string> : {};
         const mergedEnv = { ...machineEnv, ...(input.env ?? {}) };
+        const execStartedAt = new Date().toISOString();
+        const execStartedMs = Date.now();
         const result = await resolved.client.exec(resolved.machine.incusInstanceName, {
           command: argv,
           env: mergedEnv,
@@ -5561,6 +7689,26 @@ export function createApp(config: AppConfig) {
           stdin: input.stdin,
           timeoutMs: input.timeout_ms,
         });
+        const execDurationMs = Date.now() - execStartedMs;
+        const commandLabel = argv.join(' ');
+        await Promise.all([
+          getTelemetryStore(config).insertTraces([{
+            machine_id: resolved.machine.id,
+            account_id: resolved.machine.accountId,
+            operation: 'toolbox.exec',
+            name: commandLabel,
+            status: result.exit_code === 0 ? 'ok' : 'error',
+            started_at: execStartedAt,
+            ended_at: new Date().toISOString(),
+            duration_ms: execDurationMs,
+            attributes: { exit_code: result.exit_code, cwd: input.cwd ?? '', user: input.user ?? '', source: 'incus.exec' },
+            error: result.exit_code === 0 ? '' : (result.stderr || `exit ${result.exit_code}`),
+          }]),
+          getTelemetryStore(config).insertLogs([
+            ...(result.stdout ? [{ machine_id: resolved.machine.id, account_id: resolved.machine.accountId, severity: 'info', source: 'process.stdout', stream: 'stdout', body: result.stdout, attributes: { command: commandLabel, exit_code: result.exit_code, source: 'incus.exec' } }] : []),
+            ...(result.stderr ? [{ machine_id: resolved.machine.id, account_id: resolved.machine.accountId, severity: result.exit_code === 0 ? 'warn' : 'error', source: 'process.stderr', stream: 'stderr', body: result.stderr, attributes: { command: commandLabel, exit_code: result.exit_code, source: 'incus.exec' } }] : []),
+          ]),
+        ]).catch(() => undefined);
         // Bump last_used_at so the lifecycle sweeper's auto-stop timer
         // restarts from now. Failure here doesn't break the response.
         if (config.databaseConfigured) {
@@ -5788,10 +7936,35 @@ export function createApp(config: AppConfig) {
       if (!resolved) return c.json({ error: true, message: 'Machine not found' }, 404);
       const baseUrl = toolboxBaseUrl(resolved.machine);
       if (!baseUrl) return c.json({ error: true, message: 'Machine toolbox URL is not configured' }, 409);
+      const toolboxStartedAt = new Date().toISOString();
+      const toolboxStartedMs = Date.now();
       const result = await callToolboxJson(baseUrl, 'toolbox/process/execute', {
         method: 'POST',
         body: JSON.stringify(input),
       });
+      const payload = result.data && typeof result.data === 'object' && !Array.isArray(result.data) ? result.data as Record<string, unknown> : {};
+      const stdout = typeof payload.stdout === 'string' ? payload.stdout : '';
+      const stderr = typeof payload.stderr === 'string' ? payload.stderr : '';
+      const exitCode = typeof payload.exit_code === 'number' ? payload.exit_code : result.status >= 400 ? 1 : 0;
+      const commandLabel = Array.isArray(input.command) ? input.command.join(' ') : input.command;
+      await Promise.all([
+        getTelemetryStore(config).insertTraces([{
+          machine_id: resolved.machine.id,
+          account_id: resolved.machine.accountId,
+          operation: 'toolbox.command',
+          name: commandLabel,
+          status: exitCode === 0 && result.status < 400 ? 'ok' : 'error',
+          started_at: toolboxStartedAt,
+          ended_at: new Date().toISOString(),
+          duration_ms: Date.now() - toolboxStartedMs,
+          attributes: { exit_code: exitCode, http_status: result.status, source: 'justavps-daemon' },
+          error: exitCode === 0 ? '' : stderr || `exit ${exitCode}`,
+        }]),
+        getTelemetryStore(config).insertLogs([
+          ...(stdout ? [{ machine_id: resolved.machine.id, account_id: resolved.machine.accountId, severity: 'info', source: 'process.stdout', stream: 'stdout', body: stdout, attributes: { command: commandLabel, exit_code: exitCode, source: 'justavps-daemon' } }] : []),
+          ...(stderr ? [{ machine_id: resolved.machine.id, account_id: resolved.machine.accountId, severity: exitCode === 0 ? 'warn' : 'error', source: 'process.stderr', stream: 'stderr', body: stderr, attributes: { command: commandLabel, exit_code: exitCode, source: 'justavps-daemon' } }] : []),
+        ]),
+      ]).catch(() => undefined);
       return c.json(result.data, result.status as never);
     } catch (error) {
       const response = routeError(error);

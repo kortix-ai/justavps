@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/dialog';
 import Link from 'next/link';
 import {
+  Activity,
   ArrowDownUp,
   Boxes,
   CalendarClock,
@@ -41,7 +42,7 @@ import {
 } from 'lucide-react';
 import { useConfirm } from '@/components/confirm';
 import { ResizeMachineDialog } from '@/components/features/resize-machine-dialog';
-import type { BackupItem, ImageItem, Machine, SnapshotItem } from '@/lib/api';
+import type { BackupItem, ImageItem, Machine, MachineCreationTrace, SnapshotItem } from '@/lib/api';
 import {
   CATALOG_IMAGES,
   catalogImageType,
@@ -58,7 +59,6 @@ function isRunningStatus(status: string | undefined) {
 }
 
 type MachineStatusFilter = 'all' | 'running' | 'stopped' | 'other';
-type MachineTypeFilter = 'all' | 'container' | 'vm';
 type CreatedWindow = 'all' | '24h' | '7d' | '30d';
 type MachineSort = 'created_desc' | 'created_asc' | 'name_asc' | 'status_asc';
 const PAGE_REFERENCE_TIME = Date.now();
@@ -80,6 +80,22 @@ function formatCreatedAt(value: string | undefined) {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function formatDuration(ms: number | undefined) {
+  if (ms === undefined || !Number.isFinite(ms)) return '—';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60);
+  return `${minutes}m ${rest}s`;
+}
+
+function creationTrace(machine: Machine): MachineCreationTrace | null {
+  const trace = machine.metadata?.creation_telemetry;
+  if (!trace || typeof trace !== 'object') return null;
+  return trace as MachineCreationTrace;
 }
 
 function relativeCreatedAt(value: string | undefined, now: number | null) {
@@ -171,7 +187,6 @@ export default function MachinesPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<MachineStatusFilter>('all');
-  const [typeFilter, setTypeFilter] = useState<MachineTypeFilter>('all');
   const [createdWindow, setCreatedWindow] = useState<CreatedWindow>('all');
   const [sort, setSort] = useState<MachineSort>('created_desc');
 
@@ -183,9 +198,11 @@ export default function MachinesPage() {
   }, []);
 
   const machinesPath = () => (window.location.pathname.startsWith('/admin-ui') ? '/admin-ui/machines/' : '/machines/');
-  const openMachine = (id: string) => {
+  const openMachine = (id: string, tab?: string) => {
     setSelectedId(id);
-    window.history.pushState({}, '', `${machinesPath()}?id=${encodeURIComponent(id)}`);
+    const params = new URLSearchParams({ id });
+    if (tab) params.set('tab', tab);
+    window.history.pushState({}, '', `${machinesPath()}?${params.toString()}`);
   };
   const closeMachine = () => {
     setSelectedId(null);
@@ -200,27 +217,27 @@ export default function MachinesPage() {
     });
   };
 
+  const visibleMachines = useMemo(() => state.machines.filter((machine) => machine.type === 'container'), [state.machines]);
+
   const latestMachine = useMemo(() => {
-    return [...state.machines].sort((a, b) => sortMachines(a, b, 'created_desc'))[0] ?? null;
-  }, [state.machines]);
+    return [...visibleMachines].sort((a, b) => sortMachines(a, b, 'created_desc'))[0] ?? null;
+  }, [visibleMachines]);
 
   const filteredMachines = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    return state.machines
+    return visibleMachines
       .filter((machine) => !normalizedQuery || machineSearchText(machine).includes(normalizedQuery))
       .filter((machine) => matchesStatusFilter(machine, statusFilter))
-      .filter((machine) => typeFilter === 'all' || machine.type === typeFilter)
       .filter((machine) => matchesCreatedWindow(machine, createdWindow, PAGE_REFERENCE_TIME))
       .sort((a, b) => sortMachines(a, b, sort));
-  }, [createdWindow, query, sort, state.machines, statusFilter, typeFilter]);
+  }, [createdWindow, query, sort, visibleMachines, statusFilter]);
 
-  const runningCount = useMemo(() => state.machines.filter((m) => isRunningStatus(m.status)).length, [state.machines]);
-  const stoppedCount = useMemo(() => state.machines.filter((m) => m.status?.toLowerCase() === 'stopped').length, [state.machines]);
-  const hasActiveFilters = query.trim().length > 0 || statusFilter !== 'all' || typeFilter !== 'all' || createdWindow !== 'all';
+  const runningCount = useMemo(() => visibleMachines.filter((m) => isRunningStatus(m.status)).length, [visibleMachines]);
+  const stoppedCount = useMemo(() => visibleMachines.filter((m) => m.status?.toLowerCase() === 'stopped').length, [visibleMachines]);
+  const hasActiveFilters = query.trim().length > 0 || statusFilter !== 'all' || createdWindow !== 'all';
   const resetFilters = () => {
     setQuery('');
     setStatusFilter('all');
-    setTypeFilter('all');
     setCreatedWindow('all');
     setSort('created_desc');
   };
@@ -233,26 +250,26 @@ export default function MachinesPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Machines</h1>
           <p className="text-sm text-muted-foreground">
-            Latest created machines are shown first by default. {state.machines.length} total · {runningCount} running
+            Latest created containers are shown first by default. {visibleMachines.length} total · {runningCount} running
           </p>
         </div>
         <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="size-3.5" /> New machine
+          <Plus className="size-3.5" /> New container
         </Button>
       </div>
 
       <div className="grid gap-3 md:grid-cols-4">
-        <MachineStatCard icon={Boxes} label="Total machines" value={state.machines.length} sub={`${filteredMachines.length} visible`} />
+        <MachineStatCard icon={Boxes} label="Total containers" value={visibleMachines.length} sub={`${filteredMachines.length} visible`} />
         <MachineStatCard icon={Play} label="Running" value={runningCount} sub={`${stoppedCount} stopped`} />
         <MachineStatCard icon={Clock3} label="Latest created" value={latestMachine ? relativeCreatedAt(latestMachine.created_at, PAGE_REFERENCE_TIME) : '—'} sub={latestMachine?.name ?? 'No machines'} />
-        <MachineStatCard icon={Server} label="Regions" value={new Set(state.machines.map((m) => m.region).filter(Boolean)).size || '—'} sub="Active placements" />
+        <MachineStatCard icon={Server} label="Regions" value={new Set(visibleMachines.map((m) => m.region).filter(Boolean)).size || '—'} sub="Active placements" />
       </div>
 
-      {state.machines.length === 0 ? (
+      {visibleMachines.length === 0 ? (
         <EmptyState
           title="No machines yet"
           description="Create one below, or buy a host to add capacity first."
-          action={<Button onClick={() => setCreateOpen(true)}><Plus className="size-3.5" /> New machine</Button>}
+          action={<Button onClick={() => setCreateOpen(true)}><Plus className="size-3.5" /> New container</Button>}
         />
       ) : (
         <Card>
@@ -261,10 +278,10 @@ export default function MachinesPage() {
               <div>
                 <CardTitle>Machine inventory</CardTitle>
                 <CardDescription>
-                  {filteredMachines.length} of {state.machines.length} machines · sorted by {sort === 'created_desc' ? 'latest created' : sort === 'created_asc' ? 'oldest created' : sort === 'status_asc' ? 'status' : 'name'}
+                  {filteredMachines.length} of {visibleMachines.length} containers · sorted by {sort === 'created_desc' ? 'latest created' : sort === 'created_asc' ? 'oldest created' : sort === 'status_asc' ? 'status' : 'name'}
                 </CardDescription>
               </div>
-              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(260px,1fr)_160px_150px_190px_180px_auto]">
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(260px,1fr)_160px_190px_180px_auto]">
                 <div className="relative sm:col-span-2 xl:col-span-1">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -281,14 +298,6 @@ export default function MachinesPage() {
                     <SelectItem value="running">Running</SelectItem>
                     <SelectItem value="stopped">Stopped</SelectItem>
                     <SelectItem value="other">Other states</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={typeFilter} onValueChange={(value) => setTypeFilter(value as MachineTypeFilter)}>
-                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All types</SelectItem>
-                    <SelectItem value="container">Containers</SelectItem>
-                    <SelectItem value="vm">VMs</SelectItem>
                   </SelectContent>
                 </Select>
                 <Select value={createdWindow} onValueChange={(value) => setCreatedWindow(value as CreatedWindow)}>
@@ -379,6 +388,11 @@ export default function MachinesPage() {
                       <TableCell>
                         <div className="text-sm tabular-nums">{formatCreatedAt(m.created_at)}</div>
                         <div className="text-xs text-muted-foreground">{relativeCreatedAt(m.created_at, PAGE_REFERENCE_TIME)}</div>
+                        {creationTrace(m) ? (
+                          <div className="mt-1 text-2xs text-muted-foreground">
+                            create {formatDuration(creationTrace(m)?.duration_ms)} · {creationTrace(m)?.status}
+                          </div>
+                        ) : null}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground tabular-nums">
                         {resourceValue(m.resources, 'vcpu')}c · {resourceValue(m.resources, 'memory_gb')}G · {resourceValue(m.resources, 'disk_gb')}G
@@ -402,6 +416,9 @@ export default function MachinesPage() {
                             <DropdownMenuLabel>Actions</DropdownMenuLabel>
                             <DropdownMenuItem onSelect={() => openMachine(m.id)}>
                               <ChevronRight className="size-3.5" /> Open details
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => openMachine(m.id, 'observability')}>
+                              <Activity className="size-3.5" /> Observability
                             </DropdownMenuItem>
                             <DropdownMenuItem onSelect={() => setResizeTarget(m)}>
                               <SlidersHorizontal className="size-3.5" /> Resize
@@ -455,6 +472,7 @@ export default function MachinesPage() {
         regions={state.regions}
         machines={state.machines}
         images={state.images}
+        baseUrl={state.baseUrl}
         fire={fire}
         request={request}
         busy={state.busy}
@@ -483,7 +501,7 @@ function EmptyState({ title, description, action }: { title: string; description
   );
 }
 
-type CatalogImageRow = { id: string; name: string; type: 'container' | 'virtual-machine' };
+type CatalogImageRow = { id: string; name: string; type: 'container' };
 type SourceMode = 'image' | 'snapshot' | 'backup';
 type ImageChoice = { id: string; label: string; source: 'catalog' | 'raw' };
 
@@ -500,19 +518,20 @@ const SOURCE_MODES: Array<{ value: SourceMode; label: string; description: strin
 ];
 
 function CreateMachineDialog({
-  open, onOpenChange, regions, machines, images, fire, request, busy,
+  open, onOpenChange, regions, machines, images, baseUrl, fire, request, busy,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   regions: string[];
   machines: Machine[];
   images: ImageItem[];
+  baseUrl: string;
   fire: (label: string, fn: () => Promise<unknown>) => Promise<void>;
   request: ReturnType<typeof useStore>['request'];
   busy: boolean;
 }) {
   const [name, setName] = useState('');
-  const [type, setType] = useState<'container' | 'vm'>('container');
+  const type = 'container' as const;
   const [region, setRegion] = useState(regions[0] ?? 'eu');
   const [sourceMode, setSourceMode] = useState<SourceMode>('image');
   const [imageId, setImageId] = useState('');
@@ -529,6 +548,11 @@ function CreateMachineDialog({
   const [backups, setBackups] = useState<BackupItem[]>([]);
   const [fetchedRegions, setFetchedRegions] = useState<string[]>([]);
   const [sourceLoading, setSourceLoading] = useState(false);
+  const [createRequestId, setCreateRequestId] = useState<string | null>(null);
+  const [createTrace, setCreateTrace] = useState<MachineCreationTrace | null>(null);
+  const [createStartedAt, setCreateStartedAt] = useState<number | null>(null);
+  const [createNow, setCreateNow] = useState(() => Date.now());
+  const [createPollError, setCreatePollError] = useState<string | null>(null);
 
   // Load every create source the API can accept. The base catalog is available
   // immediately from the bundled product catalog; live Incus image cache is
@@ -554,6 +578,32 @@ function CreateMachineDialog({
 
     return () => { cancelled = true; };
   }, [images, open, request]);
+
+  useEffect(() => {
+    if (!createRequestId || !open) return;
+    let cancelled = false;
+    const poll = () => {
+      request<{ trace: MachineCreationTrace }>(`/admin/telemetry/creations/${encodeURIComponent(createRequestId)}`)
+        .then((data) => {
+          if (!cancelled) {
+            setCreateTrace(data.trace);
+            setCreatePollError(null);
+          }
+        })
+        .catch((pollError) => {
+          if ((pollError as { status?: number } | null)?.status === 404) return;
+          if (!cancelled) setCreatePollError(pollError instanceof Error ? pollError.message : String(pollError));
+        });
+    };
+    poll();
+    const pollTimer = window.setInterval(poll, 1000);
+    const clockTimer = window.setInterval(() => setCreateNow(Date.now()), 250);
+    return () => {
+      cancelled = true;
+      window.clearInterval(pollTimer);
+      window.clearInterval(clockTimer);
+    };
+  }, [createRequestId, open, request]);
 
   const compatibleCatalogImages = useMemo(() => {
     const want = machineTypeToImageType(type);
@@ -652,6 +702,28 @@ function CreateMachineDialog({
 
   const source = selectedSource();
   const sourceReady = Boolean(source);
+  const createElapsedMs = createTrace?.duration_ms ?? (createStartedAt ? createNow - createStartedAt : undefined);
+  const latestSpan = createTrace?.spans.find((span) => span.status === 'active') ?? createTrace?.spans.at(-1) ?? null;
+  const createIsActive = createTrace?.status === 'active';
+  const traceHasReachedApi = Boolean(createTrace?.spans.length);
+  const createPanelTone = createTrace?.status === 'error' ? 'danger' : createTrace?.status === 'ok' ? 'success' : createPollError && !traceHasReachedApi ? 'warning' : 'info';
+  const createPanelClass = createPanelTone === 'danger'
+    ? 'border-destructive/40 bg-destructive/10'
+    : createPanelTone === 'success'
+      ? 'border-emerald-500/30 bg-emerald-500/10'
+      : createPanelTone === 'warning'
+        ? 'border-amber-500/40 bg-amber-500/10'
+        : 'border-sky-500/30 bg-sky-500/10';
+  const clearCreateTelemetry = () => {
+    setCreateRequestId(null);
+    setCreateTrace(null);
+    setCreateStartedAt(null);
+    setCreatePollError(null);
+  };
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) clearCreateTelemetry();
+    onOpenChange(nextOpen);
+  };
 
   const submit = async () => {
     setError(null);
@@ -659,17 +731,24 @@ function CreateMachineDialog({
     if (!source) return setError('Pick a valid machine source first.');
     const displayName = name.trim();
     if (displayName.length > 80) return setError('Display name must be 80 characters or less.');
+    const requestId = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setCreateRequestId(requestId);
+    setCreateStartedAt(Date.now());
+    setCreateNow(Date.now());
+    setCreatePollError(null);
+    setCreateTrace({ id: requestId, kind: 'machine.create', status: 'active', stage: 'connecting to API', started_at: new Date().toISOString(), labels: { api_base_url: baseUrl }, spans: [] });
     try {
       await fire(`create ${displayName || 'machine'}`, async () => {
         const data = await request('/machines', {
           method: 'POST',
+          headers: { 'X-JustAVPS-Request-Id': requestId },
           body: {
             name: displayName || undefined, type, region: selectedRegion,
             source,
             resources: { vcpu, memory_gb: memoryGb, disk_gb: diskGb },
           } as never,
         });
-        onOpenChange(false);
+        handleOpenChange(false);
         setName('');
         return data;
       });
@@ -678,20 +757,28 @@ function CreateMachineDialog({
       // "Invalid request" — the issues array names the offending field.
       const data = (e as { data?: { issues?: { path?: string[]; message?: string }[]; message?: string } } | null)?.data;
       const issues = data?.issues;
-      if (issues?.length) {
-        setError(issues.map((i) => `${(i.path ?? []).join('.') || 'request'}: ${i.message ?? 'invalid'}`).join('\n'));
-      } else {
-        setError(e instanceof Error ? e.message : String(e));
-      }
+      const message = issues?.length
+        ? issues.map((i) => `${(i.path ?? []).join('.') || 'request'}: ${i.message ?? 'invalid'}`).join('\n')
+        : e instanceof Error ? e.message : String(e);
+      setError(message);
+      setCreateRequestId(null);
+      setCreateTrace((prev) => prev ? {
+        ...prev,
+        status: 'error',
+        stage: 'request failed',
+        ended_at: new Date().toISOString(),
+        duration_ms: createStartedAt ? Date.now() - createStartedAt : prev.duration_ms,
+        error: message,
+      } : prev);
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>New machine</DialogTitle>
-          <DialogDescription>POST /machines. Choose exactly what to create from, then set resources.</DialogDescription>
+          <DialogTitle>New container</DialogTitle>
+          <DialogDescription>POST /machines creates containers only. Choose exactly what to create from, then set resources.</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4">
           {regionChoices.length === 0 ? (
@@ -715,13 +802,7 @@ function CreateMachineDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Type</Label>
-              <Select value={type} onValueChange={(v) => setType(v as 'container' | 'vm')}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="container">Container</SelectItem>
-                  <SelectItem value="vm">Virtual machine</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="rounded-md border bg-muted/20 px-3 py-2 text-sm">Container</div>
             </div>
             <div className="space-y-1.5">
               <Label>Region</Label>
@@ -827,6 +908,44 @@ function CreateMachineDialog({
               <Input type="number" value={diskGb} onChange={(e) => setDiskGb(Number(e.target.value) || 1)} min={1} />
             </div>
           </div>
+          {createTrace ? (
+            <div className={`rounded-lg border p-3 text-xs ${createPanelClass}`}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="font-medium text-foreground">
+                  {createTrace.status === 'error' ? 'Create failed' : createTrace.status === 'ok' ? 'Create complete' : 'Creating machine'}
+                </div>
+                <div className="font-mono tabular-nums text-muted-foreground">{formatDuration(createElapsedMs)}</div>
+              </div>
+              <div className="mt-1 text-muted-foreground">
+                Stage: <span className="font-medium text-foreground">{createTrace.stage}</span>
+                {latestSpan ? <span> · current step {latestSpan.name}</span> : null}
+              </div>
+              <div className="mt-1 truncate font-mono text-2xs text-muted-foreground">
+                API {baseUrl || 'same-origin'} · request {createTrace.id.slice(0, 12)}
+              </div>
+              {!traceHasReachedApi && createIsActive ? (
+                <div className="mt-2 rounded-md bg-background/60 px-2 py-1 text-muted-foreground">
+                  Waiting for the backend to accept the request. If this stays here, the browser could not reach the API or the API restarted mid-request.
+                </div>
+              ) : null}
+              {createPollError && createIsActive ? (
+                <div className="mt-2 rounded-md border border-amber-500/30 bg-background/60 px-2 py-1 text-amber-700 dark:text-amber-300">
+                  Telemetry poll failed: {createPollError}
+                </div>
+              ) : null}
+              {createTrace.spans.length ? (
+                <div className="mt-2 grid gap-1">
+                  {createTrace.spans.slice(-5).map((span) => (
+                    <div key={`${span.name}-${span.started_at}`} className="flex items-center justify-between gap-3 text-muted-foreground">
+                      <span className={span.status === 'error' ? 'text-destructive' : span.status === 'active' ? 'text-amber-600 dark:text-amber-400' : ''}>{span.name}</span>
+                      <span className="font-mono tabular-nums">{span.status === 'active' ? 'running' : formatDuration(span.duration_ms)}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {createTrace.error ? <div className="mt-2 text-destructive">{createTrace.error}</div> : null}
+            </div>
+          ) : null}
           {error ? (
             <div className="whitespace-pre-line rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
               {error}
@@ -834,7 +953,7 @@ function CreateMachineDialog({
           ) : null}
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="ghost" onClick={() => handleOpenChange(false)}>Cancel</Button>
           <Button onClick={submit} disabled={busy || !sourceReady || regionChoices.length === 0}>{busy ? 'Creating…' : 'Create'}</Button>
         </DialogFooter>
       </DialogContent>

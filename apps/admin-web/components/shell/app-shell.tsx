@@ -33,7 +33,7 @@ import {
 import { cn } from '@/lib/utils';
 import {
   Network,
-  Boxes, ImageIcon, Settings, RefreshCw,
+  Boxes, Flame, ImageIcon, Settings, RefreshCw,
   Sun, Moon, Laptop,
 } from 'lucide-react';
 
@@ -45,6 +45,7 @@ type NavItem = {
 
 const USER_NAV: NavItem[] = [
   { to: '/machines', label: 'Machines', icon: Boxes },
+  { to: '/pools', label: 'Pools', icon: Flame },
   { to: '/images', label: 'Images', icon: ImageIcon },
 ];
 

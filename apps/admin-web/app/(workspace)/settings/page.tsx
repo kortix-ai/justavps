@@ -12,8 +12,6 @@ import { useState } from 'react';
 export default function SettingsPage() {
   const { state, setBaseUrl, setToken } = useStore();
   const {
-    defaultStatefulSnapshots,
-    setDefaultStatefulSnapshots,
     defaultFullBackups,
     setDefaultFullBackups,
     defaultOptimizedBackups,
@@ -49,13 +47,6 @@ export default function SettingsPage() {
           <CardDescription>Defaults for snapshot and backup dialogs. Stored locally in this admin browser.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
-            <div className="space-y-1">
-              <Label htmlFor="default-stateful-snapshots" className="cursor-pointer">Create VM snapshots statefully by default</Label>
-              <p className="text-xs text-muted-foreground">For VMs only: captures runtime memory state as well as disk. Containers stay disk-only.</p>
-            </div>
-            <Switch id="default-stateful-snapshots" checked={defaultStatefulSnapshots} onCheckedChange={setDefaultStatefulSnapshots} />
-          </div>
           <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
             <div className="space-y-1">
               <Label htmlFor="default-full-backups" className="cursor-pointer">Create full backups by default</Label>

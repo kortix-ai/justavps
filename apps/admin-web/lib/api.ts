@@ -4,6 +4,7 @@ export type ApiOptions = {
   auth?: boolean;
   expectedStatus?: number;
   signal?: AbortSignal;
+  headers?: Record<string, string>;
 };
 
 export type ApiContext = {
@@ -29,7 +30,7 @@ function normalizePath(path: string): string {
 
 export async function api<T = unknown>(ctx: ApiContext, path: string, opts: ApiOptions = {}): Promise<T> {
   const normalizedPath = normalizePath(path);
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  const headers: Record<string, string> = { Accept: 'application/json', ...(opts.headers ?? {}) };
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
   if (opts.auth !== false && ctx.token) headers.Authorization = `Bearer ${ctx.token}`;
 
@@ -80,6 +81,12 @@ export type Health = {
   database_configured?: boolean;
   incus_clusters_configured?: number;
   hetzner_robot_configured?: boolean;
+  telemetry?: {
+    enabled: boolean;
+    driver: 'clickhouse' | 'memory' | 'disabled' | string;
+    ingest_reachable_from_sandbox: boolean;
+    warnings: string[];
+  };
 };
 
 export type IncusLinks = { ui_url: string | null; api_url: string | null };
@@ -140,7 +147,7 @@ export type Machine = {
   id: string;
   slug?: string;
   name: string;
-  type: 'container' | 'vm' | string;
+  type: 'container' | string;
   status: string;
   region?: string;
   location?: string | null;
@@ -162,6 +169,155 @@ export type Machine = {
   } & Record<string, unknown>;
   created_at?: string;
   updated_at?: string;
+};
+
+export type TelemetrySpan = {
+  name: string;
+  status: 'active' | 'ok' | 'error' | string;
+  started_at: string;
+  ended_at?: string;
+  duration_ms?: number;
+  details?: Record<string, unknown>;
+  error?: string;
+};
+
+export type MachineCreationTrace = {
+  id: string;
+  kind: 'machine.create' | string;
+  status: 'active' | 'ok' | 'error' | string;
+  stage: string;
+  started_at: string;
+  ended_at?: string;
+  duration_ms?: number;
+  labels?: Record<string, unknown>;
+  spans: TelemetrySpan[];
+  error?: string;
+};
+
+export type MachineTelemetryLatest = {
+  machine_id: string;
+  health: 'healthy' | 'stale' | 'unknown' | string;
+  last_seen_at: string | null;
+  metrics: Record<string, { value: number; unit: string; timestamp: string }>;
+};
+
+export type TelemetryStoreInfo = {
+  enabled: boolean;
+  driver: 'memory' | 'clickhouse' | 'disabled' | string;
+  clickhouse_database?: string;
+};
+
+export type MachineTelemetryMetric = {
+  timestamp: string;
+  machine_id: string;
+  name: string;
+  value: number;
+  unit: string;
+  source: string;
+  attributes?: Record<string, unknown>;
+};
+
+export type MachineTelemetryLog = {
+  timestamp: string;
+  machine_id?: string;
+  severity: string;
+  source: string;
+  stream: string;
+  body: string;
+  trace_id?: string;
+  span_id?: string;
+  attributes?: Record<string, unknown>;
+};
+
+export type MachineTelemetryTrace = {
+  trace_id: string;
+  span_id: string;
+  parent_span_id?: string;
+  machine_id?: string;
+  operation: string;
+  name: string;
+  status: string;
+  started_at: string;
+  ended_at: string | null;
+  duration_ms: number | null;
+  attributes?: Record<string, unknown>;
+  error?: string;
+};
+
+export type MachineTelemetryEvent = {
+  timestamp: string;
+  machine_id?: string;
+  type: string;
+  category: string;
+  body: string;
+  attributes?: Record<string, unknown>;
+};
+
+export type PoolSource = { type: 'image' | 'snapshot' | string; id: string };
+
+export type PoolBilling = {
+  mode: 'reserved' | string;
+  pool_mode?: 'stopped' | 'running' | string;
+  target: number;
+  metered_bytes?: number;
+  billable_gib?: number;
+  measured_instances?: number;
+  estimated_instances?: number;
+  unmeasured_instances?: number;
+  disk_limit_gb_per_instance?: number;
+  disk_limit_gb_total_cap?: number;
+  running_instances?: number;
+  per_instance_eur_month: number;
+  total_eur_month: number;
+  storage_eur_month?: number;
+  hot_resource_eur_month?: number;
+  pricing_key?: string;
+  pricing_micro_eur_per_sec?: number;
+  note?: string;
+};
+
+export type PoolPolicy = {
+  id: string;
+  account_id: string;
+  name: string;
+  status: 'active' | 'paused' | 'deleted' | string;
+  mode?: 'primed_stopped_exact' | 'primed_running_exact' | string;
+  pool_mode?: 'stopped' | 'running' | string;
+  region: string;
+  type: 'container' | string;
+  source: PoolSource;
+  resources: { vcpu: number; memory_gb: number; disk_gb: number };
+  target: number;
+  ready: number;
+  claiming: number;
+  billing: PoolBilling;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PoolAdminMachine = {
+  id: string;
+  account_id: string;
+  status: string;
+  region: string;
+  type: string;
+  source_type: string;
+  source_id: string | null;
+  resources?: Record<string, unknown>;
+  cluster_id?: string;
+  member_name?: string | null;
+  policy_id?: string | null;
+  storage_usage?: Record<string, unknown>;
+  updated_at?: string;
+};
+
+export type PoolAdminState = {
+  enabled: boolean;
+  legacy_target?: number;
+  policies: PoolPolicy[];
+  groups: Array<{ key: string; account_id: string; policy_id: string | null; ready: number; claiming: number; total: number; machines: string[] }>;
+  machines: PoolAdminMachine[];
 };
 
 export type ProxyToken = {

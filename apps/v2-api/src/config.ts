@@ -53,6 +53,21 @@ export type AppConfig = {
   sshGatewayHost: string;
   sshGatewayPort: number;
   sshGatewayPublicKey?: string;
+  telemetry: {
+    enabled: boolean;
+    driver: 'clickhouse' | 'memory' | 'disabled';
+    clickhouseUrl?: string;
+    clickhouseDatabase: string;
+    clickhouseUser?: string;
+    clickhousePassword?: string;
+    rawRetentionDays: number;
+    ingestToken?: string;
+    ingestBaseUrl: string;
+    ingestReachableFromSandbox: boolean;
+    warnings: string[];
+    otlpEndpoint?: string;
+    metricIntervalSeconds: number;
+  };
   cloudflare?: {
     accountId: string;
     kvNamespaceId: string;
@@ -82,10 +97,31 @@ function numberValue(value: unknown, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+function intEnv(name: string, fallback: number, min: number, max: number): number {
+  const parsed = Number.parseInt(process.env[name] ?? '', 10);
+  const value = Number.isFinite(parsed) ? parsed : fallback;
+  return Math.max(min, Math.min(max, value));
+}
+
 function listEnv(value: string | undefined, fallback: string[]): string[] {
   const raw = value?.trim();
   if (!raw) return fallback;
   return raw.split(',').map((entry) => entry.trim()).filter(Boolean);
+}
+
+function isLoopbackOrPrivateUrl(value: string): boolean {
+  try {
+    const { hostname } = new URL(value);
+    const host = hostname.toLowerCase();
+    if (host === 'localhost' || host === '0.0.0.0' || host === '::1' || host.startsWith('127.')) return true;
+    if (host.startsWith('10.')) return true;
+    if (host.startsWith('192.168.')) return true;
+    const parts = host.split('.').map((part) => Number.parseInt(part, 10));
+    if (parts.length === 4 && parts.every(Number.isFinite) && parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 // Exported so admin endpoints can hydrate operator-provided cluster configs
@@ -99,6 +135,7 @@ function normalizeCluster(raw: Record<string, unknown>): IncusClusterConfig {
   if (!endpoint) throw new Error('Incus cluster config missing endpoint');
 
   const id = String(raw.id ?? raw.name ?? endpoint).trim();
+
   return {
     id,
     name: String(raw.name ?? id).trim(),
@@ -171,6 +208,27 @@ export function loadConfig(): AppConfig {
   const cfEmail = process.env.CLOUDFLARE_EMAIL?.trim() ?? '';
   const daemonChannel = (process.env.V2_DAEMON_CHANNEL ?? process.env.DAEMON_CHANNEL ?? 'dev').trim();
   const daemonPrefix = daemonChannel === 'dev' ? 'daemon/dev/latest' : 'daemon/latest';
+  const telemetryDriverRaw = (process.env.V2_TELEMETRY_DRIVER ?? '').trim().toLowerCase();
+  const clickhouseUrl = (process.env.V2_CLICKHOUSE_URL ?? process.env.CLICKHOUSE_URL ?? '').trim();
+  const telemetryEnabled = boolEnv(process.env.V2_TELEMETRY_ENABLED, true);
+  const telemetryDriver = !telemetryEnabled
+    ? 'disabled'
+    : telemetryDriverRaw === 'clickhouse' || telemetryDriverRaw === 'memory' || telemetryDriverRaw === 'disabled'
+      ? telemetryDriverRaw
+      : clickhouseUrl
+        ? 'clickhouse'
+        : 'memory';
+  const appUrl = (process.env.V2_APP_URL ?? process.env.MACHINE_CALLBACK_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? `http://localhost:${Number(process.env.V2_API_PORT || 4200)}`).trim();
+  const telemetryIngestBaseUrl = (
+    process.env.V2_TELEMETRY_INGEST_BASE_URL
+    ?? process.env.V2_TELEMETRY_PUBLIC_INGEST_URL
+    ?? process.env.V2_PUBLIC_API_URL
+    ?? process.env.MACHINE_CALLBACK_URL
+    ?? appUrl
+  ).trim();
+  const telemetryWarnings: string[] = [];
+  if (telemetryEnabled && telemetryDriver === 'memory') telemetryWarnings.push('telemetry backend is memory; rows disappear on API restart and are not shared with other API processes');
+  if (telemetryEnabled && isLoopbackOrPrivateUrl(telemetryIngestBaseUrl)) telemetryWarnings.push('telemetry ingest URL is loopback/private; Incus sandboxes cannot reach it unless they run on the same network namespace');
 
   return {
     port: Number(process.env.V2_API_PORT || 4200),
@@ -186,7 +244,7 @@ export function loadConfig(): AppConfig {
     // Legacy/optional proxy domain. The primary V2 dev proxy is served directly
     // by v2-api using host-based localhost URLs, not Cloudflare Worker routing.
     proxyDomain: (process.env.V2_PROXY_DOMAIN ?? process.env.NEXT_PUBLIC_PROXY_DOMAIN ?? 'kortix-dev.cloud').trim(),
-    appUrl: (process.env.V2_APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? `http://localhost:${Number(process.env.V2_API_PORT || 4200)}`).trim(),
+    appUrl,
     proxyOriginHost: (process.env.V2_PROXY_ORIGIN_HOST ?? process.env.PROXY_ORIGIN_HOST ?? '').trim() || undefined,
     daemonDownloadUrl: (process.env.V2_DAEMON_DOWNLOAD_URL ?? process.env.DAEMON_URL ?? `https://pub-caf7762051b942d5a801397d750a0dc3.r2.dev/${daemonPrefix}/justavps-daemon-linux-amd64`).trim(),
     daemonLocalPath: discoverLocalDaemonPath(),
@@ -195,6 +253,21 @@ export function loadConfig(): AppConfig {
     sshGatewayHost: (process.env.V2_SSH_GATEWAY_HOST ?? 'localhost').trim(),
     sshGatewayPort: Number(process.env.V2_SSH_GATEWAY_PORT || 2222),
     sshGatewayPublicKey: (process.env.V2_SSH_GATEWAY_PUBLIC_KEY ?? '').trim() || undefined,
+    telemetry: {
+      enabled: telemetryEnabled && telemetryDriver !== 'disabled',
+      driver: telemetryDriver,
+      clickhouseUrl: clickhouseUrl || undefined,
+      clickhouseDatabase: (process.env.V2_CLICKHOUSE_DATABASE ?? process.env.CLICKHOUSE_DATABASE ?? 'justavps_telemetry').trim(),
+      clickhouseUser: (process.env.V2_CLICKHOUSE_USER ?? process.env.CLICKHOUSE_USER ?? '').trim() || undefined,
+      clickhousePassword: (process.env.V2_CLICKHOUSE_PASSWORD ?? process.env.CLICKHOUSE_PASSWORD ?? '').trim() || undefined,
+      rawRetentionDays: intEnv('V2_TELEMETRY_RAW_RETENTION_DAYS', 7, 1, 365),
+      ingestToken: (process.env.V2_TELEMETRY_INGEST_TOKEN ?? '').trim() || undefined,
+      ingestBaseUrl: telemetryIngestBaseUrl,
+      ingestReachableFromSandbox: telemetryEnabled && !isLoopbackOrPrivateUrl(telemetryIngestBaseUrl),
+      warnings: telemetryWarnings,
+      otlpEndpoint: (process.env.V2_OTLP_PUBLIC_URL ?? process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? '').trim() || undefined,
+      metricIntervalSeconds: intEnv('V2_TELEMETRY_METRIC_INTERVAL_SECONDS', 5, 1, 300),
+    },
     cloudflare: cfAccountId && cfKvNamespaceId && cfApiKey && cfEmail
       ? { accountId: cfAccountId, kvNamespaceId: cfKvNamespaceId, apiKey: cfApiKey, email: cfEmail }
       : undefined,

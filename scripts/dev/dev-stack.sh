@@ -3,6 +3,8 @@
 #   - apps/v1-api  on :4101 (V1 HTTP API; Next /api/* proxies here)
 #   - apps/v2-api  on :4200 (V2 Incus API; Next /admin-ui/* proxies here)
 #   - Next.js web  on :4100 (UI shell; proxies V1 + V2 admin)
+#   - ClickHouse + OTel Collector for default V2 sandbox telemetry unless
+#     V2_TELEMETRY_STACK_DISABLED=1
 #
 # All three children run under one foreground process group; ^C/SIGTERM
 # cleanly tears down the whole subprocess tree. Output is line-prefixed so
@@ -22,6 +24,13 @@ WAIT_TIMEOUT_MS="${DEV_STACK_WAIT_TIMEOUT_MS:-60000}"
 # admin-web UI hit the V2 API directly when it loads.
 V2_CORS_ORIGINS_DEFAULT="http://localhost:${NEXT_PORT},http://127.0.0.1:${NEXT_PORT},http://localhost:${V2_PORT}"
 export V2_CORS_ORIGINS="${V2_CORS_ORIGINS:-${V2_CORS_ORIGINS_DEFAULT}}"
+export V2_TELEMETRY_ENABLED="${V2_TELEMETRY_ENABLED:-true}"
+export V2_TELEMETRY_DRIVER="${V2_TELEMETRY_DRIVER:-clickhouse}"
+export V2_CLICKHOUSE_URL="${V2_CLICKHOUSE_URL:-http://localhost:8123}"
+export V2_CLICKHOUSE_DATABASE="${V2_CLICKHOUSE_DATABASE:-justavps_telemetry}"
+export V2_CLICKHOUSE_USER="${V2_CLICKHOUSE_USER:-default}"
+export V2_CLICKHOUSE_PASSWORD="${V2_CLICKHOUSE_PASSWORD:-justavps123}"
+export V2_TELEMETRY_METRIC_INTERVAL_SECONDS="${V2_TELEMETRY_METRIC_INTERVAL_SECONDS:-5}"
 
 V1_PID=""
 V2_PID=""
@@ -121,6 +130,16 @@ wait_for_port() {
 free_port "$V1_PORT"
 free_port "$V2_PORT"
 free_port "$NEXT_PORT"
+
+if [ "${V2_TELEMETRY_STACK_DISABLED:-0}" != "1" ]; then
+  echo "[dev-stack] starting ClickHouse + OTel Collector for V2 telemetry"
+  docker compose up -d clickhouse otel-collector
+fi
+
+if [ -z "${V2_TELEMETRY_INGEST_BASE_URL:-${V2_TELEMETRY_PUBLIC_INGEST_URL:-${MACHINE_CALLBACK_URL:-}}}" ]; then
+  echo "[dev-stack] warning: V2 sandbox telemetry ingest URL is local-only."
+  echo "[dev-stack]          For live Incus sandboxes, run pnpm callback:ngrok or set V2_TELEMETRY_INGEST_BASE_URL=https://<public-v2-api>."
+fi
 
 echo "[dev-stack] starting v1-api on :${V1_PORT}"
 (
