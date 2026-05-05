@@ -5,6 +5,7 @@ import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -26,7 +27,10 @@ import {
   ArrowDownUp,
   Boxes,
   CalendarClock,
+  ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Clock3,
   FilterX,
   MoreHorizontal,
@@ -38,20 +42,12 @@ import {
   SlidersHorizontal,
   Square,
   Trash2,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 import { useConfirm } from '@/components/confirm';
 import { ResizeMachineDialog } from '@/components/features/resize-machine-dialog';
-import type { BackupItem, ImageItem, Machine, MachineCreationTrace, SnapshotItem } from '@/lib/api';
-import {
-  CATALOG_IMAGES,
-  catalogImageType,
-  catalogForImage,
-  imageDisplayName,
-  imageIdForCreate,
-  imageMatchesMachineType,
-  machineTypeToImageType,
-} from '@/lib/image-sources';
+import type { Machine, MachineCreationTrace, MachineTemplate } from '@/lib/api';
 import MachineDetailClient from './[id]/MachineDetailClient';
 
 function isRunningStatus(status: string | undefined) {
@@ -61,7 +57,10 @@ function isRunningStatus(status: string | undefined) {
 type MachineStatusFilter = 'all' | 'running' | 'stopped' | 'other';
 type CreatedWindow = 'all' | '24h' | '7d' | '30d';
 type MachineSort = 'created_desc' | 'created_asc' | 'name_asc' | 'status_asc';
+type StartStrategy = 'auto' | 'running_pool' | 'stopped_pool' | 'cold';
 const PAGE_REFERENCE_TIME = Date.now();
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 250] as const;
+type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
 
 function createdTimestamp(machine: Machine) {
   const raw = machine.created_at;
@@ -119,6 +118,10 @@ function resourceValue(resources: Machine['resources'], key: string) {
   const value = resources?.[key];
   if (value === null || value === undefined || value === '') return '—';
   return String(value);
+}
+
+function templatePool(template: MachineTemplate | null, mode: 'running' | 'stopped') {
+  return template?.pools?.[mode] ?? (template?.pool?.pool_mode === mode ? template.pool : null);
 }
 
 function matchesStatusFilter(machine: Machine, filter: MachineStatusFilter) {
@@ -181,7 +184,7 @@ function MachineStatCard({ icon: Icon, label, value, sub }: { icon: LucideIcon; 
 
 export default function MachinesPage() {
   const { state, request, runAction, refreshAll } = useStore();
-  const { confirm } = useConfirm();
+  const { confirm, confirmPhrase } = useConfirm();
   const [createOpen, setCreateOpen] = useState(false);
   const [resizeTarget, setResizeTarget] = useState<Machine | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -189,6 +192,9 @@ export default function MachinesPage() {
   const [statusFilter, setStatusFilter] = useState<MachineStatusFilter>('all');
   const [createdWindow, setCreatedWindow] = useState<CreatedWindow>('all');
   const [sort, setSort] = useState<MachineSort>('created_desc');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSize>(50);
 
   useEffect(() => {
     const syncSelectedId = () => setSelectedId(new URLSearchParams(window.location.search).get('id'));
@@ -240,6 +246,121 @@ export default function MachinesPage() {
     setStatusFilter('all');
     setCreatedWindow('all');
     setSort('created_desc');
+  };
+
+  const totalFiltered = filteredMachines.length;
+  const pageCount = Math.max(1, Math.ceil(totalFiltered / pageSize));
+
+  // Reset to page 1 when filters/sort/page-size change. Comparing against a
+  // tracked key during render avoids the cascading-render lint rule that
+  // forbids setState-in-effect.
+  const filterKey = `${query}|${statusFilter}|${createdWindow}|${sort}|${pageSize}`;
+  const [lastFilterKey, setLastFilterKey] = useState(filterKey);
+  if (lastFilterKey !== filterKey) {
+    setLastFilterKey(filterKey);
+    setPage(1);
+  }
+
+  const safePage = Math.min(Math.max(1, page), pageCount);
+  const pageStart = (safePage - 1) * pageSize;
+  const pageEnd = Math.min(pageStart + pageSize, totalFiltered);
+  const paginatedMachines = useMemo(
+    () => filteredMachines.slice(pageStart, pageEnd),
+    [filteredMachines, pageStart, pageEnd],
+  );
+
+  // Selections that point to filtered-out rows are kept in state but ignored
+  // by the toolbar count and bulk actions, so unhiding rows restores them.
+  const selectedMachines = useMemo(
+    () => filteredMachines.filter((m) => selectedIds.has(m.id)),
+    [filteredMachines, selectedIds],
+  );
+  const selectionCount = selectedMachines.length;
+
+  const pageIds = useMemo(() => paginatedMachines.map((m) => m.id), [paginatedMachines]);
+  const pageSelectedCount = pageIds.reduce((n, id) => n + (selectedIds.has(id) ? 1 : 0), 0);
+  const pageAllSelected = pageIds.length > 0 && pageSelectedCount === pageIds.length;
+  const pageSomeSelected = pageSelectedCount > 0 && !pageAllSelected;
+
+  const toggleRow = (id: string, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+  const togglePage = (checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) for (const id of pageIds) next.add(id);
+      else for (const id of pageIds) next.delete(id);
+      return next;
+    });
+  };
+  const selectAllFiltered = () => {
+    setSelectedIds(new Set(filteredMachines.map((m) => m.id)));
+  };
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const runBulk = async (label: string, machines: Machine[], op: (m: Machine) => Promise<unknown>) => {
+    if (machines.length === 0) return;
+    await runAction(label, async () => {
+      const results = await Promise.allSettled(machines.map((m) => op(m)));
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      const ok = results.length - failed;
+      await refreshAll();
+      if (failed > 0) throw new Error(`${ok}/${results.length} succeeded · ${failed} failed`);
+      return { ok, total: results.length };
+    });
+  };
+
+  const bulkStart = () => {
+    const targets = selectedMachines.filter((m) => !isRunningStatus(m.status));
+    if (targets.length === 0) return;
+    return runBulk(
+      `start ${targets.length} machine${targets.length === 1 ? '' : 's'}`,
+      targets,
+      (m) => request(`/machines/${m.id}/start`, { method: 'POST' }),
+    );
+  };
+  const bulkStop = () => {
+    const targets = selectedMachines.filter((m) => isRunningStatus(m.status));
+    if (targets.length === 0) return;
+    return runBulk(
+      `stop ${targets.length} machine${targets.length === 1 ? '' : 's'}`,
+      targets,
+      (m) => request(`/machines/${m.id}/stop`, { method: 'POST' }),
+    );
+  };
+  const bulkRestart = () => {
+    const targets = selectedMachines.filter((m) => isRunningStatus(m.status));
+    if (targets.length === 0) return;
+    return runBulk(
+      `restart ${targets.length} machine${targets.length === 1 ? '' : 's'}`,
+      targets,
+      (m) => request(`/machines/${m.id}/reboot`, { method: 'POST' }),
+    );
+  };
+  const bulkDelete = async () => {
+    const targets = [...selectedMachines];
+    if (targets.length === 0) return;
+    const phrase = `DELETE ${targets.length} ${targets.length === 1 ? 'MACHINE' : 'MACHINES'}`;
+    const ok = await confirmPhrase({
+      title: `Delete ${targets.length} machine${targets.length === 1 ? '' : 's'}?`,
+      description: 'Stops every selected instance, drops the rootfs, removes config. This is final and cannot be undone.',
+      phrase,
+      phraseLabel: 'Type the phrase exactly to confirm',
+      confirmLabel: `Delete ${targets.length}`,
+      destructive: true,
+    });
+    if (!ok) return;
+    await runBulk(
+      `delete ${targets.length} machine${targets.length === 1 ? '' : 's'}`,
+      targets,
+      (m) => request(`/machines/${m.id}`, { method: 'DELETE' }),
+    );
+    clearSelection();
   };
 
   if (selectedId) return <MachineDetailClient id={selectedId} onBack={closeMachine} />;
@@ -326,11 +447,50 @@ export default function MachinesPage() {
               </div>
             </div>
           </CardHeader>
+          {selectionCount > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/40 px-4 py-2.5">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="font-medium">
+                  {selectionCount} selected
+                </span>
+                {selectionCount < totalFiltered ? (
+                  <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={selectAllFiltered}>
+                    Select all {totalFiltered}
+                  </Button>
+                ) : null}
+                <Button variant="ghost" size="sm" className="h-auto px-2 py-1 text-xs" onClick={clearSelection}>
+                  <X className="size-3" /> Clear
+                </Button>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="outline" size="sm" disabled={state.busy} onClick={bulkStart}>
+                  <Play className="size-3.5" /> Start
+                </Button>
+                <Button variant="outline" size="sm" disabled={state.busy} onClick={bulkStop}>
+                  <Square className="size-3.5" /> Stop
+                </Button>
+                <Button variant="outline" size="sm" disabled={state.busy} onClick={bulkRestart}>
+                  <RotateCcw className="size-3.5" /> Restart
+                </Button>
+                <Button variant="destructive" size="sm" disabled={state.busy} onClick={bulkDelete}>
+                  <Trash2 className="size-3.5" /> Delete{selectionCount > 1 ? ` ${selectionCount}` : ''}
+                </Button>
+              </div>
+            </div>
+          ) : null}
           <CardContent className="p-0">
             <div className="overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-10 pl-4">
+                      <Checkbox
+                        aria-label="Select all rows on this page"
+                        checked={pageAllSelected ? true : pageSomeSelected ? 'indeterminate' : false}
+                        onCheckedChange={(value) => togglePage(value === true)}
+                        disabled={pageIds.length === 0}
+                      />
+                    </TableHead>
                     <TableHead>Name</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Created</TableHead>
@@ -340,9 +500,9 @@ export default function MachinesPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredMachines.length === 0 ? (
+                  {totalFiltered === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="h-32 text-center">
+                      <TableCell colSpan={7} className="h-32 text-center">
                         <div className="mx-auto flex max-w-sm flex-col items-center gap-2 text-sm text-muted-foreground">
                           <Boxes className="size-7" />
                           <div className="font-medium text-foreground">No machines match these filters</div>
@@ -351,12 +511,20 @@ export default function MachinesPage() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ) : filteredMachines.map((m) => (
+                  ) : paginatedMachines.map((m) => (
                     <TableRow
                       key={m.id}
                       onClick={() => openMachine(m.id)}
+                      data-state={selectedIds.has(m.id) ? 'selected' : undefined}
                       className="cursor-pointer hover:bg-muted/50"
                     >
+                      <TableCell className="w-10 pl-4" onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          aria-label={`Select ${m.name}`}
+                          checked={selectedIds.has(m.id)}
+                          onCheckedChange={(value) => toggleRow(m.id, value === true)}
+                        />
+                      </TableCell>
                       <TableCell className="min-w-56">
                         <div className="flex items-center gap-3">
                           <div className={cn(
@@ -462,6 +630,43 @@ export default function MachinesPage() {
                 </TableBody>
               </Table>
             </div>
+            {totalFiltered > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-2.5 text-xs text-muted-foreground">
+                <div className="tabular-nums">
+                  {pageStart + 1}–{pageEnd} of {totalFiltered}
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <span>Rows per page</span>
+                    <Select value={String(pageSize)} onValueChange={(value) => setPageSize(Number(value) as PageSize)}>
+                      <SelectTrigger size="sm" className="h-7 w-[72px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {PAGE_SIZE_OPTIONS.map((size) => (
+                          <SelectItem key={size} value={String(size)}>{size}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="tabular-nums">
+                    Page {safePage} of {pageCount}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button variant="outline" size="icon-sm" disabled={safePage <= 1} onClick={() => setPage(1)} aria-label="First page">
+                      <ChevronsLeft className="size-3.5" />
+                    </Button>
+                    <Button variant="outline" size="icon-sm" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)} aria-label="Previous page">
+                      <ChevronLeft className="size-3.5" />
+                    </Button>
+                    <Button variant="outline" size="icon-sm" disabled={safePage >= pageCount} onClick={() => setPage(safePage + 1)} aria-label="Next page">
+                      <ChevronRight className="size-3.5" />
+                    </Button>
+                    <Button variant="outline" size="icon-sm" disabled={safePage >= pageCount} onClick={() => setPage(pageCount)} aria-label="Last page">
+                      <ChevronsRight className="size-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       )}
@@ -470,8 +675,6 @@ export default function MachinesPage() {
         open={createOpen}
         onOpenChange={setCreateOpen}
         regions={state.regions}
-        machines={state.machines}
-        images={state.images}
         baseUrl={state.baseUrl}
         fire={fire}
         request={request}
@@ -501,30 +704,12 @@ function EmptyState({ title, description, action }: { title: string; description
   );
 }
 
-type CatalogImageRow = { id: string; name: string; type: 'container' };
-type SourceMode = 'image' | 'snapshot' | 'backup';
-type ImageChoice = { id: string; label: string; source: 'catalog' | 'raw' };
-
-const DEFAULT_CATALOG_IMAGES: CatalogImageRow[] = CATALOG_IMAGES.map((image) => ({
-  id: image.id,
-  name: image.name,
-  type: catalogImageType(image.type),
-}));
-
-const SOURCE_MODES: Array<{ value: SourceMode; label: string; description: string }> = [
-  { value: 'image', label: 'Images', description: 'Base images + cached imports' },
-  { value: 'snapshot', label: 'Snapshot', description: 'Clone from machine snapshot' },
-  { value: 'backup', label: 'Backup', description: 'Clone from backup artifact' },
-];
-
 function CreateMachineDialog({
-  open, onOpenChange, regions, machines, images, baseUrl, fire, request, busy,
+  open, onOpenChange, regions, baseUrl, fire, request, busy,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   regions: string[];
-  machines: Machine[];
-  images: ImageItem[];
   baseUrl: string;
   fire: (label: string, fn: () => Promise<unknown>) => Promise<void>;
   request: ReturnType<typeof useStore>['request'];
@@ -532,52 +717,37 @@ function CreateMachineDialog({
 }) {
   const [name, setName] = useState('');
   const type = 'container' as const;
-  const [region, setRegion] = useState(regions[0] ?? 'eu');
-  const [sourceMode, setSourceMode] = useState<SourceMode>('image');
-  const [imageId, setImageId] = useState('');
-  const [sourceMachineId, setSourceMachineId] = useState('');
-  const [sourceSnapshotName, setSourceSnapshotName] = useState('');
-  const [sourceBackupName, setSourceBackupName] = useState('');
+  const [templates, setTemplates] = useState<MachineTemplate[]>([]);
+  const [templateId, setTemplateId] = useState('');
+  const [strategy, setStrategy] = useState<StartStrategy>('auto');
+  const [customSize, setCustomSize] = useState(false);
   const [vcpu, setVcpu] = useState(2);
   const [memoryGb, setMemoryGb] = useState(2);
   const [diskGb, setDiskGb] = useState(10);
   const [error, setError] = useState<string | null>(null);
-  const [catalogImages, setCatalogImages] = useState<CatalogImageRow[]>(DEFAULT_CATALOG_IMAGES);
-  const [rawImages, setRawImages] = useState<ImageItem[]>(images);
-  const [snapshots, setSnapshots] = useState<SnapshotItem[]>([]);
-  const [backups, setBackups] = useState<BackupItem[]>([]);
   const [fetchedRegions, setFetchedRegions] = useState<string[]>([]);
-  const [sourceLoading, setSourceLoading] = useState(false);
   const [createRequestId, setCreateRequestId] = useState<string | null>(null);
   const [createTrace, setCreateTrace] = useState<MachineCreationTrace | null>(null);
   const [createStartedAt, setCreateStartedAt] = useState<number | null>(null);
   const [createNow, setCreateNow] = useState(() => Date.now());
   const [createPollError, setCreatePollError] = useState<string | null>(null);
 
-  // Load every create source the API can accept. The base catalog is available
-  // immediately from the bundled product catalog; live Incus image cache is
-  // background enrichment. Do not block the picker on /images, which can lag
-  // while Incus lists aliases from the cluster.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
 
-    request<{ templates: CatalogImageRow[] }>('/templates')
-      .then((catalogData) => {
-        if (!cancelled && catalogData.templates.length > 0) setCatalogImages(catalogData.templates);
+    request<{ templates: MachineTemplate[] }>('/machine-templates')
+      .then((templateData) => {
+        if (!cancelled) setTemplates((templateData.templates ?? []).filter((template) => template.type === 'container' && template.status === 'active'));
       })
-      .catch(() => { /* keep bundled catalog */ });
+      .catch(() => { if (!cancelled) setTemplates([]); });
 
     request<{ regions: string[] }>('/regions', { auth: false })
       .then((regionData) => { if (!cancelled) setFetchedRegions(regionData.regions ?? []); })
       .catch(() => { /* surfaced */ });
 
-    request<{ images: ImageItem[] }>('/images', { auth: false })
-      .then((imageData) => { if (!cancelled) setRawImages(imageData.images ?? images); })
-      .catch(() => { /* cached images are optional */ });
-
     return () => { cancelled = true; };
-  }, [images, open, request]);
+  }, [open, request]);
 
   useEffect(() => {
     if (!createRequestId || !open) return;
@@ -605,103 +775,12 @@ function CreateMachineDialog({
     };
   }, [createRequestId, open, request]);
 
-  const compatibleCatalogImages = useMemo(() => {
-    const want = machineTypeToImageType(type);
-    return catalogImages.filter((t) => t.type === want);
-  }, [catalogImages, type]);
-
-  const compatibleRawImages = useMemo(() => {
-    return rawImages.filter((image) => imageMatchesMachineType(image, type));
-  }, [rawImages, type]);
-
-  const imageChoices = useMemo(() => {
-    const choices: ImageChoice[] = [];
-    const seen = new Set<string>();
-    for (const image of compatibleRawImages) {
-      const id = imageIdForCreate(image);
-      const key = image.fingerprint || id;
-      if (!id || seen.has(key)) continue;
-      seen.add(key);
-      seen.add(id);
-      const catalog = catalogForImage(image);
-      choices.push({
-        id,
-        label: catalog ? imageDisplayName(image) : `${imageDisplayName(image)} · cached`,
-        source: catalog ? 'catalog' : 'raw',
-      });
-    }
-    for (const catalogImage of compatibleCatalogImages) {
-      if (seen.has(catalogImage.id)) continue;
-      seen.add(catalogImage.id);
-      choices.push({ id: catalogImage.id, label: catalogImage.name, source: 'catalog' });
-    }
-    return choices;
-  }, [compatibleCatalogImages, compatibleRawImages]);
-
-  const compatibleSourceMachines = useMemo(() => (
-    machines.filter((machine) => machine.type === type)
-  ), [machines, type]);
-
-  const selectedImageId = imageChoices.some((choice) => choice.id === imageId) ? imageId : imageChoices[0]?.id ?? '';
-  const selectedSourceMachineId = compatibleSourceMachines.some((machine) => machine.id === sourceMachineId)
-    ? sourceMachineId
-    : compatibleSourceMachines[0]?.id ?? '';
-  const selectedSourceMachine = compatibleSourceMachines.find((machine) => machine.id === selectedSourceMachineId) ?? null;
-  const selectedSnapshotName = snapshots.some((snapshot) => snapshot.name === sourceSnapshotName)
-    ? sourceSnapshotName
-    : snapshots[0]?.name ?? '';
-  const selectedBackupName = backups.some((backup) => backup.name === sourceBackupName)
-    ? sourceBackupName
-    : backups[0]?.name ?? '';
+  const selectedTemplateId = templates.some((template) => template.id === templateId) ? templateId : templates[0]?.id ?? '';
+  const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) ?? null;
   const regionChoices = regions.length > 0 ? regions : fetchedRegions;
-  const selectedRegion = regionChoices.includes(region) ? region : regionChoices[0] ?? '';
+  const selectedRegion = selectedTemplate?.region ?? (regionChoices[0] ?? '');
+  const createReady = Boolean(selectedTemplate);
 
-  useEffect(() => {
-    if (!open || !selectedSourceMachineId || (sourceMode !== 'snapshot' && sourceMode !== 'backup')) return;
-    let cancelled = false;
-    Promise.resolve()
-      .then(() => {
-        if (!cancelled) setSourceLoading(true);
-        return Promise.all([
-          request<{ snapshots: SnapshotItem[] }>(`/machines/${encodeURIComponent(selectedSourceMachineId)}/snapshots`),
-          request<{ backups: BackupItem[] }>(`/machines/${encodeURIComponent(selectedSourceMachineId)}/backups`),
-        ]);
-      })
-      .then(([snapshotData, backupData]) => {
-        if (cancelled) return;
-        setSnapshots(snapshotData.snapshots ?? []);
-        setBackups(backupData.backups ?? []);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setSnapshots([]);
-        setBackups([]);
-      })
-      .finally(() => {
-        if (!cancelled) setSourceLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [open, request, selectedSourceMachineId, sourceMode]);
-
-  const selectedSource = () => {
-    if (sourceMode === 'image') {
-      if (!selectedImageId) return null;
-      return { type: 'image', image_id: selectedImageId };
-    }
-    if (sourceMode === 'snapshot') {
-      if (!selectedSourceMachine || !selectedSnapshotName) return null;
-      const instanceName = selectedSourceMachine.incus?.instance_name ?? selectedSourceMachine.name;
-      return { type: 'snapshot', snapshot_id: `${instanceName}/${selectedSnapshotName}` };
-    }
-    if (sourceMode === 'backup') {
-      if (!selectedSourceMachineId || !selectedBackupName) return null;
-      return { type: 'backup', backup_id: `${selectedSourceMachineId}/${selectedBackupName}` };
-    }
-    return null;
-  };
-
-  const source = selectedSource();
-  const sourceReady = Boolean(source);
   const createElapsedMs = createTrace?.duration_ms ?? (createStartedAt ? createNow - createStartedAt : undefined);
   const latestSpan = createTrace?.spans.find((span) => span.status === 'active') ?? createTrace?.spans.at(-1) ?? null;
   const createIsActive = createTrace?.status === 'active';
@@ -727,14 +806,14 @@ function CreateMachineDialog({
 
   const submit = async () => {
     setError(null);
-    if (!selectedRegion) return setError('No regions / clusters are available. Refresh Fleet first.');
-    if (!source) return setError('Pick a valid machine source first.');
+    if (!selectedTemplate) return setError('Pick a Machine Template first.');
     const displayName = name.trim();
     if (displayName.length > 80) return setError('Display name must be 80 characters or less.');
-    const requestId = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const startedAt = new Date().getTime();
+    const requestId = crypto.randomUUID();
     setCreateRequestId(requestId);
-    setCreateStartedAt(Date.now());
-    setCreateNow(Date.now());
+    setCreateStartedAt(startedAt);
+    setCreateNow(startedAt);
     setCreatePollError(null);
     setCreateTrace({ id: requestId, kind: 'machine.create', status: 'active', stage: 'connecting to API', started_at: new Date().toISOString(), labels: { api_base_url: baseUrl }, spans: [] });
     try {
@@ -743,9 +822,11 @@ function CreateMachineDialog({
           method: 'POST',
           headers: { 'X-JustAVPS-Request-Id': requestId },
           body: {
-            name: displayName || undefined, type, region: selectedRegion,
-            source,
-            resources: { vcpu, memory_gb: memoryGb, disk_gb: diskGb },
+            name: displayName || undefined,
+            type,
+            template_id: selectedTemplate.id,
+            start_strategy: strategy,
+            resources: customSize ? { vcpu, memory_gb: memoryGb, disk_gb: diskGb } : undefined,
           } as never,
         });
         handleOpenChange(false);
@@ -778,7 +859,7 @@ function CreateMachineDialog({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>New container</DialogTitle>
-          <DialogDescription>POST /machines creates containers only. Choose exactly what to create from, then set resources.</DialogDescription>
+          <DialogDescription>New Machines are created from ready-to-boot Machine Templates only. Images, snapshots, and backups must become Templates first.</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4">
           {regionChoices.length === 0 ? (
@@ -806,95 +887,55 @@ function CreateMachineDialog({
             </div>
             <div className="space-y-1.5">
               <Label>Region</Label>
-              <Select value={selectedRegion} onValueChange={setRegion}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {regionChoices.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <div className="rounded-md border bg-muted/20 px-3 py-2 text-sm">{selectedRegion || 'Template region'}</div>
             </div>
           </div>
           <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
             <div>
-              <Label>Source</Label>
-              <p className="mt-1 text-xs text-muted-foreground">Pick the source type explicitly — image, snapshot, or backup.</p>
+              <Label>Machine Template</Label>
+              <p className="mt-1 text-xs text-muted-foreground">Templates are prepared images with JustAVPS daemon baked and second-boot verified.</p>
             </div>
-            <div className="grid gap-2 sm:grid-cols-3">
-              {SOURCE_MODES.map((mode) => (
-                <button
-                  key={mode.value}
-                  type="button"
-                  onClick={() => setSourceMode(mode.value)}
-                  className={`rounded-lg border px-3 py-2 text-left transition-colors ${sourceMode === mode.value ? 'border-primary bg-primary text-primary-foreground' : 'bg-background hover:bg-muted'}`}
-                >
-                  <span className="block text-sm font-medium">{mode.label}</span>
-                  <span className={`mt-1 block text-2xs ${sourceMode === mode.value ? 'text-primary-foreground/75' : 'text-muted-foreground'}`}>{mode.description}</span>
-                </button>
-              ))}
-            </div>
-
-            {sourceMode === 'image' ? (
-              <div className="space-y-1.5">
-                <Label>Image</Label>
-                <Select value={selectedImageId} onValueChange={setImageId}>
-                  <SelectTrigger className="w-full"><SelectValue placeholder="pick image…" /></SelectTrigger>
-                  <SelectContent>
-                    {imageChoices.map((image) => (
-                      <SelectItem key={`${image.source}-${image.id}`} value={image.id}>{image.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {imageChoices.length === 0 ? <p className="text-xs text-destructive">No {type} images are available.</p> : null}
+            <Select value={selectedTemplateId} onValueChange={setTemplateId}>
+              <SelectTrigger className="w-full"><SelectValue placeholder="pick Template…" /></SelectTrigger>
+              <SelectContent>
+                {templates.map((template) => (
+                  <SelectItem key={template.id} value={template.id}>{template.name} · {template.default_resources.vcpu}c/{template.default_resources.memory_gb}GB/{template.default_resources.disk_gb}GB · hot {templatePool(template, 'running')?.ready ?? 0}/{templatePool(template, 'running')?.target ?? 0} · stopped {templatePool(template, 'stopped')?.ready ?? 0}/{templatePool(template, 'stopped')?.target ?? 0}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {templates.length === 0 ? <p className="text-xs text-destructive">No active Machine Templates are available. Create one on the Templates page first.</p> : null}
+            {selectedTemplate ? (
+              <div className="grid gap-2 rounded-md border bg-background px-3 py-2 text-xs sm:grid-cols-3">
+                <div><span className="text-muted-foreground">Default</span><div className="font-mono">{selectedTemplate.default_resources.vcpu}c · {selectedTemplate.default_resources.memory_gb}GB · {selectedTemplate.default_resources.disk_gb}GB</div></div>
+                <div><span className="text-muted-foreground">Pools</span><div className="font-mono">hot {templatePool(selectedTemplate, 'running')?.ready ?? 0}/{templatePool(selectedTemplate, 'running')?.target ?? 0} · stopped {templatePool(selectedTemplate, 'stopped')?.ready ?? 0}/{templatePool(selectedTemplate, 'stopped')?.target ?? 0}</div></div>
+                <div><span className="text-muted-foreground">Ready</span><div className="font-mono">{String(Boolean(selectedTemplate.readiness?.ready))}</div></div>
               </div>
             ) : null}
-
-            {sourceMode === 'snapshot' || sourceMode === 'backup' ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label>Source machine</Label>
-                  <Select value={selectedSourceMachineId} onValueChange={setSourceMachineId}>
-                    <SelectTrigger className="w-full"><SelectValue placeholder="pick machine…" /></SelectTrigger>
-                    <SelectContent>
-                      {compatibleSourceMachines.map((machine) => (
-                        <SelectItem key={machine.id} value={machine.id}>{machine.name} · {machine.status}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {compatibleSourceMachines.length === 0 ? <p className="text-xs text-destructive">No {type} source machines exist.</p> : null}
-                </div>
-
-                {sourceMode === 'snapshot' ? (
-                  <div className="space-y-1.5">
-                    <Label>Snapshot</Label>
-                    <Select value={selectedSnapshotName} onValueChange={setSourceSnapshotName} disabled={!selectedSourceMachineId || sourceLoading}>
-                      <SelectTrigger className="w-full"><SelectValue placeholder={sourceLoading ? 'loading…' : 'pick snapshot…'} /></SelectTrigger>
-                      <SelectContent>
-                        {snapshots.map((snapshot) => (
-                          <SelectItem key={snapshot.name} value={snapshot.name}>{snapshot.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {!sourceLoading && selectedSourceMachineId && snapshots.length === 0 ? <p className="text-xs text-destructive">This machine has no snapshots.</p> : null}
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    <Label>Backup</Label>
-                    <Select value={selectedBackupName} onValueChange={setSourceBackupName} disabled={!selectedSourceMachineId || sourceLoading}>
-                      <SelectTrigger className="w-full"><SelectValue placeholder={sourceLoading ? 'loading…' : 'pick backup…'} /></SelectTrigger>
-                      <SelectContent>
-                        {backups.map((backup) => (
-                          <SelectItem key={backup.name} value={backup.name}>{backup.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {!sourceLoading && selectedSourceMachineId && backups.length === 0 ? <p className="text-xs text-destructive">This machine has no backups.</p> : null}
-                  </div>
-                )}
-              </div>
-            ) : null}
-
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="space-y-1.5">
+            <Label>Start strategy</Label>
+            <Select value={strategy} onValueChange={(value) => setStrategy(value as StartStrategy)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">Auto · Running Hot → Stopped Pool → Cold</SelectItem>
+                <SelectItem value="running_pool">Running Hot Pool only</SelectItem>
+                <SelectItem value="stopped_pool">Stopped Pool only</SelectItem>
+                <SelectItem value="cold">Cold create only</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-2xs text-muted-foreground">Auto always checks Running Hot first, then Stopped Pool, then cold create.</p>
+          </div>
+          <Button type="button" variant="outline" onClick={() => {
+            if (!customSize && selectedTemplate) {
+              setVcpu(selectedTemplate.default_resources.vcpu);
+              setMemoryGb(selectedTemplate.default_resources.memory_gb);
+              setDiskGb(selectedTemplate.default_resources.disk_gb);
+            }
+            setCustomSize((value) => !value);
+          }}>
+            {customSize ? 'Use Template default size' : 'Customize initial size'}
+          </Button>
+          {customSize ? <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1.5">
               <Label>vCPU</Label>
               <Input type="number" value={vcpu} onChange={(e) => setVcpu(Number(e.target.value) || 1)} min={1} />
@@ -907,7 +948,7 @@ function CreateMachineDialog({
               <Label>Disk (GB)</Label>
               <Input type="number" value={diskGb} onChange={(e) => setDiskGb(Number(e.target.value) || 1)} min={1} />
             </div>
-          </div>
+          </div> : null}
           {createTrace ? (
             <div className={`rounded-lg border p-3 text-xs ${createPanelClass}`}>
               <div className="flex items-center justify-between gap-3">
@@ -954,7 +995,7 @@ function CreateMachineDialog({
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => handleOpenChange(false)}>Cancel</Button>
-          <Button onClick={submit} disabled={busy || !sourceReady || regionChoices.length === 0}>{busy ? 'Creating…' : 'Create'}</Button>
+          <Button onClick={submit} disabled={busy || !createReady}>{busy ? 'Creating…' : 'Create'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
