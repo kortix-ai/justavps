@@ -4,13 +4,12 @@ set -Eeuo pipefail
 API_URL="${V2_API_URL:-http://localhost:4200}"
 ADMIN_TOKEN="${V2_E2E_ADMIN_TOKEN:-${V2_ADMIN_TOKEN:-v2e2e-admin}}"
 ACCOUNT_ID="${V2_E2E_ACCOUNT_ID:-actual-live-pool-e2e-$(date +%s)}"
-IMAGE_ID="${V2_E2E_IMAGE_ID:-justavps-golden-container}"
+TEMPLATE_ID="${V2_E2E_TEMPLATE_ID:-${V2_E2E_IMAGE_ID:-justavps-ubuntu-24.04-template}}"
 CLAIM_VCPU="${V2_E2E_CLAIM_VCPU:-3}"
 CLAIM_MEMORY_GB="${V2_E2E_CLAIM_MEMORY_GB:-3}"
 CLAIM_DISK_GB="${V2_E2E_CLAIM_DISK_GB:-11}"
 
 TMP_DIR="$(mktemp -d)"
-POLICY_ID=""
 MACHINE_ID=""
 
 log() { printf '[actual-live-pool-e2e] %s\n' "$*"; }
@@ -61,7 +60,8 @@ request() {
 cleanup() {
   set +e
   log "cleanup account=$ACCOUNT_ID"
-  [[ -n "$POLICY_ID" ]] && curl -sS -o /dev/null -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" -H "X-Account-Id: $ACCOUNT_ID" "$API_URL/warm-pool-policies/$POLICY_ID" || true
+  curl -sS -o /dev/null -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" -H "X-Account-Id: $ACCOUNT_ID" "$API_URL/machine-templates/$TEMPLATE_ID/pool?mode=running" || true
+  curl -sS -o /dev/null -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" -H "X-Account-Id: $ACCOUNT_ID" "$API_URL/machine-templates/$TEMPLATE_ID/pool?mode=stopped" || true
   [[ -n "$MACHINE_ID" ]] && curl -sS -o /dev/null -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" "$API_URL/machines/$MACHINE_ID" || true
   rm -rf "$TMP_DIR"
 }
@@ -73,22 +73,31 @@ print(round(float(sys.argv[1])*1000))
 PY
 }
 
-log "preflight api=$API_URL account=$ACCOUNT_ID image=$IMAGE_ID"
+log "preflight api=$API_URL account=$ACCOUNT_ID template=$TEMPLATE_ID"
 request GET /health '' "$TMP_DIR/health.json"
 
-log 'create/refill pool'
-cat > "$TMP_DIR/policy.json" <<JSON
-{"name":"actual-live-pool","region":"eu","type":"container","resources":{"vcpu":2,"memory_gb":2,"disk_gb":10},"source":{"type":"image","image_id":"$IMAGE_ID"},"target":1,"metadata":{"e2e":"actual-live-pool"}}
+log 'create/refill stopped and running Template pools'
+cat > "$TMP_DIR/stopped-policy.json" <<JSON
+{"target":1,"mode":"stopped"}
 JSON
-request POST /warm-pool-policies "$TMP_DIR/policy.json" "$TMP_DIR/policy.out.json"
-POLICY_ID="$(json_get "$TMP_DIR/policy.out.json" policy.id)"
-request POST "/warm-pool-policies/$POLICY_ID/refill" '' "$TMP_DIR/refill.out.json"
-request GET "/warm-pool-policies/$POLICY_ID" '' "$TMP_DIR/policy.ready.json"
+request PUT "/machine-templates/$TEMPLATE_ID/pool" "$TMP_DIR/stopped-policy.json" "$TMP_DIR/stopped-policy.out.json"
+cat > "$TMP_DIR/running-policy.json" <<JSON
+{"target":1,"mode":"running"}
+JSON
+request PUT "/machine-templates/$TEMPLATE_ID/pool" "$TMP_DIR/running-policy.json" "$TMP_DIR/running-policy.out.json"
+request POST "/machine-templates/$TEMPLATE_ID/pool/refill?mode=stopped" '' "$TMP_DIR/refill.out.json"
+request POST "/machine-templates/$TEMPLATE_ID/pool/refill?mode=running" '' "$TMP_DIR/running-refill.out.json"
+request GET "/machine-templates/$TEMPLATE_ID/pool" '' "$TMP_DIR/policy.ready.json"
 python3 - "$TMP_DIR/policy.ready.json" <<'PY'
 import json, sys
-d=json.load(open(sys.argv[1]))['policy']
+payload=json.load(open(sys.argv[1]))
+pools=payload['pools']
+d=pools['stopped']
+running=pools['running']
 b=d.get('billing') or {}
 assert d.get('ready', 0) >= 1, d
+assert running and running.get('ready', 0) >= 1, running
+assert running.get('billing', {}).get('hot_resource_eur_month', 0) > 0, running.get('billing')
 assert b.get('measured_instances', 0) >= 1, b
 assert b.get('billable_gib', 0) > 0, b
 assert b.get('billable_gib', 0) < b.get('disk_limit_gb_total_cap', 0), b
@@ -99,7 +108,7 @@ PY
 log "claim pool slot with resize to ${CLAIM_VCPU}c/${CLAIM_MEMORY_GB}GB/${CLAIM_DISK_GB}GB; create must return only after actual-live readiness"
 REQUEST_ID="actual-live-claim-$ACCOUNT_ID"
 cat > "$TMP_DIR/claim.json" <<JSON
-{"region":"eu","type":"container","name":"actual-live-claim","resources":{"vcpu":$CLAIM_VCPU,"memory_gb":$CLAIM_MEMORY_GB,"disk_gb":$CLAIM_DISK_GB},"source":{"type":"image","image_id":"$IMAGE_ID"}}
+{"type":"container","name":"actual-live-claim","template_id":"$TEMPLATE_ID","start_strategy":"stopped_pool","resources":{"vcpu":$CLAIM_VCPU,"memory_gb":$CLAIM_MEMORY_GB,"disk_gb":$CLAIM_DISK_GB}}
 JSON
 request POST /machines "$TMP_DIR/claim.json" "$TMP_DIR/claim.out.json" "X-JustAVPS-Request-Id: $REQUEST_ID"
 CREATE_HTTP_MS="$(ms "$(cat "$TMP_DIR/claim.out.json.time_total")")"

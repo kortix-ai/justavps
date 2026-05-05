@@ -23,11 +23,13 @@ export type EnsureManagedDaemonResult = {
   telemetry_url?: string;
   telemetry_ingest_reachable_from_sandbox?: boolean;
   telemetry_warnings?: string[];
-  daemon_source: 'baked' | 'local-push' | 'download';
+  daemon_source: 'baked' | 'local-push' | 'download' | 'injected-mount' | 'injected-push';
   token_prefix: string;
   token_sha256: string;
   install: { exit_code: number | null; stdout: string; stderr: string };
   active?: string;
+  autostart?: boolean;
+  autostart_kind?: 'systemd' | 'openrc' | 'none';
   version?: string;
   health?: unknown;
   health_raw?: string;
@@ -108,6 +110,9 @@ function daemonMeta(machine: NonNullable<MachineRow>) {
 function managedDaemonConfigHash(config: AppConfig, machineId: string) {
   const payload = {
     daemon_url: config.daemonDownloadUrl,
+    daemon_guest_path: config.daemonGuestPath,
+    daemon_mount_source: config.daemonMountSource ?? '',
+    daemon_callback_url: config.daemonCallbackUrl,
     telemetry_url: daemonTelemetryBaseUrl(config, machineId),
     telemetry_interval_seconds: config.telemetry.metricIntervalSeconds,
     telemetry_driver: config.telemetry.driver,
@@ -147,7 +152,7 @@ export async function markManagedDaemonQueued(machineId: string) {
   });
 }
 
-function sha256Hex(value: string) {
+function sha256Hex(value: string | Buffer) {
   return createHash('sha256').update(value).digest('hex');
 }
 
@@ -276,23 +281,22 @@ export async function waitForManagedDaemonHealth(input: {
   let last: { exit_code: number | null; stdout: string; stderr: string; error?: string; active?: string } = { exit_code: null, stdout: '', stderr: '' };
   const script = `set -eu
 active="unknown"
-if command -v systemctl >/dev/null 2>&1; then
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
   active="$(systemctl is-active justavps-daemon 2>/dev/null || true)"
   if [ "$active" != "active" ]; then
     systemctl start justavps-daemon >/dev/null 2>&1 || true
     active="$(systemctl is-active justavps-daemon 2>/dev/null || true)"
   fi
 fi
-if ! command -v curl >/dev/null 2>&1; then echo "$active" >&2; exit 127; fi
 printf '%s\n' "$active" >&2
-curl -fsS http://127.0.0.1:7777/health
+${daemonHealthCommand()}
 `;
 
   while (Date.now() <= deadline) {
     attempts += 1;
     try {
       const result = await input.client.exec(input.instanceName, {
-        command: ['/bin/sh', '-lc', script],
+        command: ['/bin/sh', '-c', script],
         timeoutMs: Math.min(10_000, Math.max(1_000, deadline - Date.now())),
       });
       const stderrLines = result.stderr.trim().split('\n').filter(Boolean);
@@ -349,16 +353,15 @@ mkdir -p "$probe_dir"
 printf 'JUSTAVPS_LIVE' > "$probe_file"
 grep -q 'JUSTAVPS_LIVE' "$probe_file"
 active="unknown"
-if command -v systemctl >/dev/null 2>&1; then
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
   active="$(systemctl is-active justavps-daemon 2>/dev/null || true)"
   if [ "$active" != "active" ]; then
     systemctl start justavps-daemon >/dev/null 2>&1 || true
     active="$(systemctl is-active justavps-daemon 2>/dev/null || true)"
   fi
 fi
-if ! command -v curl >/dev/null 2>&1; then echo "$active" >&2; exit 127; fi
 printf '%s\n' "$active" >&2
-curl -fsS --max-time 2 http://127.0.0.1:7777/health
+${daemonHealthCommand()}
 `;
 
   while (Date.now() <= deadline) {
@@ -418,7 +421,11 @@ function daemonPortUrlTemplate(config: AppConfig, machineId: string) {
     url.hash = '';
     return url.toString();
   }
-  return new URL(`/proxy/{{port}}--${machineId}/`, appUrl).toString();
+  const prefix = `${appUrl.protocol}//${appUrl.host}`;
+  const basePath = appUrl.pathname.replace(/\/+$/, '');
+  // Do not use URL for this path: URL serialisation percent-encodes `{}` and
+  // breaks the daemon's shell-side {{port}} substitution.
+  return `${prefix}${basePath}/proxy/{{port}}--${machineId}/`;
 }
 
 function daemonTelemetryBaseUrl(config: AppConfig, machineId: string) {
@@ -441,6 +448,68 @@ WatchdogSec=120
 
 [Install]
 WantedBy=multi-user.target`;
+}
+
+function daemonOpenRcText() {
+  return `#!/sbin/openrc-run
+name="JustAVPS Guest Daemon"
+command="/usr/local/bin/justavps-daemon"
+command_args="--config /etc/justavps/config.json"
+command_background="yes"
+pidfile="/run/justavps-daemon.pid"
+output_log="/var/log/justavps-daemon.log"
+error_log="/var/log/justavps-daemon.err"
+
+depend() {
+  need net
+}`;
+}
+
+function daemonBinaryPath(config: AppConfig) {
+  return config.daemonGuestPath || '/usr/local/bin/justavps-daemon';
+}
+
+function daemonHealthCommand(binaryPath = '/usr/local/bin/justavps-daemon') {
+  const quoted = shellQuote(binaryPath);
+  return `if [ -x ${quoted} ]; then
+  ${quoted} --health-check --api-port 7777
+elif command -v curl >/dev/null 2>&1; then
+  curl -fsS http://127.0.0.1:7777/health
+else
+  echo "justavps-daemon health-check unavailable: ${binaryPath} missing and curl not installed" >&2
+  exit 127
+fi`;
+}
+
+function daemonServiceStatusCommand(binaryPath = '/usr/local/bin/justavps-daemon') {
+  return `if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  systemctl is-active justavps-daemon 2>/dev/null || true
+elif command -v rc-service >/dev/null 2>&1; then
+  if rc-service justavps-daemon status >/dev/null 2>&1; then echo active; elif ( ${daemonHealthCommand(binaryPath)} ) >/dev/null 2>&1; then echo active; else echo inactive; fi
+else
+  if [ -s /run/justavps-daemon.pid ] && kill -0 "$(cat /run/justavps-daemon.pid)" >/dev/null 2>&1; then echo active; elif ( ${daemonHealthCommand(binaryPath)} ) >/dev/null 2>&1; then echo active; else echo inactive; fi
+fi`;
+}
+
+function startDaemonFallbackScript() {
+  return `if [ -s /run/justavps-daemon.pid ]; then kill "$(cat /run/justavps-daemon.pid)" >/dev/null 2>&1 || true; fi
+mkdir -p /run /var/log
+nohup /usr/local/bin/justavps-daemon --config /etc/justavps/config.json >/var/log/justavps-daemon.log 2>/var/log/justavps-daemon.err &
+echo $! >/run/justavps-daemon.pid`;
+}
+
+function ensureInitKindScript() {
+  return `INIT_KIND=""
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  INIT_KIND="systemd"
+elif command -v rc-service >/dev/null 2>&1 && command -v rc-update >/dev/null 2>&1; then
+  INIT_KIND="openrc"
+elif command -v apk >/dev/null 2>&1; then
+  apk add --no-cache openrc >/dev/null 2>&1 || fail "failed to install openrc"
+  INIT_KIND="openrc"
+else
+  fail "systemd or openrc is required for managed JustAVPS machines"
+fi`;
 }
 
 function installCurlAndDaemonScript(input: { daemonUrl: string; preloadedDaemonPath?: string | null }) {
@@ -480,11 +549,9 @@ function installScript(input: {
 export DEBIAN_FRONTEND=noninteractive
 fail() { echo "JUSTAVPS_DAEMON_ENSURE_ERROR: $*" >&2; exit 1; }
 
-if ! command -v systemctl >/dev/null 2>&1; then
-  fail "systemd/systemctl is required for managed JustAVPS machines"
-fi
+${ensureInitKindScript()}
 
-mkdir -p /etc/justavps /usr/local/bin /etc/systemd/system || fail "could not create platform directories"
+mkdir -p /etc/justavps /usr/local/bin /etc/systemd/system /etc/init.d /run /var/log || fail "could not create platform directories"
 cat > /etc/justavps/config.json <<'JUSTAVPS_CONFIG_JSON'
 ${input.configJson}
 JUSTAVPS_CONFIG_JSON
@@ -495,11 +562,20 @@ ${installCurlAndDaemonScript({ daemonUrl: input.daemonUrl, preloadedDaemonPath }
 cat > /etc/systemd/system/justavps-daemon.service <<'JUSTAVPS_DAEMON_UNIT'
 ${daemonUnitText()}
 JUSTAVPS_DAEMON_UNIT
+cat > /etc/init.d/justavps-daemon <<'JUSTAVPS_OPENRC_UNIT'
+${daemonOpenRcText()}
+JUSTAVPS_OPENRC_UNIT
+chmod +x /etc/init.d/justavps-daemon || true
 
-systemctl disable --now caddy >/dev/null 2>&1 || true
-systemctl daemon-reload || fail "systemctl daemon-reload failed"
-systemctl enable justavps-daemon >/dev/null 2>&1 || fail "failed to enable justavps-daemon"
-systemctl restart justavps-daemon || fail "failed to restart justavps-daemon"
+if [ "$INIT_KIND" = "systemd" ]; then
+  systemctl disable --now caddy >/dev/null 2>&1 || true
+  systemctl daemon-reload || fail "systemctl daemon-reload failed"
+  systemctl enable justavps-daemon >/dev/null 2>&1 || true
+  systemctl restart justavps-daemon || { ${startDaemonFallbackScript()} ; }
+else
+  rc-update add justavps-daemon default >/dev/null 2>&1 || true
+  rc-service justavps-daemon restart >/dev/null 2>&1 || { ${startDaemonFallbackScript()} ; }
+fi
 
 ok=0
 i=0
@@ -517,9 +593,9 @@ echo "JUSTAVPS_DAEMON_ENSURE_OK"
 function activateBakedScript(input: { configJson: string }) {
   return `set -eu
 fail() { echo "JUSTAVPS_DAEMON_ACTIVATE_ERROR: $*" >&2; exit 1; }
-if ! command -v systemctl >/dev/null 2>&1; then fail "systemd/systemctl is required"; fi
+${ensureInitKindScript()}
 if [ ! -x /usr/local/bin/justavps-daemon ]; then fail "baked justavps-daemon binary missing"; fi
-mkdir -p /etc/justavps /etc/systemd/system || fail "could not create platform directories"
+mkdir -p /etc/justavps /etc/systemd/system /etc/init.d /run /var/log || fail "could not create platform directories"
 cat > /etc/justavps/config.json <<'JUSTAVPS_CONFIG_JSON'
 ${input.configJson}
 JUSTAVPS_CONFIG_JSON
@@ -527,9 +603,18 @@ chmod 0600 /etc/justavps/config.json || true
 cat > /etc/systemd/system/justavps-daemon.service <<'JUSTAVPS_DAEMON_UNIT'
 ${daemonUnitText()}
 JUSTAVPS_DAEMON_UNIT
-systemctl daemon-reload || fail "systemctl daemon-reload failed"
-systemctl enable justavps-daemon >/dev/null 2>&1 || fail "failed to enable justavps-daemon"
-systemctl restart justavps-daemon || fail "failed to restart justavps-daemon"
+cat > /etc/init.d/justavps-daemon <<'JUSTAVPS_OPENRC_UNIT'
+${daemonOpenRcText()}
+JUSTAVPS_OPENRC_UNIT
+chmod +x /etc/init.d/justavps-daemon || true
+if [ "$INIT_KIND" = "systemd" ]; then
+  systemctl daemon-reload || fail "systemctl daemon-reload failed"
+  systemctl enable justavps-daemon >/dev/null 2>&1 || true
+  systemctl restart justavps-daemon || { ${startDaemonFallbackScript()} ; }
+else
+  rc-update add justavps-daemon default >/dev/null 2>&1 || true
+  rc-service justavps-daemon restart >/dev/null 2>&1 || { ${startDaemonFallbackScript()} ; }
+fi
 ok=0
 i=0
 while [ "$i" -lt 8 ]; do
@@ -540,6 +625,223 @@ done
 [ "$ok" = "1" ] || fail "daemon health endpoint did not become ready from baked binary"
 echo "JUSTAVPS_DAEMON_ACTIVATE_OK"
 `;
+}
+
+function activateInjectedScript(input: { configJson: string; binaryPath: string; expectedSha256?: string | null }) {
+  const binaryPath = shellQuote(input.binaryPath);
+  const expectedSha256 = shellQuote(input.expectedSha256 ?? '');
+  return `set -eu
+fail() { echo "JUSTAVPS_DAEMON_INJECT_ERROR: $*" >&2; exit 1; }
+BIN=${binaryPath}
+[ -x "$BIN" ] || fail "injected justavps-daemon binary missing at $BIN"
+EXPECTED_SHA256=${expectedSha256}
+if [ -n "$EXPECTED_SHA256" ]; then
+  if command -v sha256sum >/dev/null 2>&1; then
+    ACTUAL_SHA256=$(sha256sum "$BIN" | awk '{print $1}')
+  elif command -v shasum >/dev/null 2>&1; then
+    ACTUAL_SHA256=$(shasum -a 256 "$BIN" | awk '{print $1}')
+  else
+    fail "could not verify injected justavps-daemon binary hash"
+  fi
+  [ "$ACTUAL_SHA256" = "$EXPECTED_SHA256" ] || fail "injected justavps-daemon binary hash mismatch at $BIN"
+fi
+mkdir -p /run /var/log /tmp /etc/justavps || fail "could not create runtime directories"
+if [ -s /run/justavps-daemon.pid ]; then kill "$(cat /run/justavps-daemon.pid)" >/dev/null 2>&1 || true; fi
+JUSTAVPS_DAEMON_CONFIG_JSON=$(cat <<'JUSTAVPS_CONFIG_JSON'
+${input.configJson}
+JUSTAVPS_CONFIG_JSON
+)
+export JUSTAVPS_DAEMON_CONFIG_JSON
+cat > /etc/justavps/config.json <<'JUSTAVPS_CONFIG_JSON_FILE'
+${input.configJson}
+JUSTAVPS_CONFIG_JSON_FILE
+chmod 0600 /etc/justavps/config.json >/dev/null 2>&1 || true
+AUTOSTART_KIND=none
+if command -v systemctl >/dev/null 2>&1 || [ -d /etc/systemd/system ]; then
+  mkdir -p /etc/systemd/system /etc/systemd/system/multi-user.target.wants
+  cat > /etc/systemd/system/justavps-daemon.service <<JUSTAVPS_DAEMON_UNIT
+[Unit]
+Description=JustAVPS Guest Daemon
+After=network.target
+ConditionPathExists=/etc/justavps/config.json
+
+[Service]
+Type=simple
+ExecStart=$BIN --config /etc/justavps/config.json
+Restart=always
+RestartSec=1
+StartLimitIntervalSec=0
+WatchdogSec=120
+
+[Install]
+WantedBy=multi-user.target
+JUSTAVPS_DAEMON_UNIT
+  ln -sf /etc/systemd/system/justavps-daemon.service /etc/systemd/system/multi-user.target.wants/justavps-daemon.service >/dev/null 2>&1 || true
+  if [ -d /run/systemd/system ]; then systemctl daemon-reload >/dev/null 2>&1 || true; systemctl enable justavps-daemon >/dev/null 2>&1 || true; fi
+  AUTOSTART_KIND=systemd
+elif command -v rc-update >/dev/null 2>&1; then
+  mkdir -p /etc/init.d
+  cat > /etc/init.d/justavps-daemon <<JUSTAVPS_OPENRC_UNIT
+#!/sbin/openrc-run
+name="JustAVPS Guest Daemon"
+command="$BIN"
+command_args="--config /etc/justavps/config.json"
+command_background="yes"
+pidfile="/run/justavps-daemon.pid"
+output_log="/var/log/justavps-daemon.log"
+error_log="/var/log/justavps-daemon.err"
+
+depend() { need net; }
+JUSTAVPS_OPENRC_UNIT
+  chmod +x /etc/init.d/justavps-daemon >/dev/null 2>&1 || true
+  rc-update add justavps-daemon default >/dev/null 2>&1 || true
+  AUTOSTART_KIND=openrc
+fi
+echo "JUSTAVPS_DAEMON_AUTOSTART_$AUTOSTART_KIND"
+nohup "$BIN" --config /dev/null >/var/log/justavps-daemon.log 2>/var/log/justavps-daemon.err &
+echo $! >/run/justavps-daemon.pid
+ok=0
+i=0
+while [ "$i" -lt 40 ]; do
+  if "$BIN" --health-check --api-port 7777 >/tmp/justavps-daemon.health 2>/tmp/justavps-daemon.health.err; then ok=1; break; fi
+  i=$((i + 1))
+  sleep 0.25
+done
+if [ "$ok" != "1" ]; then
+  if [ -s /var/log/justavps-daemon.err ]; then cat /var/log/justavps-daemon.err >&2; fi
+  if [ -s /tmp/justavps-daemon.health.err ]; then cat /tmp/justavps-daemon.health.err >&2; fi
+  fail "daemon health endpoint did not become ready from injected binary"
+fi
+cat /tmp/justavps-daemon.health
+printf '\nJUSTAVPS_DAEMON_INJECT_OK\n'
+`;
+}
+
+function installInjectedBinaryScript(input: { binaryPath: string; tempPath: string }) {
+  const binaryPath = shellQuote(input.binaryPath);
+  const tempPath = shellQuote(input.tempPath);
+  return `set -eu
+fail() { echo "JUSTAVPS_DAEMON_BINARY_INSTALL_ERROR: $*" >&2; exit 1; }
+BIN=${binaryPath}
+TMP=${tempPath}
+[ -s "$TMP" ] || fail "uploaded daemon binary missing at $TMP"
+if [ -s /run/justavps-daemon.pid ]; then kill "$(cat /run/justavps-daemon.pid)" >/dev/null 2>&1 || true; fi
+if command -v pgrep >/dev/null 2>&1; then
+  pgrep -x justavps-daemon 2>/dev/null | while read -r pid; do kill "$pid" >/dev/null 2>&1 || true; done
+fi
+mkdir -p "$(dirname "$BIN")" || fail "could not create daemon binary directory"
+mv "$TMP" "$BIN" || fail "could not replace daemon binary"
+chmod 0755 "$BIN" || fail "could not chmod daemon binary"
+echo "JUSTAVPS_DAEMON_BINARY_INSTALLED"`;
+}
+
+async function activateInjectedManagedDaemon(input: EnsureManagedDaemonInput & { token: string; configJson: string; ensuredAt: string }): Promise<EnsureManagedDaemonResult | null> {
+  const binaryPath = daemonBinaryPath(input.config);
+  let daemonSource: 'injected-mount' | 'injected-push' | null = null;
+  let localBinary: Buffer | null = null;
+
+  if (input.config.daemonMountSource) {
+    daemonSource = 'injected-mount';
+  } else if (input.config.daemonLocalPath) {
+    daemonSource = 'injected-push';
+  } else {
+    return null;
+  }
+
+  const readLocalBinary = () => {
+    if (!input.config.daemonLocalPath) return null;
+    localBinary ??= readFileSync(input.config.daemonLocalPath);
+    return localBinary;
+  };
+  const expectedSha256 = daemonSource === 'injected-push' ? sha256Hex(readLocalBinary()!) : null;
+
+  const runActivation = () => input.client.exec(input.instanceName, {
+    command: ['/bin/sh', '-c', activateInjectedScript({ configJson: input.configJson, binaryPath, expectedSha256 })],
+    timeoutMs: 20_000,
+  }).catch((error) => ({
+    exit_code: 1,
+    stdout: '',
+    stderr: error instanceof Error ? error.message : String(error),
+  }));
+
+  let activation = await runActivation();
+  if (activation.exit_code !== 0
+    && daemonSource === 'injected-push'
+    && input.config.daemonLocalPath
+    && /binary missing|not found|No such file|missing at|binary hash mismatch|flag provided but not defined|health-check|Config error|unexpected end of JSON/i.test(`${activation.stderr}\n${activation.stdout}`)) {
+    const binary = readLocalBinary()!;
+    const tempBinaryPath = `/tmp/justavps-daemon.${expectedSha256}.new`;
+    await input.client.pushFile(input.instanceName, tempBinaryPath, binary, { mode: 0o755 });
+    const installBinary = await input.client.exec(input.instanceName, {
+      command: ['/bin/sh', '-c', installInjectedBinaryScript({ binaryPath, tempPath: tempBinaryPath })],
+      timeoutMs: 10_000,
+    });
+    const retried = installBinary.exit_code === 0
+      ? await runActivation()
+      : { exit_code: installBinary.exit_code, stdout: installBinary.stdout, stderr: installBinary.stderr };
+    activation = {
+      exit_code: retried.exit_code,
+      stdout: `JUSTAVPS_DAEMON_BINARY_PUSHED\n${retried.stdout}`,
+      stderr: retried.stderr,
+    };
+  } else if (activation.exit_code === 0 && daemonSource === 'injected-push') {
+    activation = {
+      exit_code: activation.exit_code,
+      stdout: `JUSTAVPS_DAEMON_BINARY_REUSED\n${activation.stdout}`,
+      stderr: activation.stderr,
+    };
+  }
+
+  const base: EnsureManagedDaemonResult = {
+    ok: false,
+    mode: 'guest-daemon',
+    ensured_at: input.ensuredAt,
+    daemon_url: input.config.daemonDownloadUrl,
+    telemetry_url: daemonTelemetryBaseUrl(input.config, input.machineId),
+    telemetry_ingest_reachable_from_sandbox: input.config.telemetry.ingestReachableFromSandbox,
+    telemetry_warnings: input.config.telemetry.warnings,
+    daemon_source: daemonSource,
+    token_prefix: `${input.token.slice(0, 10)}…`,
+    token_sha256: sha256Hex(input.token),
+    install: activation,
+  };
+  if (activation.exit_code !== 0) return { ...base, error: activation.stderr || activation.stdout || 'injected daemon activation failed' };
+  const healthRaw = activation.stdout.split('\n').find((line) => line.trim().startsWith('{'))?.trim() ?? '';
+  const autostartKind = activation.stdout.includes('JUSTAVPS_DAEMON_AUTOSTART_systemd')
+    ? 'systemd'
+    : activation.stdout.includes('JUSTAVPS_DAEMON_AUTOSTART_openrc')
+      ? 'openrc'
+      : 'none';
+  return {
+    ...base,
+    ok: true,
+    active: 'active',
+    autostart: autostartKind !== 'none',
+    autostart_kind: autostartKind,
+    health: parseJsonMaybe(healthRaw),
+    health_raw: healthRaw,
+  };
+}
+
+export async function cleanupInjectedManagedDaemon(input: {
+  config: AppConfig;
+  client: IncusClient;
+  instanceName: string;
+  removeBinary?: boolean;
+}): Promise<{ exit_code: number | null; stdout: string; stderr: string }> {
+  const binaryPath = shellQuote(daemonBinaryPath(input.config));
+  const removeBinary = input.removeBinary === true;
+  return input.client.exec(input.instanceName, {
+    command: ['/bin/sh', '-c', `set -eu
+if [ -s /run/justavps-daemon.pid ]; then kill "$(cat /run/justavps-daemon.pid)" >/dev/null 2>&1 || true; fi
+rm -f /run/justavps-daemon.pid /tmp/justavps-daemon.health /tmp/justavps-daemon.health.err >/dev/null 2>&1 || true
+if [ ${removeBinary ? '1' : '0'} = 1 ]; then
+  rm -f ${binaryPath} /etc/justavps/config.json /etc/systemd/system/justavps-daemon.service /etc/systemd/system/multi-user.target.wants/justavps-daemon.service /etc/init.d/justavps-daemon >/dev/null 2>&1 || true
+fi
+echo JUSTAVPS_DAEMON_INJECTION_CLEAN_OK
+`],
+    timeoutMs: 10_000,
+  }).catch((error) => ({ exit_code: 1, stdout: '', stderr: error instanceof Error ? error.message : String(error) }));
 }
 
 async function activateBakedManagedDaemon(input: EnsureManagedDaemonInput & { token: string; configJson: string; ensuredAt: string }): Promise<EnsureManagedDaemonResult> {
@@ -568,7 +870,7 @@ async function activateBakedManagedDaemon(input: EnsureManagedDaemonInput & { to
   if (activation.exit_code !== 0) return { ...base, error: activation.stderr || activation.stdout || 'baked daemon activation failed' };
 
   const [active, version, health] = await Promise.all([
-    input.client.exec(input.instanceName, { command: ['/bin/sh', '-c', 'systemctl is-active justavps-daemon || true'], timeoutMs: 10_000 }),
+    input.client.exec(input.instanceName, { command: ['/bin/sh', '-c', daemonServiceStatusCommand()], timeoutMs: 10_000 }),
     input.client.exec(input.instanceName, { command: ['/usr/local/bin/justavps-daemon', '--version'], timeoutMs: 10_000 }).catch(() => ({ exit_code: 0, stdout: '', stderr: '' })),
     input.client.exec(input.instanceName, { command: ['curl', '-fsS', 'http://127.0.0.1:7777/health'], timeoutMs: 10_000 }),
   ]);
@@ -595,7 +897,7 @@ export async function ensureManagedDaemon(input: EnsureManagedDaemonInput): Prom
   const configJson = JSON.stringify({
     slug: input.machineId,
     machine_id: input.machineId,
-    callback_url: input.config.appUrl,
+    callback_url: input.config.daemonCallbackUrl,
     machine_token: token,
     proxy_domain: input.config.proxyDomain,
     port_url_template: daemonPortUrlTemplate(input.config, input.machineId),
@@ -604,6 +906,9 @@ export async function ensureManagedDaemon(input: EnsureManagedDaemonInput): Prom
     telemetry_interval_seconds: input.config.telemetry.metricIntervalSeconds,
     otlp_endpoint: input.config.telemetry.otlpEndpoint ?? '',
   }, null, 2);
+
+  const injected = await activateInjectedManagedDaemon({ ...input, token, configJson, ensuredAt });
+  if (injected) return injected;
 
   const baked = await activateBakedManagedDaemon({ ...input, token, configJson, ensuredAt });
   if (baked.ok) return baked;
@@ -641,7 +946,7 @@ export async function ensureManagedDaemon(input: EnsureManagedDaemonInput): Prom
   }
 
   const [active, version, health] = await Promise.all([
-    input.client.exec(input.instanceName, { command: ['/bin/sh', '-c', 'systemctl is-active justavps-daemon || true'], timeoutMs: 10_000 }),
+    input.client.exec(input.instanceName, { command: ['/bin/sh', '-c', daemonServiceStatusCommand()], timeoutMs: 10_000 }),
     input.client.exec(input.instanceName, { command: ['/usr/local/bin/justavps-daemon', '--version'], timeoutMs: 10_000 }).catch(() => ({ exit_code: 0, stdout: '', stderr: '' })),
     input.client.exec(input.instanceName, { command: ['curl', '-fsS', 'http://127.0.0.1:7777/health'], timeoutMs: 10_000 }),
   ]);
@@ -679,13 +984,19 @@ export async function restartManagedDaemonService(input: {
   const checkedAt = nowIso();
   const restart = await input.client.exec(input.instanceName, {
     command: ['/bin/sh', '-lc', `set -eu
-if ! command -v systemctl >/dev/null 2>&1; then echo "systemctl missing" >&2; exit 127; fi
 if [ ! -x /usr/local/bin/justavps-daemon ]; then echo "justavps-daemon binary missing" >&2; exit 126; fi
 if [ ! -s /etc/justavps/config.json ]; then echo "justavps config missing" >&2; exit 125; fi
-systemctl daemon-reload
-systemctl enable justavps-daemon >/dev/null 2>&1 || true
-systemctl restart justavps-daemon
-systemctl is-active justavps-daemon || true
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl daemon-reload
+  systemctl enable justavps-daemon >/dev/null 2>&1 || true
+  systemctl restart justavps-daemon
+elif command -v rc-service >/dev/null 2>&1; then
+  rc-update add justavps-daemon default >/dev/null 2>&1 || true
+  rc-service justavps-daemon restart >/dev/null 2>&1 || { ${startDaemonFallbackScript()} ; }
+else
+  ${startDaemonFallbackScript()}
+fi
+${daemonServiceStatusCommand()}
 `],
     timeoutMs: Math.max(5_000, input.timeoutMs ?? 20_000),
   }).catch((error) => ({ exit_code: 1, stdout: '', stderr: error instanceof Error ? error.message : String(error) }));
@@ -720,25 +1031,32 @@ function bakeScript(input: { daemonUrl: string; preloadedDaemonPath?: string | n
 export DEBIAN_FRONTEND=noninteractive
 fail() { echo "JUSTAVPS_DAEMON_BAKE_ERROR: $*" >&2; exit 1; }
 
-if ! command -v systemctl >/dev/null 2>&1; then
-  fail "systemd/systemctl is required for managed JustAVPS images"
-fi
+${ensureInitKindScript()}
 
-mkdir -p /etc/justavps /usr/local/bin /etc/systemd/system || fail "could not create platform directories"
+mkdir -p /etc/justavps /usr/local/bin /etc/systemd/system /etc/init.d /run /var/log || fail "could not create platform directories"
 ${installCurlAndDaemonScript({ daemonUrl: input.daemonUrl, preloadedDaemonPath })}
 
 cat > /etc/systemd/system/justavps-daemon.service <<'JUSTAVPS_DAEMON_UNIT'
 ${daemonUnitText()}
 JUSTAVPS_DAEMON_UNIT
+cat > /etc/init.d/justavps-daemon <<'JUSTAVPS_OPENRC_UNIT'
+${daemonOpenRcText()}
+JUSTAVPS_OPENRC_UNIT
+chmod +x /etc/init.d/justavps-daemon || true
 
 # Never bake a machine-scoped token/config into reusable images. The real config
 # is written during machine creation or pool priming, then the enabled service
 # starts immediately because ConditionPathExists becomes true.
-systemctl stop justavps-daemon >/dev/null 2>&1 || true
 rm -f /etc/justavps/config.json
-systemctl daemon-reload || fail "systemctl daemon-reload failed"
-systemctl enable justavps-daemon >/dev/null 2>&1 || fail "failed to enable justavps-daemon"
-systemctl reset-failed justavps-daemon >/dev/null 2>&1 || true
+if [ "$INIT_KIND" = "systemd" ]; then
+  systemctl stop justavps-daemon >/dev/null 2>&1 || true
+  systemctl daemon-reload || fail "systemctl daemon-reload failed"
+  systemctl enable justavps-daemon >/dev/null 2>&1 || true
+  systemctl reset-failed justavps-daemon >/dev/null 2>&1 || true
+else
+  if [ -s /run/justavps-daemon.pid ]; then kill "$(cat /run/justavps-daemon.pid)" >/dev/null 2>&1 || true; fi
+  rc-update add justavps-daemon default >/dev/null 2>&1 || true
+fi
 /usr/local/bin/justavps-daemon --version || true
 echo "JUSTAVPS_DAEMON_BAKE_OK"
 `;

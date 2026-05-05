@@ -45,9 +45,12 @@ export type AppConfig = {
   clusters: IncusClusterConfig[];
   proxyDomain: string;
   appUrl: string;
+  daemonCallbackUrl: string;
   proxyOriginHost?: string;
   daemonDownloadUrl: string;
   daemonLocalPath?: string;
+  daemonMountSource?: string;
+  daemonGuestPath?: string;
   daemonEnsureWorker: boolean;
   sshGatewayEnabled: boolean;
   sshGatewayHost: string;
@@ -218,7 +221,8 @@ export function loadConfig(): AppConfig {
       : clickhouseUrl
         ? 'clickhouse'
         : 'memory';
-  const appUrl = (process.env.V2_APP_URL ?? process.env.MACHINE_CALLBACK_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? `http://localhost:${Number(process.env.V2_API_PORT || 4200)}`).trim();
+  const appUrl = (process.env.V2_APP_URL ?? process.env.V2_PUBLIC_API_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? `http://localhost:${Number(process.env.V2_API_PORT || 4200)}`).trim();
+  const daemonCallbackUrl = (process.env.V2_DAEMON_CALLBACK_URL ?? process.env.MACHINE_CALLBACK_URL ?? appUrl).trim();
   const telemetryIngestBaseUrl = (
     process.env.V2_TELEMETRY_INGEST_BASE_URL
     ?? process.env.V2_TELEMETRY_PUBLIC_INGEST_URL
@@ -245,9 +249,12 @@ export function loadConfig(): AppConfig {
     // by v2-api using host-based localhost URLs, not Cloudflare Worker routing.
     proxyDomain: (process.env.V2_PROXY_DOMAIN ?? process.env.NEXT_PUBLIC_PROXY_DOMAIN ?? 'kortix-dev.cloud').trim(),
     appUrl,
+    daemonCallbackUrl,
     proxyOriginHost: (process.env.V2_PROXY_ORIGIN_HOST ?? process.env.PROXY_ORIGIN_HOST ?? '').trim() || undefined,
     daemonDownloadUrl: (process.env.V2_DAEMON_DOWNLOAD_URL ?? process.env.DAEMON_URL ?? `https://pub-caf7762051b942d5a801397d750a0dc3.r2.dev/${daemonPrefix}/justavps-daemon-linux-amd64`).trim(),
     daemonLocalPath: discoverLocalDaemonPath(),
+    daemonMountSource: (process.env.V2_DAEMON_MOUNT_SOURCE ?? process.env.DAEMON_MOUNT_SOURCE ?? '').trim() || undefined,
+    daemonGuestPath: (process.env.V2_DAEMON_GUEST_PATH ?? '/usr/local/bin/justavps-daemon').trim() || '/usr/local/bin/justavps-daemon',
     daemonEnsureWorker: boolEnv(process.env.V2_DAEMON_ENSURE_WORKER, true),
     sshGatewayEnabled: boolEnv(process.env.V2_SSH_GATEWAY_ENABLED ?? process.env.V2_SSH_ACCESS_ENABLED, false),
     sshGatewayHost: (process.env.V2_SSH_GATEWAY_HOST ?? 'localhost').trim(),

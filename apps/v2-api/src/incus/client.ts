@@ -44,6 +44,12 @@ function operationPath(operation: string) {
   return `${url.pathname}${url.search}`;
 }
 
+function operationWaitPath(operation: string, timeoutSeconds: number) {
+  const path = operationPath(operation);
+  const [pathname, query = ''] = path.split('?');
+  return appendQuery(`${pathname}/wait${query ? `?${query}` : ''}`, { timeout: String(timeoutSeconds) });
+}
+
 function containerShmTmpfsMiB(memoryGb: number) {
   return Math.max(64, Math.min(1024, memoryGb * 512));
 }
@@ -238,6 +244,7 @@ export class IncusClient {
     start?: boolean;
     machineId?: string;
     displayName?: string;
+    platformDaemon?: { source: string; path: string; readonly?: boolean } | null;
     // Customer / billing attribution. Stored under `user.justavps.account_id`
     // on the Incus instance config so the billing worker can read it back
     // when reconciling sessions. Without this, all revenue lands on
@@ -276,6 +283,14 @@ export class IncusClient {
         'initial.uid': '0',
         'initial.gid': '0',
       };
+      if (input.platformDaemon?.source) {
+        devices.justavps_daemon = {
+          type: 'disk',
+          source: input.platformDaemon.source,
+          path: input.platformDaemon.path,
+          readonly: input.platformDaemon.readonly === false ? 'false' : 'true',
+        };
+      }
     }
 
     // Profile binding: the `default` profile carries network + root disk; the
@@ -310,6 +325,18 @@ export class IncusClient {
 
   async startInstance(name: string): Promise<IncusOperation> {
     return this.changeInstanceState(name, 'start');
+  }
+
+  async requestInstanceStateChange(name: string, action: 'start' | 'stop' | 'restart', force = false): Promise<string> {
+    return this.requestOperation('PUT', this.projectPath(`/instances/${encodeURIComponent(name)}/state`), {
+      action,
+      timeout: 60,
+      force,
+    });
+  }
+
+  async waitForOperation(operation: string, timeoutMs = 120_000): Promise<IncusOperation> {
+    return this.waitOperation(operation, timeoutMs);
   }
 
   async stopInstance(name: string): Promise<IncusOperation> {
@@ -675,11 +702,7 @@ export class IncusClient {
   }
 
   private async changeInstanceState(name: string, action: 'start' | 'stop' | 'restart', force = false): Promise<IncusOperation> {
-    const operation = await this.requestOperation('PUT', this.projectPath(`/instances/${encodeURIComponent(name)}/state`), {
-      action,
-      timeout: 60,
-      force,
-    });
+    const operation = await this.requestInstanceStateChange(name, action, force);
     return this.waitOperation(operation);
   }
 
@@ -702,6 +725,22 @@ export class IncusClient {
   private async waitOperation(operation: string, timeoutMs = 120_000): Promise<IncusOperation> {
     const deadline = Date.now() + timeoutMs;
     const path = operationPath(operation);
+    const waitChunkSeconds = Math.max(1, Math.min(25, Math.ceil(timeoutMs / 1000)));
+
+    while (Date.now() < deadline) {
+      try {
+        const remainingSeconds = Math.max(1, Math.min(waitChunkSeconds, Math.ceil((deadline - Date.now()) / 1000)));
+        const op = await this.request<IncusOperation>('GET', operationWaitPath(operation, remainingSeconds));
+        if (op.status === 'Success' || op.status_code === 200) return op;
+        if (op.status === 'Failure' || op.status_code >= 400) throw new Error(op.err || `Incus operation ${op.id} failed`);
+      } catch (error) {
+        // Older/broken Incus deployments may lack /wait. Fall back to the
+        // status endpoint below rather than failing lifecycle operations.
+        if (!(error instanceof IncusApiError) || error.statusCode !== 404) throw error;
+        break;
+      }
+    }
+
     while (Date.now() < deadline) {
       const op = await this.request<IncusOperation>('GET', path);
       if (op.status === 'Success' || op.status_code === 200) return op;

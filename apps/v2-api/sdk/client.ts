@@ -16,7 +16,7 @@
  *   region: 'eu',
  *   type: 'container',
  *   resources: { vcpu: 1, memory_gb: 1, disk_gb: 10 },
- *   source: { type: 'image', image_id: 'justavps-golden-container' },
+ *   source: { type: 'image', image_id: 'justavps-ubuntu-24.04-template' },
  * });
  * ```
  */

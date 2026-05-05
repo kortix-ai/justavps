@@ -251,11 +251,11 @@ create_machine() {
   local vcpu="$4"
   local memory_gb="$5"
   local disk_gb="$6"
-  local source_json="$7"
+  local template_id="$7"
   local body="$TMP_DIR/machine-$name.json"
   local out="$TMP_DIR/machine-$name.out.json"
   cat > "$body" <<JSON
-{"region":"eu","type":"$type","name":"$name","resources":{"vcpu":$vcpu,"memory_gb":$memory_gb,"disk_gb":$disk_gb},"source":$source_json}
+  {"type":"$type","name":"$name","template_id":"$template_id","resources":{"vcpu":$vcpu,"memory_gb":$memory_gb,"disk_gb":$disk_gb}}
 JSON
   request POST /machines "$body" "$out" "X-JustAVPS-Request-Id: $request_id"
   local machine_id
@@ -282,31 +282,31 @@ request_expect_status 400 POST /warm-pool-policies "$TMP_DIR/vm-policy-disabled.
 
 log 'vm machine creates are disabled'
 cat > "$TMP_DIR/vm-machine-disabled.json" <<'JSON'
-{"region":"eu","type":"vm","name":"disabled-vm-machine","resources":{"vcpu":2,"memory_gb":2,"disk_gb":10},"source":{"type":"image","image_id":"justavps-golden"}}
+{"type":"vm","name":"disabled-vm-machine","template_id":"justavps-ubuntu-24.04-template","resources":{"vcpu":2,"memory_gb":2,"disk_gb":10}}
 JSON
 request_expect_status 400 POST /machines "$TMP_DIR/vm-machine-disabled.json" "$TMP_DIR/vm-machine-disabled.out.json"
 
 log 'image policy: create -> refill -> hidden -> warm claim -> telemetry'
-IMAGE_POLICY_ID="$(create_policy policy-e2e-image-container container 2 2 10 '{"type":"image","image_id":"justavps-golden-container"}')"
+IMAGE_POLICY_ID="$(create_policy policy-e2e-image-container container 2 2 10 '{"type":"image","image_id":"justavps-ubuntu-24.04-template"}')"
 CREATED_POLICIES="$CREATED_POLICIES $IMAGE_POLICY_ID"
 refill_policy "$IMAGE_POLICY_ID"
 assert_policy_ready "$IMAGE_POLICY_ID"
 assert_warm_rows_hidden
 IMAGE_REQUEST_ID="curl-e2e-image-$ACCOUNT_ID"
-IMAGE_MACHINE_ID="$(create_machine "$IMAGE_REQUEST_ID" policy-e2e-image-machine container 2 2 10 '{"type":"image","image_id":"justavps-golden-container"}')"
+IMAGE_MACHINE_ID="$(create_machine "$IMAGE_REQUEST_ID" policy-e2e-image-machine container 2 2 10 'justavps-ubuntu-24.04-template')"
 CREATED_MACHINES="$CREATED_MACHINES $IMAGE_MACHINE_ID"
 assert_warm_trace "$IMAGE_REQUEST_ID"
 assert_warm_rows_hidden
 log "image policy warm claim ok machine=$IMAGE_MACHINE_ID"
 
 log 'running image policy: create -> refill running slot -> instant takeover'
-RUNNING_POLICY_ID="$(create_policy policy-e2e-running-container container 2 2 10 '{"type":"image","image_id":"justavps-golden-container"}' running)"
+RUNNING_POLICY_ID="$(create_policy policy-e2e-running-container container 2 2 10 '{"type":"image","image_id":"justavps-ubuntu-24.04-template"}' running)"
 CREATED_POLICIES="$CREATED_POLICIES $RUNNING_POLICY_ID"
 refill_policy "$RUNNING_POLICY_ID"
 assert_policy_ready "$RUNNING_POLICY_ID"
 assert_running_pool_ready "$RUNNING_POLICY_ID"
 RUNNING_REQUEST_ID="curl-e2e-running-$ACCOUNT_ID"
-RUNNING_MACHINE_ID="$(create_machine "$RUNNING_REQUEST_ID" policy-e2e-running-machine container 2 2 10 '{"type":"image","image_id":"justavps-golden-container"}')"
+RUNNING_MACHINE_ID="$(create_machine "$RUNNING_REQUEST_ID" policy-e2e-running-machine container 2 2 10 'justavps-ubuntu-24.04-template')"
 CREATED_MACHINES="$CREATED_MACHINES $RUNNING_MACHINE_ID"
 assert_running_trace "$RUNNING_REQUEST_ID"
 log "running policy warm claim ok machine=$RUNNING_MACHINE_ID"

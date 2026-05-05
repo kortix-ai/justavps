@@ -17,7 +17,7 @@ async function spawnAndWork(idx: number) {
     type: 'container',
     name: `bench-pool-${idx}-${Math.random().toString(36).slice(2, 6)}`,
     resources: { vcpu: 1, memory_gb: 1, disk_gb: 10 },
-    source: { type: 'image', image_id: 'justavps-golden-container' },
+    source: { type: 'image', image_id: 'justavps-ubuntu-24.04-template' },
   });
   const id = m.machine.id;
   created.push(id);

@@ -62,10 +62,8 @@ export JUSTAVPS_PORT_URL_TEMPLATE="__TEMPLATE__"
 # ── porturl command ──────────────────────────────────────────────────────
 porturl() {
   if [ -n "$1" ]; then
-    local _url="$JUSTAVPS_PORT_URL_TEMPLATE"
-    _url="${_url//\{\{port\}\}/$1}"
-    _url="${_url//\{port\}/$1}"
-    echo "$_url"
+    _port="$1"
+    printf '%s\n' "$JUSTAVPS_PORT_URL_TEMPLATE" | sed "s/{{port}}/$_port/g; s/{port}/$_port/g"
     return
   fi
 
@@ -75,14 +73,11 @@ porturl() {
   ss -tlnp 2>/dev/null | awk -v tmpl="$JUSTAVPS_PORT_URL_TEMPLATE" 'NR>1 {
     split($4, a, ":");
     port = a[length(a)];
-    if (port+0 > 0 && port+0 < 49152 && port != 22 && port != 80 && port != 7777 && port != 2468) {
-      proc = ""
-      if (match($0, /users:\(\("([^"]+)"/, m)) proc = m[1]
+    if (port+0 > 0 && port+0 < 49152 && port != 22 && port != 53 && port != 80 && port != 7777 && port != 2468) {
       url = tmpl
       gsub(/\{\{port\}\}/, port, url)
       gsub(/\{port\}/, port, url)
       printf "  \033[1;36m%-6s\033[0m → %s", port, url
-      if (proc != "") printf "  (%s)", proc
       printf "\n"
     }
   }'
@@ -91,8 +86,8 @@ porturl() {
 
 # ── portwatch — background port notification ─────────────────────────────
 portwatch() {
-  local events="/run/justavps/port-events"
-  local last_size=0
+  events="/run/justavps/port-events"
+  last_size=0
   [ -f "$events" ] && last_size=$(wc -c < "$events" 2>/dev/null || echo 0)
 
   echo -e "\033[90m[portwatch] Watching for new ports... (Ctrl+C to stop)\033[0m"
@@ -100,7 +95,7 @@ portwatch() {
   while true; do
     sleep 2
     [ -f "$events" ] || continue
-    local cur_size=$(wc -c < "$events" 2>/dev/null || echo 0)
+    cur_size=$(wc -c < "$events" 2>/dev/null || echo 0)
     if [ "$cur_size" -gt "$last_size" ]; then
       tail -c +"$((last_size + 1))" "$events" 2>/dev/null | while IFS=' ' read -r ts action port url rest; do
         if [ "$action" = "open" ]; then
@@ -130,8 +125,8 @@ if [ -n "$PS1" ] && [ -z "$JUSTAVPS_BANNER_SHOWN" ]; then
   _active_ports=$(ss -tlnp 2>/dev/null | awk 'NR>1 {
     split($4, a, ":");
     port = a[length(a)];
-    if (port+0 > 0 && port+0 < 49152 && port != 22 && port != 80 && port != 7777 && port != 2468) print port
-  }' | sort -n | head -5)
+    if (port+0 > 0 && port+0 < 49152 && port != 22 && port != 53 && port != 80 && port != 7777 && port != 2468) print port
+  }' | sort -nu | head -5)
 
   if [ -n "$_active_ports" ]; then
     echo -e "  \033[90mActive ports:\033[0m"
@@ -196,14 +191,11 @@ echo ""
 ss -tlnp 2>/dev/null | awk -v slug="$SLUG" -v tmpl="$TEMPLATE" 'NR>1 {
   split($4, a, ":");
   port = a[length(a)];
-  if (port+0 > 0 && port+0 < 49152 && port != 22 && port != 80 && port != 7777 && port != 2468) {
-    proc = ""
-    if (match($0, /users:\(\("([^"]+)"/, m)) proc = m[1]
+  if (port+0 > 0 && port+0 < 49152 && port != 22 && port != 53 && port != 80 && port != 7777 && port != 2468) {
     url = tmpl
     gsub(/\{\{port\}\}/, port, url)
     gsub(/\{port\}/, port, url)
     printf "  \033[1;36m%-6s\033[0m → %s", port, url
-    if (proc != "") printf "  (%s)", proc
     printf "\n"
   }
 }'

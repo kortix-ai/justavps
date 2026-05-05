@@ -18,6 +18,7 @@ function config(): AppConfig {
     clusters: [],
     proxyDomain: 'kortix.cloud',
     appUrl: 'http://localhost:4200',
+    daemonCallbackUrl: 'http://localhost:4200',
     daemonDownloadUrl: 'http://localhost/daemon',
     daemonEnsureWorker: false,
     sshGatewayEnabled: false,

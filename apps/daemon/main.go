@@ -24,6 +24,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -42,10 +43,26 @@ func main() {
 	publicPort := flag.Int("port", 80, "Public HTTP port")
 	apiPort := flag.Int("api-port", 7777, "Internal API port")
 	showVersion := flag.Bool("version", false, "Print version and exit")
+	healthCheck := flag.Bool("health-check", false, "GET the local daemon health endpoint and print the response")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Printf("justavps-daemon %s (built %s)\n", version, buildTime)
+		os.Exit(0)
+	}
+	if *healthCheck {
+		client := &http.Client{Timeout: 2 * time.Second}
+		resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/health", *apiPort))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "health check failed: %v\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		fmt.Print(string(body))
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			os.Exit(1)
+		}
 		os.Exit(0)
 	}
 

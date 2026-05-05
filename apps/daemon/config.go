@@ -7,7 +7,9 @@ import (
 	"strings"
 )
 
-// Config is read from /etc/justavps/config.json (written by cloud-init).
+// Config is read from /etc/justavps/config.json, or from
+// JUSTAVPS_DAEMON_CONFIG_JSON when the platform injects and starts the daemon
+// directly without writing guest image state.
 type Config struct {
 	Slug                     string `json:"slug"`
 	MachineID                string `json:"machine_id"`
@@ -43,9 +45,13 @@ func (c *Config) PortURL(port int) string {
 }
 
 func LoadConfig(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read config: %w", err)
+	data := []byte(os.Getenv("JUSTAVPS_DAEMON_CONFIG_JSON"))
+	if len(data) == 0 {
+		var err error
+		data, err = os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read config: %w", err)
+		}
 	}
 
 	var cfg Config

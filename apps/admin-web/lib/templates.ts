@@ -10,9 +10,9 @@ export type Template = {
 
 export const TEMPLATES: Template[] = [
   {
-    id: 'justavps-golden-container',
+    id: 'justavps-ubuntu-24.04-template',
     name: 'Ubuntu 24.04',
-    description: 'Base Ubuntu 24.04 container. Fast default for most machines.',
+    description: 'Boot-optimized Ubuntu 24.04 container template with JustAVPS tooling baked and verified.',
     type: 'container',
   },
 ];

@@ -1084,6 +1084,26 @@ async function ensureMachineUsable(input: {
       managedDaemon = daemon as unknown as Record<string, unknown>;
       repairedManagedDaemon = true;
       if (!daemon.ok) throw new Error(`Injected daemon activation did not make ${input.machineId} ready: ${daemon.error ?? 'unknown daemon error'}`);
+      const endedAt = nowIso();
+      return {
+        ok: true,
+        mode: input.mode,
+        contract: 'actual-live',
+        started_at: startedAt,
+        ended_at: endedAt,
+        ready_at: endedAt,
+        duration_ms: elapsedMs(startedAtMs),
+        exec_ready: compactUsabilityResult(daemon),
+        cloud_init: { ok: true, duration_ms: 0, skipped: true, reason: 'not part of claim hot path' },
+        daemon_health: compactUsabilityResult(daemon),
+        file_api_ready: true,
+        command_api_ready: true,
+        managed_daemon: managedDaemon,
+        managed_daemon_state: 'ready',
+        repaired_managed_daemon: repairedManagedDaemon,
+        warnings: [],
+        steps,
+      };
     }
     let live = await timedUsabilityStep({
       steps,
@@ -1533,23 +1553,47 @@ async function claimWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec, input
           source: 'running-pool-validated-at-prime',
         };
       } else {
-        started = await span('warm pool: incus start stopped instance', () => startCreatedMachine(client, candidate.incusInstanceName), { candidate_id: candidate.id, member_name: candidate.incusMemberName });
+        started = await span('warm pool: incus start stopped instance', () => startCreatedMachineInstrumented({
+          client,
+          name: candidate.incusInstanceName,
+          telemetry,
+          spanPrefix: 'warm pool: incus start stopped instance',
+          details: { candidate_id: candidate.id, member_name: candidate.incusMemberName },
+        }), { candidate_id: candidate.id, member_name: candidate.incusMemberName });
         startedForClaim = true;
         stopOnClaimFailure = true;
-        usability = await ensureMachineUsable({
-          config,
-          client,
-          instanceName: candidate.incusInstanceName,
-          machineId: candidate.id,
-          mode: 'warm-pool-claim',
-          telemetry,
-          installManagedDaemon: false,
-          repairManagedDaemon: true,
-          waitForCloudInit: false,
-          actualLiveProbe: true,
-          execTimeoutMs: 90_000,
-          daemonHealthTimeoutMs: 5_000,
-        });
+        const previousDaemon = jsonRecord(previousMeta.managed_daemon);
+        const autostartValidated = previousMeta.managed_daemon_state === 'ready'
+          && previousDaemon.autostart === true
+          && previousDaemon.ok === true
+          && poolMeta.second_boot_validated === true;
+        if (autostartValidated) {
+          usability = {
+            ok: true,
+            duration_ms: 0,
+            ready_at: new Date().toISOString(),
+            mode: 'warm-pool-stopped-claim',
+            reused_stopped_pool_slot: true,
+            reused_daemon_autostart: true,
+            repaired_managed_daemon: false,
+            source: 'stopped-pool-daemon-autostart-validated-at-prime',
+          };
+        } else {
+          usability = await ensureMachineUsable({
+            config,
+            client,
+            instanceName: candidate.incusInstanceName,
+            machineId: candidate.id,
+            mode: 'warm-pool-claim',
+            telemetry,
+            installManagedDaemon: false,
+            repairManagedDaemon: true,
+            waitForCloudInit: false,
+            actualLiveProbe: true,
+            execTimeoutMs: 5_000,
+            daemonHealthTimeoutMs: 5_000,
+          });
+        }
       }
       const machine = await span('warm pool: persist claimed machine row', () => prisma.machine.update({
         where: { id: candidate.id },
@@ -2821,6 +2865,35 @@ async function startCreatedMachine(client: IncusClient, name: string): Promise<{
   }
 }
 
+async function startCreatedMachineInstrumented(input: {
+  client: IncusClient;
+  name: string;
+  telemetry?: MachineCreationTelemetry;
+  spanPrefix: string;
+  details?: Record<string, unknown>;
+}): Promise<{ operation: IncusOperation | Record<string, unknown>; noop: boolean }> {
+  if (!input.telemetry) return startCreatedMachine(input.client, input.name);
+  let operationPath = '';
+  try {
+    operationPath = await withTelemetrySpan(
+      input.telemetry,
+      `${input.spanPrefix}: request state=start`,
+      () => input.client.requestInstanceStateChange(input.name, 'start'),
+      input.details,
+    );
+  } catch (error) {
+    if (!isLifecycleNoop(error, 'start')) throw error;
+    return { operation: { noop: true, action: 'start' }, noop: true };
+  }
+  const operation = await withTelemetrySpan(
+    input.telemetry,
+    `${input.spanPrefix}: wait operation`,
+    () => input.client.waitForOperation(operationPath),
+    { ...(input.details ?? {}), operation: operationPath },
+  );
+  return { operation, noop: false };
+}
+
 async function stopCreatedMachine(client: IncusClient, name: string): Promise<{ operation: IncusOperation | Record<string, unknown>; noop: boolean }> {
   try {
     return { operation: await client.stopInstance(name), noop: false };
@@ -4059,9 +4132,10 @@ async function virtualCatalogMachineTemplate(config: AppConfig, ref: string): Pr
   };
 }
 
-async function resolveMachineTemplate(config: AppConfig, accountId: string, ref: string): Promise<ResolvedMachineTemplate | null> {
+async function resolveMachineTemplate(config: AppConfig, accountId: string, ref: string, opts: { hydrateImage?: boolean; ensureCatalog?: boolean } = {}): Promise<ResolvedMachineTemplate | null> {
+  const hydrateImage = opts.hydrateImage !== false;
   if (config.databaseConfigured) {
-    await ensureCatalogMachineTemplates(config);
+    if (opts.ensureCatalog !== false) await ensureCatalogMachineTemplates(config);
     const rows = await getPrisma().machineTemplate.findMany({
       where: {
         status: { not: 'deleted' },
@@ -4075,7 +4149,7 @@ async function resolveMachineTemplate(config: AppConfig, accountId: string, ref:
     }).catch(() => []);
     const row = rows.find((item) => item.accountId === accountId || item.visibility === 'catalog' || item.accountId === 'system') ?? null;
     if (row) {
-      const image = await findImageForTemplate(config, row).catch(() => null);
+      const image = hydrateImage ? await findImageForTemplate(config, row).catch(() => null) : null;
       return { ...row, region: row.region as SupportedRegion, type: 'container', defaultResources: resourceShape(row.defaultResources), image };
     }
   }
@@ -8655,7 +8729,8 @@ export function createApp(config: AppConfig) {
 
       const requestInput = await withTelemetrySpan(telemetry, 'parse request', async () => createMachineSchema.parse(await c.req.json()));
       const accountId = c.req.header('x-account-id') || 'system';
-      const template = await withTelemetrySpan(telemetry, 'resolve machine template', () => resolveMachineTemplate(config, accountId, requestInput.template_id), { template_id: requestInput.template_id });
+      const poolOnlyStrategy = requestInput.start_strategy === 'stopped_pool' || requestInput.start_strategy === 'running_pool';
+      const template = await withTelemetrySpan(telemetry, 'resolve machine template', () => resolveMachineTemplate(config, accountId, requestInput.template_id, { hydrateImage: !poolOnlyStrategy, ensureCatalog: !poolOnlyStrategy }), { template_id: requestInput.template_id });
       if (!template) {
         failMachineCreationTelemetry(telemetry, `Machine Template ${requestInput.template_id} not found`);
         return c.json({ error: true, message: `Machine Template ${requestInput.template_id} not found` }, 404);
@@ -8664,8 +8739,10 @@ export function createApp(config: AppConfig) {
         failMachineCreationTelemetry(telemetry, `Machine Template ${template.name} is not active`);
         return c.json({ error: true, message: `Machine Template ${template.name} is not active` }, 409);
       }
-      const templateImage = template.image ?? await findImageForTemplate(config, template).catch(() => null);
-      if (!imageIsJustavpsReady(templateImage)) {
+      const templateProps = jsonRecord(jsonRecord(template.metadata).image_properties);
+      const templateReadyFromDb = imageIsJustavpsReady({ properties: templateProps } as IncusImage);
+      const templateImage = template.image ?? (templateReadyFromDb ? null : await findImageForTemplate(config, template).catch(() => null));
+      if (!templateReadyFromDb && !imageIsJustavpsReady(templateImage)) {
         failMachineCreationTelemetry(telemetry, `Machine Template ${template.name} is not JustAVPS-ready`);
         return c.json({ error: true, message: `Machine Template ${template.name} is not JustAVPS-ready yet` }, 409);
       }

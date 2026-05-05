@@ -1,25 +1,21 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { toast } from 'sonner';
-import { Flame, Gauge, Pause, Play, Plus, RefreshCw, Search, Trash2, Zap } from 'lucide-react';
+import { Flame, Gauge, Pause, Play, RefreshCw, Search, Trash2, Zap } from 'lucide-react';
 import { useStore } from '@/lib/store';
-import type { ImageItem, PoolAdminState, PoolPolicy } from '@/lib/api';
+import type { PoolAdminState, PoolPolicy } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useConfirm } from '@/components/confirm';
-import { CATALOG_IMAGES, catalogForImage, imageDisplayName, imageIdForCreate, imageMatchesMachineType } from '@/lib/image-sources';
 
-type MachineKind = 'container';
 type PoolMode = 'stopped' | 'running';
-type ImageChoice = { id: string; label: string; kind: 'template' | 'cached' };
-type PoolCreatePrefill = { sourceKind: 'image'; imageId: string; type: MachineKind };
 
 const ACCOUNT_KEY = 'v2-admin:warm-pool-account-id';
 const WARM_POOL_TARGET_MAX = 500;
@@ -50,25 +46,12 @@ function policyPoolMode(policy: PoolPolicy): PoolMode {
   return policy.pool_mode === 'running' || policy.mode === 'primed_running_exact' || policy.billing?.pool_mode === 'running' ? 'running' : 'stopped';
 }
 
-function poolCreatePrefillFromLocation(): PoolCreatePrefill | null {
-  if (typeof window === 'undefined') return null;
-  const params = new URLSearchParams(window.location.search);
-  const type: MachineKind = 'container';
-  const source = params.get('source');
-  const imageId = params.get('image_id')?.trim();
-  if (source === 'image' && imageId) return { sourceKind: 'image', imageId, type };
-  return null;
-}
-
 export default function PoolsPage() {
   const { state, request, runAction, refreshAll } = useStore();
   const { confirm } = useConfirm();
   const [accountId, setAccountId] = useState('system');
   const [policies, setPolicies] = useState<PoolPolicy[]>([]);
   const [adminState, setAdminState] = useState<PoolAdminState | null>(null);
-  const [initialCreatePrefill] = useState(() => poolCreatePrefillFromLocation());
-  const [createPrefill, setCreatePrefill] = useState<PoolCreatePrefill | null>(initialCreatePrefill);
-  const [createOpen, setCreateOpen] = useState(Boolean(initialCreatePrefill));
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [targetEdits, setTargetEdits] = useState<Record<string, number>>({});
@@ -190,9 +173,7 @@ export default function PoolsPage() {
           <Button variant="outline" onClick={() => load().catch(() => {})} disabled={loading || state.busy}>
             <RefreshCw className="size-3.5" /> Refresh
           </Button>
-          <Button onClick={() => { setCreatePrefill(null); setCreateOpen(true); }}>
-            <Plus className="size-3.5" /> New policy
-          </Button>
+          <Button asChild><Link href="/templates">Configure on Templates</Link></Button>
         </div>
       </div>
 
@@ -231,7 +212,7 @@ export default function PoolsPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base"><Flame className="size-4" /> Exact source + shape</CardTitle>
-            <CardDescription>Policies key on account, image, region, type, vCPU, RAM, and disk. User-owned images work without a golden-image requirement.</CardDescription>
+            <CardDescription>Policies key on account, Machine Template, region, type, vCPU, RAM, and disk. Configure them from the Templates page.</CardDescription>
           </CardHeader>
         </Card>
       </div>
@@ -344,18 +325,6 @@ export default function PoolsPage() {
         </CardContent>
       </Card>
 
-      <CreatePoolPolicyDialog
-        key={createPrefill ? `${createPrefill.sourceKind}:${createPrefill.imageId}:${createPrefill.type}` : 'blank'}
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        prefill={createPrefill}
-        accountId={accountId}
-        images={state.images}
-        regions={state.regions}
-        request={request}
-        runAction={runAction}
-        onCreated={() => load().catch(() => {})}
-      />
     </div>
   );
 }
@@ -366,215 +335,5 @@ function Stat({ label, value }: { label: string; value: string | number }) {
       <div className="text-2xs text-muted-foreground">{label}</div>
       <div className="font-semibold tabular-nums">{value}</div>
     </div>
-  );
-}
-
-function CreatePoolPolicyDialog({
-  open,
-  onOpenChange,
-  prefill,
-  accountId,
-  images,
-  regions,
-  request,
-  runAction,
-  onCreated,
-}: {
-  open: boolean;
-  onOpenChange: (value: boolean) => void;
-  prefill: PoolCreatePrefill | null;
-  accountId: string;
-  images: ImageItem[];
-  regions: string[];
-  request: ReturnType<typeof useStore>['request'];
-  runAction: ReturnType<typeof useStore>['runAction'];
-  onCreated: () => void;
-}) {
-  const [name, setName] = useState('');
-  const type: MachineKind = 'container';
-  const [region, setRegion] = useState('eu');
-  const [imageId, setImageId] = useState(prefill?.sourceKind === 'image' ? prefill.imageId : '');
-  const [customImageId, setCustomImageId] = useState(prefill?.sourceKind === 'image' ? prefill.imageId : '');
-  const [mode, setMode] = useState<PoolMode>('stopped');
-  const [target, setTarget] = useState(1);
-  const [vcpu, setVcpu] = useState(2);
-  const [memoryGb, setMemoryGb] = useState(2);
-  const [diskGb, setDiskGb] = useState(10);
-  const [error, setError] = useState<string | null>(null);
-
-  const regionChoices = regions.length ? regions : ['eu'];
-  const selectedRegion = regionChoices.includes(region) ? region : regionChoices[0] ?? 'eu';
-
-  const imageChoices = useMemo(() => {
-    const choices: ImageChoice[] = [];
-    const seen = new Set<string>();
-    for (const image of CATALOG_IMAGES.filter((item) => item.type === type)) {
-      choices.push({ id: image.id, label: `${image.name} · template`, kind: 'template' });
-      seen.add(image.id);
-    }
-    for (const image of images.filter((item) => imageMatchesMachineType(item, type))) {
-      const id = imageIdForCreate(image);
-      if (!id || seen.has(id)) continue;
-      const catalog = catalogForImage(image);
-      choices.push({ id, label: `${imageDisplayName(image)} · ${catalog ? 'template cache' : 'cached image'}`, kind: catalog ? 'template' : 'cached' });
-      seen.add(id);
-    }
-    return choices;
-  }, [images, type]);
-
-  const selectedPickerImageId = imageChoices.some((choice) => choice.id === imageId) ? imageId : imageChoices[0]?.id ?? '';
-  const selectedImageId = customImageId.trim() || selectedPickerImageId;
-  const source = selectedImageId ? { type: 'image', image_id: selectedImageId } : null;
-
-  const monthly = useMemo(() => {
-    // UI estimate only. API recomputes from actual measured storage and hot slot count.
-    const seconds = 730 * 3600;
-    const storageUpperBound = (diskGb * seconds * 0.17) / 1_000_000;
-    const hot = mode === 'running' ? ((vcpu * 4.4 + memoryGb * 1.3) * seconds) / 1_000_000 : 0;
-    return (storageUpperBound + hot) * target;
-  }, [diskGb, memoryGb, mode, target, vcpu]);
-
-  async function submit() {
-    setError(null);
-    if (!source) return setError('Pick a source first.');
-    if (!selectedRegion) return setError('Pick a region first.');
-    try {
-      await runAction(`create pool ${name || 'image'}`, async () => {
-        const result = await request('/warm-pool-policies', {
-          method: 'POST',
-          headers: { 'X-Account-Id': accountId },
-          body: {
-            name: name.trim() || undefined,
-            region: selectedRegion,
-            type,
-            mode,
-            source,
-            target,
-            resources: { vcpu, memory_gb: memoryGb, disk_gb: diskGb },
-          } as never,
-        });
-        toast.success('Pool policy created');
-        onCreated();
-        onOpenChange(false);
-        setName('');
-        setMode('stopped');
-        return result;
-      });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Create pool policy</DialogTitle>
-          <DialogDescription>
-            Choose a per-account source, shape, and Pool mode. Stopped Pools are cheap; running Pools are hot and can be taken over immediately.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4">
-          <div className="rounded-lg border bg-muted/20 p-3 text-xs text-muted-foreground">
-            Account <span className="font-mono text-foreground">{accountId}</span> will be billed according to the selected Pool mode while this policy is active.
-          </div>
-          {prefill ? (
-            <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-xs">
-              Source prefilled from image/template: <span className="font-mono">{prefill.imageId}</span>
-            </div>
-          ) : null}
-          <div className="space-y-1.5">
-            <Label>Name</Label>
-            <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. API worker pool" maxLength={80} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Type</Label>
-              <div className="rounded-md border bg-muted/20 px-3 py-2 text-sm">Container</div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Region</Label>
-              <Select value={selectedRegion} onValueChange={setRegion}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{regionChoices.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>Pool mode</Label>
-            <Select value={mode} onValueChange={(value) => setMode(value as PoolMode)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="stopped">Stopped standby · cheaper, starts on claim</SelectItem>
-                <SelectItem value="running">Running hot standby · instant takeover, hot billing</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-2xs text-muted-foreground">
-              Stopped slots bill measured local storage only. Running slots stay live and bill CPU/RAM plus measured local storage until claimed.
-            </p>
-          </div>
-
-          <div className="space-y-3 rounded-lg border p-3">
-            <Label>Source</Label>
-            <div className="rounded-lg border bg-muted/20 px-3 py-2 text-sm">
-              <span className="block font-medium">Image/template</span>
-              <span className="text-2xs text-muted-foreground">Pools are image-only for now. Snapshot creates still work outside the Pool feature.</span>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Image</Label>
-              <Select value={selectedPickerImageId} onValueChange={(value) => { setImageId(value); setCustomImageId(''); }}>
-                <SelectTrigger><SelectValue placeholder="Pick image…" /></SelectTrigger>
-                <SelectContent>
-                  {imageChoices.map((choice) => <SelectItem key={`${choice.kind}-${choice.id}`} value={choice.id}>{choice.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <div className="space-y-1.5 pt-2">
-                <Label>Custom image/template ID</Label>
-                <Input
-                  value={customImageId}
-                  onChange={(event) => setCustomImageId(event.target.value)}
-                  placeholder="optional alias, fingerprint, or per-user template id"
-                  className="font-mono text-xs"
-                />
-                <p className="text-2xs text-muted-foreground">
-                  Use this when a user-specific/template-marked image is not in the dropdown yet. The reservation still belongs to account {accountId}.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-4 gap-3">
-            <div className="space-y-1.5">
-              <Label>Target</Label>
-              <Input type="number" min={0} max={WARM_POOL_TARGET_MAX} value={target} onChange={(event) => setTarget(Math.max(0, Math.min(WARM_POOL_TARGET_MAX, Number(event.target.value) || 0)))} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>vCPU</Label>
-              <Input type="number" min={1} value={vcpu} onChange={(event) => setVcpu(Number(event.target.value) || 1)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>RAM GB</Label>
-              <Input type="number" min={1} value={memoryGb} onChange={(event) => setMemoryGb(Number(event.target.value) || 1)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Disk GB</Label>
-              <Input type="number" min={1} value={diskGb} onChange={(event) => setDiskGb(Number(event.target.value) || 1)} />
-            </div>
-          </div>
-          <div className="rounded-lg border bg-emerald-500/10 p-3 text-sm">
-            <div>Estimated {mode} pool reservation: <span className="font-semibold">{fmtEur(monthly)}/mo</span></div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              Target {target} means the maintainer keeps {target} primed {mode === 'running' ? 'running' : 'stopped'} machine{target === 1 ? '' : 's'} ready for this image/template. {mode === 'running' ? 'Claims skip Incus start and take over a live slot.' : 'Claims start the stopped slot and wait for usability checks.'}
-            </div>
-          </div>
-          {error ? <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</div> : null}
-        </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={submit}>Create and refill</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

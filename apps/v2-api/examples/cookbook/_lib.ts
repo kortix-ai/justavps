@@ -15,7 +15,7 @@ export function makeClient(): JustAVPSV2 {
 
 export async function withSandbox<T>(opts: { image?: string; type?: 'container' | 'vm' }, fn: (id: string, client: JustAVPSV2) => Promise<T>): Promise<T> {
   const client = makeClient();
-  const image = opts.image ?? 'justavps-golden-container';
+  const image = opts.image ?? 'justavps-ubuntu-24.04-template';
   const created = await client.machines.create({
     region: 'eu',
     type: opts.type ?? 'container',

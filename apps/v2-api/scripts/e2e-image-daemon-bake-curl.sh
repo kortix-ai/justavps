@@ -72,7 +72,7 @@ request GET /health '' "$TMP_DIR/health.json"
 
 log 'create source container machine'
 cat > "$TMP_DIR/source-machine.json" <<JSON
-{"region":"eu","type":"container","name":"image-bake-source","resources":{"vcpu":1,"memory_gb":1,"disk_gb":10},"source":{"type":"image","image_id":"justavps-golden-container"}}
+{"region":"eu","type":"container","name":"image-bake-source","resources":{"vcpu":1,"memory_gb":1,"disk_gb":10},"source":{"type":"image","image_id":"justavps-ubuntu-24.04-template"}}
 JSON
 request POST /machines "$TMP_DIR/source-machine.json" "$TMP_DIR/source-machine.out.json" "X-JustAVPS-Request-Id: image-bake-source-$ACCOUNT_ID"
 SOURCE_MACHINE_ID="$(json_get "$TMP_DIR/source-machine.out.json" machine.id)"

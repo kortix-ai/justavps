@@ -195,7 +195,7 @@ log "preflight api=$API_URL account=$ACCOUNT_ID runs=$RUNS"
 request GET /health '' "$TMP_DIR/health.json"
 
 for i in $(seq 1 "$RUNS"); do
-  claim_and_measure container container justavps-golden-container 2 2 10 "$i"
+  claim_and_measure container container justavps-ubuntu-24.04-template 2 2 10 "$i"
 done
 
 log 'summary'
