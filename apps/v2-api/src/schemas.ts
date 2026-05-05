@@ -62,11 +62,12 @@ export const LifecycleSchema = z.object({
 }).openapi('Lifecycle');
 
 export const CreateMachineBodySchema = z.object({
-  region: z.enum(['eu', 'us']).default('eu'),
+  region: z.enum(['eu', 'us']).optional().openapi({ description: 'Optional region assertion. If omitted, the Machine Template region is used.' }),
   type: z.literal('container').default('container'),
   name: z.string().trim().min(1).max(80).optional().openapi({ description: 'Display/search label only. The Incus hostname is always a generated UUID to avoid collisions.' }),
-  resources: ResourcesSchema,
-  source: SourceSchema,
+  template_id: z.string().min(1).openapi({ description: 'Machine Template id, slug, or prepared image alias. Direct image/snapshot/backup machine sources are disabled.' }),
+  start_strategy: z.enum(['auto', 'running_pool', 'stopped_pool', 'cold']).default('auto').openapi({ description: 'Launch strategy. auto checks Running Hot Pool, then Stopped Pool, then cold create. Explicit pool strategies fail if that Pool has no ready slot; cold bypasses Pools.' }),
+  resources: ResourcesSchema.optional().openapi({ description: 'Optional override. Defaults to the Machine Template default initial size; resize remains available later.' }),
   // Daytona-style ergonomics: env vars are merged into every exec, labels are
   // free-form tagging, lifecycle drives the background sweeper.
   env: z.record(z.string(), z.string()).optional().openapi({ description: 'Environment variables auto-merged into every exec call (per-call env still wins).' }),

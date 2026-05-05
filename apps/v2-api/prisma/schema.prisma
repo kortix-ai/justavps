@@ -68,6 +68,123 @@ model Machine {
   @@schema("v2_core")
 }
 
+model User {
+  id               String    @id @default(uuid())
+  email            String    @unique
+  emailVerified    DateTime? @map("email_verified")
+  passwordHash     String?   @map("password_hash")
+  githubId         String?   @unique @map("github_id")
+  name             String?
+  stripeCustomerId String?   @map("stripe_customer_id")
+  defaultAccountId String?   @map("default_account_id")
+  isAdmin          Boolean   @default(false) @map("is_admin")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  memberships      AccountMembership[]
+  sentInvitations  AccountInvitation[] @relation("InvitedByUser")
+  acceptedInvites  AccountInvitation[] @relation("AcceptedByUser")
+
+  @@map("users")
+  @@schema("v2_core")
+}
+
+model Account {
+  id               String    @id @default(uuid())
+  type             String    @default("personal")
+  name             String
+  slug             String    @unique
+  personalForUserId String?  @unique @map("personal_for_user_id")
+  billingEmail     String?   @map("billing_email")
+  stripeCustomerId String?   @map("stripe_customer_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  memberships      AccountMembership[]
+  invitations      AccountInvitation[]
+
+  @@index([type, deletedAt])
+  @@map("accounts")
+  @@schema("v2_core")
+}
+
+model AccountMembership {
+  id              String   @id @default(uuid())
+  accountId       String   @map("account_id")
+  userId          String   @map("user_id")
+  role            String   @default("member")
+  createdByUserId String?  @map("created_by_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  account         Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, userId])
+  @@index([userId])
+  @@map("account_memberships")
+  @@schema("v2_core")
+}
+
+model AccountInvitation {
+  id               String    @id @default(uuid())
+  accountId        String    @map("account_id")
+  email            String
+  role             String    @default("member")
+  tokenSha256      String    @unique @map("token_sha256")
+  invitedByUserId  String    @map("invited_by_user_id")
+  acceptedByUserId String?   @map("accepted_by_user_id")
+  expiresAt        DateTime  @map("expires_at")
+  acceptedAt       DateTime? @map("accepted_at")
+  revokedAt        DateTime? @map("revoked_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  account          Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  invitedBy        User      @relation("InvitedByUser", fields: [invitedByUserId], references: [id], onDelete: Cascade)
+  acceptedBy       User?     @relation("AcceptedByUser", fields: [acceptedByUserId], references: [id])
+
+  @@index([accountId, email])
+  @@index([expiresAt])
+  @@map("account_invitations")
+  @@schema("v2_core")
+}
+
+model AccountLimit {
+  id          String   @id @default(uuid())
+  userId      String?  @unique @map("user_id")
+  accountId   String?  @unique @map("account_id")
+  maxMachines Int      @default(5) @map("max_machines")
+  maxImages   Int      @default(10) @map("max_images")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("account_limits")
+  @@schema("v2_core")
+}
+
+model MachineBackupPolicy {
+  id             String    @id @default(uuid())
+  accountId      String    @map("account_id")
+  machineId      String    @unique @map("machine_id")
+  enabled        Boolean   @default(false)
+  cadence        String    @default("daily")
+  intervalHours  Int       @default(24) @map("interval_hours")
+  retentionDays  Int       @default(7) @map("retention_days")
+  retentionCount Int       @default(7) @map("retention_count")
+  lastBackupAt   DateTime? @map("last_backup_at")
+  nextBackupAt   DateTime? @map("next_backup_at")
+  status         String    @default("active")
+  metadata       Json      @default("{}")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([accountId, enabled])
+  @@index([enabled, nextBackupAt])
+  @@map("machine_backup_policies")
+  @@schema("v2_core")
+}
+
 model WarmPoolPolicy {
   id          String   @id @default(cuid())
   accountId   String   @map("account_id")
@@ -87,6 +204,39 @@ model WarmPoolPolicy {
   @@index([accountId, status])
   @@index([region, type, sourceType, sourceId])
   @@map("warm_pool_policies")
+  @@schema("v2_core")
+}
+
+model MachineTemplate {
+  id               String    @id @default(cuid())
+  accountId        String    @map("account_id")
+  name             String
+  slug             String
+  status           String    @default("active")
+  visibility       String    @default("private")
+  region           String
+  type             String
+  incusClusterId   String    @map("incus_cluster_id")
+  incusProject     String    @map("incus_project")
+  incusAlias       String    @map("incus_alias")
+  incusFingerprint String    @map("incus_fingerprint")
+  defaultResources Json      @map("default_resources")
+  sourceKind       String    @map("source_kind")
+  sourceRef        String?   @map("source_ref")
+  measuredBytes    BigInt?   @map("measured_bytes")
+  billableGib      Decimal?  @map("billable_gib") @db.Decimal(20, 9)
+  storageEurMonth  Decimal?  @map("storage_eur_month") @db.Decimal(20, 6)
+  preparedAt       DateTime? @map("prepared_at")
+  verifiedAt       DateTime? @map("verified_at")
+  metadata         Json      @default("{}")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@unique([accountId, slug])
+  @@unique([incusClusterId, incusProject, incusAlias])
+  @@index([accountId, status, visibility])
+  @@index([region, type, status])
+  @@map("machine_templates")
   @@schema("v2_core")
 }
 

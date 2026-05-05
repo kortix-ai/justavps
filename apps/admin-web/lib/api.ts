@@ -146,6 +146,7 @@ export type InventoryHost = {
 export type Machine = {
   id: string;
   slug?: string;
+  account_id?: string;
   name: string;
   type: 'container' | string;
   status: string;
@@ -154,6 +155,7 @@ export type Machine = {
   cluster?: ClusterPublic;
   source?: { type: string; id: string | null } | { type: string };
   resources?: Record<string, unknown>;
+  pricing?: MachinePricingBreakdown;
   metadata?: Record<string, unknown>;
   urls?: {
     proxy?: string;
@@ -169,6 +171,86 @@ export type Machine = {
   } & Record<string, unknown>;
   created_at?: string;
   updated_at?: string;
+};
+
+export type MachinePricingBreakdown = {
+  model: string;
+  billable_status?: string;
+  resources: { vcpu: number; memory_gb: number; disk_gb: number };
+  rates: Record<string, number>;
+  components: Array<{ key: string; label: string; quantity: number; unit: string; billable: boolean; eur_per_month: number; note?: string }>;
+  total_eur_per_month: number;
+  note?: string;
+};
+
+export type BackupPolicy = {
+  id: string | null;
+  account_id: string;
+  machine_id: string;
+  enabled: boolean;
+  cadence: 'daily' | string;
+  interval_hours: number;
+  retention_days: number;
+  retention_count: number;
+  last_backup_at: string | null;
+  next_backup_at: string | null;
+  status: string;
+  policy_label: string;
+};
+
+export type AccountMember = {
+  id: string;
+  role: 'owner' | 'admin' | 'member' | string;
+  user_id: string;
+  email: string;
+  name?: string | null;
+  is_admin?: boolean;
+  created_at?: string;
+};
+
+export type AccountInvitation = {
+  id: string;
+  email: string;
+  role: 'owner' | 'admin' | 'member' | string;
+  token?: string;
+  expires_at: string;
+  accepted_at?: string | null;
+  revoked_at?: string | null;
+  created_at?: string;
+};
+
+export type Account = {
+  id: string;
+  type: 'personal' | 'organization' | string;
+  name: string;
+  slug: string;
+  personal_for_user_id?: string | null;
+  billing_email?: string | null;
+  stripe_customer_id?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  deleted_at?: string | null;
+  members: AccountMember[];
+  invitations: AccountInvitation[];
+  counts?: { members: number; machines: number; auto_backup_policies: number; auto_backup_enabled: number };
+  cost_summary?: Record<string, number | string>;
+};
+
+export type AccountCostBreakdown = {
+  account: { id: string; name: string; slug: string; type: string };
+  model: string;
+  rates: Record<string, number>;
+  total_eur_per_month: number;
+  components: Array<{ key: string; label: string; eur_per_month: number; pricing_key?: string }>;
+  machines: Array<MachinePricingBreakdown & { machine_id: string; machine_name: string }>;
+  artifacts: {
+    snapshots: Array<Record<string, unknown>>;
+    backups: Array<Record<string, unknown>>;
+    errors: Array<{ machine_id: string; error: string }>;
+  };
+  templates: Array<Record<string, unknown>>;
+  warm_pools: Array<Record<string, unknown>>;
+  note?: string;
 };
 
 export type TelemetrySpan = {
@@ -296,6 +378,52 @@ export type PoolPolicy = {
   updated_at: string;
 };
 
+export type MachineTemplate = {
+  id: string;
+  account_id: string;
+  name: string;
+  slug: string;
+  status: 'preparing' | 'active' | 'failed' | 'archived' | 'deleted' | string;
+  visibility: 'catalog' | 'private' | string;
+  region: string;
+  type: 'container' | string;
+  default_resources: { vcpu: number; memory_gb: number; disk_gb: number };
+  source?: { type?: string; ref?: string | null };
+  image?: {
+    alias?: string;
+    fingerprint?: string;
+    cluster_id?: string;
+    project?: string;
+    size?: number | string | null;
+    aliases?: Array<{ name: string; description?: string }>;
+    properties?: Record<string, string>;
+  };
+  readiness?: {
+    ready?: boolean;
+    daemon_baked?: boolean;
+    daemon_first_boot_verified?: boolean;
+    daemon_second_boot_verified?: boolean;
+    prepared_at?: string | null;
+    verified_at?: string | null;
+  };
+  storage?: {
+    metered_bytes?: number | null;
+    billable_gib?: number | null;
+    eur_per_month?: number | null;
+    source?: string;
+    estimated?: boolean;
+    note?: string;
+  };
+  pool?: PoolPolicy | null;
+  pools?: {
+    stopped?: PoolPolicy | null;
+    running?: PoolPolicy | null;
+  };
+  metadata?: Record<string, unknown>;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
 export type PoolAdminMachine = {
   id: string;
   account_id: string;
@@ -404,6 +532,8 @@ export type BackupItem = {
   size?: number;
   account_id?: string;
   machine_id?: string;
+  trigger?: 'manual' | 'auto' | string;
+  policy_id?: string | null;
   restore_snapshot?: string;
   cost_attribution?: ArtifactCostAttribution;
 };

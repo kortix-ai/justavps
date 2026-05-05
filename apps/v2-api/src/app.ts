@@ -1,6 +1,6 @@
-import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
-import type { Host, Machine as PrismaMachine, WarmPoolPolicy as PrismaWarmPoolPolicy, Prisma } from '@prisma/client';
+import type { Account as PrismaAccount, AccountInvitation as PrismaAccountInvitation, AccountMembership as PrismaAccountMembership, Host, Machine as PrismaMachine, MachineBackupPolicy as PrismaMachineBackupPolicy, MachineTemplate as PrismaMachineTemplate, User as PrismaUser, WarmPoolPolicy as PrismaWarmPoolPolicy, Prisma } from '@prisma/client';
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import { Scalar } from '@scalar/hono-api-reference';
 
@@ -38,7 +38,7 @@ import { normalizeClusterConfig } from './config.js';
 import { registerAdminUi } from './admin-ui-static.js';
 import { getPrisma } from './db/client.js';
 import { IncusApiError, IncusClient, hardenedSecurityConfig, type CreateInstanceSource } from './incus/client.js';
-import type { IncusInstance, IncusInstanceState, IncusOperation } from './incus/types.js';
+import type { IncusImage, IncusInstance, IncusInstanceState, IncusOperation } from './incus/types.js';
 import { sweepOnce, startLifecycleSweeper } from './lifecycle.js';
 import { driveRun, type Step } from './services/nodeProvisioning.js';
 import { applyTransition, type NodeLifecycleState } from './lifecycle/nodeLifecycle.js';
@@ -50,7 +50,7 @@ import { forecastExhaustion, type FillSample } from './economics/autoscale.js';
 import { DEFAULT_PRICING } from './economics/pricing.js';
 import { syncHetznerServers, mapHetznerServer } from './services/hetznerInventory.js';
 import { syncIncusObservation, type IncusObservation } from './services/incusSync.js';
-import { bakeManagedDaemonIntoInstance, ensureManagedDaemon, markManagedDaemonQueued, restartManagedDaemonService, waitForCloudInitDone, waitForGuestExecReady, waitForJustavpsLive, waitForManagedDaemonHealth } from './services/managedDaemon.js';
+import { cleanupInjectedManagedDaemon, ensureManagedDaemon, markManagedDaemonQueued, restartManagedDaemonService, waitForCloudInitDone, waitForGuestExecReady, waitForJustavpsLive, waitForManagedDaemonHealth } from './services/managedDaemon.js';
 import { ensureGuestSshAccess, mergeSshMetadata } from './services/sshAccess.js';
 import { HetznerRobotApiError, HetznerRobotClient, type HetznerRobotProduct } from './vendors/hetznerRobot.js';
 import { TEMPLATES, TEMPLATE_IDS, imageMatchesTemplate } from './templates/catalog.js';
@@ -95,27 +95,55 @@ const WARM_POOL_RUNNING_MODE = 'primed_running_exact' as const;
 const WARM_POOL_DEFAULT_MODE = WARM_POOL_STOPPED_MODE;
 const WARM_POOL_MODE_INPUTS = ['stopped', 'running', WARM_POOL_STOPPED_MODE, WARM_POOL_RUNNING_MODE] as const;
 type WarmPoolMode = typeof WARM_POOL_STOPPED_MODE | typeof WARM_POOL_RUNNING_MODE;
+const DEFAULT_TEMPLATE_RESOURCES = { vcpu: 2, memory_gb: 2, disk_gb: 10 } as const;
+const AUTO_BACKUP_POLICY = {
+  cadence: 'daily',
+  intervalHours: 24,
+  retentionDays: 7,
+  retentionCount: 7,
+} as const;
+const ACCOUNT_TYPES = ['personal', 'organization'] as const;
+const ACCOUNT_ROLES = ['owner', 'admin', 'member'] as const;
+const MACHINE_START_STRATEGIES = ['auto', 'running_pool', 'stopped_pool', 'cold'] as const;
+type MachineStartStrategy = (typeof MACHINE_START_STRATEGIES)[number];
 
 function normalizeWarmPoolMode(value: unknown): WarmPoolMode {
   return value === 'running' || value === WARM_POOL_RUNNING_MODE ? WARM_POOL_RUNNING_MODE : WARM_POOL_STOPPED_MODE;
 }
 
+function warmPoolModesForStartStrategy(strategy: MachineStartStrategy): WarmPoolMode[] {
+  if (strategy === 'running_pool') return [WARM_POOL_RUNNING_MODE];
+  if (strategy === 'stopped_pool') return [WARM_POOL_STOPPED_MODE];
+  if (strategy === 'cold') return [];
+  return [WARM_POOL_RUNNING_MODE, WARM_POOL_STOPPED_MODE];
+}
+
+function warmPoolModeKey(mode: WarmPoolMode): 'running' | 'stopped' {
+  return mode === WARM_POOL_RUNNING_MODE ? 'running' : 'stopped';
+}
+
+const resourceShapeSchema = z.object({
+  vcpu: z.number().int().min(1).max(256),
+  memory_gb: z.number().int().min(1).max(2048),
+  disk_gb: z.number().int().min(1).max(100_000),
+});
+
+const legacyMachineSourceSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('image'), image_id: z.string().min(1) }),
+  z.object({ type: z.literal('snapshot'), snapshot_id: z.string().min(1) }),
+  z.object({ type: z.literal('backup'), backup_id: z.string().min(1) }),
+]);
+
 const createMachineSchema = z.object({
-  region: z.enum(SUPPORTED_REGIONS).default('eu'),
+  region: z.enum(SUPPORTED_REGIONS).optional(),
   type: z.literal('container').default('container'),
   // Product display/search label only. Never used as the Incus hostname.
   // Incus instance names are generated UUIDs to avoid customer collisions.
   name: z.string().trim().min(1).max(80).optional(),
-  resources: z.object({
-    vcpu: z.number().int().min(1).max(256),
-    memory_gb: z.number().int().min(1).max(2048),
-    disk_gb: z.number().int().min(1).max(100_000),
-  }),
-  source: z.discriminatedUnion('type', [
-    z.object({ type: z.literal('image'), image_id: z.string().min(1) }),
-    z.object({ type: z.literal('snapshot'), snapshot_id: z.string().min(1) }),
-    z.object({ type: z.literal('backup'), backup_id: z.string().min(1) }),
-  ]),
+  template_id: z.string().trim().min(1),
+  start_strategy: z.enum(MACHINE_START_STRATEGIES).default('auto'),
+  resources: resourceShapeSchema.optional(),
+  source: legacyMachineSourceSchema.optional(),
   // Daytona-style ergonomics: env merged into every exec, labels for tagging,
   // lifecycle drives the background sweeper.
   env: z.record(z.string(), z.string()).optional(),
@@ -127,9 +155,58 @@ const createMachineSchema = z.object({
     ephemeral: z.boolean().optional(),
   }).optional(),
   target_cluster_id: z.string().min(1).optional(),
+}).superRefine((data, ctx) => {
+  if (data.source) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['source'],
+      message: 'Direct image/snapshot/backup machine sources are disabled. Create a Machine Template from that source first, then create the Machine with template_id.',
+    });
+  }
 });
 
-type CreateMachineInput = z.infer<typeof createMachineSchema>;
+type CreateMachineRequest = z.infer<typeof createMachineSchema>;
+type ResourceShape = z.infer<typeof resourceShapeSchema>;
+type MachineSourceInput = z.infer<typeof legacyMachineSourceSchema>;
+type CreateMachineInput = Omit<CreateMachineRequest, 'template_id' | 'resources' | 'source' | 'region'> & {
+  region: SupportedRegion;
+  resources: ResourceShape;
+  source: { type: 'image'; image_id: string };
+  template_id: string;
+};
+type SourceResolveInput = { source: MachineSourceInput; type: 'container' | 'vm'; resources: ResourceShape; region: SupportedRegion };
+
+const createMachineTemplateSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  slug: z.string().trim().min(1).max(80).regex(/^[a-z0-9][a-z0-9_.:-]*$/).optional(),
+  region: z.enum(SUPPORTED_REGIONS).default('eu'),
+  type: z.literal('container').default('container'),
+  visibility: z.enum(['catalog', 'private']).default('private'),
+  default_resources: resourceShapeSchema.default(DEFAULT_TEMPLATE_RESOURCES),
+  source: z.discriminatedUnion('type', [
+    z.object({ type: z.literal('image'), image_id: z.string().min(1) }),
+    z.object({ type: z.literal('simplestreams'), ref: z.string().min(1), server: z.string().url().optional() }),
+    z.object({ type: z.literal('docker'), ref: z.string().min(1), server: z.string().url().optional() }),
+    z.object({ type: z.literal('machine'), machine_id: z.string().uuid() }),
+    z.object({ type: z.literal('snapshot'), machine_id: z.string().uuid(), snapshot_id: z.string().min(1) }),
+    z.object({ type: z.literal('backup'), machine_id: z.string().uuid(), backup_id: z.string().min(1) }),
+  ]),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const patchMachineTemplateSchema = z.object({
+  name: z.string().trim().min(1).max(80).optional(),
+  status: z.enum(['active', 'archived']).optional(),
+  visibility: z.enum(['catalog', 'private']).optional(),
+  default_resources: resourceShapeSchema.optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const templatePoolConfigSchema = z.object({
+  target: z.number().int().min(0).max(WARM_POOL_POLICY_TARGET_MAX).default(1),
+  mode: z.enum(WARM_POOL_MODE_INPUTS).optional(),
+  status: z.enum(['active', 'paused']).optional(),
+});
 
 const warmPoolSourceSchema = z.object({ type: z.literal('image'), image_id: z.string().min(1) });
 
@@ -323,6 +400,52 @@ const createBackupSchema = z.object({
   instance_only: z.boolean().optional().default(false),
   optimized_storage: z.boolean().optional().default(true),
   expires_at: z.string().datetime().optional().nullable(),
+});
+
+const patchBackupPolicySchema = z.object({
+  enabled: z.boolean(),
+});
+
+const createUserSchema = z.object({
+  email: z.string().email(),
+  name: z.string().trim().min(1).max(120).optional(),
+  is_admin: z.boolean().optional().default(false),
+});
+
+const createAccountSchema = z.object({
+  type: z.enum(ACCOUNT_TYPES).default('organization'),
+  name: z.string().trim().min(1).max(120),
+  slug: z.string().trim().min(1).max(80).regex(/^[a-z0-9][a-z0-9_.:-]*$/).optional(),
+  billing_email: z.string().email().optional().nullable(),
+  owner_user_id: z.string().min(1).optional(),
+  owner_email: z.string().email().optional(),
+  owner_name: z.string().trim().min(1).max(120).optional(),
+});
+
+const patchAccountSchema = z.object({
+  type: z.enum(ACCOUNT_TYPES).optional(),
+  name: z.string().trim().min(1).max(120).optional(),
+  slug: z.string().trim().min(1).max(80).regex(/^[a-z0-9][a-z0-9_.:-]*$/).optional(),
+  billing_email: z.string().email().optional().nullable(),
+  stripe_customer_id: z.string().trim().min(1).max(200).optional().nullable(),
+  deleted: z.boolean().optional(),
+});
+
+const accountMemberSchema = z.object({
+  user_id: z.string().min(1).optional(),
+  email: z.string().email().optional(),
+  name: z.string().trim().min(1).max(120).optional(),
+  role: z.enum(ACCOUNT_ROLES).default('member'),
+});
+
+const patchAccountMemberSchema = z.object({
+  role: z.enum(ACCOUNT_ROLES),
+});
+
+const accountInvitationSchema = z.object({
+  email: z.string().email(),
+  role: z.enum(ACCOUNT_ROLES).default('member'),
+  expires_in_days: z.number().int().min(1).max(90).optional().default(7),
 });
 
 const toolboxConfigSchema = z.object({
@@ -931,6 +1054,7 @@ async function ensureMachineUsable(input: {
   repairManagedDaemon?: boolean;
   waitForCloudInit?: boolean;
   actualLiveProbe?: boolean;
+  managedDaemonStepName?: string;
   verifyPort?: number | null;
   execTimeoutMs?: number;
   cloudInitTimeoutMs?: number;
@@ -941,6 +1065,26 @@ async function ensureMachineUsable(input: {
   const steps: Record<string, unknown>[] = [];
 
   if (input.actualLiveProbe && !input.installManagedDaemon) {
+    let managedDaemon: Record<string, unknown> | null = null;
+    let repairedManagedDaemon = false;
+    if (input.repairManagedDaemon && (input.config.daemonLocalPath || input.config.daemonMountSource)) {
+      const daemon = await timedUsabilityStep({
+        steps,
+        name: 'activate injected managed daemon',
+        telemetry: input.telemetry,
+        details: { mode: input.mode, instance: input.instanceName },
+        run: () => ensureManagedDaemon({
+          config: input.config,
+          client: input.client,
+          instanceName: input.instanceName,
+          machineId: input.machineId,
+          verifyPort: input.verifyPort ?? null,
+        }),
+      });
+      managedDaemon = daemon as unknown as Record<string, unknown>;
+      repairedManagedDaemon = true;
+      if (!daemon.ok) throw new Error(`Injected daemon activation did not make ${input.machineId} ready: ${daemon.error ?? 'unknown daemon error'}`);
+    }
     let live = await timedUsabilityStep({
       steps,
       name: 'actual live: command file daemon',
@@ -948,8 +1092,6 @@ async function ensureMachineUsable(input: {
       details: { mode: input.mode, instance: input.instanceName },
       run: () => waitForJustavpsLive({ client: input.client, instanceName: input.instanceName, timeoutMs: input.execTimeoutMs ?? 90_000 }),
     });
-    let managedDaemon: Record<string, unknown> | null = null;
-    let repairedManagedDaemon = false;
     if (!live.ok && input.repairManagedDaemon) {
       repairedManagedDaemon = true;
       const restarted = await timedUsabilityStep({
@@ -1045,7 +1187,7 @@ async function ensureMachineUsable(input: {
   if (input.installManagedDaemon) {
     const daemon = await timedUsabilityStep({
       steps,
-      name: 'install managed daemon',
+      name: input.managedDaemonStepName ?? 'install managed daemon',
       telemetry: input.telemetry,
       details: { mode: input.mode, instance: input.instanceName },
       run: () => ensureManagedDaemon({
@@ -1105,10 +1247,22 @@ async function ensureMachineUsable(input: {
     }
   }
 
+  const actualLive = input.actualLiveProbe
+    ? await timedUsabilityStep({
+      steps,
+      name: 'actual live: command file daemon',
+      telemetry: input.telemetry,
+      details: { mode: input.mode, instance: input.instanceName },
+      run: () => waitForJustavpsLive({ client: input.client, instanceName: input.instanceName, timeoutMs: input.execTimeoutMs ?? 90_000 }),
+    })
+    : null;
+  if (actualLive && !actualLive.ok) throw new Error(`Machine ${input.machineId} did not become actually live: ${actualLive.error ?? actualLive.stderr ?? 'timeout'}`);
+
   const endedAt = nowIso();
   return {
     ok: true,
     mode: input.mode,
+    ...(actualLive ? { contract: 'actual-live' } : {}),
     started_at: startedAt,
     ended_at: endedAt,
     ready_at: endedAt,
@@ -1116,6 +1270,9 @@ async function ensureMachineUsable(input: {
     exec_ready: compactUsabilityResult(execReady),
     cloud_init: compactUsabilityResult(cloudInit),
     daemon_health: daemonHealth ? compactUsabilityResult(daemonHealth) : null,
+    actual_live: actualLive ? compactUsabilityResult(actualLive) : null,
+    file_api_ready: actualLive ? true : undefined,
+    command_api_ready: actualLive ? true : undefined,
     managed_daemon: managedDaemon,
     managed_daemon_state: 'ready',
     repaired_managed_daemon: repairedManagedDaemon,
@@ -1251,14 +1408,16 @@ async function validateWarmPoolPolicyInput(_config: AppConfig, input: WarmPoolPo
   return { error: { status: 400, body: { error: true as const, message: 'Pool policies currently support image sources only' } } };
 }
 
-async function claimWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec, input: CreateMachineInput, displayName: string, accountId: string, telemetry?: MachineCreationTelemetry) {
+async function claimWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec, input: CreateMachineInput, displayName: string, accountId: string, strategy: MachineStartStrategy, telemetry?: MachineCreationTelemetry) {
   if (!config.databaseConfigured) return null;
   if (spec.type !== 'container') return null;
+  const preferredModes = warmPoolModesForStartStrategy(strategy);
+  if (!preferredModes.length) return null;
   const prisma = getPrisma();
   const span = <T>(name: string, fn: () => Promise<T>, details?: Record<string, unknown>) => (
     telemetry ? withTelemetrySpan(telemetry, name, fn, details) : fn()
   );
-  const policies = await span('warm pool: load active policies', () => activeWarmPoolPoliciesForSource(accountId, spec), { source_key: spec.key, requested_resources: spec.resources });
+  const policies = (await span('warm pool: load active policies', () => activeWarmPoolPoliciesForSource(accountId, spec), { source_key: spec.key, requested_resources: spec.resources, strategy, preferred_modes: preferredModes })).filter((policy) => preferredModes.includes(normalizeWarmPoolMode(policy.billingMode)));
   if (!policies.length) return null;
   const policiesById = new Map(policies.map((policy) => [policy.id, policy]));
   const policyIds = new Set(policies.map((policy) => policy.id));
@@ -1280,8 +1439,8 @@ async function claimWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec, input
     const bWarm = jsonRecord(jsonRecord(b.metadata).warm_pool);
     const aPolicy = policiesById.get(String(aWarm.policy_id ?? ''));
     const bPolicy = policiesById.get(String(bWarm.policy_id ?? ''));
-    const aModeRank = normalizeWarmPoolMode(aWarm.mode ?? aPolicy?.billingMode) === WARM_POOL_RUNNING_MODE ? 0 : 1;
-    const bModeRank = normalizeWarmPoolMode(bWarm.mode ?? bPolicy?.billingMode) === WARM_POOL_RUNNING_MODE ? 0 : 1;
+    const aModeRank = preferredModes.indexOf(normalizeWarmPoolMode(aWarm.mode ?? aPolicy?.billingMode));
+    const bModeRank = preferredModes.indexOf(normalizeWarmPoolMode(bWarm.mode ?? bPolicy?.billingMode));
     const aResources = machineResourceKey(a.resources);
     const bResources = machineResourceKey(b.resources);
     const aResizeScore = warmPoolResizeScore(aResources, spec.resources);
@@ -1290,7 +1449,7 @@ async function claimWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec, input
     const bPrimed = bWarm.primed === true ? 0 : 1;
     const aLatency = warmPoolRowUsableLatencyMs(a) ?? Number.POSITIVE_INFINITY;
     const bLatency = warmPoolRowUsableLatencyMs(b) ?? Number.POSITIVE_INFINITY;
-    return aResizeScore - bResizeScore || aModeRank - bModeRank || aPrimed - bPrimed || aLatency - bLatency || a.updatedAt.getTime() - b.updatedAt.getTime();
+    return aModeRank - bModeRank || aResizeScore - bResizeScore || aPrimed - bPrimed || aLatency - bLatency || a.updatedAt.getTime() - b.updatedAt.getTime();
   });
 
   for (const candidate of rankedCandidates) {
@@ -1398,6 +1557,8 @@ async function claimWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec, input
           accountId,
           name: displayName,
           status: 'Running',
+          sourceType: 'template',
+          sourceId: input.template_id,
           resources: input.resources,
           metadata: {
             ...previousMeta,
@@ -1420,12 +1581,21 @@ async function claimWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec, input
               requested_resources: input.resources,
               resized_on_claim: resizeNeeded,
               running_takeover: poolMode === WARM_POOL_RUNNING_MODE,
+              start_strategy: strategy,
               claim_usability: {
                 ok: usability.ok === true,
                 duration_ms: typeof usability.duration_ms === 'number' ? usability.duration_ms : 0,
                 ready_at: typeof usability.ready_at === 'string' ? usability.ready_at : new Date().toISOString(),
                 repaired_managed_daemon: usability.repaired_managed_daemon === true,
               },
+            },
+            source_template: {
+              id: input.template_id,
+              image_alias: spec.sourceId,
+              requested_resources: input.resources,
+              start_strategy: strategy,
+              template_resources: candidateResources,
+              from_pool: true,
             },
             resource_operation: resourceOperation,
             isolation_check: isolationCheck,
@@ -2200,6 +2370,16 @@ async function proxyViaIncusExec(resolved: NonNullable<Awaited<ReturnType<typeof
     return new Response('Non-GET proxying requires the managed toolbox daemon; this image does not have one configured yet.', { status: 502 });
   }
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  if (viaDaemon && port === 80 && normalizedPath === '/daemon/health') {
+    const result = await resolved.client.exec(resolved.machine.incusInstanceName, {
+      command: ['/usr/local/bin/justavps-daemon', '--health-check', '--api-port', '7777'],
+      timeoutMs: 10_000,
+    });
+    if (result.exit_code !== 0) {
+      return new Response(`Daemon health is not reachable inside the sandbox. exit=${result.exit_code}\n${result.stderr || result.stdout}`, { status: 502 });
+    }
+    return new Response(request.method === 'HEAD' ? null : result.stdout, { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
   const target = viaDaemon
     ? (port === 80
       ? `http://127.0.0.1${normalizedPath}${cleanProxySearch(search)}`
@@ -2432,11 +2612,14 @@ function buildBootstrapPlan(input: z.infer<typeof bootstrapPlanSchema>, host?: {
   };
 }
 
-async function resolveCreateInstanceSource(config: AppConfig, input: CreateMachineInput, cluster: IncusClusterConfig): Promise<
-  | { source: CreateInstanceSource; sourceId: string | null; preferredMemberName?: string | null }
+async function resolveCreateInstanceSource(config: AppConfig, input: SourceResolveInput, cluster: IncusClusterConfig): Promise<
+  | { source: CreateInstanceSource; sourceId: string | null; preferredMemberName?: string | null; image?: IncusImage | null; justavpsReady?: boolean }
   | { error: { status: 404 | 409 | 501; body: { error: true; message: string } } }
 > {
-  if (input.source.type === 'image') return { source: { type: 'image', image: input.source.image_id }, sourceId: input.source.image_id };
+  if (input.source.type === 'image') {
+    const image = await findIncusImageByAliasOrFingerprint(clientFor(cluster), input.source.image_id).catch(() => null);
+    return { source: { type: 'image', image: input.source.image_id }, sourceId: input.source.image_id, image, justavpsReady: imageIsJustavpsReady(image) };
+  }
   if (input.source.type === 'backup') {
     return { error: { status: 501, body: { error: true, message: 'Backup sources require Incus backup import plumbing and are not implemented yet' } } };
   }
@@ -2547,6 +2730,9 @@ async function applyResourceConfig(
       'initial.uid': '0',
       'initial.gid': '0',
     };
+    const currentDevices = observedInstance(observed)?.devices ?? {};
+    const daemonDevice = currentDevices.justavps_daemon;
+    if (daemonDevice?.type === 'disk') devices.justavps_daemon = daemonDevice;
   }
   let configOperation: IncusOperation | Record<string, unknown> | null = null;
   let restartedForDevicePatch = false;
@@ -2720,6 +2906,8 @@ async function createWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec) {
   const sourceInput: CreateMachineInput = {
     region: spec.region as SupportedRegion,
     type: 'container',
+    template_id: spec.sourceId,
+    start_strategy: 'cold',
     resources: spec.resources,
     source: { type: 'image', image_id: spec.sourceId },
   };
@@ -2754,6 +2942,7 @@ async function createWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec) {
       machineId,
       displayName,
       accountId: poolAccountId,
+      platformDaemon: platformDaemonMount(config),
     });
     const enforced = await enforceCreatedMachineResources({
       client,
@@ -2778,9 +2967,12 @@ async function createWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec) {
       mode: 'warm-pool-prime',
       installManagedDaemon: true,
       repairManagedDaemon: false,
-      execTimeoutMs: 120_000,
-      cloudInitTimeoutMs: 180_000,
-      daemonHealthTimeoutMs: 60_000,
+      waitForCloudInit: resolvedSource.justavpsReady === true ? false : undefined,
+      actualLiveProbe: resolvedSource.justavpsReady === true,
+      managedDaemonStepName: resolvedSource.justavpsReady === true ? 'activate injected managed daemon' : undefined,
+      execTimeoutMs: resolvedSource.justavpsReady === true ? 90_000 : 120_000,
+      cloudInitTimeoutMs: resolvedSource.justavpsReady === true ? 0 : 180_000,
+      daemonHealthTimeoutMs: resolvedSource.justavpsReady === true ? 10_000 : 60_000,
     });
     const stopped = await stopCreatedMachine(client, machineId);
     stopOperation = stopped.operation;
@@ -3010,12 +3202,27 @@ async function prepareAndPublishJustavpsImage(config: AppConfig, input: {
       mode: 'image-bake',
       installManagedDaemon: true,
       repairManagedDaemon: false,
+      waitForCloudInit: false,
+      actualLiveProbe: true,
+      managedDaemonStepName: 'activate injected managed daemon',
       execTimeoutMs: 120_000,
-      cloudInitTimeoutMs: 180_000,
-      daemonHealthTimeoutMs: 60_000,
+      cloudInitTimeoutMs: 0,
+      daemonHealthTimeoutMs: 10_000,
     });
-    const initialBake = await bakeManagedDaemonIntoInstance({ config, client, instanceName: tempName });
-    if (!initialBake.ok) throw new Error(initialBake.error ?? 'failed to bake JustAVPS daemon into image prep instance');
+    const firstDaemon = jsonRecord(firstUsability.managed_daemon);
+    if (firstDaemon.daemon_source !== 'injected-mount' && firstDaemon.daemon_source !== 'injected-push') {
+      throw new Error(`Machine Template preparation expected runtime daemon injection, got ${String(firstDaemon.daemon_source ?? 'none')}`);
+    }
+    const initialBake = {
+      ok: true,
+      baked_at: new Date().toISOString(),
+      daemon_url: config.daemonDownloadUrl,
+      daemon_source: 'runtime-injection',
+      install: { exit_code: 0, stdout: 'JUSTAVPS_DAEMON_BAKE_SKIPPED_RUNTIME_INJECTION', stderr: '' },
+      version: firstDaemon.version as string | undefined,
+    };
+    const firstCleanup = await cleanupInjectedManagedDaemon({ config, client, instanceName: tempName, removeBinary: true });
+    if (firstCleanup.exit_code !== 0) throw new Error(firstCleanup.stderr || firstCleanup.stdout || 'failed to clean injected daemon after first verification');
     firstStop = await stopCreatedMachine(client, tempName);
 
     secondStart = await startCreatedMachine(client, tempName);
@@ -3025,15 +3232,28 @@ async function prepareAndPublishJustavpsImage(config: AppConfig, input: {
       instanceName: tempName,
       machineId: tempName,
       mode: 'image-bake',
-      installManagedDaemon: false,
-      repairManagedDaemon: true,
+      installManagedDaemon: true,
+      repairManagedDaemon: false,
       waitForCloudInit: false,
       actualLiveProbe: true,
+      managedDaemonStepName: 'activate injected managed daemon',
       execTimeoutMs: 120_000,
-      daemonHealthTimeoutMs: 5_000,
+      daemonHealthTimeoutMs: 10_000,
     });
-    const finalBake = await bakeManagedDaemonIntoInstance({ config, client, instanceName: tempName });
-    if (!finalBake.ok) throw new Error(finalBake.error ?? 'failed to clean reusable JustAVPS image config after second-boot validation');
+    const secondDaemon = jsonRecord(secondBootUsability.managed_daemon);
+    if (secondDaemon.daemon_source !== 'injected-mount' && secondDaemon.daemon_source !== 'injected-push') {
+      throw new Error(`Machine Template second-boot verification expected runtime daemon injection, got ${String(secondDaemon.daemon_source ?? 'none')}`);
+    }
+    const finalCleanup = await cleanupInjectedManagedDaemon({ config, client, instanceName: tempName, removeBinary: true });
+    if (finalCleanup.exit_code !== 0) throw new Error(finalCleanup.stderr || finalCleanup.stdout || 'failed to clean injected daemon after second-boot validation');
+    const finalBake = {
+      ok: true,
+      baked_at: new Date().toISOString(),
+      daemon_url: config.daemonDownloadUrl,
+      daemon_source: 'runtime-injection',
+      install: { exit_code: 0, stdout: finalCleanup.stdout || 'JUSTAVPS_DAEMON_IMAGE_CLEANED_RUNTIME_INJECTION', stderr: finalCleanup.stderr },
+      version: secondDaemon.version as string | undefined,
+    };
     secondStop = await stopCreatedMachine(client, tempName);
 
     const operation = await client.createImageFromInstance({
@@ -3041,10 +3261,11 @@ async function prepareAndPublishJustavpsImage(config: AppConfig, input: {
       aliases: [{ name: input.alias, description: input.description }],
       properties: {
         ...input.properties,
-        'justavps.daemon_baked': 'true',
+        'justavps.daemon_baked': 'false',
+        'justavps.daemon_runtime_injected': 'true',
         'justavps.daemon_first_boot_verified': String(firstUsability.ok),
         'justavps.daemon_second_boot_verified': String(secondBootUsability.ok),
-        'justavps.daemon_bake_strategy': 'temporary-instance-second-boot-validation',
+        'justavps.daemon_bake_strategy': 'runtime-injection-second-boot-validation',
         'justavps.image_type': input.imageType === 'vm' ? 'virtual-machine' : 'container',
       },
       public: input.public,
@@ -3068,6 +3289,199 @@ async function prepareAndPublishJustavpsImage(config: AppConfig, input: {
     };
   } catch (error) {
     await client.deleteInstance(tempName, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function createPreparedMachineTemplate(config: AppConfig, input: z.infer<typeof createMachineTemplateSchema>, accountId: string) {
+  if (!config.databaseConfigured) throw new BadRequestError('Database not configured');
+  if (input.type !== 'container') throw new BadRequestError(CONTAINERS_ONLY_MESSAGE);
+  const prisma = getPrisma();
+  const slug = templateSlug(input.slug ?? input.name);
+  const existing = await prisma.machineTemplate.findUnique({ where: { accountId_slug: { accountId, slug } } }).catch(() => null);
+  if (existing && existing.status !== 'deleted') throw new ConflictError(`Machine Template slug ${slug} already exists for account ${accountId}`);
+  const alias = slug.startsWith('tpl-') || slug.startsWith('justavps-') ? slug : `tpl-${slug}`;
+  const commonProperties = {
+    'justavps.machine_template_slug': slug,
+    'justavps.machine_template_name': input.name,
+    'justavps.machine_template_default_vcpu': String(input.default_resources.vcpu),
+    'justavps.machine_template_default_memory_gb': String(input.default_resources.memory_gb),
+    'justavps.machine_template_default_disk_gb': String(input.default_resources.disk_gb),
+  };
+
+  let cluster: IncusClusterConfig | null = null;
+  let prepared: Awaited<ReturnType<typeof prepareAndPublishJustavpsImage>>;
+  let rawOperation: IncusOperation | Record<string, unknown> | null = null;
+  let importedBackupInstance: string | null = null;
+  let sourceKind = input.source.type;
+  let sourceRef: string | null = null;
+  let sourceMachineId: string | null = null;
+  let sourceSnapshotId: string | null = null;
+
+  try {
+    if (input.source.type === 'docker') {
+      cluster = pickCluster(config, input.region) ?? null;
+      if (!cluster) throw new ConflictError(`No Incus cluster configured for region ${input.region}`);
+      const server = input.source.server ?? 'https://docker.io';
+      const rawAlias = generatedResourceName('imgraw');
+      rawOperation = await clientFor(cluster).createImageFromOci({
+        server,
+        ociRef: input.source.ref,
+        imageType: 'container',
+        aliases: [{ name: rawAlias, description: `Temporary raw JustAVPS Template ${rawAlias} (OCI: ${input.source.ref})` }],
+        properties: { ...commonProperties, 'justavps.source': 'docker', 'justavps.docker_ref': input.source.ref, 'justavps.docker_server': server, 'justavps.raw_for': alias },
+        public: false,
+      });
+      sourceRef = `${server}:${input.source.ref}`;
+      prepared = await prepareAndPublishJustavpsImage(config, {
+        cluster,
+        source: { type: 'image', image: rawAlias },
+        imageType: 'container',
+        alias,
+        description: `JustAVPS Machine Template ${input.name} (OCI: ${input.source.ref})`,
+        properties: { ...commonProperties, ...(input.metadata ? Object.fromEntries(Object.entries(input.metadata).map(([k, v]) => [`justavps.meta.${k}`, String(v)])) : {}), 'justavps.source': 'docker', 'justavps.docker_ref': input.source.ref, 'justavps.docker_server': server },
+        public: input.visibility === 'catalog',
+        accountId,
+        baseResources: input.default_resources,
+      });
+      await clientFor(cluster).deleteImage(rawAlias).catch(() => undefined);
+    } else if (input.source.type === 'simplestreams') {
+      cluster = pickCluster(config, input.region) ?? null;
+      if (!cluster) throw new ConflictError(`No Incus cluster configured for region ${input.region}`);
+      const server = input.source.server ?? 'https://images.linuxcontainers.org';
+      const rawAlias = generatedResourceName('imgraw');
+      rawOperation = await clientFor(cluster).createImageFromSimplestreams({
+        server,
+        alias: input.source.ref,
+        imageType: 'container',
+        aliases: [{ name: rawAlias, description: `Temporary raw JustAVPS Template ${rawAlias} (simplestreams: ${input.source.ref})` }],
+        properties: { ...commonProperties, 'justavps.source': 'simplestreams', 'justavps.simplestreams_ref': input.source.ref, 'justavps.simplestreams_server': server, 'justavps.raw_for': alias },
+        public: false,
+      });
+      sourceRef = `${server}:${input.source.ref}`;
+      prepared = await prepareAndPublishJustavpsImage(config, {
+        cluster,
+        source: { type: 'image', image: rawAlias },
+        imageType: 'container',
+        alias,
+        description: `JustAVPS Machine Template ${input.name} (simplestreams: ${input.source.ref})`,
+        properties: { ...commonProperties, 'justavps.source': 'simplestreams', 'justavps.simplestreams_ref': input.source.ref, 'justavps.simplestreams_server': server },
+        public: input.visibility === 'catalog',
+        accountId,
+        baseResources: input.default_resources,
+      });
+      await clientFor(cluster).deleteImage(rawAlias).catch(() => undefined);
+    } else if (input.source.type === 'image') {
+      cluster = pickCluster(config, input.region) ?? null;
+      if (!cluster) throw new ConflictError(`No Incus cluster configured for region ${input.region}`);
+      sourceRef = input.source.image_id;
+      prepared = await prepareAndPublishJustavpsImage(config, {
+        cluster,
+        source: { type: 'image', image: input.source.image_id },
+        imageType: 'container',
+        alias,
+        description: `JustAVPS Machine Template ${input.name}`,
+        properties: { ...commonProperties, 'justavps.source': 'image', 'justavps.source_image_id': input.source.image_id },
+        public: input.visibility === 'catalog',
+        accountId,
+        baseResources: input.default_resources,
+      });
+    } else if (input.source.type === 'machine' || input.source.type === 'snapshot') {
+      const resolved = await machineClient(config, input.source.machine_id);
+      if (!resolved) throw new BadRequestError('Source machine not found');
+      if (resolved.machine.type !== 'container') throw new BadRequestError(CONTAINERS_ONLY_MESSAGE);
+      cluster = resolved.cluster;
+      sourceMachineId = resolved.machine.id;
+      let snapshotName: string | null = null;
+      if (input.source.type === 'snapshot') {
+        const snapshot = config.databaseConfigured
+          ? await prisma.snapshot.findUnique({ where: { id: input.source.snapshot_id } })
+            ?? await prisma.snapshot.findFirst({ where: { machineId: resolved.machine.id, incusSnapshotName: input.source.snapshot_id }, orderBy: { createdAt: 'desc' } })
+          : null;
+        snapshotName = snapshot?.incusSnapshotName ?? input.source.snapshot_id;
+        sourceSnapshotId = snapshot?.id ?? input.source.snapshot_id;
+      }
+      sourceRef = snapshotName ? `${resolved.machine.id}/${snapshotName}` : resolved.machine.id;
+      prepared = await prepareAndPublishJustavpsImage(config, {
+        cluster,
+        source: { type: 'snapshot', source: snapshotName ? `${resolved.machine.incusInstanceName}/${snapshotName}` : resolved.machine.incusInstanceName },
+        imageType: 'container',
+        alias,
+        description: `JustAVPS Machine Template ${input.name}`,
+        properties: { ...commonProperties, 'justavps.source': input.source.type, 'justavps.source_machine_id': resolved.machine.id, ...(snapshotName ? { 'justavps.source_snapshot': snapshotName } : {}) },
+        public: input.visibility === 'catalog',
+        accountId,
+        baseResources: input.default_resources,
+        preferredMemberName: resolved.machine.incusMemberName,
+      });
+    } else {
+      const backupId = `${input.source.machine_id}/${input.source.backup_id}`;
+      const backup = await resolveBackupForSource(config, backupId);
+      if ('error' in backup) throw new BadRequestError(backup.error.body.message);
+      const backupCluster = clusterById(config, backup.sourceMachine.incusClusterId);
+      if (!backupCluster) throw new BadRequestError(`Backup source cluster ${backup.sourceMachine.incusClusterId} is not configured`);
+      cluster = backupCluster;
+      const client = clientFor(cluster);
+      importedBackupInstance = generatedMachineId();
+      const tarball = await client.exportBackup(backup.sourceMachine.incusInstanceName, backup.backupName);
+      rawOperation = await client.importInstanceFromTarball({ tarball, targetName: importedBackupInstance, targetMember: backup.sourceMachine.incusMemberName ?? undefined });
+      sourceMachineId = backup.sourceMachine.id;
+      sourceRef = `${backup.sourceMachine.id}/${backup.backupName}`;
+      prepared = await prepareAndPublishJustavpsImage(config, {
+        cluster,
+        source: { type: 'snapshot', source: importedBackupInstance },
+        imageType: 'container',
+        alias,
+        description: `JustAVPS Machine Template ${input.name}`,
+        properties: { ...commonProperties, 'justavps.source': 'backup', 'justavps.source_machine_id': backup.sourceMachine.id, 'justavps.source_backup': backup.backupName },
+        public: input.visibility === 'catalog',
+        accountId,
+        baseResources: input.default_resources,
+        preferredMemberName: backup.sourceMachine.incusMemberName,
+      });
+      await client.deleteInstance(importedBackupInstance, { force: true }).catch(() => undefined);
+      importedBackupInstance = null;
+    }
+
+    const image = await findIncusImageByAliasOrFingerprint(clientFor(cluster), alias).catch(() => null);
+    const storage = imageMeasuredStorage(image);
+    const now = new Date();
+    const row = await prisma.machineTemplate.create({
+      data: {
+        accountId,
+        name: input.name,
+        slug,
+        status: 'active',
+        visibility: input.visibility,
+        region: cluster.region,
+        type: 'container',
+        incusClusterId: cluster.id,
+        incusProject: cluster.project,
+        incusAlias: alias,
+        incusFingerprint: image?.fingerprint ?? alias,
+        defaultResources: input.default_resources,
+        sourceKind,
+        sourceRef,
+        measuredBytes: storage.metered_bytes ? BigInt(storage.metered_bytes) : null,
+        billableGib: storage.billable_gib,
+        storageEurMonth: storage.eur_per_month,
+        preparedAt: now,
+        verifiedAt: now,
+        metadata: {
+          ...(input.metadata ?? {}),
+          source_machine_id: sourceMachineId,
+          source_snapshot_id: sourceSnapshotId,
+          raw_operation: rawOperation,
+          justavps_preparation: prepared,
+          image_properties: image?.properties ?? {},
+          storage,
+        } as Prisma.InputJsonValue,
+      },
+    });
+    return { row, image };
+  } catch (error) {
+    if (cluster) await clientFor(cluster).deleteImage(alias).catch(() => undefined);
+    if (cluster && importedBackupInstance) await clientFor(cluster).deleteInstance(importedBackupInstance, { force: true }).catch(() => undefined);
     throw error;
   }
 }
@@ -3295,6 +3709,12 @@ function shmTmpfsMiB(memoryGb: number) {
   return Math.max(64, Math.min(1024, memoryGb * 512));
 }
 
+function platformDaemonMount(config: AppConfig) {
+  return config.daemonMountSource
+    ? { source: config.daemonMountSource, path: config.daemonGuestPath || '/usr/local/bin/justavps-daemon', readonly: true }
+    : null;
+}
+
 function persistedResources(productResources: unknown, incus: unknown) {
   return { ...jsonRecord(productResources), ...resourcesFromIncus(incus) } as { vcpu?: number; memory_gb?: number; disk_gb?: number };
 }
@@ -3391,11 +3811,363 @@ function hotResourceEurPerMonth(resources: { vcpu: number; memory_gb: number }, 
   return (microPerSecond * BILLING_SECONDS_PER_MONTH * instances) / 1_000_000;
 }
 
+function eurPerMonthForRate(quantity: number, microEurPerSecond: number) {
+  if (!Number.isFinite(quantity) || quantity <= 0) return 0;
+  return (quantity * microEurPerSecond * BILLING_SECONDS_PER_MONTH) / 1_000_000;
+}
+
+function machinePricingBreakdown(machine: PrismaMachine, incus?: unknown) {
+  const observed = observedInstance(incus);
+  const status = observed?.status ?? machine.status;
+  const running = status.toLowerCase() === 'running';
+  const resources = persistedResources(machine.resources, observed ?? incus);
+  const vcpu = Number(resources.vcpu ?? 0) || 0;
+  const memoryGb = Number(resources.memory_gb ?? 0) || 0;
+  const diskGb = Number(resources.disk_gb ?? 0) || 0;
+  const vcpuEur = running ? eurPerMonthForRate(vcpu, DEFAULT_PRICING.vcpu_hot_micro_eur_per_sec) : 0;
+  const memoryEur = running ? eurPerMonthForRate(memoryGb, DEFAULT_PRICING.ram_gb_hot_micro_eur_per_sec) : 0;
+  const diskEur = eurPerMonthForRate(diskGb, DEFAULT_PRICING.storage_gb_local_micro_eur_per_sec);
+  const total = vcpuEur + memoryEur + diskEur;
+  return {
+    model: 'running_vcpu_ram_plus_disk_storage',
+    billable_status: status,
+    resources: { vcpu, memory_gb: memoryGb, disk_gb: diskGb },
+    rates: {
+      vcpu_running_micro_eur_per_sec: DEFAULT_PRICING.vcpu_hot_micro_eur_per_sec,
+      memory_gb_running_micro_eur_per_sec: DEFAULT_PRICING.ram_gb_hot_micro_eur_per_sec,
+      disk_gb_local_micro_eur_per_sec: DEFAULT_PRICING.storage_gb_local_micro_eur_per_sec,
+      seconds_per_month: BILLING_SECONDS_PER_MONTH,
+    },
+    components: [
+      {
+        key: 'running_vcpu',
+        label: 'Running vCPU',
+        quantity: vcpu,
+        unit: 'vCPU',
+        billable: running,
+        eur_per_month: Number(vcpuEur.toFixed(6)),
+        note: running ? 'Billed while the machine is running.' : 'Not billed while the machine is stopped.',
+      },
+      {
+        key: 'running_memory',
+        label: 'Running RAM',
+        quantity: memoryGb,
+        unit: 'GB RAM',
+        billable: running,
+        eur_per_month: Number(memoryEur.toFixed(6)),
+        note: running ? 'Billed while the machine is running.' : 'Not billed while the machine is stopped.',
+      },
+      {
+        key: 'disk_storage',
+        label: 'Disk storage',
+        quantity: diskGb,
+        unit: 'GB disk',
+        billable: true,
+        eur_per_month: Number(diskEur.toFixed(6)),
+        note: 'Billed continuously from provisioned disk storage.',
+      },
+    ],
+    total_eur_per_month: Number(total.toFixed(6)),
+    note: 'JustAVPS V2 charges running vCPU/RAM only while a machine is running, plus disk storage continuously. Backup/template/pool artifacts are separate storage components.',
+  };
+}
+
+function sumPricingComponents(items: Array<ReturnType<typeof machinePricingBreakdown>>) {
+  return items.reduce((acc, item) => {
+    acc.total_eur_per_month += item.total_eur_per_month;
+    acc.running_vcpu_eur_per_month += item.components.find((c) => c.key === 'running_vcpu')?.eur_per_month ?? 0;
+    acc.running_memory_eur_per_month += item.components.find((c) => c.key === 'running_memory')?.eur_per_month ?? 0;
+    acc.disk_storage_eur_per_month += item.components.find((c) => c.key === 'disk_storage')?.eur_per_month ?? 0;
+    return acc;
+  }, { total_eur_per_month: 0, running_vcpu_eur_per_month: 0, running_memory_eur_per_month: 0, disk_storage_eur_per_month: 0 });
+}
+
 function exactBytes(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
   if (typeof value !== 'string') return undefined;
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+async function findIncusImageByAliasOrFingerprint(client: IncusClient, imageId: string) {
+  const images = await client.listImages();
+  return images.find((image) => image.fingerprint === imageId || image.aliases?.some((alias) => alias.name === imageId)) ?? null;
+}
+
+function imageIsJustavpsReady(image: IncusImage | null | undefined) {
+  const props = image?.properties ?? {};
+  return (props['justavps.daemon_baked'] === 'true' || props['justavps.daemon_runtime_injected'] === 'true')
+    && props['justavps.daemon_second_boot_verified'] === 'true';
+}
+
+function templateSlug(input: string) {
+  return input.trim().toLowerCase().replace(/[^a-z0-9_.:-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || generatedResourceName('tpl');
+}
+
+function decimalNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function resourceShape(value: unknown, fallback: ResourceShape = DEFAULT_TEMPLATE_RESOURCES): ResourceShape {
+  const resources = jsonRecord(value);
+  const vcpu = Number(resources.vcpu);
+  const memoryGb = Number(resources.memory_gb);
+  const diskGb = Number(resources.disk_gb);
+  return {
+    vcpu: Number.isFinite(vcpu) && vcpu > 0 ? Math.round(vcpu) : fallback.vcpu,
+    memory_gb: Number.isFinite(memoryGb) && memoryGb > 0 ? Math.round(memoryGb) : fallback.memory_gb,
+    disk_gb: Number.isFinite(diskGb) && diskGb > 0 ? Math.round(diskGb) : fallback.disk_gb,
+  };
+}
+
+function localStorageEurMonthFromGib(gib: number) {
+  if (!Number.isFinite(gib) || gib <= 0) return 0;
+  return Number((gib * DEFAULT_PRICING.storage_gb_local_micro_eur_per_sec * 730 * 3600 / 1_000_000).toFixed(6));
+}
+
+function imageMeasuredStorage(image: IncusImage | null | undefined) {
+  const bytes = exactBytes(image?.size);
+  const billableGib = bytes ? Number((bytes / 1024 ** 3).toFixed(9)) : null;
+  return {
+    metered_bytes: bytes ?? null,
+    billable_gib: billableGib,
+    eur_per_month: billableGib === null ? null : localStorageEurMonthFromGib(billableGib),
+    source: bytes ? 'incus-image-size' : 'unknown',
+    estimated: true,
+    note: 'Template image size is an estimate; Pool billing uses exact measured slot storage after priming.',
+  };
+}
+
+type ResolvedMachineTemplate = {
+  id: string;
+  accountId: string;
+  name: string;
+  slug: string;
+  status: string;
+  visibility: string;
+  region: SupportedRegion;
+  type: 'container';
+  incusClusterId: string;
+  incusProject: string;
+  incusAlias: string;
+  incusFingerprint: string;
+  defaultResources: ResourceShape;
+  sourceKind: string;
+  sourceRef: string | null;
+  measuredBytes: bigint | number | null;
+  billableGib: unknown;
+  storageEurMonth: unknown;
+  preparedAt: Date | null;
+  verifiedAt: Date | null;
+  metadata: unknown;
+  createdAt?: Date;
+  updatedAt?: Date;
+  image?: IncusImage | null;
+  virtual?: boolean;
+};
+
+async function findImageForTemplate(config: AppConfig, template: Pick<ResolvedMachineTemplate, 'incusClusterId' | 'incusAlias' | 'incusFingerprint'>) {
+  const cluster = findCluster(config, template.incusClusterId) ?? config.clusters[0] ?? null;
+  if (!cluster) return null;
+  return findIncusImageByAliasOrFingerprint(clientFor(cluster), template.incusAlias).catch(async () => (
+    template.incusFingerprint ? findIncusImageByAliasOrFingerprint(clientFor(cluster), template.incusFingerprint).catch(() => null) : null
+  ));
+}
+
+async function ensureCatalogMachineTemplates(config: AppConfig) {
+  if (!config.databaseConfigured) return;
+  const prisma = getPrisma();
+  for (const template of TEMPLATES) {
+    const cluster = config.clusters.find((candidate) => candidate.region === 'eu') ?? config.clusters[0] ?? null;
+    if (!cluster) continue;
+    const image = await findIncusImageByAliasOrFingerprint(clientFor(cluster), template.id).catch(() => null);
+    const ready = imageIsJustavpsReady(image);
+    const storage = imageMeasuredStorage(image);
+    await prisma.machineTemplate.upsert({
+      where: { incusClusterId_incusProject_incusAlias: { incusClusterId: cluster.id, incusProject: cluster.project, incusAlias: template.id } },
+      create: {
+        accountId: 'system',
+        name: template.name,
+        slug: template.id,
+        status: ready ? 'active' : 'preparing',
+        visibility: 'catalog',
+        region: cluster.region,
+        type: 'container',
+        incusClusterId: cluster.id,
+        incusProject: cluster.project,
+        incusAlias: template.id,
+        incusFingerprint: image?.fingerprint ?? template.id,
+        defaultResources: DEFAULT_TEMPLATE_RESOURCES,
+        sourceKind: 'catalog',
+        sourceRef: template.id,
+        measuredBytes: storage.metered_bytes ? BigInt(storage.metered_bytes) : null,
+        billableGib: storage.billable_gib,
+        storageEurMonth: storage.eur_per_month,
+        preparedAt: ready ? new Date() : null,
+        verifiedAt: ready ? new Date() : null,
+        metadata: { description: template.description, image_properties: image?.properties ?? {}, storage } as Prisma.InputJsonValue,
+      },
+      update: {
+        name: template.name,
+        status: ready ? 'active' : 'preparing',
+        visibility: 'catalog',
+        incusFingerprint: image?.fingerprint ?? template.id,
+        measuredBytes: storage.metered_bytes ? BigInt(storage.metered_bytes) : null,
+        billableGib: storage.billable_gib,
+        storageEurMonth: storage.eur_per_month,
+        preparedAt: ready ? new Date() : null,
+        verifiedAt: ready ? new Date() : null,
+        metadata: { description: template.description, image_properties: image?.properties ?? {}, storage } as Prisma.InputJsonValue,
+      },
+    }).catch((error) => console.warn(`[v2-api] catalog machine template seed failed for ${template.id}:`, error instanceof Error ? error.message : String(error)));
+  }
+}
+
+async function virtualCatalogMachineTemplate(config: AppConfig, ref: string): Promise<ResolvedMachineTemplate | null> {
+  const catalog = TEMPLATES.find((template) => template.id === ref || template.name === ref);
+  if (!catalog) return null;
+  const cluster = config.clusters.find((candidate) => candidate.region === 'eu') ?? config.clusters[0] ?? null;
+  if (!cluster) return null;
+  const image = await findIncusImageByAliasOrFingerprint(clientFor(cluster), catalog.id).catch(() => null);
+  if (!image) return null;
+  return {
+    id: catalog.id,
+    accountId: 'system',
+    name: catalog.name,
+    slug: catalog.id,
+    status: imageIsJustavpsReady(image) ? 'active' : 'preparing',
+    visibility: 'catalog',
+    region: cluster.region as SupportedRegion,
+    type: 'container',
+    incusClusterId: cluster.id,
+    incusProject: cluster.project,
+    incusAlias: catalog.id,
+    incusFingerprint: image.fingerprint ?? catalog.id,
+    defaultResources: DEFAULT_TEMPLATE_RESOURCES,
+    sourceKind: 'catalog',
+    sourceRef: catalog.id,
+    measuredBytes: image.size ? BigInt(image.size) : null,
+    billableGib: imageMeasuredStorage(image).billable_gib,
+    storageEurMonth: imageMeasuredStorage(image).eur_per_month,
+    preparedAt: null,
+    verifiedAt: null,
+    metadata: { description: catalog.description, storage: imageMeasuredStorage(image), image_properties: image.properties ?? {} },
+    image,
+    virtual: true,
+  };
+}
+
+async function resolveMachineTemplate(config: AppConfig, accountId: string, ref: string): Promise<ResolvedMachineTemplate | null> {
+  if (config.databaseConfigured) {
+    await ensureCatalogMachineTemplates(config);
+    const rows = await getPrisma().machineTemplate.findMany({
+      where: {
+        status: { not: 'deleted' },
+        OR: [
+          { id: ref },
+          { slug: ref },
+          { incusAlias: ref },
+        ],
+      },
+      orderBy: [{ accountId: 'desc' }, { updatedAt: 'desc' }],
+    }).catch(() => []);
+    const row = rows.find((item) => item.accountId === accountId || item.visibility === 'catalog' || item.accountId === 'system') ?? null;
+    if (row) {
+      const image = await findImageForTemplate(config, row).catch(() => null);
+      return { ...row, region: row.region as SupportedRegion, type: 'container', defaultResources: resourceShape(row.defaultResources), image };
+    }
+  }
+  return virtualCatalogMachineTemplate(config, ref);
+}
+
+type TemplatePoolPolicies = {
+  stopped: PrismaWarmPoolPolicy | null;
+  running: PrismaWarmPoolPolicy | null;
+  all: PrismaWarmPoolPolicy[];
+};
+
+async function poolPoliciesForTemplate(config: AppConfig, template: ResolvedMachineTemplate, accountId: string): Promise<TemplatePoolPolicies> {
+  if (!config.databaseConfigured) return { stopped: null, running: null, all: [] };
+  const rows = await getPrisma().warmPoolPolicy.findMany({
+    where: {
+      accountId,
+      status: { not: 'deleted' },
+      region: template.region,
+      type: template.type,
+      sourceType: 'image',
+      sourceId: template.incusAlias,
+    },
+    orderBy: { updatedAt: 'desc' },
+  });
+  const all = rows.filter((policy) => resourcesEqual(machineResourceKey(policy.resources), template.defaultResources));
+  return {
+    stopped: all.find((policy) => normalizeWarmPoolMode(policy.billingMode) === WARM_POOL_STOPPED_MODE) ?? null,
+    running: all.find((policy) => normalizeWarmPoolMode(policy.billingMode) === WARM_POOL_RUNNING_MODE) ?? null,
+    all,
+  };
+}
+
+async function poolPolicyForTemplate(config: AppConfig, template: ResolvedMachineTemplate, accountId: string, mode: WarmPoolMode = WARM_POOL_STOPPED_MODE) {
+  const policies = await poolPoliciesForTemplate(config, template, accountId);
+  return mode === WARM_POOL_RUNNING_MODE ? policies.running : policies.stopped;
+}
+
+async function serializeMachineTemplate(config: AppConfig, template: ResolvedMachineTemplate, accountId: string, poolRows: PrismaMachine[] = []) {
+  const image = template.image ?? await findImageForTemplate(config, template).catch(() => null);
+  const properties = image?.properties ?? jsonRecord(jsonRecord(template.metadata).image_properties);
+  const storage = template.measuredBytes || template.billableGib || template.storageEurMonth
+    ? {
+      metered_bytes: template.measuredBytes === null ? null : Number(template.measuredBytes),
+      billable_gib: decimalNumber(template.billableGib),
+      eur_per_month: decimalNumber(template.storageEurMonth),
+      source: 'machine-template',
+      estimated: true,
+    }
+    : imageMeasuredStorage(image);
+  const policies = await poolPoliciesForTemplate(config, template, accountId).catch(() => ({ stopped: null, running: null, all: [] as PrismaWarmPoolPolicy[] }));
+  const stoppedPool = policies.stopped ? serializeWarmPoolPolicy(policies.stopped, poolRows) : null;
+  const runningPool = policies.running ? serializeWarmPoolPolicy(policies.running, poolRows) : null;
+  return {
+    id: template.id,
+    account_id: template.accountId,
+    name: template.name,
+    slug: template.slug,
+    status: template.status,
+    visibility: template.visibility,
+    region: template.region,
+    type: template.type,
+    default_resources: template.defaultResources,
+    source: { type: template.sourceKind, ref: template.sourceRef },
+    image: {
+      alias: template.incusAlias,
+      fingerprint: image?.fingerprint ?? template.incusFingerprint,
+      cluster_id: template.incusClusterId,
+      project: template.incusProject,
+      size: image?.size ?? null,
+      aliases: image?.aliases ?? [],
+      properties,
+    },
+    readiness: {
+      ready: template.status === 'active' && imageIsJustavpsReady({ properties } as IncusImage),
+      daemon_baked: properties['justavps.daemon_baked'] === 'true',
+      daemon_runtime_injected: properties['justavps.daemon_runtime_injected'] === 'true',
+      daemon_first_boot_verified: properties['justavps.daemon_first_boot_verified'] === 'true',
+      daemon_second_boot_verified: properties['justavps.daemon_second_boot_verified'] === 'true',
+      prepared_at: template.preparedAt?.toISOString?.() ?? null,
+      verified_at: template.verifiedAt?.toISOString?.() ?? null,
+    },
+    storage,
+    pool: stoppedPool ?? runningPool,
+    pools: {
+      stopped: stoppedPool,
+      running: runningPool,
+    },
+    metadata: template.metadata,
+    created_at: template.createdAt?.toISOString?.() ?? null,
+    updated_at: template.updatedAt?.toISOString?.() ?? null,
+  };
 }
 
 function exactArtifactCostAttribution(
@@ -3643,6 +4415,678 @@ async function queueResolvedManagedDaemonEnsure(config: AppConfig, resolved: Non
   });
 }
 
+type ResolvedMachine = NonNullable<Awaited<ReturnType<typeof machineClient>>>;
+
+function addHours(date: Date, hours: number) {
+  return new Date(date.getTime() + hours * 3600_000);
+}
+
+function addDays(date: Date, days: number) {
+  return new Date(date.getTime() + days * 86400_000);
+}
+
+function normalizeEmail(value: string) {
+  return value.trim().toLowerCase();
+}
+
+type AccountRole = typeof ACCOUNT_ROLES[number];
+type AccountType = typeof ACCOUNT_TYPES[number];
+type AccountWithMembership = { account: PrismaAccount; membership: PrismaAccountMembership };
+
+function slugifyAccount(value: string) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48) || 'account';
+}
+
+async function createUniqueAccountSlug(base: string, excludeAccountId?: string | null) {
+  const normalized = slugifyAccount(base);
+  const prisma = getPrisma();
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const candidate = attempt === 0 ? normalized : `${normalized}-${randomBytes(3).toString('hex')}`;
+    const existing = await prisma.account.findUnique({ where: { slug: candidate }, select: { id: true } }).catch(() => null);
+    if (!existing || existing.id === excludeAccountId) return candidate;
+  }
+  return `${normalized}-${randomBytes(6).toString('hex')}`;
+}
+
+function safeAccountRole(value: string | undefined | null): AccountRole {
+  return ACCOUNT_ROLES.includes(value as AccountRole) ? value as AccountRole : 'member';
+}
+
+function safeAccountType(value: string | undefined | null): AccountType {
+  return ACCOUNT_TYPES.includes(value as AccountType) ? value as AccountType : 'personal';
+}
+
+function canManageMembers(role?: string | null) {
+  return role === 'owner' || role === 'admin';
+}
+
+function canManageBilling(role?: string | null) {
+  return role === 'owner' || role === 'admin';
+}
+
+function isAccountOwner(role?: string | null) {
+  return role === 'owner';
+}
+
+function isAccountAdmin(role?: string | null) {
+  return role === 'owner' || role === 'admin';
+}
+
+async function ensureMembership(accountId: string, userId: string, role: AccountRole, createdByUserId?: string | null) {
+  const prisma = getPrisma();
+  const existing = await prisma.accountMembership.findUnique({
+    where: { accountId_userId: { accountId, userId } },
+  });
+
+  if (existing) {
+    if (existing.role !== role) {
+      return prisma.accountMembership.update({
+        where: { id: existing.id },
+        data: { role },
+      });
+    }
+    return existing;
+  }
+
+  return prisma.accountMembership.create({
+    data: { accountId, userId, role, createdByUserId: createdByUserId ?? null },
+  });
+}
+
+async function ensureSystemAccount() {
+  const prisma = getPrisma();
+  return prisma.account.upsert({
+    where: { id: 'system' },
+    create: { id: 'system', type: 'organization', name: 'System', slug: 'system' },
+    update: {},
+  });
+}
+
+async function ensureSystemUser() {
+  const prisma = getPrisma();
+  const email = 'admin@justavps.local';
+  const user = await prisma.user.upsert({
+    where: { email },
+    create: { email, name: 'JustAVPS Admin', isAdmin: true, defaultAccountId: 'system' },
+    update: { isAdmin: true },
+  });
+  await ensureSystemAccount();
+  await ensureMembership('system', user.id, 'owner', user.id);
+  return user;
+}
+
+async function ensureUserByEmail(input: { email: string; name?: string | null; isAdmin?: boolean }) {
+  const prisma = getPrisma();
+  const email = normalizeEmail(input.email);
+  return prisma.user.upsert({
+    where: { email },
+    create: { email, name: input.name?.trim() || null, isAdmin: input.isAdmin ?? false },
+    update: { ...(input.name?.trim() ? { name: input.name.trim() } : {}), ...(input.isAdmin === true ? { isAdmin: true } : {}) },
+  });
+}
+
+async function ensurePersonalAccountForUser(user: Pick<PrismaUser, 'id' | 'email' | 'name' | 'stripeCustomerId' | 'defaultAccountId'>) {
+  const prisma = getPrisma();
+  const existing = await prisma.account.findUnique({ where: { personalForUserId: user.id } });
+  if (existing) {
+    await ensureMembership(existing.id, user.id, 'owner');
+    if (!user.defaultAccountId) {
+      await prisma.user.update({ where: { id: user.id }, data: { defaultAccountId: existing.id } });
+    }
+    if (!existing.stripeCustomerId && user.stripeCustomerId) {
+      return prisma.account.update({ where: { id: existing.id }, data: { stripeCustomerId: user.stripeCustomerId } });
+    }
+    return existing;
+  }
+
+  const slugBase = user.email.split('@')[0] || user.name || 'personal';
+  const account = await prisma.account.create({
+    data: {
+      type: 'personal',
+      name: user.name?.trim() || user.email,
+      slug: await createUniqueAccountSlug(slugBase),
+      personalForUserId: user.id,
+      billingEmail: user.email,
+      stripeCustomerId: user.stripeCustomerId ?? null,
+    },
+  });
+  await ensureMembership(account.id, user.id, 'owner');
+  await prisma.user.update({ where: { id: user.id }, data: { defaultAccountId: account.id } });
+  return account;
+}
+
+async function ensureUserAccountGraph(user: Pick<PrismaUser, 'id' | 'email' | 'name' | 'stripeCustomerId' | 'defaultAccountId'>) {
+  return ensurePersonalAccountForUser(user);
+}
+
+async function getUserMemberships(userId: string): Promise<AccountWithMembership[]> {
+  const rows = await getPrisma().accountMembership.findMany({
+    where: { userId, account: { deletedAt: null } },
+    include: { account: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  return rows.map((membership) => ({ account: membership.account, membership }));
+}
+
+async function resolveAccountForUser(user: PrismaUser, requestedAccountId?: string | null) {
+  await ensureUserAccountGraph(user);
+  const memberships = await getUserMemberships(user.id);
+  if (memberships.length === 0) throw new Error('User has no account memberships');
+
+  const pick = (accountId?: string | null) => accountId ? memberships.find((row) => row.account.id === accountId) : undefined;
+  let resolved = pick(requestedAccountId) || pick(user.defaultAccountId);
+  if (!resolved) resolved = memberships.find((row) => row.account.type === 'personal') || memberships[0];
+  if (!user.defaultAccountId || user.defaultAccountId !== resolved.account.id) {
+    await getPrisma().user.update({ where: { id: user.id }, data: { defaultAccountId: resolved.account.id } });
+  }
+  return { active: resolved, memberships };
+}
+
+async function userHasAccountAccess(userId: string, accountId: string) {
+  return getPrisma().accountMembership.findUnique({ where: { accountId_userId: { accountId, userId } } });
+}
+
+async function createOrganizationAccount(params: { ownerUserId: string; ownerEmail: string; name: string }) {
+  const account = await getPrisma().account.create({
+    data: {
+      type: 'organization',
+      name: params.name.trim(),
+      slug: await createUniqueAccountSlug(params.name),
+      billingEmail: params.ownerEmail,
+    },
+  });
+  await ensureMembership(account.id, params.ownerUserId, 'owner', params.ownerUserId);
+  return account;
+}
+
+async function renameOrganizationAccount(params: { accountId: string; name: string }) {
+  const account = await getPrisma().account.findFirst({ where: { id: params.accountId, type: 'organization', deletedAt: null } });
+  if (!account) return null;
+  return getPrisma().account.update({
+    where: { id: account.id },
+    data: { name: params.name.trim(), slug: await createUniqueAccountSlug(params.name, account.id) },
+  });
+}
+
+async function deleteOrganizationAccount(accountId: string) {
+  const prisma = getPrisma();
+  const [machine, image, template, snapshot, backup, warmPool] = await Promise.all([
+    prisma.machine.findFirst({ where: { accountId, status: { not: 'deleted' } }, select: { id: true } }),
+    prisma.image.findFirst({ where: { accountId }, select: { id: true } }),
+    prisma.machineTemplate.findFirst({ where: { accountId, status: { notIn: ['deleted', 'archived'] } }, select: { id: true } }).catch(() => null),
+    prisma.snapshot.findFirst({ where: { accountId }, select: { id: true } }).catch(() => null),
+    prisma.backup.findFirst({ where: { accountId }, select: { id: true } }).catch(() => null),
+    prisma.warmPoolPolicy.findFirst({ where: { accountId, status: { not: 'deleted' } }, select: { id: true } }).catch(() => null),
+  ]);
+
+  if (machine) throw new Error('Delete all machines before deleting this organization');
+  if (template) throw new Error('Delete all machine templates before deleting this organization');
+  if (warmPool) throw new Error('Delete all template/warm pools before deleting this organization');
+  if (image) throw new Error('Delete all images before deleting this organization');
+  if (snapshot) throw new Error('Delete all snapshots before deleting this organization');
+  if (backup) throw new Error('Delete all backups before deleting this organization');
+
+  const now = new Date();
+  await prisma.$transaction(async (tx) => {
+    await tx.accountInvitation.updateMany({
+      where: { accountId, acceptedAt: null, revokedAt: null },
+      data: { revokedAt: now },
+    });
+    await tx.accountMembership.deleteMany({ where: { accountId } });
+    await tx.machineBackupPolicy.deleteMany({ where: { accountId } });
+    await tx.account.update({ where: { id: accountId }, data: { deletedAt: now } });
+  });
+}
+
+async function createAccountInvitation(params: { accountId: string; email: string; role: AccountRole; invitedByUserId: string }) {
+  const email = normalizeEmail(params.email);
+  const prisma = getPrisma();
+  await prisma.accountInvitation.updateMany({
+    where: { accountId: params.accountId, email, acceptedAt: null, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+  const rawToken = randomBytes(32).toString('hex');
+  const invitation = await prisma.accountInvitation.create({
+    data: {
+      accountId: params.accountId,
+      email,
+      role: params.role,
+      tokenSha256: sha256Hex(rawToken),
+      invitedByUserId: params.invitedByUserId,
+      expiresAt: addDays(new Date(), 7),
+    },
+  });
+  return { invitation, rawToken, reused: false };
+}
+
+async function getInvitationByToken(token: string) {
+  return getPrisma().accountInvitation.findUnique({ where: { tokenSha256: sha256Hex(token) } });
+}
+
+async function redeemAccountInvitation(params: { token: string; userId: string; userEmail: string }) {
+  const invitation = await getInvitationByToken(params.token);
+  if (!invitation) throw new Error('Invitation not found');
+  if (invitation.revokedAt) throw new Error('Invitation has been revoked');
+  if (invitation.acceptedAt) throw new Error('Invitation has already been accepted');
+  if (invitation.expiresAt < new Date()) throw new Error('Invitation has expired');
+  if (invitation.email !== normalizeEmail(params.userEmail)) throw new Error('Signed-in email does not match invitation email');
+
+  const membership = await ensureMembership(invitation.accountId, params.userId, safeAccountRole(invitation.role), invitation.invitedByUserId);
+  await getPrisma().accountInvitation.update({
+    where: { id: invitation.id },
+    data: { acceptedAt: new Date(), acceptedByUserId: params.userId },
+  });
+  return { invitation, membership };
+}
+
+async function acceptInvitationById(params: { invitationId: string; userId: string; userEmail: string }) {
+  const invitation = await getPrisma().accountInvitation.findUnique({ where: { id: params.invitationId } });
+  if (!invitation) throw new Error('Invitation not found');
+  if (invitation.revokedAt) throw new Error('Invitation has been revoked');
+  if (invitation.acceptedAt) throw new Error('Invitation has already been accepted');
+  if (invitation.expiresAt < new Date()) throw new Error('Invitation has expired');
+  if (invitation.email !== normalizeEmail(params.userEmail)) throw new Error('Signed-in email does not match invitation email');
+
+  const membership = await ensureMembership(invitation.accountId, params.userId, safeAccountRole(invitation.role), invitation.invitedByUserId);
+  await getPrisma().accountInvitation.update({
+    where: { id: invitation.id },
+    data: { acceptedAt: new Date(), acceptedByUserId: params.userId },
+  });
+  return { invitation, membership };
+}
+
+async function listActiveInvitationsForAccount(accountId: string) {
+  return getPrisma().accountInvitation.findMany({
+    where: { accountId, acceptedAt: null, revokedAt: null },
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
+async function listPendingInvitationsForEmail(email: string) {
+  const now = new Date();
+  const rows = await getPrisma().accountInvitation.findMany({
+    where: { email: normalizeEmail(email), acceptedAt: null, revokedAt: null, expiresAt: { gt: now }, account: { deletedAt: null } },
+    include: { account: true },
+    orderBy: { createdAt: 'desc' },
+  });
+  return rows.map((invitation) => ({ invitation, account: invitation.account }));
+}
+
+async function revokeInvitation(accountId: string, invitationId: string) {
+  const existing = await getPrisma().accountInvitation.findFirst({ where: { id: invitationId, accountId } });
+  if (!existing) return null;
+  return getPrisma().accountInvitation.update({ where: { id: existing.id }, data: { revokedAt: new Date() } });
+}
+
+async function listMembersForAccount(accountId: string) {
+  return getPrisma().accountMembership.findMany({
+    where: { accountId },
+    include: { user: true },
+    orderBy: { createdAt: 'asc' },
+  });
+}
+
+async function updateMembershipRole(accountId: string, membershipId: string, role: AccountRole) {
+  const existing = await getPrisma().accountMembership.findFirst({ where: { id: membershipId, accountId } });
+  if (!existing) return null;
+  if (existing.role === 'owner' && role !== 'owner') {
+    const owners = await getPrisma().accountMembership.count({ where: { accountId, role: 'owner' } });
+    if (owners <= 1) throw new Error('An account must keep at least one owner');
+  }
+  return getPrisma().accountMembership.update({ where: { id: existing.id }, data: { role } });
+}
+
+async function removeMembership(accountId: string, membershipId: string) {
+  const existing = await getPrisma().accountMembership.findFirst({ where: { id: membershipId, accountId } });
+  if (!existing) return null;
+  if (existing.role === 'owner') {
+    const owners = await getPrisma().accountMembership.count({ where: { accountId, role: 'owner' } });
+    if (owners <= 1) throw new Error('An account must keep at least one owner');
+  }
+  await getPrisma().accountMembership.delete({ where: { id: existing.id } });
+  return existing;
+}
+
+async function getPrimaryOwnerUserForAccount(accountId: string) {
+  const row = await getPrisma().accountMembership.findFirst({
+    where: { accountId, role: 'owner' },
+    include: { user: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  return row?.user ?? null;
+}
+
+async function resolveActorUserIdForAccount(accountId: string) {
+  const owner = await getPrimaryOwnerUserForAccount(accountId);
+  if (owner) return owner.id;
+  const system = await ensureSystemUser();
+  return system.id;
+}
+
+async function countActiveMachines(accountId: string) {
+  return getPrisma().machine.count({ where: { accountId, status: { notIn: ['deleted', WARM_POOL_STATUS, WARM_POOL_CLAIMING_STATUS] } } });
+}
+
+async function countActiveImages(accountId: string) {
+  const prisma = getPrisma();
+  const [images, templates] = await Promise.all([
+    prisma.image.count({ where: { accountId } }).catch(() => 0),
+    prisma.machineTemplate.count({ where: { accountId, status: { notIn: ['deleted', 'archived'] } } }).catch(() => 0),
+  ]);
+  return images + templates;
+}
+
+async function getAccountLimits(accountId: string, userId?: string | null, isAdmin = false) {
+  if (isAdmin) return { maxMachines: Number.MAX_SAFE_INTEGER, maxImages: Number.MAX_SAFE_INTEGER };
+  const or: Prisma.AccountLimitWhereInput[] = [{ accountId }];
+  if (userId) or.push({ userId });
+  const row = await getPrisma().accountLimit.findFirst({ where: { OR: or } });
+  return { maxMachines: row?.maxMachines ?? 5, maxImages: row?.maxImages ?? 10 };
+}
+
+async function currentUserFromRequest(c: { req: { header: (name: string) => string | undefined } }) {
+  const prisma = getPrisma();
+  const userId = c.req.header('x-user-id')?.trim();
+  const email = c.req.header('x-user-email')?.trim();
+  const name = c.req.header('x-user-name')?.trim();
+  if (userId) return prisma.user.findUnique({ where: { id: userId } });
+  if (email) return ensureUserByEmail({ email, name });
+  return null;
+}
+
+async function resolveRequestAccountContext(c: { req: { header: (name: string) => string | undefined } }) {
+  const user = await currentUserFromRequest(c);
+  if (!user) throw new BadRequestError('Pass x-user-id or x-user-email to resolve V1-style account context');
+  const requestedAccountId = c.req.header('x-account-id')?.trim() || null;
+  const resolved = await resolveAccountForUser(user, requestedAccountId);
+  return { user, ...resolved };
+}
+
+function serializeMembershipSummary(row: AccountWithMembership) {
+  return {
+    id: row.membership.id,
+    role: safeAccountRole(row.membership.role),
+    account: {
+      id: row.account.id,
+      name: row.account.name,
+      slug: row.account.slug,
+      type: safeAccountType(row.account.type),
+      created_at: row.account.createdAt.toISOString(),
+    },
+  };
+}
+
+async function activeAccountProfile(input: { user: PrismaUser; active: AccountWithMembership }) {
+  const account = input.active.account;
+  const role = safeAccountRole(input.active.membership.role);
+  const machineCount = await countActiveMachines(account.id);
+  return {
+    id: account.id,
+    slug: account.slug,
+    type: safeAccountType(account.type),
+    name: account.name,
+    role,
+    email: input.user.email,
+    user_id: input.user.id,
+    user_name: input.user.name,
+    has_password: Boolean(input.user.passwordHash),
+    is_admin: input.user.isAdmin,
+    can_manage_billing: canManageBilling(role),
+    can_manage_members: canManageMembers(role),
+    machines_count: machineCount,
+    stripe_customer_id: account.stripeCustomerId ?? null,
+    created_at: account.createdAt.toISOString(),
+  };
+}
+
+function serializeBackupPolicy(policy: PrismaMachineBackupPolicy | null | undefined, machine: PrismaMachine) {
+  return {
+    id: policy?.id ?? null,
+    account_id: policy?.accountId ?? machine.accountId,
+    machine_id: machine.id,
+    enabled: policy?.enabled ?? false,
+    cadence: AUTO_BACKUP_POLICY.cadence,
+    interval_hours: AUTO_BACKUP_POLICY.intervalHours,
+    retention_days: AUTO_BACKUP_POLICY.retentionDays,
+    retention_count: AUTO_BACKUP_POLICY.retentionCount,
+    last_backup_at: policy?.lastBackupAt?.toISOString() ?? null,
+    next_backup_at: policy?.nextBackupAt?.toISOString() ?? null,
+    status: policy?.status ?? 'active',
+    policy_label: 'Daily automatic backup, retain 7 days / 7 recovery points',
+  };
+}
+
+async function loadBackupPolicy(machine: PrismaMachine) {
+  if (!loadConfigSafeDatabaseConfigured()) return null;
+  return getPrisma().machineBackupPolicy.findUnique({ where: { machineId: machine.id } }).catch(() => null);
+}
+
+async function upsertBackupPolicy(machine: PrismaMachine, enabled: boolean) {
+  const now = new Date();
+  await ensureSystemAccount().catch(() => undefined);
+  const existing = await getPrisma().machineBackupPolicy.findUnique({ where: { machineId: machine.id } }).catch(() => null);
+  const nextBackupAt = enabled
+    ? existing?.nextBackupAt ?? (existing?.lastBackupAt ? addHours(existing.lastBackupAt, AUTO_BACKUP_POLICY.intervalHours) : now)
+    : null;
+  return getPrisma().machineBackupPolicy.upsert({
+    where: { machineId: machine.id },
+    create: {
+      accountId: machine.accountId,
+      machineId: machine.id,
+      enabled,
+      cadence: AUTO_BACKUP_POLICY.cadence,
+      intervalHours: AUTO_BACKUP_POLICY.intervalHours,
+      retentionDays: AUTO_BACKUP_POLICY.retentionDays,
+      retentionCount: AUTO_BACKUP_POLICY.retentionCount,
+      nextBackupAt,
+      metadata: { policy: 'daily-7d' } as Prisma.InputJsonValue,
+    },
+    update: {
+      accountId: machine.accountId,
+      enabled,
+      cadence: AUTO_BACKUP_POLICY.cadence,
+      intervalHours: AUTO_BACKUP_POLICY.intervalHours,
+      retentionDays: AUTO_BACKUP_POLICY.retentionDays,
+      retentionCount: AUTO_BACKUP_POLICY.retentionCount,
+      nextBackupAt,
+      status: 'active',
+    },
+  });
+}
+
+function autoBackupName(machineId: string, date = new Date()) {
+  const stamp = date.toISOString().replace(/[-:]/g, '').replace(/\.(\d{3})Z$/, '$1z').toLowerCase();
+  return `auto-${machineId.replaceAll('-', '').slice(0, 10)}-${stamp}`.slice(0, 80);
+}
+
+async function createBackupArtifact(config: AppConfig, resolved: ResolvedMachine, input: {
+  name?: string;
+  instanceOnly?: boolean;
+  optimizedStorage?: boolean;
+  expiresAt?: string | null;
+  trigger: 'manual' | 'auto';
+  policyId?: string | null;
+}) {
+  const name = input.name ?? (input.trigger === 'auto' ? autoBackupName(resolved.machine.id) : generatedResourceName('backup'));
+  const instanceOnly = input.instanceOnly ?? false;
+  const optimizedStorage = input.optimizedStorage ?? true;
+  const operation = await resolved.client.createBackup(resolved.machine.incusInstanceName, name, {
+    instanceOnly,
+    optimizedStorage,
+    expiresAt: input.expiresAt,
+  });
+  const restoreSnapshotName = `bk-snap-${name}`;
+  await resolved.client.createSnapshot(resolved.machine.incusInstanceName, restoreSnapshotName, { stateful: false, expiresAt: input.expiresAt }).catch(() => undefined);
+  let backup = null;
+  if (config.databaseConfigured) {
+    const expiresAtDate = input.expiresAt ? new Date(input.expiresAt) : null;
+    backup = await getPrisma().backup.create({
+      data: {
+        accountId: resolved.machine.accountId,
+        machineId: resolved.machine.id,
+        status: 'ready',
+        incusBackupName: name,
+        retentionPolicy: {
+          trigger: input.trigger,
+          policy_id: input.policyId ?? null,
+          retention_days: input.trigger === 'auto' ? AUTO_BACKUP_POLICY.retentionDays : null,
+          retention_count: input.trigger === 'auto' ? AUTO_BACKUP_POLICY.retentionCount : null,
+          expires_at: expiresAtDate?.toISOString() ?? null,
+        } as Prisma.InputJsonValue,
+        metadata: {
+          incus_operation: operation,
+          restore_snapshot: restoreSnapshotName,
+          instance_only: instanceOnly,
+          optimized_storage: optimizedStorage,
+          trigger: input.trigger,
+          auto_backup_policy_id: input.policyId ?? null,
+          expires_at: expiresAtDate?.toISOString() ?? null,
+        } as Prisma.InputJsonValue,
+      },
+    });
+  }
+  const publicBackup = backup
+    ? {
+      ...backup,
+      name,
+      incus_backup_name: name,
+      restore_snapshot: restoreSnapshotName,
+      trigger: input.trigger,
+      expires_at: input.expiresAt ?? null,
+    }
+    : { id: name, name, incus_backup_name: name, restore_snapshot: restoreSnapshotName, trigger: input.trigger, expires_at: input.expiresAt ?? null };
+  return { backup: publicBackup, operation, restoreSnapshotName };
+}
+
+async function deleteBackupArtifacts(resolved: ResolvedMachine, backupName: string) {
+  const operation = await resolved.client.deleteBackup(resolved.machine.incusInstanceName, backupName);
+  await resolved.client.deleteSnapshot(resolved.machine.incusInstanceName, `bk-snap-${backupName}`).catch(() => undefined);
+  if (loadConfigSafeDatabaseConfigured()) await getPrisma().backup.deleteMany({ where: { machineId: resolved.machine.id, incusBackupName: backupName } });
+  return operation;
+}
+
+async function restoreSnapshotAndResume(resolved: ResolvedMachine, snapshotName: string, input: { stateful?: boolean } = {}) {
+  const instanceName = resolved.machine.incusInstanceName;
+  const before = await resolved.client.getInstance(instanceName).catch(() => null);
+  const wasRunning = before?.status?.toLowerCase() === 'running';
+  const restoreOp = await resolved.client.restoreSnapshot(instanceName, snapshotName, input);
+  let after = await resolved.client.getInstance(instanceName).catch(() => null);
+  let startOperation: IncusOperation | Record<string, unknown> | null = null;
+  let startNoop = false;
+  if (wasRunning && after?.status?.toLowerCase() !== 'running') {
+    const started = await startCreatedMachine(resolved.client, instanceName);
+    startOperation = started.operation;
+    startNoop = started.noop;
+    after = await resolved.client.getInstance(instanceName).catch(() => after);
+  }
+  return { restoreOp, startOperation, startNoop, wasRunning, beforeStatus: before?.status ?? null, after };
+}
+
+function backupRowExpiresAt(row: { retentionPolicy?: unknown; metadata?: unknown } | null | undefined) {
+  const retention = jsonRecord(row?.retentionPolicy);
+  const metadata = jsonRecord(row?.metadata);
+  const value = typeof retention.expires_at === 'string' ? retention.expires_at : typeof metadata.expires_at === 'string' ? metadata.expires_at : null;
+  return value;
+}
+
+function backupRowTrigger(row: { retentionPolicy?: unknown; metadata?: unknown } | null | undefined) {
+  const retention = jsonRecord(row?.retentionPolicy);
+  const metadata = jsonRecord(row?.metadata);
+  return typeof retention.trigger === 'string' ? retention.trigger : typeof metadata.trigger === 'string' ? metadata.trigger : 'manual';
+}
+
+function publicBackupName(value: unknown) {
+  const r = jsonRecord(value);
+  const name = r.incusBackupName ?? r.incus_backup_name ?? r.name;
+  return typeof name === 'string' && name ? name : 'backup';
+}
+
+async function pruneAutoBackupsForMachine(resolved: ResolvedMachine, policy: PrismaMachineBackupPolicy) {
+  if (!loadConfigSafeDatabaseConfigured()) return { pruned: [] as string[], errors: [] as Array<{ name: string; error: string }> };
+  const prisma = getPrisma();
+  const now = new Date();
+  const rows = await prisma.backup.findMany({
+    where: { machineId: resolved.machine.id },
+    orderBy: { createdAt: 'desc' },
+  });
+  const autoRows = rows.filter((row) => backupRowTrigger(row) === 'auto');
+  const keepIds = new Set(autoRows.slice(0, policy.retentionCount).map((row) => row.id));
+  const expired = autoRows.filter((row) => {
+    const expiresAt = backupRowExpiresAt(row);
+    return expiresAt ? Date.parse(expiresAt) <= now.getTime() : false;
+  });
+  const overCount = autoRows.filter((row) => !keepIds.has(row.id));
+  const toDelete = new Map<string, typeof autoRows[number]>();
+  for (const row of [...expired, ...overCount]) {
+    if (row.incusBackupName) toDelete.set(row.incusBackupName, row);
+  }
+  const pruned: string[] = [];
+  const errors: Array<{ name: string; error: string }> = [];
+  for (const [name] of toDelete) {
+    try {
+      await deleteBackupArtifacts(resolved, name);
+      pruned.push(name);
+    } catch (error) {
+      errors.push({ name, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return { pruned, errors };
+}
+
+export async function runDueAutoBackups(config: AppConfig) {
+  const result = { scanned: 0, created: [] as Array<{ machine_id: string; backup_name: string }>, pruned: [] as Array<{ machine_id: string; backup_names: string[] }>, errors: [] as Array<{ machine_id?: string; error: string }> };
+  if (!config.databaseConfigured) return result;
+  const prisma = getPrisma();
+  const now = new Date();
+  const policies = await prisma.machineBackupPolicy.findMany({
+    where: { enabled: true, status: 'active', OR: [{ nextBackupAt: null }, { nextBackupAt: { lte: now } }] },
+    orderBy: { nextBackupAt: 'asc' },
+  });
+  result.scanned = policies.length;
+  for (const policy of policies) {
+    try {
+      const machine = await prisma.machine.findUnique({ where: { id: policy.machineId } });
+      if (!machine || machine.status === 'deleted') {
+        await prisma.machineBackupPolicy.update({ where: { id: policy.id }, data: { enabled: false, status: 'machine_missing', metadata: { ...jsonRecord(policy.metadata), disabled_reason: 'machine_missing', disabled_at: nowIso() } as Prisma.InputJsonValue } }).catch(() => undefined);
+        continue;
+      }
+      const resolved = await machineClient(config, machine.id);
+      if (!resolved) throw new Error('Machine not found');
+      const expiresAt = addDays(now, AUTO_BACKUP_POLICY.retentionDays).toISOString();
+      const created = await createBackupArtifact(config, resolved, {
+        name: autoBackupName(machine.id, now),
+        instanceOnly: false,
+        optimizedStorage: true,
+        expiresAt,
+        trigger: 'auto',
+        policyId: policy.id,
+      });
+      const backupName = publicBackupName(created.backup);
+      await prisma.machineBackupPolicy.update({
+        where: { id: policy.id },
+        data: {
+          accountId: machine.accountId,
+          lastBackupAt: now,
+          nextBackupAt: addHours(now, AUTO_BACKUP_POLICY.intervalHours),
+          metadata: { ...jsonRecord(policy.metadata), last_backup_name: backupName, last_backup_at: now.toISOString() } as Prisma.InputJsonValue,
+        },
+      });
+      const pruned = await pruneAutoBackupsForMachine(resolved, policy);
+      result.created.push({ machine_id: machine.id, backup_name: backupName });
+      if (pruned.pruned.length) result.pruned.push({ machine_id: machine.id, backup_names: pruned.pruned });
+      for (const error of pruned.errors) result.errors.push({ machine_id: machine.id, error: `${error.name}: ${error.error}` });
+    } catch (error) {
+      result.errors.push({ machine_id: policy.machineId, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return result;
+}
+
 function serializeMachine(config: AppConfig, machine: Awaited<ReturnType<typeof loadProductMachine>>, incus?: unknown) {
   if (!machine) return null;
   const observed = observedInstance(incus);
@@ -3651,6 +5095,7 @@ function serializeMachine(config: AppConfig, machine: Awaited<ReturnType<typeof 
   return {
     id: machine.id,
     slug,
+    account_id: machine.accountId,
     name: machine.name,
     region: machine.region,
     type: machine.type,
@@ -3664,6 +5109,7 @@ function serializeMachine(config: AppConfig, machine: Awaited<ReturnType<typeof 
       observed: observed ?? incus ?? null,
     },
     resources: mergeResources(machine.resources, observed ?? incus),
+    pricing: machinePricingBreakdown(machine, observed ?? incus),
     urls,
     metadata: machine.metadata,
     created_at: machine.createdAt.toISOString(),
@@ -3817,6 +5263,715 @@ export function createApp(config: AppConfig) {
     try {
       const result = await sweepOnce(config, clientFor);
       return c.json(result);
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.post('/admin/backups/sweep', async (c) => {
+    try {
+      const result = await runDueAutoBackups(config);
+      return c.json(result);
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  const accountRouteGuard = async (c: any, next: () => Promise<void>) => {
+    const error = adminGuard(config, c.req.header('authorization'));
+    if (error) return c.json(error, 401);
+    return next();
+  };
+
+  app.use('/account', accountRouteGuard);
+  app.use('/account/*', accountRouteGuard);
+
+  app.get('/account', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const context = await resolveRequestAccountContext(c);
+      return c.json(await activeAccountProfile(context));
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.patch('/account', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const context = await resolveRequestAccountContext(c);
+      if (!canManageMembers(context.active.membership.role)) return c.json({ error: true, message: 'Only account owners/admins can rename organizations', status: 403 }, 403);
+      if (context.active.account.type !== 'organization') return c.json({ error: true, message: 'Only organization accounts can be renamed', status: 403 }, 403);
+      const input = z.object({ name: z.string().trim().min(2).max(120) }).parse(await c.req.json());
+      const account = await renameOrganizationAccount({ accountId: context.active.account.id, name: input.name });
+      if (!account) return c.json({ error: true, message: 'Organization not found', status: 404 }, 404);
+      return c.json(await activeAccountProfile({ user: context.user, active: { account, membership: context.active.membership } }));
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.delete('/account', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const context = await resolveRequestAccountContext(c);
+      if (context.active.account.type !== 'organization') return c.json({ error: true, message: 'Only organization accounts can be deleted', status: 400 }, 400);
+      if (!isAccountOwner(context.active.membership.role)) return c.json({ error: true, message: 'Only organization owners can delete this organization', status: 403 }, 403);
+      await deleteOrganizationAccount(context.active.account.id);
+      const refreshedUser = await getPrisma().user.findUnique({ where: { id: context.user.id } });
+      if (!refreshedUser) return c.json({ error: true, message: 'User not found', status: 404 }, 404);
+      const resolved = await resolveAccountForUser(refreshedUser);
+      return c.json({ ok: true, account_id: resolved.active.account.id });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.get('/account/me', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const context = await resolveRequestAccountContext(c);
+      return c.json({
+        user: {
+          id: context.user.id,
+          email: context.user.email,
+          name: context.user.name,
+          has_password: Boolean(context.user.passwordHash),
+          is_admin: context.user.isAdmin,
+          default_account_id: context.user.defaultAccountId ?? context.active.account.id,
+        },
+        active_account: {
+          id: context.active.account.id,
+          name: context.active.account.name,
+          slug: context.active.account.slug,
+          type: safeAccountType(context.active.account.type),
+          role: safeAccountRole(context.active.membership.role),
+        },
+        memberships: context.memberships.map(serializeMembershipSummary),
+      });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.get('/account/memberships', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const context = await resolveRequestAccountContext(c);
+      return c.json({ memberships: context.memberships.map(serializeMembershipSummary) });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.post('/account/switch', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const user = await currentUserFromRequest(c);
+      if (!user) return c.json({ error: true, message: 'Pass x-user-id or x-user-email to switch accounts', status: 400 }, 400);
+      await ensureUserAccountGraph(user);
+      const input = z.object({ account_id: z.string().min(1) }).parse(await c.req.json());
+      const membership = await userHasAccountAccess(user.id, input.account_id);
+      if (!membership) return c.json({ error: true, message: 'Account access denied', status: 403 }, 403);
+      await getPrisma().user.update({ where: { id: user.id }, data: { defaultAccountId: input.account_id } });
+      return c.json({ ok: true, account_id: input.account_id });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.post('/account/organizations', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const user = await currentUserFromRequest(c);
+      if (!user) return c.json({ error: true, message: 'Pass x-user-id or x-user-email to create an organization', status: 400 }, 400);
+      await ensureUserAccountGraph(user);
+      const input = z.object({ name: z.string().trim().min(2).max(120) }).parse(await c.req.json());
+      const account = await createOrganizationAccount({ ownerUserId: user.id, ownerEmail: user.email, name: input.name });
+      await getPrisma().user.update({ where: { id: user.id }, data: { defaultAccountId: account.id } });
+      return c.json({ id: account.id, name: account.name, slug: account.slug }, 201);
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.get('/account/usage', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const context = await resolveRequestAccountContext(c);
+      const machines = await getPrisma().machine.findMany({ where: { accountId: context.active.account.id, status: { notIn: ['deleted', WARM_POOL_STATUS, WARM_POOL_CLAIMING_STATUS] } }, orderBy: { createdAt: 'desc' } });
+      const estimatedCost = machines.reduce((sum, machine) => sum + machinePricingBreakdown(machine).total_eur_per_month, 0);
+      return c.json({ current_period: { machines: machines.map((machine) => ({ id: machine.id, slug: machineProxySlug(machine.id), server_type: machine.type, status: machine.status })), total_machines: machines.length, estimated_cost: Number(estimatedCost.toFixed(6)) } });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.get('/account/limits', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const context = await resolveRequestAccountContext(c);
+      const [limits, machineCount, imageCount] = await Promise.all([
+        getAccountLimits(context.active.account.id, context.user.id, context.user.isAdmin),
+        countActiveMachines(context.active.account.id),
+        countActiveImages(context.active.account.id),
+      ]);
+      return c.json({ limits: { max_machines: limits.maxMachines, max_images: limits.maxImages }, usage: { machines: machineCount, images: imageCount } });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.get('/account/members', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const context = await resolveRequestAccountContext(c);
+      const members = await listMembersForAccount(context.active.account.id);
+      return c.json({ members: members.map((member) => ({ id: member.id, role: safeAccountRole(member.role), user: { id: member.user.id, email: member.user.email, name: member.user.name, created_at: member.user.createdAt.toISOString() }, created_at: member.createdAt.toISOString() })) });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.patch('/account/members/:membershipId', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const context = await resolveRequestAccountContext(c);
+      if (!canManageMembers(context.active.membership.role)) return c.json({ error: true, message: 'Only account owners/admins can manage members', status: 403 }, 403);
+      if (context.active.account.type !== 'organization') return c.json({ error: true, message: 'Member roles can only be managed on organization accounts', status: 400 }, 400);
+      const input = z.object({ role: z.enum(ACCOUNT_ROLES) }).parse(await c.req.json());
+      const updated = await updateMembershipRole(context.active.account.id, c.req.param('membershipId'), input.role);
+      if (!updated) return c.json({ error: true, message: 'Member not found', status: 404 }, 404);
+      return c.json({ ok: true });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.delete('/account/members/me', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const context = await resolveRequestAccountContext(c);
+      if (context.active.account.type !== 'organization') return c.json({ error: true, message: 'You can only leave organization accounts', status: 400 }, 400);
+      const membership = await userHasAccountAccess(context.user.id, context.active.account.id);
+      if (!membership) return c.json({ error: true, message: 'Membership not found', status: 404 }, 404);
+      await removeMembership(context.active.account.id, membership.id);
+      const refreshedUser = await getPrisma().user.findUnique({ where: { id: context.user.id } });
+      if (!refreshedUser) return c.json({ error: true, message: 'User not found', status: 404 }, 404);
+      const resolved = await resolveAccountForUser(refreshedUser);
+      return c.json({ ok: true, account_id: resolved.active.account.id });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.delete('/account/members/:membershipId', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const context = await resolveRequestAccountContext(c);
+      if (!canManageMembers(context.active.membership.role)) return c.json({ error: true, message: 'Only account owners/admins can manage members', status: 403 }, 403);
+      if (context.active.account.type !== 'organization') return c.json({ error: true, message: 'Members can only be removed from organization accounts', status: 400 }, 400);
+      const removed = await removeMembership(context.active.account.id, c.req.param('membershipId'));
+      if (!removed) return c.json({ error: true, message: 'Member not found', status: 404 }, 404);
+      return c.body(null, 204);
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.get('/account/invitations', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const context = await resolveRequestAccountContext(c);
+      if (!canManageMembers(context.active.membership.role)) return c.json({ error: true, message: 'Only account owners/admins can manage members', status: 403 }, 403);
+      if (context.active.account.type !== 'organization') return c.json({ invitations: [] });
+      const invitations = await listActiveInvitationsForAccount(context.active.account.id);
+      return c.json({ invitations: invitations.map((invite) => ({ id: invite.id, email: invite.email, role: safeAccountRole(invite.role), expires_at: invite.expiresAt.toISOString(), created_at: invite.createdAt.toISOString() })) });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.post('/account/invitations', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const context = await resolveRequestAccountContext(c);
+      if (!canManageMembers(context.active.membership.role)) return c.json({ error: true, message: 'Only account owners/admins can manage members', status: 403 }, 403);
+      if (context.active.account.type !== 'organization') return c.json({ error: true, message: 'Invitations are only available on organization accounts', status: 400 }, 400);
+      const input = z.object({ email: z.string().email(), role: z.enum(ACCOUNT_ROLES).default('member') }).parse(await c.req.json());
+      const normalizedEmail = normalizeEmail(input.email);
+      const existingMember = await getPrisma().accountMembership.findFirst({ where: { accountId: context.active.account.id, user: { email: normalizedEmail } } });
+      if (existingMember) return c.json({ error: true, message: 'That user is already a member of this account', status: 409 }, 409);
+      const { invitation } = await createAccountInvitation({ accountId: context.active.account.id, email: normalizedEmail, role: input.role, invitedByUserId: context.user.id });
+      return c.json({ id: invitation.id, email: invitation.email, role: safeAccountRole(invitation.role), expires_at: invitation.expiresAt.toISOString() }, 201);
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.post('/account/invitations/redeem', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const user = await currentUserFromRequest(c);
+      if (!user) return c.json({ error: true, message: 'Pass x-user-id or x-user-email to redeem an invitation', status: 400 }, 400);
+      await ensureUserAccountGraph(user);
+      const input = z.object({ token: z.string().min(1) }).parse(await c.req.json());
+      const { invitation } = await redeemAccountInvitation({ token: input.token, userId: user.id, userEmail: user.email });
+      await getPrisma().user.update({ where: { id: user.id }, data: { defaultAccountId: invitation.accountId } });
+      return c.json({ ok: true, account_id: invitation.accountId, redirect_to: '/machines?invite=accepted' });
+    } catch (error) {
+      return c.json({ error: true, message: error instanceof Error ? error.message : 'Failed to redeem invitation', status: 400 }, 400);
+    }
+  });
+
+  app.delete('/account/invitations/:invitationId', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const context = await resolveRequestAccountContext(c);
+      if (!canManageMembers(context.active.membership.role)) return c.json({ error: true, message: 'Only account owners/admins can manage members', status: 403 }, 403);
+      if (context.active.account.type !== 'organization') return c.json({ error: true, message: 'Invitations are only available on organization accounts', status: 400 }, 400);
+      const revoked = await revokeInvitation(context.active.account.id, c.req.param('invitationId'));
+      if (!revoked) return c.json({ error: true, message: 'Invitation not found', status: 404 }, 404);
+      return c.body(null, 204);
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.get('/account/me/invitations', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const user = await currentUserFromRequest(c);
+      if (!user) return c.json({ error: true, message: 'Pass x-user-id or x-user-email to list invitations', status: 400 }, 400);
+      const rows = await listPendingInvitationsForEmail(user.email);
+      return c.json({ invitations: rows.map((row) => ({ id: row.invitation.id, role: safeAccountRole(row.invitation.role), account_name: row.account.name, account_type: safeAccountType(row.account.type), expires_at: row.invitation.expiresAt.toISOString(), created_at: row.invitation.createdAt.toISOString() })) });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.post('/account/me/invitations/:invitationId/accept', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const user = await currentUserFromRequest(c);
+      if (!user) return c.json({ error: true, message: 'Pass x-user-id or x-user-email to accept an invitation', status: 400 }, 400);
+      await ensureUserAccountGraph(user);
+      const { invitation } = await acceptInvitationById({ invitationId: c.req.param('invitationId'), userId: user.id, userEmail: user.email });
+      return c.json({ ok: true, account_id: invitation.accountId });
+    } catch (error) {
+      return c.json({ error: true, message: error instanceof Error ? error.message : 'Failed to accept invitation', status: 400 }, 400);
+    }
+  });
+
+  app.post('/account/me/invitations/:invitationId/decline', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const user = await currentUserFromRequest(c);
+      if (!user) return c.json({ error: true, message: 'Pass x-user-id or x-user-email to decline an invitation', status: 400 }, 400);
+      const rows = await listPendingInvitationsForEmail(user.email);
+      const match = rows.find((row) => row.invitation.id === c.req.param('invitationId'));
+      if (!match) return c.json({ error: true, message: 'Invitation not found', status: 404 }, 404);
+      await revokeInvitation(match.invitation.accountId, match.invitation.id);
+      return c.json({ ok: true });
+    } catch (error) {
+      return c.json({ error: true, message: error instanceof Error ? error.message : 'Failed to decline invitation', status: 400 }, 400);
+    }
+  });
+
+  app.get('/admin/users', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ users: [] });
+      const users = await getPrisma().user.findMany({ orderBy: [{ createdAt: 'desc' }], take: 500 });
+      return c.json({
+        users: users.map((user) => ({
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          email_verified: user.emailVerified?.toISOString() ?? null,
+          default_account_id: user.defaultAccountId,
+          is_admin: user.isAdmin,
+          created_at: user.createdAt.toISOString(),
+          updated_at: user.updatedAt.toISOString(),
+        })),
+      });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.post('/admin/users', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const input = createUserSchema.parse(await c.req.json());
+      const user = await ensureUserByEmail({ email: input.email, name: input.name, isAdmin: input.is_admin });
+      const personalAccount = await ensureUserAccountGraph(user);
+      const refreshed = await getPrisma().user.findUnique({ where: { id: user.id } }) ?? user;
+      return c.json({ user: {
+        id: refreshed.id,
+        email: refreshed.email,
+        name: refreshed.name,
+        is_admin: refreshed.isAdmin,
+        default_account_id: refreshed.defaultAccountId ?? personalAccount.id,
+        personal_account_id: personalAccount.id,
+        created_at: refreshed.createdAt.toISOString(),
+      } }, 201);
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.get('/admin/accounts', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ accounts: [] });
+      const prisma = getPrisma();
+      await ensureSystemAccount().catch(() => undefined);
+      const includeDeleted = c.req.query('include_deleted') === 'true';
+      const accounts = await prisma.account.findMany({
+        where: includeDeleted ? undefined : { deletedAt: null },
+        include: {
+          memberships: { include: { user: true }, orderBy: [{ role: 'asc' }, { createdAt: 'asc' }] },
+          invitations: { orderBy: { createdAt: 'desc' }, take: 20 },
+        },
+        orderBy: [{ type: 'asc' }, { name: 'asc' }],
+      });
+      const accountIds = accounts.map((account) => account.id);
+      const machines = accountIds.length ? await prisma.machine.findMany({ where: { accountId: { in: accountIds }, status: { notIn: ['deleted', WARM_POOL_STATUS, WARM_POOL_CLAIMING_STATUS] } } }) : [];
+      const policies = accountIds.length ? await prisma.machineBackupPolicy.findMany({ where: { accountId: { in: accountIds } } }) : [];
+      const machineByAccount = new Map<string, PrismaMachine[]>();
+      for (const machine of machines) {
+        const rows = machineByAccount.get(machine.accountId) ?? [];
+        rows.push(machine);
+        machineByAccount.set(machine.accountId, rows);
+      }
+      const policyByAccount = new Map<string, PrismaMachineBackupPolicy[]>();
+      for (const policy of policies) {
+        const rows = policyByAccount.get(policy.accountId) ?? [];
+        rows.push(policy);
+        policyByAccount.set(policy.accountId, rows);
+      }
+      return c.json({
+        accounts: accounts.map((account) => {
+          const accountMachines = machineByAccount.get(account.id) ?? [];
+          const machineCosts = accountMachines.map((machine) => machinePricingBreakdown(machine));
+          const machineSummary = sumPricingComponents(machineCosts);
+          const accountPolicies = policyByAccount.get(account.id) ?? [];
+          return {
+            id: account.id,
+            type: account.type,
+            name: account.name,
+            slug: account.slug,
+            personal_for_user_id: account.personalForUserId,
+            billing_email: account.billingEmail,
+            stripe_customer_id: account.stripeCustomerId,
+            created_at: account.createdAt.toISOString(),
+            updated_at: account.updatedAt.toISOString(),
+            deleted_at: account.deletedAt?.toISOString() ?? null,
+            members: account.memberships.map((member) => ({
+              id: member.id,
+              role: safeAccountRole(member.role),
+              user_id: member.userId,
+              email: member.user.email,
+              name: member.user.name,
+              is_admin: member.user.isAdmin,
+              created_at: member.createdAt.toISOString(),
+            })),
+            invitations: account.invitations.map((invite) => ({
+              id: invite.id,
+              email: invite.email,
+              role: safeAccountRole(invite.role),
+              expires_at: invite.expiresAt.toISOString(),
+              accepted_at: invite.acceptedAt?.toISOString() ?? null,
+              revoked_at: invite.revokedAt?.toISOString() ?? null,
+              created_at: invite.createdAt.toISOString(),
+            })),
+            counts: {
+              members: account.memberships.length,
+              machines: accountMachines.length,
+              auto_backup_policies: accountPolicies.length,
+              auto_backup_enabled: accountPolicies.filter((policy) => policy.enabled).length,
+            },
+            cost_summary: {
+              ...Object.fromEntries(Object.entries(machineSummary).map(([key, value]) => [key, Number(value.toFixed(6))])),
+              note: 'Machine summary only; open account cost breakdown for backups, snapshots, templates, and pool storage.',
+            },
+          };
+        }),
+      });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.post('/admin/accounts', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const input = createAccountSchema.parse(await c.req.json());
+      const prisma = getPrisma();
+      const owner = input.owner_user_id
+        ? await prisma.user.findUnique({ where: { id: input.owner_user_id } })
+        : input.owner_email
+          ? await ensureUserByEmail({ email: input.owner_email, name: input.owner_name })
+          : null;
+      if (input.owner_user_id && !owner) return c.json({ error: true, message: 'owner_user_id not found' }, 404);
+      if (input.type === 'personal') {
+        if (!owner) return c.json({ error: true, message: 'Personal accounts are auto-provisioned for a real owner; pass owner_user_id or owner_email' }, 400);
+        const account = await ensureUserAccountGraph(owner);
+        return c.json({ account: { id: account.id, type: account.type, name: account.name, slug: account.slug, billing_email: account.billingEmail, personal_for_user_id: account.personalForUserId } }, 201);
+      }
+      if (!owner) return c.json({ error: true, message: 'Organization accounts must have an owner; pass owner_user_id or owner_email' }, 400);
+      await ensureUserAccountGraph(owner);
+      let account = await createOrganizationAccount({ ownerUserId: owner.id, ownerEmail: owner.email, name: input.name });
+      if (input.slug) {
+        const slug = await createUniqueAccountSlug(input.slug, account.id);
+        account = await prisma.account.update({ where: { id: account.id }, data: { slug } });
+      }
+      if (input.billing_email !== undefined) account = await prisma.account.update({ where: { id: account.id }, data: { billingEmail: input.billing_email } });
+      await prisma.user.update({ where: { id: owner.id }, data: { defaultAccountId: account.id } });
+      return c.json({ account: { id: account.id, type: account.type, name: account.name, slug: account.slug, billing_email: account.billingEmail } }, 201);
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.get('/admin/accounts/:id', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const account = await getPrisma().account.findUnique({
+        where: { id: c.req.param('id') },
+        include: { memberships: { include: { user: true } }, invitations: { orderBy: { createdAt: 'desc' } } },
+      });
+      if (!account) return c.json({ error: true, message: 'Account not found' }, 404);
+      return c.json({ account });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.patch('/admin/accounts/:id', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const input = patchAccountSchema.parse(await c.req.json());
+      const existing = await getPrisma().account.findUnique({ where: { id: c.req.param('id') } });
+      if (!existing) return c.json({ error: true, message: 'Account not found' }, 404);
+      const account = await getPrisma().account.update({
+        where: { id: c.req.param('id') },
+        data: {
+          ...(input.type && input.type !== existing.type ? { type: input.type } : {}),
+          ...(input.name ? { name: input.name.trim() } : {}),
+          ...(input.slug ? { slug: await createUniqueAccountSlug(input.slug, existing.id) } : {}),
+          ...(input.billing_email !== undefined ? { billingEmail: input.billing_email } : {}),
+          ...(input.stripe_customer_id !== undefined ? { stripeCustomerId: input.stripe_customer_id } : {}),
+          ...(input.deleted !== undefined ? { deletedAt: input.deleted ? new Date() : null } : {}),
+        },
+      });
+      return c.json({ account: { id: account.id, type: account.type, name: account.name, slug: account.slug, billing_email: account.billingEmail, deleted_at: account.deletedAt?.toISOString() ?? null } });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.post('/admin/accounts/:id/members', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const input = accountMemberSchema.parse(await c.req.json());
+      const prisma = getPrisma();
+      const account = await prisma.account.findUnique({ where: { id: c.req.param('id') } });
+      if (!account) return c.json({ error: true, message: 'Account not found' }, 404);
+      if (account.type !== 'organization') return c.json({ error: true, message: 'Members can only be managed on organization accounts; personal accounts only have their owner', status: 400 }, 400);
+      const user = input.user_id
+        ? await prisma.user.findUnique({ where: { id: input.user_id } })
+        : input.email
+          ? await ensureUserByEmail({ email: input.email, name: input.name })
+          : null;
+      if (!user) return c.json({ error: true, message: 'Pass user_id or email for the member' }, 400);
+      await ensureUserAccountGraph(user);
+      const member = await ensureMembership(account.id, user.id, input.role);
+      if (!user.defaultAccountId) await prisma.user.update({ where: { id: user.id }, data: { defaultAccountId: account.id } });
+      return c.json({ member: { id: member.id, account_id: member.accountId, user_id: user.id, email: user.email, name: user.name, role: member.role } }, 201);
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.patch('/admin/accounts/:id/members/:memberId', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const input = patchAccountMemberSchema.parse(await c.req.json());
+      const member = await updateMembershipRole(c.req.param('id'), c.req.param('memberId'), input.role);
+      if (!member) return c.json({ error: true, message: 'Member not found', status: 404 }, 404);
+      return c.json({ member: { id: member.id, account_id: member.accountId, user_id: member.userId, role: member.role } });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.delete('/admin/accounts/:id/members/:memberId', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const removed = await removeMembership(c.req.param('id'), c.req.param('memberId'));
+      if (!removed) return c.json({ error: true, message: 'Member not found', status: 404 }, 404);
+      return c.json({ ok: true });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.post('/admin/accounts/:id/invitations', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const input = accountInvitationSchema.parse(await c.req.json());
+      const prisma = getPrisma();
+      const account = await prisma.account.findUnique({ where: { id: c.req.param('id') } });
+      if (!account) return c.json({ error: true, message: 'Account not found' }, 404);
+      if (account.type !== 'organization') return c.json({ error: true, message: 'Invitations are only available on organization accounts', status: 400 }, 400);
+      const normalizedEmail = normalizeEmail(input.email);
+      const existingMember = await prisma.accountMembership.findFirst({ where: { accountId: account.id, user: { email: normalizedEmail } } });
+      if (existingMember) return c.json({ error: true, message: 'That user is already a member of this account', status: 409 }, 409);
+      const invitedByUserId = await resolveActorUserIdForAccount(account.id);
+      const { invitation: invite, rawToken: token } = await createAccountInvitation({ accountId: account.id, email: normalizedEmail, role: input.role, invitedByUserId });
+      return c.json({ invitation: { id: invite.id, account_id: invite.accountId, email: invite.email, role: invite.role, token, expires_at: invite.expiresAt.toISOString(), created_at: invite.createdAt.toISOString() } }, 201);
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.patch('/admin/accounts/:id/invitations/:inviteId/revoke', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const invite = await revokeInvitation(c.req.param('id'), c.req.param('inviteId'));
+      if (!invite) return c.json({ error: true, message: 'Invitation not found', status: 404 }, 404);
+      return c.json({ invitation: { id: invite.id, revoked_at: invite.revokedAt?.toISOString() ?? null } });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.get('/admin/accounts/:id/cost-breakdown', async (c) => {
+    try {
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const prisma = getPrisma();
+      const accountId = c.req.param('id');
+      const account = await prisma.account.findUnique({ where: { id: accountId } });
+      if (!account) return c.json({ error: true, message: 'Account not found' }, 404);
+      const [machines, templates, poolPolicies] = await Promise.all([
+        prisma.machine.findMany({ where: { accountId, status: { notIn: ['deleted', WARM_POOL_STATUS, WARM_POOL_CLAIMING_STATUS] } }, orderBy: { createdAt: 'desc' } }),
+        prisma.machineTemplate.findMany({ where: { accountId, status: { notIn: ['deleted', 'archived'] } } }).catch(() => []),
+        prisma.warmPoolPolicy.findMany({ where: { accountId, status: { not: 'deleted' } } }).catch(() => []),
+      ]);
+      const machineItems = [] as Array<ReturnType<typeof machinePricingBreakdown> & { machine_id: string; machine_name: string }>;
+      const snapshotArtifacts: Array<Record<string, unknown>> = [];
+      const backupArtifacts: Array<Record<string, unknown>> = [];
+      const artifactErrors: Array<{ machine_id: string; error: string }> = [];
+      for (const machine of machines) {
+        const cluster = findCluster(config, machine.incusClusterId);
+        let observed: IncusInstance | null = null;
+        if (cluster) {
+          const client = clientFor(cluster);
+          observed = await client.getInstance(machine.incusInstanceName).catch(() => null);
+          const [snapshots, backups] = await Promise.all([
+            client.listSnapshots(machine.incusInstanceName).catch((error) => { artifactErrors.push({ machine_id: machine.id, error: `snapshots: ${error instanceof Error ? error.message : String(error)}` }); return [] as Awaited<ReturnType<typeof client.listSnapshots>>; }),
+            client.listBackups(machine.incusInstanceName).catch((error) => { artifactErrors.push({ machine_id: machine.id, error: `backups: ${error instanceof Error ? error.message : String(error)}` }); return [] as Awaited<ReturnType<typeof client.listBackups>>; }),
+          ]);
+          const snapshotByName = new Map(snapshots.map((snapshot) => [snapshot.name, snapshot]));
+          for (const snapshot of snapshots) {
+            if (snapshot.name.startsWith('bk-snap-')) continue;
+            const bytes = exactBytes(snapshot.size);
+            if (!bytes) continue;
+            const gib = bytes / BYTES_PER_GIB;
+            snapshotArtifacts.push({
+              machine_id: machine.id,
+              machine_name: machine.name,
+              name: snapshot.name,
+              metered_bytes: bytes,
+              billable_gib: Number(gib.toFixed(9)),
+              eur_per_month: Number(storageEurPerMonth(gib, 'local').toFixed(6)),
+            });
+          }
+          for (const backup of backups) {
+            const backupBytes = exactBytes(backup.size) ?? 0;
+            const restoreBytes = exactBytes(snapshotByName.get(`bk-snap-${backup.name}`)?.size) ?? 0;
+            const bytes = backupBytes + restoreBytes;
+            if (!bytes) continue;
+            const gib = bytes / BYTES_PER_GIB;
+            backupArtifacts.push({
+              machine_id: machine.id,
+              machine_name: machine.name,
+              name: backup.name,
+              metered_bytes: bytes,
+              billable_gib: Number(gib.toFixed(9)),
+              eur_per_month: Number(storageEurPerMonth(gib, 'local').toFixed(6)),
+              components: [
+                { label: 'backup tarball', metered_bytes: backupBytes, billable_gib: Number((backupBytes / BYTES_PER_GIB).toFixed(9)) },
+                { label: 'pinned restore snapshot', metered_bytes: restoreBytes, billable_gib: Number((restoreBytes / BYTES_PER_GIB).toFixed(9)) },
+              ],
+            });
+          }
+        }
+        machineItems.push({ ...machinePricingBreakdown(machine, observed), machine_id: machine.id, machine_name: machine.name });
+      }
+      const machineSummary = sumPricingComponents(machineItems);
+      const templateStorageEur = templates.reduce((sum, template) => sum + Number(template.storageEurMonth ?? 0), 0);
+      const warmPoolEur = poolPolicies.reduce((sum, policy) => sum + Number(jsonRecord(jsonRecord(policy.metadata).billing).total_eur_month ?? 0), 0);
+      const snapshotEur = snapshotArtifacts.reduce((sum, item) => sum + Number(item.eur_per_month ?? 0), 0);
+      const backupEur = backupArtifacts.reduce((sum, item) => sum + Number(item.eur_per_month ?? 0), 0);
+      const components = [
+        { key: 'running_vcpu', label: 'Running vCPU', eur_per_month: Number(machineSummary.running_vcpu_eur_per_month.toFixed(6)), pricing_key: 'vcpu_hot_micro_eur_per_sec' },
+        { key: 'running_memory', label: 'Running RAM', eur_per_month: Number(machineSummary.running_memory_eur_per_month.toFixed(6)), pricing_key: 'ram_gb_hot_micro_eur_per_sec' },
+        { key: 'machine_disk', label: 'Machine disk storage', eur_per_month: Number(machineSummary.disk_storage_eur_per_month.toFixed(6)), pricing_key: 'storage_gb_local_micro_eur_per_sec' },
+        { key: 'snapshot_storage', label: 'Manual snapshot storage', eur_per_month: Number(snapshotEur.toFixed(6)), pricing_key: 'storage_gb_local_micro_eur_per_sec' },
+        { key: 'backup_storage', label: 'Manual + auto backup storage', eur_per_month: Number(backupEur.toFixed(6)), pricing_key: 'storage_gb_local_micro_eur_per_sec' },
+        { key: 'template_storage', label: 'Machine Template image storage', eur_per_month: Number(templateStorageEur.toFixed(6)), pricing_key: 'storage_gb_local_micro_eur_per_sec' },
+        { key: 'warm_pool', label: 'Warm Pool reservations', eur_per_month: Number(warmPoolEur.toFixed(6)), pricing_key: 'storage_or_hot_pool_policy' },
+      ];
+      const total = components.reduce((sum, component) => sum + component.eur_per_month, 0);
+      return c.json({
+        account: { id: account.id, name: account.name, slug: account.slug, type: account.type },
+        model: 'running_vcpu_ram_plus_disk_storage_and_artifacts',
+        rates: {
+          vcpu_running_micro_eur_per_sec: DEFAULT_PRICING.vcpu_hot_micro_eur_per_sec,
+          memory_gb_running_micro_eur_per_sec: DEFAULT_PRICING.ram_gb_hot_micro_eur_per_sec,
+          disk_gb_local_micro_eur_per_sec: DEFAULT_PRICING.storage_gb_local_micro_eur_per_sec,
+          archive_storage_gb_micro_eur_per_sec: DEFAULT_PRICING.storage_gb_archive_micro_eur_per_sec,
+          seconds_per_month: BILLING_SECONDS_PER_MONTH,
+        },
+        total_eur_per_month: Number(total.toFixed(6)),
+        components,
+        machines: machineItems,
+        artifacts: { snapshots: snapshotArtifacts, backups: backupArtifacts, errors: artifactErrors },
+        templates: templates.map((template) => ({ id: template.id, name: template.name, storage_eur_month: Number(template.storageEurMonth ?? 0), billable_gib: Number(template.billableGib ?? 0) })),
+        warm_pools: poolPolicies.map((policy) => ({ id: policy.id, name: policy.name, billing: jsonRecord(jsonRecord(policy.metadata).billing) })),
+        note: 'Running vCPU/RAM are billed only while machines are running. Disk, snapshots, backups, templates, and stopped warm pools are storage-driven and charged continuously by measured/provisioned GB.',
+      });
     } catch (error) {
       const response = routeError(error);
       return c.json(response.body, response.status as never);
@@ -5541,6 +7696,221 @@ export function createApp(config: AppConfig) {
     }
   });
 
+  app.get('/machine-templates', async (c) => {
+    try {
+      const authError = adminGuard(config, c.req.header('authorization'));
+      if (authError) return c.json(authError, 401);
+      const accountId = c.req.header('x-account-id') || 'system';
+      if (!config.databaseConfigured) {
+        const templates = await Promise.all(TEMPLATES.map((template) => virtualCatalogMachineTemplate(config, template.id)));
+        return c.json({ templates: templates.filter(Boolean) });
+      }
+      await ensureCatalogMachineTemplates(config);
+      const [rows, poolRows] = await Promise.all([
+        getPrisma().machineTemplate.findMany({
+          where: {
+            status: { not: 'deleted' },
+            OR: [{ accountId }, { accountId: 'system', visibility: 'catalog' }, { visibility: 'catalog' }],
+          },
+          orderBy: [{ visibility: 'asc' }, { updatedAt: 'desc' }],
+        }),
+        getPrisma().machine.findMany({ where: { status: { in: [WARM_POOL_STATUS, WARM_POOL_CLAIMING_STATUS] } } }),
+      ]);
+      const measuredPoolRows = await refreshWarmPoolStorageMeasurements(config, poolRows);
+      const templates = await Promise.all(rows.map((row) => serializeMachineTemplate(config, { ...row, region: row.region as SupportedRegion, type: 'container', defaultResources: resourceShape(row.defaultResources) }, accountId, measuredPoolRows)));
+      return c.json({ templates });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.post('/machine-templates', async (c) => {
+    try {
+      const authError = adminGuard(config, c.req.header('authorization'));
+      if (authError) return c.json(authError, 401);
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const accountId = c.req.header('x-account-id') || 'system';
+      const input = createMachineTemplateSchema.parse(await c.req.json());
+      const created = await createPreparedMachineTemplate(config, input, accountId);
+      const template = await serializeMachineTemplate(config, { ...created.row, region: created.row.region as SupportedRegion, type: 'container', defaultResources: resourceShape(created.row.defaultResources), image: created.image }, accountId);
+      return c.json({ template }, 201);
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.get('/machine-templates/:id', async (c) => {
+    try {
+      const authError = adminGuard(config, c.req.header('authorization'));
+      if (authError) return c.json(authError, 401);
+      const accountId = c.req.header('x-account-id') || 'system';
+      const template = await resolveMachineTemplate(config, accountId, c.req.param('id'));
+      if (!template) return c.json({ error: true, message: 'Machine Template not found' }, 404);
+      const poolRows = config.databaseConfigured ? await refreshWarmPoolStorageMeasurements(config, await getPrisma().machine.findMany({ where: { status: { in: [WARM_POOL_STATUS, WARM_POOL_CLAIMING_STATUS] } } })) : [];
+      return c.json({ template: await serializeMachineTemplate(config, template, accountId, poolRows) });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.patch('/machine-templates/:id', async (c) => {
+    try {
+      const authError = adminGuard(config, c.req.header('authorization'));
+      if (authError) return c.json(authError, 401);
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const accountId = c.req.header('x-account-id') || 'system';
+      const template = await resolveMachineTemplate(config, accountId, c.req.param('id'));
+      if (!template || template.virtual) return c.json({ error: true, message: 'Machine Template not found' }, 404);
+      if (template.accountId !== accountId && template.accountId !== 'system') return c.json({ error: true, message: 'Machine Template not found' }, 404);
+      const patch = patchMachineTemplateSchema.parse(await c.req.json());
+      if (patch.default_resources && !resourcesEqual(patch.default_resources, template.defaultResources)) {
+        const policies = await poolPoliciesForTemplate(config, template, accountId);
+        if (policies.all.some((policy) => policy.target > 0)) return c.json({ error: true, message: 'Drain/delete all Template Pools before changing default size' }, 409);
+      }
+      const row = await getPrisma().machineTemplate.update({
+        where: { id: template.id },
+        data: {
+          ...(patch.name ? { name: patch.name } : {}),
+          ...(patch.status ? { status: patch.status } : {}),
+          ...(patch.visibility ? { visibility: patch.visibility } : {}),
+          ...(patch.default_resources ? { defaultResources: patch.default_resources } : {}),
+          ...(patch.metadata ? { metadata: { ...jsonRecord(template.metadata), ...patch.metadata } as Prisma.InputJsonValue } : {}),
+        },
+      });
+      return c.json({ template: await serializeMachineTemplate(config, { ...row, region: row.region as SupportedRegion, type: 'container', defaultResources: resourceShape(row.defaultResources) }, accountId) });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.delete('/machine-templates/:id', async (c) => {
+    try {
+      const authError = adminGuard(config, c.req.header('authorization'));
+      if (authError) return c.json(authError, 401);
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const accountId = c.req.header('x-account-id') || 'system';
+      const template = await resolveMachineTemplate(config, accountId, c.req.param('id'));
+      if (!template || template.virtual) return c.json({ error: true, message: 'Machine Template not found' }, 404);
+      const policies = await poolPoliciesForTemplate(config, template, accountId);
+      for (const policy of policies.all) {
+        if (policy.status !== 'deleted') await drainWarmPoolPolicy(config, policy).catch(() => undefined);
+        await getPrisma().warmPoolPolicy.update({ where: { id: policy.id }, data: { status: 'deleted', target: 0 } }).catch(() => undefined);
+      }
+      const row = await getPrisma().machineTemplate.update({ where: { id: template.id }, data: { status: 'deleted', metadata: { ...jsonRecord(template.metadata), deleted_at: new Date().toISOString() } as Prisma.InputJsonValue } });
+      return c.json({ template: row });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.get('/machine-templates/:id/pool', async (c) => {
+    try {
+      const authError = adminGuard(config, c.req.header('authorization'));
+      if (authError) return c.json(authError, 401);
+      const accountId = c.req.header('x-account-id') || 'system';
+      const template = await resolveMachineTemplate(config, accountId, c.req.param('id'));
+      if (!template) return c.json({ error: true, message: 'Machine Template not found' }, 404);
+      const policies = await poolPoliciesForTemplate(config, template, accountId);
+      const poolRows = config.databaseConfigured ? await refreshWarmPoolStorageMeasurements(config, await getPrisma().machine.findMany({ where: { accountId, status: { in: [WARM_POOL_STATUS, WARM_POOL_CLAIMING_STATUS] } } })) : [];
+      const stopped = policies.stopped ? serializeWarmPoolPolicy(policies.stopped, poolRows) : null;
+      const running = policies.running ? serializeWarmPoolPolicy(policies.running, poolRows) : null;
+      return c.json({ pool: stopped ?? running, pools: { stopped, running } });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.put('/machine-templates/:id/pool', async (c) => {
+    try {
+      const authError = adminGuard(config, c.req.header('authorization'));
+      if (authError) return c.json(authError, 401);
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const accountId = c.req.header('x-account-id') || 'system';
+      const template = await resolveMachineTemplate(config, accountId, c.req.param('id'));
+      if (!template) return c.json({ error: true, message: 'Machine Template not found' }, 404);
+      const input = templatePoolConfigSchema.parse(await c.req.json());
+      const mode = normalizeWarmPoolMode(input.mode);
+      const modeKey = warmPoolModeKey(mode);
+      const existing = await poolPolicyForTemplate(config, template, accountId, mode);
+      const metadata = { template_id: template.id, template_slug: template.slug, pool_mode: modeKey, billing: warmPoolEstimate(template.defaultResources, input.target, [], mode) } as Prisma.InputJsonValue;
+      const policy = existing
+        ? await getPrisma().warmPoolPolicy.update({
+          where: { id: existing.id },
+          data: { name: `${template.name} ${modeKey === 'running' ? 'Running Hot' : 'Stopped'} Pool`, status: input.status ?? existing.status, target: input.target, billingMode: mode, resources: template.defaultResources, metadata },
+        })
+        : await getPrisma().warmPoolPolicy.create({
+          data: {
+            accountId,
+            name: `${template.name} ${modeKey === 'running' ? 'Running Hot' : 'Stopped'} Pool`,
+            status: input.status ?? 'active',
+            region: template.region,
+            type: template.type,
+            sourceType: 'image',
+            sourceId: template.incusAlias,
+            target: input.target,
+            resources: template.defaultResources,
+            billingMode: mode,
+            metadata,
+          },
+        });
+      if (policy.status === 'active' && policy.target > 0) void ensureWarmPoolForSpec(config, warmPoolSpecFromPolicy(policy)).catch((error) => console.warn(`[v2-api] template pool ${policy.id} refill failed:`, error instanceof Error ? error.message : String(error)));
+      if (policy.status !== 'active' || policy.target === 0) void drainWarmPoolPolicy(config, policy).catch((error) => console.warn(`[v2-api] template pool ${policy.id} drain failed:`, error instanceof Error ? error.message : String(error)));
+      const poolRows = await refreshWarmPoolStorageMeasurements(config, await getPrisma().machine.findMany({ where: { accountId, status: { in: [WARM_POOL_STATUS, WARM_POOL_CLAIMING_STATUS] } } }));
+      const policies = await poolPoliciesForTemplate(config, template, accountId);
+      const stopped = policies.stopped ? serializeWarmPoolPolicy(policies.stopped, poolRows) : null;
+      const running = policies.running ? serializeWarmPoolPolicy(policies.running, poolRows) : null;
+      return c.json({ pool: serializeWarmPoolPolicy(policy, poolRows), pools: { stopped, running } });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.post('/machine-templates/:id/pool/refill', async (c) => {
+    try {
+      const authError = adminGuard(config, c.req.header('authorization'));
+      if (authError) return c.json(authError, 401);
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const accountId = c.req.header('x-account-id') || 'system';
+      const template = await resolveMachineTemplate(config, accountId, c.req.param('id'));
+      if (!template) return c.json({ error: true, message: 'Machine Template not found' }, 404);
+      const mode = normalizeWarmPoolMode(c.req.query('mode'));
+      const policy = await poolPolicyForTemplate(config, template, accountId, mode);
+      if (!policy) return c.json({ error: true, message: 'Template Pool is not configured' }, 404);
+      const result = await ensureWarmPoolForSpec(config, warmPoolSpecFromPolicy(policy));
+      return c.json(result);
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.delete('/machine-templates/:id/pool', async (c) => {
+    try {
+      const authError = adminGuard(config, c.req.header('authorization'));
+      if (authError) return c.json(authError, 401);
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const accountId = c.req.header('x-account-id') || 'system';
+      const template = await resolveMachineTemplate(config, accountId, c.req.param('id'));
+      if (!template) return c.json({ error: true, message: 'Machine Template not found' }, 404);
+      const mode = normalizeWarmPoolMode(c.req.query('mode'));
+      const policy = await poolPolicyForTemplate(config, template, accountId, mode);
+      if (!policy) return c.json({ ok: true, noop: true });
+      const disabled = await getPrisma().warmPoolPolicy.update({ where: { id: policy.id }, data: { status: 'deleted', target: 0, metadata: { ...jsonRecord(policy.metadata), deleted_at: new Date().toISOString() } as Prisma.InputJsonValue } });
+      const drain = await drainWarmPoolPolicy(config, disabled);
+      return c.json({ ok: true, pool: serializeWarmPoolPolicy(disabled), drain });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
   app.get('/warm-pool-policies', async (c) => {
     const authError = adminGuard(config, c.req.header('authorization'));
     if (authError) return c.json(authError, 401);
@@ -5887,6 +8257,33 @@ export function createApp(config: AppConfig) {
       }
     }),
   );
+
+  app.get('/machines/:id/backup-policy', async (c) => {
+    try {
+      const resolved = await machineClient(config, c.req.param('id'));
+      if (!resolved) return c.json({ error: true, message: 'Machine not found' }, 404);
+      if (!config.databaseConfigured) return c.json({ policy: serializeBackupPolicy(null, resolved.machine) });
+      const policy = await loadBackupPolicy(resolved.machine);
+      return c.json({ policy: serializeBackupPolicy(policy, resolved.machine) });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
+
+  app.patch('/machines/:id/backup-policy', async (c) => {
+    try {
+      const input = patchBackupPolicySchema.parse(await c.req.json());
+      const resolved = await machineClient(config, c.req.param('id'));
+      if (!resolved) return c.json({ error: true, message: 'Machine not found' }, 404);
+      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
+      const policy = await upsertBackupPolicy(resolved.machine, input.enabled);
+      return c.json({ policy: serializeBackupPolicy(policy, resolved.machine) });
+    } catch (error) {
+      const response = routeError(error);
+      return c.json(response.body, response.status as never);
+    }
+  });
 
   app.openapi(
     createRoute({
@@ -6256,28 +8653,52 @@ export function createApp(config: AppConfig) {
         return c.json(authError, 401);
       }
 
-      const input = await withTelemetrySpan(telemetry, 'parse request', async () => createMachineSchema.parse(await c.req.json()));
-      const sourceTelemetryId = input.source.type === 'image'
-        ? input.source.image_id
-        : input.source.type === 'snapshot'
-          ? input.source.snapshot_id
-          : input.source.backup_id;
+      const requestInput = await withTelemetrySpan(telemetry, 'parse request', async () => createMachineSchema.parse(await c.req.json()));
+      const accountId = c.req.header('x-account-id') || 'system';
+      const template = await withTelemetrySpan(telemetry, 'resolve machine template', () => resolveMachineTemplate(config, accountId, requestInput.template_id), { template_id: requestInput.template_id });
+      if (!template) {
+        failMachineCreationTelemetry(telemetry, `Machine Template ${requestInput.template_id} not found`);
+        return c.json({ error: true, message: `Machine Template ${requestInput.template_id} not found` }, 404);
+      }
+      if (template.status !== 'active') {
+        failMachineCreationTelemetry(telemetry, `Machine Template ${template.name} is not active`);
+        return c.json({ error: true, message: `Machine Template ${template.name} is not active` }, 409);
+      }
+      const templateImage = template.image ?? await findImageForTemplate(config, template).catch(() => null);
+      if (!imageIsJustavpsReady(templateImage)) {
+        failMachineCreationTelemetry(telemetry, `Machine Template ${template.name} is not JustAVPS-ready`);
+        return c.json({ error: true, message: `Machine Template ${template.name} is not JustAVPS-ready yet` }, 409);
+      }
+      if (requestInput.region && requestInput.region !== template.region) {
+        failMachineCreationTelemetry(telemetry, `Machine Template ${template.name} is pinned to region ${template.region}`);
+        return c.json({ error: true, message: `Machine Template ${template.name} is pinned to region ${template.region}` }, 409);
+      }
+      const input: CreateMachineInput = {
+        ...requestInput,
+        region: template.region,
+        resources: requestInput.resources ?? template.defaultResources,
+        source: { type: 'image', image_id: template.incusAlias },
+        template_id: template.id,
+      };
       updateMachineCreationLabels(telemetry, {
         name: input.name ?? null,
         type: input.type,
         region: input.region,
-        source_type: input.source.type,
-        source_id: sourceTelemetryId,
+        source_type: 'template',
+        source_id: template.id,
+        template_id: template.id,
+        template_slug: template.slug,
+        template_image_alias: template.incusAlias,
+        start_strategy: input.start_strategy,
         vcpu: input.resources.vcpu,
         memory_gb: input.resources.memory_gb,
         disk_gb: input.resources.disk_gb,
       });
 
-      const accountId = c.req.header('x-account-id') || 'system';
       const warmSpec = warmPoolSpecFromCreate(input);
-      if (warmSpec && config.databaseConfigured) {
+      if (warmSpec && config.databaseConfigured && input.start_strategy !== 'cold') {
         const warmDisplayName = displayMachineName(input.name, generatedMachineId());
-        const claimed = await withTelemetrySpan(telemetry, 'claim warm pool machine', () => claimWarmPoolMachine(config, warmSpec, input, warmDisplayName, accountId, telemetry), { source_key: warmSpec.key });
+        const claimed = await withTelemetrySpan(telemetry, 'claim warm pool machine', () => claimWarmPoolMachine(config, warmSpec, input, warmDisplayName, accountId, input.start_strategy, telemetry), { source_key: warmSpec.key, start_strategy: input.start_strategy });
         if (claimed) {
           updateMachineCreationLabels(telemetry, { cluster_id: claimed.cluster.id, member_name: claimed.observed?.location ?? claimed.machine.incusMemberName ?? null, warm_pool_hit: true, warm_pool_resized_on_claim: claimed.resizedOnClaim, warm_pool_running_takeover: claimed.runningTakeover });
           let proxySync: Record<string, unknown> | null = null;
@@ -6298,231 +8719,32 @@ export function createApp(config: AppConfig) {
           return c.json({ machine: serializeMachine(config, finalMachine, claimed.observed) }, 201);
         }
         updateMachineCreationLabels(telemetry, { warm_pool_hit: false });
+        if (input.start_strategy === 'running_pool' || input.start_strategy === 'stopped_pool') {
+          const label = input.start_strategy === 'running_pool' ? 'Running Hot Pool' : 'Stopped Pool';
+          failMachineCreationTelemetry(telemetry, `${label} slot unavailable for Machine Template ${template.name}`);
+          return c.json({ error: true, message: `${label} slot unavailable for Machine Template ${template.name}. Use start_strategy=auto or cold to allow fallback.` }, 409);
+        }
       }
 
-      let backupResolvedForPlacement: BackupResolution | null = null;
-      let preferredClusterId: string | null = null;
-      let preferredMemberName: string | null = null;
-      if (input.source.type === 'backup') {
-        const backupId = input.source.backup_id;
-        backupResolvedForPlacement = await withTelemetrySpan(telemetry, 'resolve backup source', () => resolveBackupForSource(config, backupId));
-        if ('error' in backupResolvedForPlacement) {
-          failMachineCreationTelemetry(telemetry, backupResolvedForPlacement.error.body.message ?? 'Backup source resolution failed');
-          return c.json(backupResolvedForPlacement.error.body, backupResolvedForPlacement.error.status as never);
-        }
-        preferredClusterId = backupResolvedForPlacement.sourceMachine.incusClusterId;
-        preferredMemberName = backupResolvedForPlacement.sourceMachine.incusMemberName;
-      } else if (input.source.type === 'snapshot' && config.databaseConfigured) {
-        const snapshotId = input.source.snapshot_id;
-        const snapshot = await withTelemetrySpan(telemetry, 'resolve snapshot placement hint', async () => await getPrisma().snapshot.findUnique({ where: { id: snapshotId } })
-          ?? await getPrisma().snapshot.findFirst({ where: { incusSnapshotName: snapshotId }, orderBy: { createdAt: 'desc' } }));
-        if (snapshot) {
-          const sourceMachine = await getPrisma().machine.findUnique({ where: { id: snapshot.machineId } });
-          preferredClusterId = sourceMachine?.incusClusterId ?? null;
-          preferredMemberName = sourceMachine?.incusMemberName ?? null;
-        }
-      }
       const placement = await withTelemetrySpan(telemetry, 'select placement', () => selectPlacement(config, {
         region: input.region,
         resources: input.resources,
         targetClusterId: input.target_cluster_id ?? null,
-        preferredClusterId,
-        preferredMemberName,
+        preferredClusterId: template.incusClusterId,
       }));
       const { cluster, client, member } = placement;
       updateMachineCreationLabels(telemetry, { cluster_id: cluster.id, member_name: member.server_name });
-
-      // Backup source: native Incus tarball import. Bypasses createInstance entirely.
-      if (input.source.type === 'backup') {
-        const backupId = input.source.backup_id;
-        const backupResolved = backupResolvedForPlacement ?? await resolveBackupForSource(config, backupId);
-        if ('error' in backupResolved) {
-          failMachineCreationTelemetry(telemetry, backupResolved.error.body.message ?? 'Backup source resolution failed');
-          return c.json(backupResolved.error.body, backupResolved.error.status as never);
-        }
-        const { sourceMachine, backupName } = backupResolved;
-        if (sourceMachine.incusClusterId !== cluster.id) {
-          failMachineCreationTelemetry(telemetry, 'Backup source is in a different Incus cluster');
-          return c.json({ error: true, message: 'Backup source is in a different Incus cluster' }, 409);
-        }
-        if (sourceMachine.type !== input.type) {
-          failMachineCreationTelemetry(telemetry, 'Backup source type does not match requested machine type');
-          return c.json({ error: true, message: 'Backup source type does not match requested machine type' }, 409);
-        }
-        const machineId = generatedMachineId();
-        const displayName = displayMachineName(input.name, machineId);
-        const incusName = machineId;
-        // "Create from backup" semantics. Two paths:
-        //   • Same-project clone — Incus 6.23 rejects tarball import when the
-        //     source instance still exists in the same project (it tries to
-        //     re-set immutable `volatile.idmap.base` keys). Use native copy
-        //     instead, which is point-in-time identical to the most recent
-        //     state of the source. The `backup_id` becomes a marker that
-        //     "this clone was associated with a backup" without requiring
-        //     the tarball detour.
-        //   • Cross-project / external — fall back to tarball export+import
-        //     (the original implementation). This is the only path that can
-        //     reconstitute an instance whose source was already deleted.
-        const sameProject = sourceMachine.incusProject === cluster.project;
-        let importOp: Awaited<ReturnType<typeof client.importInstanceFromTarball>>;
-        let startOp: IncusOperation | Record<string, unknown> | null = null;
-        let startNoop = false;
-        if (sameProject) {
-          importOp = await withTelemetrySpan(telemetry, 'clone backup source in Incus', () => client.createInstance({
-            name: incusName,
-            machineType: input.type,
-            source: { type: 'snapshot', source: sourceMachine.incusInstanceName },
-            targetMember: member.server_name,
-            resources: { vcpu: input.resources.vcpu, memoryGb: input.resources.memory_gb, diskGb: input.resources.disk_gb },
-            start: input.type === 'container',
-            machineId,
-            displayName,
-            accountId: c.req.header('x-account-id') || 'system',
-          }), { instance: incusName, member: member.server_name });
-          startOp = null;
-        } else {
-          const tarball = await withTelemetrySpan(telemetry, 'export backup tarball', () => client.exportBackup(sourceMachine.incusInstanceName, backupName), { source_instance: sourceMachine.incusInstanceName, backup: backupName });
-          importOp = await withTelemetrySpan(telemetry, 'import backup tarball', () => client.importInstanceFromTarball({
-            tarball,
-            targetName: incusName,
-            targetMember: member.server_name,
-          }), { instance: incusName, member: member.server_name });
-          await withTelemetrySpan(telemetry, 'apply resource config', () => applyResourceConfig(client, incusName, cluster, input.resources, { machineId, displayName, machineType: input.type, accountId: c.req.header('x-account-id') || 'system' }));
-          try {
-            const started = await withTelemetrySpan(telemetry, 'start machine', () => startCreatedMachine(client, incusName));
-            startOp = started.operation;
-            startNoop = started.noop;
-          } catch (error) {
-            await client.deleteInstance(incusName, { force: true }).catch(() => undefined);
-            throw error;
-          }
-        }
-
-        let observed: IncusInstance | null = null;
-        let resourceOperation: Record<string, unknown> | null = null;
-        let isolationCheck: ReturnType<typeof validateMachineIsolation> | null = null;
-        let usability: Awaited<ReturnType<typeof ensureMachineUsable>> | null = null;
-        try {
-          const enforced = await withTelemetrySpan(telemetry, 'verify isolation and resource limits', () => enforceCreatedMachineResources({
-            client,
-            cluster,
-            instanceName: incusName,
-            resources: input.resources,
-            machineId,
-            displayName,
-            machineType: input.type,
-            accountId: c.req.header('x-account-id') || 'system',
-          }));
-          observed = enforced.observed;
-          isolationCheck = enforced.isolation;
-          resourceOperation = { synced: true, mode: 'post-create-resource-enforce', at: new Date().toISOString(), resources: input.resources };
-          const running = await withTelemetrySpan(telemetry, 'ensure machine running', () => ensureCreatedMachineRunning(client, incusName, observed));
-          observed = running.observed;
-          if (running.startOperation) startOp = running.startOperation;
-          startNoop = running.startNoop;
-          usability = await ensureMachineUsable({
-            config,
-            client,
-            instanceName: incusName,
-            machineId,
-            mode: 'cold-create',
-            telemetry,
-            installManagedDaemon: true,
-            repairManagedDaemon: false,
-            execTimeoutMs: 120_000,
-            cloudInitTimeoutMs: 180_000,
-            daemonHealthTimeoutMs: 60_000,
-          });
-        } catch (error) {
-          await client.deleteInstance(incusName, { force: true }).catch(() => undefined);
-          throw error;
-        }
-
-        let productMachine: PrismaMachine | null = null;
-        let proxySync: Record<string, unknown> | null = null;
-        let daemonEnsure: Record<string, unknown> | null = null;
-        if (config.databaseConfigured) {
-          productMachine = await withTelemetrySpan(telemetry, 'persist machine row', () => getPrisma().machine.create({
-            data: {
-              id: machineId,
-              accountId: c.req.header('x-account-id') || 'system',
-              name: displayName,
-              region: input.region,
-              type: input.type,
-              status: observed?.status ?? 'Running',
-              sourceType: 'backup',
-              sourceId: backupId,
-              incusClusterId: cluster.id,
-              incusProject: cluster.project,
-              incusInstanceName: incusName,
-              incusMemberName: member.server_name,
-              resources: input.resources,
-              metadata: {
-                incus_operation: importOp,
-                start_operation: startOp,
-                start_noop: startNoop,
-                resource_operation: resourceOperation,
-                isolation_check: isolationCheck,
-                scheduler_placement: placement.placement,
-                display_name: displayName,
-                incus_hostname: incusName,
-                source_backup: { source_machine_id: sourceMachine.id, backup_name: backupName },
-                env: input.env ?? {},
-                labels: input.labels ?? {},
-                lifecycle: input.lifecycle ?? {},
-                last_used_at: new Date().toISOString(),
-                usability,
-                managed_daemon: usability?.managed_daemon ?? usability?.daemon_health ?? null,
-                managed_daemon_state: usability?.managed_daemon_state ?? 'ready',
-                managed_daemon_checked_at: usability?.ready_at ?? new Date().toISOString(),
-                creation_telemetry: telemetry,
-              } as Prisma.InputJsonValue,
-            },
-          }));
-          proxySync = await withTelemetrySpan(telemetry, 'sync proxy routes', () => syncResolvedMachineProxy(config, { machine: productMachine!, cluster, client }, observed)).catch((error) => ({
-            synced: false,
-            reason: error instanceof Error ? error.message : String(error),
-          }));
-          daemonEnsure = usability?.managed_daemon ?? usability?.daemon_health ?? null;
-          const finalTelemetry = completeMachineCreationTelemetry(telemetry);
-          await getPrisma().machine.update({
-            where: { id: productMachine.id },
-            data: { metadata: { ...jsonRecord(productMachine.metadata), proxy_sync: proxySync, managed_daemon: daemonEnsure, managed_daemon_state: 'ready', creation_telemetry: finalTelemetry } as Prisma.InputJsonValue },
-          }).catch(() => undefined);
-          productMachine = await getPrisma().machine.findUnique({ where: { id: productMachine.id } }) ?? productMachine;
-        } else {
-          completeMachineCreationTelemetry(telemetry);
-        }
-
-        return c.json({
-          machine: productMachine ? serializeMachine(config, productMachine, observed) : {
-            id: machineId,
-            name: displayName,
-            type: input.type,
-            region: input.region,
-            status: observed?.status ?? 'Running',
-            cluster: publicCluster(cluster),
-            member: member.server_name,
-            incus: { cluster_id: cluster.id, project: cluster.project, instance_name: incusName, member_name: observed?.location ?? member.server_name, observed },
-            source: input.source,
-            resources: input.resources,
-            incus_operation: importOp,
-            start_operation: startOp,
-            start_noop: startNoop,
-            proxy_sync: proxySync,
-            managed_daemon: daemonEnsure,
-            resource_operation: resourceOperation,
-            isolation_check: isolationCheck,
-            scheduler_placement: placement.placement,
-          },
-        }, 201);
-      }
 
       const resolvedSource = await withTelemetrySpan(telemetry, 'resolve source image/snapshot', () => resolveCreateInstanceSource(config, input, cluster));
       if ('error' in resolvedSource) {
         failMachineCreationTelemetry(telemetry, resolvedSource.error.body.message ?? 'Source resolution failed');
         return c.json(resolvedSource.error.body, resolvedSource.error.status as never);
       }
+      const sourceJustavpsReady = resolvedSource.justavpsReady === true;
+      updateMachineCreationLabels(telemetry, {
+        source_justavps_ready: sourceJustavpsReady,
+        source_image_aliases: resolvedSource.image?.aliases?.map((alias) => alias.name).join(',') ?? null,
+      });
 
       const machineId = generatedMachineId();
       const displayName = displayMachineName(input.name, machineId);
@@ -6541,6 +8763,7 @@ export function createApp(config: AppConfig) {
         machineId,
         displayName,
         accountId: c.req.header('x-account-id') || 'system',
+        platformDaemon: platformDaemonMount(config),
       }), { instance: incusName, member: member.server_name, source: input.source.type });
 
       let observed: IncusInstance | null = null;
@@ -6576,9 +8799,12 @@ export function createApp(config: AppConfig) {
           telemetry,
           installManagedDaemon: true,
           repairManagedDaemon: false,
-          execTimeoutMs: 120_000,
-          cloudInitTimeoutMs: 180_000,
-          daemonHealthTimeoutMs: 60_000,
+          waitForCloudInit: sourceJustavpsReady ? false : undefined,
+          actualLiveProbe: sourceJustavpsReady,
+          managedDaemonStepName: sourceJustavpsReady ? 'activate injected managed daemon' : undefined,
+          execTimeoutMs: sourceJustavpsReady ? 90_000 : 120_000,
+          cloudInitTimeoutMs: sourceJustavpsReady ? 0 : 180_000,
+          daemonHealthTimeoutMs: sourceJustavpsReady ? 10_000 : 60_000,
         });
       } catch (error) {
         await client.deleteInstance(incusName, { force: true }).catch(() => undefined);
@@ -6597,8 +8823,8 @@ export function createApp(config: AppConfig) {
             region: input.region,
             type: input.type,
             status: observed?.status ?? 'Running',
-            sourceType: input.source.type,
-            sourceId: resolvedSource.sourceId,
+            sourceType: 'template',
+            sourceId: template.id,
             incusClusterId: cluster.id,
             incusProject: cluster.project,
             incusInstanceName: incusName,
@@ -6622,6 +8848,18 @@ export function createApp(config: AppConfig) {
               managed_daemon_state: usability?.managed_daemon_state ?? 'ready',
               managed_daemon_checked_at: usability?.ready_at ?? new Date().toISOString(),
               creation_telemetry: telemetry,
+              source_template: {
+                id: template.id,
+                slug: template.slug,
+                name: template.name,
+                image_alias: template.incusAlias,
+                default_resources: template.defaultResources,
+                requested_resources: input.resources,
+                start_strategy: input.start_strategy,
+                justavps_ready: sourceJustavpsReady,
+                image_aliases: resolvedSource.image?.aliases ?? [],
+                image_properties: resolvedSource.image?.properties ?? {},
+              },
             } as Prisma.InputJsonValue,
           },
         }));
@@ -7032,15 +9270,21 @@ export function createApp(config: AppConfig) {
           await resolved.client.updateInstanceConfig(resolved.machine.incusInstanceName, { 'migration.stateful': 'true' });
           temporarilyEnabledStateful = true;
         }
-        let operation: IncusOperation;
+        let restored: Awaited<ReturnType<typeof restoreSnapshotAndResume>>;
         try {
-          operation = await resolved.client.restoreSnapshot(resolved.machine.incusInstanceName, c.req.param('name'), input);
+          restored = await restoreSnapshotAndResume(resolved, c.req.param('name'), input);
         } finally {
           if (temporarilyEnabledStateful) {
             await resolved.client.updateInstanceConfig(resolved.machine.incusInstanceName, { 'migration.stateful': 'false' }).catch(() => undefined);
           }
         }
-        return c.json({ ok: true as const, operation });
+        if (config.databaseConfigured) {
+          await getPrisma().machine.update({
+            where: { id: resolved.machine.id },
+            data: { status: restored.after?.status ?? resolved.machine.status },
+          }).catch(() => undefined);
+        }
+        return c.json({ ok: true as const, operation: restored.restoreOp, start_operation: restored.startOperation, start_noop: restored.startNoop, restored_running: restored.wasRunning && restored.after?.status?.toLowerCase() === 'running' });
       } catch (error) {
         const response = routeError(error);
         return c.json(response.body, response.status as never);
@@ -7498,6 +9742,9 @@ export function createApp(config: AppConfig) {
               account_id: resolved.machine.accountId,
               machine_id: resolved.machine.id,
               incus_backup_name: backup.name,
+              trigger: backupRowTrigger(row),
+              policy_id: typeof jsonRecord(row?.retentionPolicy).policy_id === 'string' ? jsonRecord(row?.retentionPolicy).policy_id : null,
+              expires_at: backup.expires_at ?? backupRowExpiresAt(row),
               restore_snapshot: `bk-snap-${backup.name}`,
               ...(costAttribution ? { cost_attribution: costAttribution } : {}),
             };
@@ -7531,7 +9778,6 @@ export function createApp(config: AppConfig) {
         const input = createBackupSchema.parse(await c.req.json().catch(() => ({})));
         const resolved = await machineClient(config, c.req.param('id'));
         if (!resolved) return c.json({ error: true, message: 'Machine not found' }, 404);
-        const name = input.name ?? generatedResourceName('backup');
         // Two artifacts per backup, kept in sync:
         //   • Incus snapshot — used for in-place restore (which Incus 6.23
         //     refuses to do via tarball import because volatile.* keys are
@@ -7539,32 +9785,14 @@ export function createApp(config: AppConfig) {
         //     restore path can find it deterministically.
         //   • Incus backup tarball — used for cross-cluster restoration and
         //     long-term archival. Untouched on in-place restore.
-        const operation = await resolved.client.createBackup(resolved.machine.incusInstanceName, name, {
+        const created = await createBackupArtifact(config, resolved, {
+          name: input.name,
           instanceOnly: input.instance_only,
           optimizedStorage: input.optimized_storage,
           expiresAt: input.expires_at,
+          trigger: 'manual',
         });
-        const restoreSnapshotName = `bk-snap-${name}`;
-        await resolved.client.createSnapshot(resolved.machine.incusInstanceName, restoreSnapshotName, { stateful: false }).catch(() => undefined);
-        let backup = null;
-        if (config.databaseConfigured) {
-          backup = await getPrisma().backup.create({
-            data: {
-              accountId: resolved.machine.accountId,
-              machineId: resolved.machine.id,
-              status: 'ready',
-              incusBackupName: name,
-              metadata: {
-                incus_operation: operation,
-                restore_snapshot: restoreSnapshotName,
-                instance_only: input.instance_only,
-                optimized_storage: input.optimized_storage,
-                expires_at: input.expires_at ?? null,
-              },
-            },
-          });
-        }
-        return c.json({ backup: backup ?? { id: name, name, incus_backup_name: name, restore_snapshot: restoreSnapshotName }, operation }, 201);
+        return c.json({ backup: created.backup, operation: created.operation }, 201);
       } catch (error) {
         const response = routeError(error);
         return c.json(response.body, response.status as never);
@@ -7593,26 +9821,32 @@ export function createApp(config: AppConfig) {
         const resolved = await machineClient(config, c.req.param('id'));
         if (!resolved) return c.json({ error: true, message: 'Machine not found' }, 404);
         const backupName = c.req.param('name');
-        const instanceName = resolved.machine.incusInstanceName;
         // In-place restore via the snapshot we pinned at backup-time. The
         // tarball still exists for archival / cross-cluster transfer; it's
         // just not the path we walk for same-instance rollback.
         const restoreSnapshotName = `bk-snap-${backupName}`;
-        const restoreOp = await resolved.client.restoreSnapshot(instanceName, restoreSnapshotName, { stateful: false });
+        const restored = await restoreSnapshotAndResume(resolved, restoreSnapshotName, { stateful: false });
         if (config.databaseConfigured) {
           const existingMetadata = jsonRecord(resolved.machine.metadata);
           await getPrisma().machine.update({
             where: { id: resolved.machine.id },
             data: {
-              status: 'provisioned',
+              status: restored.after?.status ?? resolved.machine.status,
               metadata: {
                 ...existingMetadata,
-                last_backup_restore: { backup_name: backupName, restored_at: new Date().toISOString(), incus_operation: restoreOp },
+                last_backup_restore: {
+                  backup_name: backupName,
+                  restored_at: new Date().toISOString(),
+                  incus_operation: restored.restoreOp,
+                  start_operation: restored.startOperation,
+                  before_status: restored.beforeStatus,
+                  after_status: restored.after?.status ?? null,
+                },
               } as Prisma.InputJsonValue,
             },
           }).catch(() => undefined);
         }
-        return c.json({ ok: true as const, operation: restoreOp });
+        return c.json({ ok: true as const, operation: restored.restoreOp, start_operation: restored.startOperation, start_noop: restored.startNoop, restored_running: restored.wasRunning && restored.after?.status?.toLowerCase() === 'running' });
       } catch (error) {
         const response = routeError(error);
         return c.json(response.body, response.status as never);
@@ -7637,10 +9871,7 @@ export function createApp(config: AppConfig) {
         const resolved = await machineClient(config, c.req.param('id'));
         if (!resolved) return c.json({ error: true, message: 'Machine not found' }, 404);
         const backupName = c.req.param('name');
-        const operation = await resolved.client.deleteBackup(resolved.machine.incusInstanceName, backupName);
-        // Drop the pinned restore snapshot too — both artifacts go together.
-        await resolved.client.deleteSnapshot(resolved.machine.incusInstanceName, `bk-snap-${backupName}`).catch(() => undefined);
-        if (config.databaseConfigured) await getPrisma().backup.deleteMany({ where: { machineId: resolved.machine.id, incusBackupName: backupName } });
+        const operation = await deleteBackupArtifacts(resolved, backupName);
         return c.json({ ok: true as const, operation });
       } catch (error) {
         const response = routeError(error);

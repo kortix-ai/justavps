@@ -6,7 +6,7 @@ dotenv.config({ quiet: true });
 dotenv.config({ path: '.env.local', override: true, quiet: true });
 
 const { serve } = await import('@hono/node-server');
-const { createApp } = await import('./app.js');
+const { createApp, runDueAutoBackups } = await import('./app.js');
 const { loadConfig, normalizeClusterConfig } = await import('./config.js');
 const { getPrisma } = await import('./db/client.js');
 const { startLifecycleSweeper } = await import('./lifecycle.js');
@@ -66,5 +66,19 @@ startManagedDaemonEnsurer({
   findCluster: (id) => config.clusters.find((cluster) => cluster.id === id) ?? null,
   clientFor: (cluster) => new IncusClient(cluster),
 });
+
+if (process.env.V2_AUTO_BACKUP_WORKER === 'on') {
+  const tickMs = Number(process.env.V2_AUTO_BACKUP_TICK_MS || 15 * 60_000);
+  setInterval(() => {
+    runDueAutoBackups(config)
+      .then((result) => {
+        if (result.created.length || result.pruned.length || result.errors.length) {
+          console.log(`[v2-api] auto-backup sweep: scanned=${result.scanned} created=${result.created.length} pruned=${result.pruned.reduce((sum, item) => sum + item.backup_names.length, 0)} errors=${result.errors.length}`);
+        }
+      })
+      .catch((error) => console.error('[v2-api] auto-backup sweep failed:', error instanceof Error ? error.stack : error));
+  }, tickMs);
+  console.log(`[v2-api] auto-backup worker started (tick=${tickMs}ms, policy=daily/7d)`);
+}
 
 console.log(`[v2-api] listening on :${config.port} with ${config.clusters.length} Incus cluster(s)`);

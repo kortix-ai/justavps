@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/lib/store';
-import { cn } from '@/lib/utils';
+import { cn, formatBytes } from '@/lib/utils';
 import { useConfirm } from '@/components/confirm';
 import { useUiPrefs } from '@/lib/ui-prefs';
 import { ResizeMachineDialog } from '@/components/features/resize-machine-dialog';
@@ -38,7 +38,7 @@ import {
   ListFilter, Radio, ShieldCheck, Wrench,
   type LucideIcon,
 } from 'lucide-react';
-import type { BackupItem, Machine, MachineTelemetryEvent, MachineTelemetryLatest, MachineTelemetryLog, MachineTelemetryMetric, MachineTelemetryTrace, ProxyToken, SnapshotItem, SshToken, TelemetryStoreInfo } from '@/lib/api';
+import type { BackupItem, BackupPolicy, Machine, MachineTelemetryEvent, MachineTelemetryLatest, MachineTelemetryLog, MachineTelemetryMetric, MachineTelemetryTrace, ProxyToken, SnapshotItem, SshToken, TelemetryStoreInfo } from '@/lib/api';
 import type { Terminal as XTerm } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
 
@@ -113,6 +113,7 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
   );
   const [snapshots, setSnapshots] = useState<SnapshotItem[]>([]);
   const [backups, setBackups] = useState<BackupItem[]>([]);
+  const [backupPolicy, setBackupPolicy] = useState<BackupPolicy | null>(null);
   const [proxyTokens, setProxyTokens] = useState<ProxyToken[]>([]);
   const [sshTokens, setSshTokens] = useState<SshToken[]>([]);
   const [telemetryLatest, setTelemetryLatest] = useState<MachineTelemetryLatest | null>(null);
@@ -158,6 +159,11 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
     } finally {
       setArtifactsLoading(false);
     }
+  };
+
+  const refreshBackupPolicy = async () => {
+    const data = await request<{ policy: BackupPolicy }>(`/machines/${encodeURIComponent(id)}/backup-policy`);
+    setBackupPolicy(data.policy ?? null);
   };
 
   const refreshProxyTokens = async () => {
@@ -236,6 +242,11 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
   }, [id]);
 
   useEffect(() => {
+    refreshBackupPolicy().catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  useEffect(() => {
     refreshProxyTokens().catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
@@ -268,6 +279,14 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
       const r = await fn();
       await refreshArtifacts();
       return r;
+    });
+  };
+
+  const updateBackupPolicy = async (enabled: boolean) => {
+    await runAction(`${enabled ? 'enable' : 'disable'} auto-backups for ${machine?.name ?? id}`, async () => {
+      const data = await request<{ policy: BackupPolicy }>(`/machines/${encodeURIComponent(id)}/backup-policy`, { method: 'PATCH', body: { enabled } });
+      setBackupPolicy(data.policy ?? null);
+      return data;
     });
   };
 
@@ -445,6 +464,7 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
               events={telemetryEvents}
               onOpen={() => selectTab('observability')}
             />
+            <CostBreakdownCard machine={machine} />
           </div>
         </TabsContent>
 
@@ -602,6 +622,12 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
         </TabsContent>
 
         <TabsContent value="backups" className="mt-0 space-y-4">
+          <BackupPolicyCard
+            policy={backupPolicy}
+            loading={state.busy}
+            onToggle={updateBackupPolicy}
+            onRunSweep={() => artifactAction('run due auto-backups', () => request('/admin/backups/sweep', { method: 'POST' }))}
+          />
           <Card>
             <CardHeader>
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -629,7 +655,9 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
                       <TableHead>Name</TableHead>
                       <TableHead>Created</TableHead>
                       <TableHead>Expires</TableHead>
+                      <TableHead>Type</TableHead>
                       <TableHead>Scope</TableHead>
+                      <TableHead>Storage cost</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -639,7 +667,11 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
                         <TableCell className="font-mono text-xs">{backup.name}</TableCell>
                         <TableCell className="text-xs text-muted-foreground">{formatDate(backup.created_at)}</TableCell>
                         <TableCell className="text-xs text-muted-foreground">{formatDate(backup.expires_at)}</TableCell>
+                        <TableCell><Badge variant={backup.trigger === 'auto' ? 'default' : 'outline'}>{backup.trigger === 'auto' ? 'auto' : 'manual'}</Badge></TableCell>
                         <TableCell><Badge variant={backup.instance_only ? 'secondary' : 'default'}>{backup.instance_only ? 'instance only' : 'full'}</Badge></TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {backup.cost_attribution ? `${formatBytes(backup.cost_attribution.metered_bytes)} · ${fmtEur(backup.cost_attribution.eur_per_month)}/mo` : '—'}
+                        </TableCell>
                         <TableCell className="space-x-1 text-right">
                           <Button size="sm" variant="outline" onClick={async () => {
                             if (!await confirm({
@@ -725,6 +757,76 @@ function formatDate(value?: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
+}
+
+function fmtEur(value?: number | null, max = 3) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '€0';
+  return `€${value.toLocaleString(undefined, { maximumFractionDigits: max })}`;
+}
+
+function CostBreakdownCard({ machine }: { machine: Machine }) {
+  const pricing = machine.pricing;
+  if (!pricing) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Gauge className="size-4" /> Cost breakdown</CardTitle>
+        <CardDescription>Running vCPU/RAM plus disk storage. Artifact storage is shown on Snapshots/Backups.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="text-2xl font-semibold tabular-nums">{fmtEur(pricing.total_eur_per_month)}/mo</div>
+        <div className="space-y-2">
+          {pricing.components.map((component) => (
+            <div key={component.key} className="flex items-center justify-between rounded-lg border p-2 text-sm">
+              <div>
+                <div className="font-medium">{component.label}</div>
+                <div className="text-xs text-muted-foreground">{component.quantity} {component.unit} · {component.billable ? 'billable now' : 'not billable while stopped'}</div>
+              </div>
+              <div className="font-mono text-xs">{fmtEur(component.eur_per_month)}/mo</div>
+            </div>
+          ))}
+        </div>
+        <p className="text-2xs text-muted-foreground">{pricing.note}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function BackupPolicyCard({
+  policy, loading, onToggle, onRunSweep,
+}: {
+  policy: BackupPolicy | null;
+  loading: boolean;
+  onToggle: (enabled: boolean) => Promise<void>;
+  onRunSweep: () => Promise<void>;
+}) {
+  const enabled = Boolean(policy?.enabled);
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2"><Archive className="size-4" /> Auto-backups</CardTitle>
+            <CardDescription>One policy: daily backups, retain up to 7 days / 7 recovery points. Storage is billed by measured disk usage.</CardDescription>
+          </div>
+          <div className="flex items-center gap-2 rounded-md border bg-background px-3 py-2">
+            <Switch id="auto-backups" checked={enabled} onCheckedChange={(next) => onToggle(next).catch(() => undefined)} disabled={loading || !policy} />
+            <Label htmlFor="auto-backups" className="text-sm">{enabled ? 'Enabled' : 'Disabled'}</Label>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-3 md:grid-cols-4">
+        <Stat label="Cadence" value={policy ? `${policy.interval_hours}h` : '—'} />
+        <Stat label="Retention" value={policy ? `${policy.retention_days} days` : '—'} />
+        <Stat label="Recovery points" value={policy ? String(policy.retention_count) : '—'} />
+        <Stat label="Next run" value={formatRelativeTime(policy?.next_backup_at)} />
+        <div className="md:col-span-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3 text-xs text-muted-foreground">
+          <span>Manual backups stay available until deleted. Auto-backups expire/prune on the daily 7-day policy.</span>
+          <Button size="sm" variant="outline" onClick={() => onRunSweep().catch(() => undefined)} disabled={loading || !enabled}>Run due now</Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 function formatMetric(metric: { value: number; unit: string } | undefined) {
