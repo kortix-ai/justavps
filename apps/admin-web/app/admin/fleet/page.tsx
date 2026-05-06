@@ -19,7 +19,6 @@ import {
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { Separator } from '@/components/ui/separator';
 import { RefreshCw, Trash2, Play, RotateCcw, X, ChevronRight, ShoppingCart, ExternalLink } from 'lucide-react';
 import { useConfirm } from '@/components/confirm';
 import { toast } from 'sonner';
@@ -42,7 +41,6 @@ type Sku = {
   vcpus: number;
   ramGb: number;
   usableStorageGb: number;
-  monthlyEur: number;
   notes?: string;
 };
 type SkuPayload = { default_sku: string; default_big_sku: string; skus: Sku[] };
@@ -709,7 +707,7 @@ function BuyNodeDialog({
     }
     const ok = await confirmPhrase({
       title: `Buy + auto-bootstrap 1 × ${sku.id}?`,
-      description: `Preflight passed. This charges €${sku.monthlyEur.toFixed(2)}/mo immediately. Fleet selected ${validated.target_cluster?.id ?? 'a cluster'} in ${region.toUpperCase()}, then handoff bootstraps the delivered host into Incus.`,
+      description: `Preflight passed. This will place a real provider order immediately. Fleet selected ${validated.target_cluster?.id ?? 'a cluster'} in ${region.toUpperCase()}, then handoff bootstraps the delivered host into Incus.`,
       phrase: 'ORDER REAL HOSTS',
       phraseLabel: 'Type to confirm',
       confirmLabel: 'Order + auto-bootstrap',
@@ -782,7 +780,7 @@ function BuyNodeDialog({
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {(skus?.skus ?? []).map((s) => (
-                      <SelectItem key={s.id} value={s.id}>{s.id} · €{s.monthlyEur.toFixed(2)}/mo · {s.vcpus} vCPU · {s.ramGb} GB</SelectItem>
+                      <SelectItem key={s.id} value={s.id}>{s.id} · {s.vcpus} vCPU · {s.ramGb} GB · {s.usableStorageGb} GB storage</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -797,7 +795,7 @@ function BuyNodeDialog({
             </div>
             {validation ? (
               <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-300">
-                Robot preflight passed. Target cluster: <span className="font-mono">{validation.target_cluster?.id ?? validation.target_cluster_selection?.selected_cluster_id}</span>. No charge happened during preflight.
+                Robot preflight passed. Target cluster: <span className="font-mono">{validation.target_cluster?.id ?? validation.target_cluster_selection?.selected_cluster_id}</span>. No real order happened during preflight.
               </div>
             ) : null}
             {orderError ? (
@@ -809,21 +807,15 @@ function BuyNodeDialog({
             ) : null}
           </div>
           <div className="rounded-lg border p-4">
-            <div className="text-xs uppercase tracking-wider text-muted-foreground">Cost preview</div>
+            <div className="text-xs uppercase tracking-wider text-muted-foreground">SKU preview</div>
             {sku ? (
               <div className="mt-3 space-y-3">
-                <div>
-                  <div className="text-3xl font-semibold tabular-nums">€{sku.monthlyEur.toFixed(2)}<span className="text-base font-normal text-muted-foreground">/mo</span></div>
-                  <div className="text-xs text-muted-foreground tabular-nums">€{(sku.monthlyEur * 12).toFixed(2)}/yr</div>
-                </div>
-                <Separator />
                 <dl className="space-y-1 text-sm">
                   <div className="flex justify-between"><dt className="text-muted-foreground">vCPU</dt><dd className="tabular-nums">{sku.vcpus}</dd></div>
                   <div className="flex justify-between"><dt className="text-muted-foreground">RAM</dt><dd className="tabular-nums">{sku.ramGb} GB</dd></div>
                   <div className="flex justify-between"><dt className="text-muted-foreground">Storage</dt><dd className="tabular-nums">{sku.usableStorageGb >= 1000 ? `${(sku.usableStorageGb / 1000).toFixed(1)} TB` : `${sku.usableStorageGb} GB`}</dd></div>
-                  <div className="flex justify-between"><dt className="text-muted-foreground">€ / sandbox·mo*</dt><dd className="tabular-nums">€{(sku.monthlyEur / Math.floor(sku.ramGb / 4)).toFixed(2)}</dd></div>
                 </dl>
-                <p className="text-2xs text-muted-foreground">* assumes 4 GB sandboxes, RAM-bound packing</p>
+                <p className="text-2xs text-muted-foreground">Provider money details are intentionally kept out of this workflow; customer usage is centralized on the Billing page.</p>
               </div>
             ) : <p className="mt-3 text-sm text-muted-foreground">Loading SKU catalog…</p>}
           </div>

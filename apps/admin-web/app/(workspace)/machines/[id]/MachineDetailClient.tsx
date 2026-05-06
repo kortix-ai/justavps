@@ -46,6 +46,11 @@ function isRunningStatus(status: string | undefined) {
   return status?.toLowerCase() === 'running';
 }
 
+function isPoolMachine(machine: Machine) {
+  const status = machine.status?.toLowerCase();
+  return status === 'warm_pool' || status === 'warm_pool_claiming';
+}
+
 function BackToMachines({ onBack }: { onBack?: () => void }) {
   if (onBack) {
     return (
@@ -333,6 +338,7 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
   }
 
   const running = isRunningStatus(machine.status);
+  const poolMachine = isPoolMachine(machine);
   const resources = (machine.resources ?? {}) as Record<string, unknown>;
 
   return (
@@ -343,21 +349,29 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-semibold tracking-tight">{machine.name}</h1>
-              <Badge variant={running ? 'default' : 'secondary'}>{machine.status}</Badge>
+              <Badge variant={poolMachine ? 'outline' : running ? 'default' : 'secondary'}>{machine.status}</Badge>
               <Badge variant="outline" className="font-mono text-xs">{machine.type}</Badge>
+              {poolMachine ? <Badge variant="secondary">Pool inventory</Badge> : null}
             </div>
             <p className="font-mono text-xs text-muted-foreground">{machine.id}</p>
+            {poolMachine ? (
+              <p className="max-w-2xl text-xs text-muted-foreground">
+                Reserved Pool inventory. Claim it by creating a machine from the matching Template; direct lifecycle actions are disabled.
+              </p>
+            ) : null}
           </div>
           <div className="flex items-center gap-1">
-            <Button size="sm" variant="outline" onClick={() => setResizeOpen(true)}>
-              <SlidersHorizontal className="size-3.5" /> Resize
-            </Button>
-            {!running ? (
+            {!poolMachine ? (
+              <Button size="sm" variant="outline" onClick={() => setResizeOpen(true)}>
+                <SlidersHorizontal className="size-3.5" /> Resize
+              </Button>
+            ) : null}
+            {!poolMachine && !running ? (
               <Button size="sm" variant="outline" onClick={() => fire(`start ${machine.name}`, () => request(`/machines/${machine.id}/start`, { method: 'POST' }))}>
                 <Play className="size-3.5" /> Start
               </Button>
             ) : null}
-            {running ? (
+            {!poolMachine && running ? (
               <>
                 <Button size="sm" variant="outline" onClick={() => fire(`stop ${machine.name}`, () => request(`/machines/${machine.id}/stop`, { method: 'POST' }))}>
                   <Square className="size-3.5" /> Stop
@@ -370,20 +384,24 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
             <Button size="sm" variant="ghost" onClick={() => refreshAll().catch(() => {})}>
               <RefreshCw className="size-3.5" />
             </Button>
-            <Separator orientation="vertical" className="mx-1 h-6" />
-            <Button size="sm" variant="destructive" onClick={async () => {
-              if (!await confirm({
-                title: `Delete ${machine.name}?`,
-                description: 'Stops the instance, drops the rootfs, removes config. Final.',
-                confirmLabel: 'Delete',
-                destructive: true,
-              })) return;
-              await fire(`delete ${machine.name}`, () => request(`/machines/${machine.id}`, { method: 'DELETE' }));
-              if (onBack) onBack();
-              else router.push('/machines');
-            }}>
-              <Trash2 className="size-3.5" /> Delete
-            </Button>
+            {!poolMachine ? (
+              <>
+                <Separator orientation="vertical" className="mx-1 h-6" />
+                <Button size="sm" variant="destructive" onClick={async () => {
+                  if (!await confirm({
+                    title: `Delete ${machine.name}?`,
+                    description: 'Stops the instance, drops the rootfs, removes config. Final.',
+                    confirmLabel: 'Delete',
+                    destructive: true,
+                  })) return;
+                  await fire(`delete ${machine.name}`, () => request(`/machines/${machine.id}`, { method: 'DELETE' }));
+                  if (onBack) onBack();
+                  else router.push('/machines');
+                }}>
+                  <Trash2 className="size-3.5" /> Delete
+                </Button>
+              </>
+            ) : null}
           </div>
         </div>
       </div>
@@ -464,7 +482,6 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
               events={telemetryEvents}
               onOpen={() => selectTab('observability')}
             />
-            <CostBreakdownCard machine={machine} />
           </div>
         </TabsContent>
 
@@ -657,7 +674,7 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
                       <TableHead>Expires</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Scope</TableHead>
-                      <TableHead>Storage cost</TableHead>
+                      <TableHead>Measured storage</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -670,7 +687,7 @@ export default function MachineDetailClient({ id, onBack }: { id: string; onBack
                         <TableCell><Badge variant={backup.trigger === 'auto' ? 'default' : 'outline'}>{backup.trigger === 'auto' ? 'auto' : 'manual'}</Badge></TableCell>
                         <TableCell><Badge variant={backup.instance_only ? 'secondary' : 'default'}>{backup.instance_only ? 'instance only' : 'full'}</Badge></TableCell>
                         <TableCell className="text-xs text-muted-foreground">
-                          {backup.cost_attribution ? `${formatBytes(backup.cost_attribution.metered_bytes)} · ${fmtEur(backup.cost_attribution.eur_per_month)}/mo` : '—'}
+                          {backup.metered_bytes ? `${formatBytes(backup.metered_bytes)} · ${Number(backup.billable_gib ?? 0).toLocaleString(undefined, { maximumFractionDigits: 3 })} GiB` : '—'}
                         </TableCell>
                         <TableCell className="space-x-1 text-right">
                           <Button size="sm" variant="outline" onClick={async () => {
@@ -757,39 +774,6 @@ function formatDate(value?: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
-}
-
-function fmtEur(value?: number | null, max = 3) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return '€0';
-  return `€${value.toLocaleString(undefined, { maximumFractionDigits: max })}`;
-}
-
-function CostBreakdownCard({ machine }: { machine: Machine }) {
-  const pricing = machine.pricing;
-  if (!pricing) return null;
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2"><Gauge className="size-4" /> Cost breakdown</CardTitle>
-        <CardDescription>Running vCPU/RAM plus disk storage. Artifact storage is shown on Snapshots/Backups.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="text-2xl font-semibold tabular-nums">{fmtEur(pricing.total_eur_per_month)}/mo</div>
-        <div className="space-y-2">
-          {pricing.components.map((component) => (
-            <div key={component.key} className="flex items-center justify-between rounded-lg border p-2 text-sm">
-              <div>
-                <div className="font-medium">{component.label}</div>
-                <div className="text-xs text-muted-foreground">{component.quantity} {component.unit} · {component.billable ? 'billable now' : 'not billable while stopped'}</div>
-              </div>
-              <div className="font-mono text-xs">{fmtEur(component.eur_per_month)}/mo</div>
-            </div>
-          ))}
-        </div>
-        <p className="text-2xs text-muted-foreground">{pricing.note}</p>
-      </CardContent>
-    </Card>
-  );
 }
 
 function BackupPolicyCard({

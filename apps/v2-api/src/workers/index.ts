@@ -1,5 +1,6 @@
-// Worker startup. Each worker is opt-in via env (off by default in prod
-// until we've verified them against a real DB). Pattern mirrors
+// Worker startup. Capacity/economics workers are opt-in via env; customer
+// billing runtime + Billing v2 finalization are on by default when a DB is
+// configured and can be explicitly disabled with *_WORKER=off. Pattern mirrors
 // startNodeProvisioningWorker — single-process setInterval, idempotent
 // per tick, persists state on every cycle.
 
@@ -9,11 +10,11 @@ import { getPrisma } from '../db/client.js';
 import { snapshotClusterTick } from './snapshotWorker.js';
 import { computeBucketsForHost } from './costTickWorker.js';
 import { proposeForCluster } from './autoscaleProposerWorker.js';
-import { reconcileBilling, type LiveInstance, type SessionState } from './billingWorker.js';
+import { startBillingV2Worker } from './billingV2Worker.js';
+import { recordBillingRuntimeObservation } from '../billing/runtimeMeter.js';
 import { decideAutoHandoffs, type HandoffHost } from './handoffWorker.js';
 import { decideReapActions, DEFAULT_REAP_POLICY, type ReapableSandbox } from './idleReaper.js';
 import { getSku, SKU_CATALOG, DEFAULT_SKU_ID } from '../economics/skuCatalog.js';
-import { DEFAULT_PRICING, computeRevenueMicroEur } from '../economics/pricing.js';
 import { parseCpuLimit, parseMemoryLimitGb, sumInstanceStorageGb } from '../economics/utilization.js';
 import type { FillSample } from '../economics/autoscale.js';
 
@@ -208,12 +209,13 @@ export function startAutoscaleProposerWorker(config: AppConfig) {
   return timer;
 }
 
-// Billing worker — reconciles live Incus instances with open
-// SandboxUsageSession rows. Opens new sessions, closes ended ones (and
-// emits RevenueLedgerEntry on close), ticks still-running ones with
-// accumulated seconds. Runs every 30s by default.
+// Billing runtime worker — reconciles live Incus instances with open
+// SandboxUsageSession rows. It never invents unobserved usage: sessions are
+// extended only through the timestamp of a successful Incus observation, and
+// missing/unreachable state becomes a BillingMeasurement gap instead of a
+// guessed charge. Runs every 30s by default.
 export function startBillingWorker(config: AppConfig) {
-  if (process.env.V2_BILLING_WORKER !== 'on') return null;
+  if (workerDisabled(process.env.V2_BILLING_WORKER)) return null;
   if (!config.databaseConfigured) {
     console.warn('[billing-worker] database not configured — skipping');
     return null;
@@ -222,105 +224,89 @@ export function startBillingWorker(config: AppConfig) {
   const tick = async () => {
     const prisma = getPrisma();
     const now = new Date();
-    // Collect live instances across all clusters BEFORE reconciling — the
-    // session table is global, so we need a single reconcile pass against
-    // the union of cluster state. If a cluster is unreachable, we skip
-    // that cluster's instances rather than aborting the tick (otherwise a
-    // hel1 outage would close every hel2 session and vice-versa).
-    const liveAll: LiveInstance[] = [];
-    let anyClusterReachable = false;
+    const machines = await prisma.machine.findMany({ where: { status: { notIn: ['deleted', 'archived'] } } });
+    const machineById = new Map(machines.map((machine) => [machine.id, machine]));
+    const machineByIncusKey = new Map(machines.map((machine) => [`${machine.incusClusterId}:${machine.incusProject}:${machine.incusInstanceName}`, machine]));
+    const observedMachineIds = new Set<string>();
+    const reachableClusterIds = new Set<string>();
+
     for (const cluster of config.clusters) {
       try {
         const client = new IncusClient(cluster);
         const instances = await client.listInstances();
-        anyClusterReachable = true;
+        reachableClusterIds.add(cluster.id);
         for (const inst of instances) {
+          const configuredMachineId = inst.config?.['user.justavps.machine_id'] ?? null;
+          const productMachine = (configuredMachineId ? machineById.get(configuredMachineId) : null)
+            ?? machineByIncusKey.get(`${cluster.id}:${cluster.project}:${inst.name}`)
+            ?? null;
+          const machineId = productMachine?.id ?? configuredMachineId ?? inst.name;
           const cpu = parseCpuLimit(inst.config?.['limits.cpu']) ?? 0;
           const mem = parseMemoryLimitGb(inst.config?.['limits.memory']) ?? 0;
           const disk = sumInstanceStorageGb(inst.devices) ?? 0;
-          liveAll.push({
-            machineId: inst.name,
-            customerId: inst.config?.['user.justavps.account_id'] ?? null,
+          observedMachineIds.add(machineId);
+          await recordBillingRuntimeObservation(prisma, {
+            machineId,
+            accountId: productMachine?.accountId ?? inst.config?.['user.justavps.account_id'] ?? null,
             status: inst.status,
-            vcpus: cpu, ramGb: mem, storageGb: disk,
+            resources: { vcpu: cpu, ramGb: mem, storageGb: disk },
+            observedAt: now,
+            source: 'incus_poll',
+            metadata: { cluster_id: cluster.id, project: cluster.project, incus_instance_name: inst.name, member_name: inst.location ?? null },
           });
         }
       } catch (e) {
         console.warn(`[billing-worker] cluster ${cluster.id} unreachable this tick:`, e instanceof Error ? e.message : e);
       }
     }
-    // If NO cluster could be reached, skip the entire tick — closing all
-    // sessions on a transient network blip would be billing chaos.
-    if (!anyClusterReachable) return;
+    // If NO cluster could be reached, skip the entire tick — closing sessions
+    // on a transient network blip would be billing chaos.
+    if (reachableClusterIds.size === 0) return;
 
     try {
-        const openSessionsRaw = await prisma.sandboxUsageSession.findMany({
-          where: { state: 'running', endedAt: null },
+      const openSessions = await prisma.sandboxUsageSession.findMany({ where: { state: 'running', endedAt: null } });
+      for (const session of openSessions) {
+        if (observedMachineIds.has(session.machineId)) continue;
+        const machine = machineById.get(session.machineId) ?? null;
+        if (machine && !reachableClusterIds.has(machine.incusClusterId)) continue;
+        await recordBillingRuntimeObservation(prisma, {
+          machineId: session.machineId,
+          accountId: session.customerId ?? machine?.accountId ?? null,
+          status: 'missing',
+          resources: { vcpu: session.vcpus, ramGb: session.ramGb, storageGb: session.storageGb },
+          observedAt: session.lastObservedAt ?? now,
+          source: 'incus_poll_missing_fail_closed',
+          metadata: { reason: 'open billing session no longer observed in reachable Incus cluster', detected_at: now.toISOString() },
         });
-        const openSessions: SessionState[] = openSessionsRaw.map((s) => ({
-          id: s.id, machineId: s.machineId, customerId: s.customerId,
-          vcpus: s.vcpus, ramGb: s.ramGb, storageGb: s.storageGb,
-          startedAt: s.startedAt, lastTickAt: s.updatedAt,
-          state: s.state,
-          vcpuSeconds: s.vcpuSeconds, ramGbSeconds: s.ramGbSeconds,
-          storageGbSecondsLocal: s.storageGbSecondsLocal,
-          storageGbSecondsArchive: s.storageGbSecondsArchive,
-        }));
-
-        const events = reconcileBilling({ now, live: liveAll, openSessions });
-
-        for (const ev of events) {
-          if (ev.kind === 'open') {
-            await prisma.sandboxUsageSession.create({
-              data: {
-                machineId: ev.machineId, customerId: ev.customerId,
-                vcpus: ev.vcpus, ramGb: ev.ramGb, storageGb: ev.storageGb,
-                startedAt: ev.startedAt, state: 'running',
-              },
-            });
-          } else if (ev.kind === 'tick') {
-            await prisma.sandboxUsageSession.update({
-              where: { id: ev.sessionId },
-              data: {
-                vcpuSeconds: { increment: ev.vcpuSecondsAdd },
-                ramGbSeconds: { increment: ev.ramGbSecondsAdd },
-                storageGbSecondsLocal: { increment: ev.storageGbSecondsLocalAdd },
-                updatedAt: ev.lastTickAt,
-              },
-            });
-          } else if (ev.kind === 'close') {
-            // Close out the session and emit a RevenueLedgerEntry for the
-            // accumulated total. Read the session post-tick (most ticks have
-            // already updated it within this loop iteration).
-            const closed = await prisma.sandboxUsageSession.update({
-              where: { id: ev.sessionId },
-              data: { state: 'stopped', endedAt: ev.endedAt },
-            });
-            const microEur = computeRevenueMicroEur({
-              vcpu_seconds: closed.vcpuSeconds,
-              ram_gb_seconds: closed.ramGbSeconds,
-              storage_gb_seconds_local: closed.storageGbSecondsLocal,
-              storage_gb_seconds_archive: closed.storageGbSecondsArchive,
-            }, DEFAULT_PRICING);
-            if (microEur > 0) {
-              await prisma.revenueLedgerEntry.create({
-                data: {
-                  sessionId: closed.id, machineId: closed.machineId,
-                  customerId: closed.customerId,
-                  tsFrom: closed.startedAt, tsTo: ev.endedAt,
-                  microEur: BigInt(Math.round(microEur)),
-                },
-              });
-            }
-          }
-        }
-      } catch (e) {
-        console.error(`[billing-worker] reconcile failed:`, e instanceof Error ? e.message : e);
+        await prisma.billingMeasurement.create({
+          data: {
+            accountId: session.customerId ?? machine?.accountId ?? null,
+            machineId: session.machineId,
+            sourceType: 'machine',
+            sourceId: session.machineId,
+            measuredAt: now,
+            observedStatus: 'missing',
+            vcpu: session.vcpus,
+            ramGb: session.ramGb,
+            storageGib: session.storageGb,
+            measurementSource: 'incus_poll_missing_gap',
+            exact: false,
+            metadata: { last_observed_at: session.lastObservedAt?.toISOString?.() ?? null, detected_at: now.toISOString() },
+          },
+        }).catch(() => undefined);
       }
+    } catch (e) {
+      console.error(`[billing-worker] reconcile failed:`, e instanceof Error ? e.message : e);
+    }
   };
+  void tick().catch((e) => console.error('[billing-worker]', e));
   const timer = setInterval(() => { tick().catch((e) => console.error('[billing-worker]', e)); }, tickMs);
   console.log(`[v2-api] billing worker started (tick=${tickMs}ms)`);
   return timer;
+}
+
+function workerDisabled(value: string | undefined) {
+  return ['0', 'false', 'off', 'no'].includes(String(value ?? '').trim().toLowerCase());
 }
 
 // Procurement → init auto-handoff worker. Polls Host rows that the
@@ -459,6 +445,7 @@ export function startEconomicsWorkers(config: AppConfig) {
     costTick: startCostTickWorker(config),
     autoscale: startAutoscaleProposerWorker(config),
     billing: startBillingWorker(config),
+    billingV2: startBillingV2Worker(config),
     handoff: startHandoffWorker(config),
     reaper: startIdleReaper(config),
   };

@@ -102,11 +102,6 @@ const BROWSE_TEMPLATES: BrowseTemplatePreset[] = [
   },
 ];
 
-function fmtEur(value: number | null | undefined, max = 3) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'EUR', maximumFractionDigits: max }).format(value);
-}
-
 function fmtGib(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value)) return '—';
   return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: value >= 10 ? 1 : 3 }).format(value)} GiB`;
@@ -320,7 +315,6 @@ export default function TemplatesPage() {
     catalog: templates.filter((template) => template.visibility === 'catalog').length,
     readyPool: templates.reduce((sum, template) => sum + (poolFor(template, 'running')?.ready ?? 0) + (poolFor(template, 'stopped')?.ready ?? 0), 0),
     targetPool: templates.reduce((sum, template) => sum + (poolFor(template, 'running')?.target ?? 0) + (poolFor(template, 'stopped')?.target ?? 0), 0),
-    poolMonthly: templates.reduce((sum, template) => sum + (poolFor(template, 'running')?.billing?.total_eur_month ?? 0) + (poolFor(template, 'stopped')?.billing?.total_eur_month ?? 0), 0),
   }), [templates]);
 
   const templateColumns = useMemo<ResourceColumn<MachineTemplate>[]>(() => [
@@ -377,7 +371,7 @@ export default function TemplatesPage() {
       header: 'Storage',
       cell: (template) => {
         const storageBytes = template.storage?.metered_bytes ?? (template.image?.size == null ? null : Number(template.image.size));
-        return <div className="text-xs text-muted-foreground">{storageBytes ? formatBytes(storageBytes) : fmtGib(template.storage?.billable_gib)}<br />{fmtEur(template.storage?.eur_per_month)}/mo</div>;
+        return <div className="text-xs text-muted-foreground">{storageBytes ? formatBytes(storageBytes) : fmtGib(template.storage?.billable_gib)}</div>;
       },
     },
     {
@@ -471,7 +465,7 @@ export default function TemplatesPage() {
         <ResourceStatCard icon={Boxes} label="Installed" value={templates.length} sub={`${totals.active} active`} />
         <ResourceStatCard icon={Sparkles} label="Public catalog" value={totals.catalog} sub="Visible to every account" />
         <ResourceStatCard icon={Zap} label="Pool ready" value={`${totals.readyPool}/${totals.targetPool}`} sub="hot + stopped slots" />
-        <ResourceStatCard icon={Gauge} label="Pool estimate" value={`${fmtEur(totals.poolMonthly)}/mo`} sub="measured storage + hot" />
+        <ResourceStatCard icon={Gauge} label="Default shape" value="Per Template" sub="Billing lives in Cost Breakdown" />
       </div>
 
       <Card>
@@ -734,7 +728,7 @@ function TemplateDetailDialog({
             <div className="grid gap-3 md:grid-cols-4">
               <ResourceStatCard icon={Server} label="Region" value={template.region} sub={template.type} />
               <ResourceStatCard icon={Gauge} label="Default size" value={`${template.default_resources.vcpu}c/${template.default_resources.memory_gb}G`} sub={`${template.default_resources.disk_gb}GB disk`} />
-              <ResourceStatCard icon={HardDrive} label="Image storage" value={storageBytes ? formatBytes(storageBytes) : fmtGib(template.storage?.billable_gib)} sub={`${fmtEur(template.storage?.eur_per_month)}/mo`} />
+              <ResourceStatCard icon={HardDrive} label="Image storage" value={storageBytes ? formatBytes(storageBytes) : fmtGib(template.storage?.billable_gib)} sub="measured size" />
               <ResourceStatCard icon={ShieldCheck} label="Readiness" value={template.readiness?.ready ? 'Ready' : 'Pending'} sub={template.readiness?.daemon_second_boot_verified ? 'second boot verified' : 'needs verification'} />
             </div>
 
@@ -878,13 +872,13 @@ function PoolEditor({
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><Flame className="size-4" /> {mode === 'running' ? 'Running Hot Pool' : 'Stopped Pool'}</CardTitle>
-        <CardDescription>{mode === 'running' ? 'Fastest path. Live takeover. Bills hot CPU/RAM while ready.' : 'Cheap fast-start path. Bills measured disk only, then starts and verifies on claim.'}</CardDescription>
+        <CardDescription>{mode === 'running' ? 'Fastest path. Live takeover. Usage is accounted centrally in Billing API v2.' : 'Fast-start path. Uses measured disk, then starts and verifies on claim.'}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-3 gap-2 text-sm">
           <Info label="Ready" value={`${policy?.ready ?? 0}/${policy?.target ?? 0}`} />
-          <Info label="Storage/mo" value={fmtEur(policy?.billing?.storage_eur_month)} />
-          <Info label="Hot/mo" value={fmtEur(policy?.billing?.hot_resource_eur_month)} />
+          <Info label="Measured" value={fmtGib(policy?.billing?.billable_gib)} />
+          <Info label="Mode" value={mode === 'running' ? 'hot' : 'stopped'} />
         </div>
         <div className="grid gap-2 sm:grid-cols-[140px_auto_auto]">
           <Input

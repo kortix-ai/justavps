@@ -109,24 +109,6 @@ export const MachineListResponseSchema = z.object({
   machines: z.array(MachineSchema),
 }).openapi('MachineListResponse');
 
-const ArtifactCostAttributionSchema = z.object({
-  account_id: z.string().optional(),
-  machine_id: z.string().optional(),
-  machine_name: z.string().optional(),
-  cluster_id: z.string().optional(),
-  incus_project: z.string().optional(),
-  kind: z.string().optional(),
-  storage_class: z.string().optional(),
-  metered_bytes: z.number().optional(),
-  billable_gib: z.number().optional(),
-  estimated: z.boolean().optional(),
-  eur_per_month: z.number().optional(),
-  pricing_key: z.string().optional(),
-  pricing_micro_eur_per_sec: z.number().optional(),
-  note: z.string().optional(),
-  components: z.array(z.object({ label: z.string(), metered_bytes: z.number(), billable_gib: z.number() })).optional(),
-}).passthrough();
-
 const SnapshotSchema = z.object({
   id: z.string().optional(),
   name: z.string(),
@@ -134,9 +116,10 @@ const SnapshotSchema = z.object({
   stateful: z.boolean().optional(),
   expires_at: z.string().nullable().optional(),
   size: z.number().optional(),
+  metered_bytes: z.number().optional(),
+  billable_gib: z.number().optional(),
   account_id: z.string().optional(),
   machine_id: z.string().optional(),
-  cost_attribution: ArtifactCostAttributionSchema.optional(),
 }).passthrough().openapi('Snapshot');
 
 const BackupSchema = z.object({
@@ -148,10 +131,12 @@ const BackupSchema = z.object({
   instance_only: z.boolean().optional(),
   optimized_storage: z.boolean().optional(),
   size: z.number().optional(),
+  metered_bytes: z.number().optional(),
+  billable_gib: z.number().optional(),
+  storage_components: z.array(z.object({ label: z.string(), metered_bytes: z.number(), billable_gib: z.number() })).optional(),
   account_id: z.string().optional(),
   machine_id: z.string().optional(),
   restore_snapshot: z.string().optional(),
-  cost_attribution: ArtifactCostAttributionSchema.optional(),
 }).passthrough().openapi('Backup');
 
 const ImageSchema = z.object({

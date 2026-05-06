@@ -225,7 +225,6 @@ model MachineTemplate {
   sourceRef        String?   @map("source_ref")
   measuredBytes    BigInt?   @map("measured_bytes")
   billableGib      Decimal?  @map("billable_gib") @db.Decimal(20, 9)
-  storageEurMonth  Decimal?  @map("storage_eur_month") @db.Decimal(20, 6)
   preparedAt       DateTime? @map("prepared_at")
   verifiedAt       DateTime? @map("verified_at")
   metadata         Json      @default("{}")
@@ -451,11 +450,13 @@ model SandboxUsageSession {
   storageGbSecondsLocal   Float     @default(0) @map("storage_gb_seconds_local")
   storageGbSecondsArchive Float     @default(0) @map("storage_gb_seconds_archive")
   state                   String    @default("running")
+  lastObservedAt          DateTime  @default(now()) @map("last_observed_at")
   createdAt               DateTime  @default(now()) @map("created_at")
   updatedAt               DateTime  @updatedAt @map("updated_at")
 
   @@index([customerId, startedAt])
   @@index([machineId, state])
+  @@index([machineId, lastObservedAt])
   @@map("sandbox_usage_sessions")
   @@schema("v2_ops")
 }
@@ -496,6 +497,81 @@ model RevenueLedgerEntry {
   @@index([customerId, tsFrom])
   @@index([machineId, tsFrom])
   @@map("revenue_ledger_entries")
+  @@schema("v2_ops")
+}
+
+// Billing API v2: versioned customer-facing rates. Ledger rows reference the
+// exact version used, so historical statements never drift when rates change.
+model BillingPriceVersion {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  currency    String    @default("EUR")
+  rates       Json
+  effectiveAt DateTime  @map("effective_at")
+  retiredAt   DateTime? @map("retired_at")
+  metadata    Json      @default("{}")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([effectiveAt, retiredAt])
+  @@map("billing_price_versions")
+  @@schema("v2_ops")
+}
+
+// Billing API v2: append-only, component-level customer charge ledger. This is
+// the source of truth for the account Cost Breakdown page. Rows are hourly or
+// smaller interval slices, stored in integer micro-euros.
+model BillingLedgerEntry {
+  id                  String   @id @default(cuid())
+  accountId           String   @map("account_id")
+  machineId           String?  @map("machine_id")
+  sourceType          String   @map("source_type")
+  sourceId            String   @map("source_id")
+  component           String
+  region              String?
+  intervalStart       DateTime @map("interval_start")
+  intervalEnd         DateTime @map("interval_end")
+  quantity            Decimal  @db.Decimal(30, 9)
+  quantityUnit        String   @map("quantity_unit")
+  rateMicroEurPerUnit Decimal  @map("rate_micro_eur_per_unit") @db.Decimal(20, 9)
+  priceVersionId      String   @map("price_version_id")
+  microEur            BigInt   @map("micro_eur")
+  status              String   @default("finalized")
+  measurementSource   String   @map("measurement_source")
+  measurementExact    Boolean  @default(true) @map("measurement_exact")
+  idempotencyKey      String   @unique @map("idempotency_key")
+  metadata            Json     @default("{}")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@index([accountId, intervalStart])
+  @@index([machineId, intervalStart])
+  @@index([sourceType, sourceId, intervalStart])
+  @@index([component, intervalStart])
+  @@map("billing_ledger_entries")
+  @@schema("v2_ops")
+}
+
+// Billing API v2: raw runtime/artifact observations used to explain, backfill,
+// and audit ledger rows. Measurement rows are not money; ledger rows are money.
+model BillingMeasurement {
+  id                String   @id @default(cuid())
+  accountId         String?  @map("account_id")
+  machineId         String?  @map("machine_id")
+  sourceType        String   @map("source_type")
+  sourceId          String   @map("source_id")
+  measuredAt        DateTime @map("measured_at")
+  observedStatus    String?  @map("observed_status")
+  vcpu              Int?
+  ramGb             Decimal? @map("ram_gb") @db.Decimal(20, 9)
+  storageGib        Decimal? @map("storage_gib") @db.Decimal(20, 9)
+  measuredBytes     BigInt?  @map("measured_bytes")
+  measurementSource String   @map("measurement_source")
+  exact             Boolean  @default(true)
+  metadata          Json     @default("{}")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([accountId, measuredAt])
+  @@index([sourceType, sourceId, measuredAt])
+  @@map("billing_measurements")
   @@schema("v2_ops")
 }
 

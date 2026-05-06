@@ -1,10 +1,10 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { Building2, Calculator, MailPlus, Plus, RefreshCw, Shield, Trash2, UserPlus } from 'lucide-react';
+import { Building2, MailPlus, Plus, ReceiptText, RefreshCw, Shield, Trash2, UserPlus } from 'lucide-react';
 import { useStore } from '@/lib/store';
-import { formatBytes } from '@/lib/utils';
-import type { Account, AccountCostBreakdown } from '@/lib/api';
+import type { Account } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,11 +14,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 type Role = 'owner' | 'admin' | 'member';
-
-function fmtEur(value?: number | null, max = 3) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return '€0';
-  return `€${value.toLocaleString(undefined, { maximumFractionDigits: max })}`;
-}
 
 function fmtDate(value?: string | null) {
   if (!value) return '—';
@@ -30,8 +25,6 @@ export default function AccountsPage() {
   const { request, runAction, state } = useStore();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedId, setSelectedId] = useState<string>('system');
-  const [cost, setCost] = useState<AccountCostBreakdown | null>(null);
-  const [loadingCost, setLoadingCost] = useState(false);
   const selected = useMemo(() => accounts.find((account) => account.id === selectedId) ?? accounts[0] ?? null, [accounts, selectedId]);
 
   const load = async () => {
@@ -41,33 +34,17 @@ export default function AccountsPage() {
     if (!rows.some((account) => account.id === selectedId)) setSelectedId(rows[0]?.id ?? 'system');
   };
 
-  const loadCost = async (accountId: string) => {
-    setLoadingCost(true);
-    try {
-      const data = await request<AccountCostBreakdown>(`/admin/accounts/${encodeURIComponent(accountId)}/cost-breakdown`);
-      setCost(data);
-    } finally {
-      setLoadingCost(false);
-    }
-  };
-
   useEffect(() => {
     load().catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    if (!selected?.id) return;
-    loadCost(selected.id).catch(() => setCost(null));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.id]);
 
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight"><Building2 className="size-6" /> Accounts & organizations</h1>
-          <p className="text-sm text-muted-foreground">V1-style account graph in V2: personal accounts are auto-created for users; organizations have owners, roles, invitations, safeguards, and scoped costs.</p>
+          <p className="text-sm text-muted-foreground">V1-style account graph in V2: personal accounts are auto-created for users; organizations have owners, roles, invitations, safeguards, and scoped Billing API v2 statements.</p>
         </div>
         <Button variant="outline" onClick={() => runAction('refresh accounts', load).catch(() => undefined)} disabled={state.busy}>
           <RefreshCw className="size-3.5" /> Refresh
@@ -105,7 +82,6 @@ export default function AccountsPage() {
                         </div>
                         <div className="text-right text-xs text-muted-foreground">
                           <div>{account.counts?.machines ?? 0} machines</div>
-                          <div>{fmtEur(Number(account.cost_summary?.total_eur_per_month ?? 0))}/mo</div>
                         </div>
                       </div>
                     </button>
@@ -119,7 +95,7 @@ export default function AccountsPage() {
         {selected ? (
           <div className="space-y-4">
             <AccountOverview account={selected} />
-            <CostBreakdown cost={cost} loading={loadingCost} />
+            <BillingLinkCard account={selected} />
             {selected.type === 'organization' ? (
               <>
                 <MembersCard account={selected} reload={load} />
@@ -244,54 +220,21 @@ function AccountOverview({ account }: { account: Account }) {
   );
 }
 
-function CostBreakdown({ cost, loading }: { cost: AccountCostBreakdown | null; loading: boolean }) {
-  if (!cost) {
-    return (
-      <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><Calculator className="size-4" /> Cost breakdown</CardTitle></CardHeader>
-        <CardContent><p className="text-sm text-muted-foreground">{loading ? 'Loading cost breakdown…' : 'No cost data loaded.'}</p></CardContent>
-      </Card>
-    );
-  }
+function BillingLinkCard({ account }: { account: Account }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2"><Calculator className="size-4" /> Full cost breakdown</CardTitle>
-        <CardDescription>Running vCPU/RAM plus GB disk storage for machines, backups, snapshots, templates, and warm pools.</CardDescription>
+        <CardTitle className="flex items-center gap-2"><ReceiptText className="size-4" /> Billing API v2</CardTitle>
+        <CardDescription>Open the centralized actual month-to-date Cost Breakdown statement for this account.</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-4">
-          <Stat label="Projected total" value={`${fmtEur(cost.total_eur_per_month)}/mo`} />
-          <Stat label="Machines" value={String(cost.machines.length)} />
-          <Stat label="Backups" value={String(cost.artifacts.backups.length)} />
-          <Stat label="Snapshots" value={String(cost.artifacts.snapshots.length)} />
+      <CardContent className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3 text-sm">
+        <div>
+          <div className="font-medium">{account.name}</div>
+          <div className="font-mono text-xs text-muted-foreground">{account.id}</div>
         </div>
-        <Table>
-          <TableHeader><TableRow><TableHead>Component</TableHead><TableHead>Pricing key</TableHead><TableHead className="text-right">€/mo</TableHead></TableRow></TableHeader>
-          <TableBody>
-            {cost.components.map((component) => (
-              <TableRow key={component.key}>
-                <TableCell>{component.label}</TableCell>
-                <TableCell className="font-mono text-xs text-muted-foreground">{component.pricing_key ?? '—'}</TableCell>
-                <TableCell className="text-right font-medium">{fmtEur(component.eur_per_month)}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-        <div className="rounded-lg border bg-muted/20 p-3 text-xs text-muted-foreground">{cost.note}</div>
-        {cost.artifacts.backups.length ? (
-          <div className="space-y-2">
-            <div className="text-sm font-medium">Backup storage</div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {cost.artifacts.backups.slice(0, 6).map((backup, index) => (
-                <div key={`${backup.name}-${index}`} className="rounded-lg border p-2 text-xs">
-                  <div className="font-mono text-foreground">{String(backup.name ?? 'backup')}</div>
-                  <div className="text-muted-foreground">{formatBytes(Number(backup.metered_bytes ?? 0))} · {fmtEur(Number(backup.eur_per_month ?? 0))}/mo</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
+        <Button asChild>
+          <Link href={`/billing?account=${encodeURIComponent(account.id)}`}>View Cost Breakdown</Link>
+        </Button>
       </CardContent>
     </Card>
   );

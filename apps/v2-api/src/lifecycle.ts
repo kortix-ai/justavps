@@ -1,6 +1,7 @@
 import type { AppConfig, IncusClusterConfig } from './config.js';
 import { getPrisma } from './db/client.js';
 import { IncusClient } from './incus/client.js';
+import { recordBillingRuntimeObservation } from './billing/runtimeMeter.js';
 
 // Background sweeper: every tick, look at every Prisma-tracked machine, read
 // its lifecycle policy from metadata, and fire the appropriate transition.
@@ -67,14 +68,34 @@ export async function sweepOnce(config: AppConfig, clientFor: (cluster: IncusClu
       // Auto-stop: only meaningful if currently running.
       if (machine.status !== 'Stopped' && lc.auto_stop_min && lc.auto_stop_min > 0 && idleMin !== null && idleMin >= lc.auto_stop_min) {
         await client.stopInstance(machine.incusInstanceName).catch(() => undefined);
+        const observedAt = new Date();
+        await recordBillingRuntimeObservation(prisma, {
+          machineId: machine.id,
+          accountId: machine.accountId,
+          status: 'Stopped',
+          resources: billingResourcesFromMachine(machine.resources),
+          observedAt,
+          source: 'lifecycle_sweeper_auto_stop',
+          metadata: { incus_instance_name: machine.incusInstanceName },
+        }).catch(() => undefined);
         await prisma.machine.update({
           where: { id: machine.id },
-          data: { status: 'Stopped', metadata: { ...meta, stopped_at: new Date().toISOString() } as object },
+          data: { status: 'Stopped', metadata: { ...meta, stopped_at: observedAt.toISOString() } as object },
         });
         result.stopped.push(machine.id);
         if (lc.ephemeral) {
           // Ephemeral: collapse stop+delete into one transition.
+          const deletedAt = new Date();
           await client.deleteInstance(machine.incusInstanceName, { force: true }).catch(() => undefined);
+          await recordBillingRuntimeObservation(prisma, {
+            machineId: machine.id,
+            accountId: machine.accountId,
+            status: 'deleted',
+            resources: billingResourcesFromMachine(machine.resources),
+            observedAt: deletedAt,
+            source: 'lifecycle_sweeper_ephemeral_delete',
+            metadata: { incus_instance_name: machine.incusInstanceName },
+          }).catch(() => undefined);
           await prisma.machine.update({ where: { id: machine.id }, data: { status: 'deleted' } });
           result.deleted.push(machine.id);
         }
@@ -84,7 +105,17 @@ export async function sweepOnce(config: AppConfig, clientFor: (cluster: IncusClu
       // Auto-delete (checked BEFORE archive — delete is the more destructive
       // transition and should win when both timers have fired).
       if (machine.status === 'Stopped' && lc.auto_delete_min && lc.auto_delete_min > 0 && stoppedMin !== null && stoppedMin >= lc.auto_delete_min) {
+        const deletedAt = new Date();
         await client.deleteInstance(machine.incusInstanceName, { force: true }).catch(() => undefined);
+        await recordBillingRuntimeObservation(prisma, {
+          machineId: machine.id,
+          accountId: machine.accountId,
+          status: 'deleted',
+          resources: billingResourcesFromMachine(machine.resources),
+          observedAt: deletedAt,
+          source: 'lifecycle_sweeper_auto_delete',
+          metadata: { incus_instance_name: machine.incusInstanceName },
+        }).catch(() => undefined);
         await prisma.machine.update({ where: { id: machine.id }, data: { status: 'deleted' } });
         result.deleted.push(machine.id);
         continue;
@@ -102,6 +133,20 @@ export async function sweepOnce(config: AppConfig, clientFor: (cluster: IncusClu
   }
 
   return result;
+}
+
+function billingResourcesFromMachine(value: unknown) {
+  const record = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  return {
+    vcpu: positiveNumber(record.vcpu),
+    ramGb: positiveNumber(record.memory_gb ?? record.memoryGb ?? record.ram_gb),
+    storageGb: positiveNumber(record.disk_gb ?? record.diskGb ?? record.storage_gb),
+  };
+}
+
+function positiveNumber(value: unknown) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 export function startLifecycleSweeper(config: AppConfig, clientFor: (cluster: IncusClusterConfig) => IncusClient) {

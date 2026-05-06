@@ -155,7 +155,6 @@ export type Machine = {
   cluster?: ClusterPublic;
   source?: { type: string; id: string | null } | { type: string };
   resources?: Record<string, unknown>;
-  pricing?: MachinePricingBreakdown;
   metadata?: Record<string, unknown>;
   urls?: {
     proxy?: string;
@@ -171,16 +170,6 @@ export type Machine = {
   } & Record<string, unknown>;
   created_at?: string;
   updated_at?: string;
-};
-
-export type MachinePricingBreakdown = {
-  model: string;
-  billable_status?: string;
-  resources: { vcpu: number; memory_gb: number; disk_gb: number };
-  rates: Record<string, number>;
-  components: Array<{ key: string; label: string; quantity: number; unit: string; billable: boolean; eur_per_month: number; note?: string }>;
-  total_eur_per_month: number;
-  note?: string;
 };
 
 export type BackupPolicy = {
@@ -233,24 +222,47 @@ export type Account = {
   members: AccountMember[];
   invitations: AccountInvitation[];
   counts?: { members: number; machines: number; auto_backup_policies: number; auto_backup_enabled: number };
-  cost_summary?: Record<string, number | string>;
 };
 
-export type AccountCostBreakdown = {
+export type BillingStatement = {
   account: { id: string; name: string; slug: string; type: string };
-  model: string;
-  rates: Record<string, number>;
-  total_eur_per_month: number;
-  components: Array<{ key: string; label: string; eur_per_month: number; pricing_key?: string }>;
-  machines: Array<MachinePricingBreakdown & { machine_id: string; machine_name: string }>;
-  artifacts: {
-    snapshots: Array<Record<string, unknown>>;
-    backups: Array<Record<string, unknown>>;
-    errors: Array<{ machine_id: string; error: string }>;
+  window: { from: string; to: string; as_of: string; finalized_through: string };
+  currency: string;
+  price_version?: { id: string; code: string };
+  actual_mtd: { micro_eur: string; eur: number };
+  unfinalized_current_hour: { included: boolean; micro_eur: string; eur: number };
+  components: Array<{ key: string; label: string; quantity: number; quantity_unit: string; micro_eur: string; eur: number }>;
+  sources: Array<{ source_type: string; source_id: string; machine_id?: string | null; name?: string | null; micro_eur: string; eur: number; components: string[] }>;
+  hourly: Array<{ hour: string; micro_eur: string; eur: number; components: Record<string, number> }>;
+  coverage: {
+    status: 'complete' | 'partial' | string;
+    accuracy_model?: string;
+    missing_hours: string[];
+    unmeasured_sources: Array<{ source_type: string; source_id: string; reason: string }>;
+    warnings: string[];
   };
-  templates: Array<Record<string, unknown>>;
-  warm_pools: Array<Record<string, unknown>>;
-  note?: string;
+};
+
+export type BillingLedgerEntry = {
+  id: string;
+  account_id: string;
+  machine_id?: string | null;
+  source_type: string;
+  source_id: string;
+  component: string;
+  region?: string | null;
+  interval_start: string;
+  interval_end: string;
+  quantity: string;
+  quantity_unit: string;
+  rate_micro_eur_per_unit: string;
+  price_version_id: string;
+  micro_eur: string;
+  eur: number;
+  status: string;
+  measurement_source: string;
+  measurement_exact: boolean;
+  metadata?: Record<string, unknown>;
 };
 
 export type TelemetrySpan = {
@@ -349,12 +361,6 @@ export type PoolBilling = {
   disk_limit_gb_per_instance?: number;
   disk_limit_gb_total_cap?: number;
   running_instances?: number;
-  per_instance_eur_month: number;
-  total_eur_month: number;
-  storage_eur_month?: number;
-  hot_resource_eur_month?: number;
-  pricing_key?: string;
-  pricing_micro_eur_per_sec?: number;
   note?: string;
 };
 
@@ -409,7 +415,6 @@ export type MachineTemplate = {
   storage?: {
     metered_bytes?: number | null;
     billable_gib?: number | null;
-    eur_per_month?: number | null;
     source?: string;
     estimated?: boolean;
     note?: string;
@@ -491,24 +496,6 @@ export type ImageItem = {
   uploaded_at?: string | null;
 };
 
-export type ArtifactCostAttribution = {
-  account_id?: string;
-  machine_id?: string;
-  machine_name?: string;
-  cluster_id?: string;
-  incus_project?: string;
-  kind?: 'snapshot' | 'backup' | string;
-  storage_class?: 'local' | 'archive' | string;
-  metered_bytes?: number;
-  billable_gib?: number;
-  estimated?: boolean;
-  eur_per_month?: number;
-  pricing_key?: string;
-  pricing_micro_eur_per_sec?: number;
-  note?: string;
-  components?: Array<{ label: string; metered_bytes: number; billable_gib: number }>;
-};
-
 export type SnapshotItem = {
   id?: string;
   name: string;
@@ -516,9 +503,10 @@ export type SnapshotItem = {
   stateful?: boolean;
   expires_at?: string | null;
   size?: number;
+  metered_bytes?: number;
+  billable_gib?: number;
   account_id?: string;
   machine_id?: string;
-  cost_attribution?: ArtifactCostAttribution;
 };
 
 export type BackupItem = {
@@ -530,12 +518,14 @@ export type BackupItem = {
   instance_only?: boolean;
   optimized_storage?: boolean;
   size?: number;
+  metered_bytes?: number;
+  billable_gib?: number;
+  storage_components?: Array<{ label: string; metered_bytes: number; billable_gib: number }>;
   account_id?: string;
   machine_id?: string;
   trigger?: 'manual' | 'auto' | string;
   policy_id?: string | null;
   restore_snapshot?: string;
-  cost_attribution?: ArtifactCostAttribution;
 };
 
 export type ToolboxRoutes = {

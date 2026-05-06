@@ -20,11 +20,6 @@ type PoolMode = 'stopped' | 'running';
 const ACCOUNT_KEY = 'v2-admin:warm-pool-account-id';
 const WARM_POOL_TARGET_MAX = 500;
 
-function fmtEur(value: number | undefined) {
-  if (value === undefined || !Number.isFinite(value)) return '—';
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(value);
-}
-
 function fmtGib(value: number | undefined) {
   if (value === undefined || !Number.isFinite(value)) return '—';
   return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: value >= 10 ? 1 : 3 }).format(value)} GiB`;
@@ -110,7 +105,6 @@ export default function PoolsPage() {
     active: policies.filter((policy) => policy.status === 'active').length,
     ready: policies.reduce((sum, policy) => sum + (policy.ready ?? 0), 0),
     target: policies.reduce((sum, policy) => sum + policy.target, 0),
-    monthly: policies.reduce((sum, policy) => sum + (policy.billing?.total_eur_month ?? 0), 0),
   }), [policies]);
 
   async function action(label: string, fn: () => Promise<unknown>) {
@@ -190,7 +184,7 @@ export default function PoolsPage() {
           <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
             <Stat label="Active" value={totals.active} />
             <Stat label="Ready" value={`${totals.ready}/${totals.target}`} />
-            <Stat label="Measured storage/mo" value={fmtEur(totals.monthly)} />
+            <Stat label="Measured storage" value={fmtGib(policies.reduce((sum, policy) => sum + (policy.billing?.billable_gib ?? 0), 0))} />
             <Stat label="Hidden rows" value={poolRows.length} />
           </div>
         </CardContent>
@@ -205,8 +199,8 @@ export default function PoolsPage() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base"><Gauge className="size-4" /> Stopped standby billing</CardTitle>
-            <CardDescription>Use stopped Pools for cheap fast-start storage, or running Pools when you want instant takeover and accept hot CPU/RAM billing.</CardDescription>
+            <CardTitle className="flex items-center gap-2 text-base"><Gauge className="size-4" /> Standby resources</CardTitle>
+            <CardDescription>Use stopped Pools for fast starts, or running Pools when you want instant takeover. Usage is accounted centrally in Billing API v2.</CardDescription>
           </CardHeader>
         </Card>
         <Card>
@@ -238,7 +232,7 @@ export default function PoolsPage() {
                 <TableHead>Source</TableHead>
                 <TableHead>Shape</TableHead>
                 <TableHead>Pool</TableHead>
-                <TableHead>Billing</TableHead>
+                <TableHead>Measured resources</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -288,10 +282,9 @@ export default function PoolsPage() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="font-medium">{fmtEur(policy.billing?.total_eur_month)}/mo</div>
                     <div className="text-2xs text-muted-foreground">{fmtGib(policy.billing?.billable_gib)} actual used</div>
                     {policyPoolMode(policy) === 'running' ? (
-                      <div className="text-2xs text-muted-foreground">{fmtEur(policy.billing?.hot_resource_eur_month)} hot CPU/RAM</div>
+                      <div className="text-2xs text-muted-foreground">hot vCPU/RAM tracked in Billing API v2</div>
                     ) : null}
                     <div className="text-2xs text-muted-foreground">
                       {policy.billing?.measured_instances ?? 0} measured · cap {policy.billing?.disk_limit_gb_total_cap ?? policy.resources.disk_gb * policy.target}GB

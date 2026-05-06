@@ -36,6 +36,8 @@ import {
 import type { AppConfig, IncusClusterConfig } from './config.js';
 import { normalizeClusterConfig } from './config.js';
 import { registerAdminUi } from './admin-ui-static.js';
+import { registerBillingV2Routes } from './billing/routes.js';
+import { recordBillingRuntimeObservation } from './billing/runtimeMeter.js';
 import { getPrisma } from './db/client.js';
 import { IncusApiError, IncusClient, hardenedSecurityConfig, type CreateInstanceSource } from './incus/client.js';
 import type { IncusImage, IncusInstance, IncusInstanceState, IncusOperation } from './incus/types.js';
@@ -88,7 +90,44 @@ function envInt(name: string, fallback: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
+class AsyncSemaphore {
+  private active = 0;
+  private readonly queue: Array<() => void> = [];
+
+  constructor(private readonly limit: number) {}
+
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    await this.acquire();
+    try {
+      return await fn();
+    } finally {
+      this.release();
+    }
+  }
+
+  stats() {
+    return { limit: this.limit, active: this.active, queued: this.queue.length };
+  }
+
+  private async acquire() {
+    if (this.active < this.limit) {
+      this.active += 1;
+      return;
+    }
+    await new Promise<void>((resolve) => this.queue.push(resolve));
+    this.active += 1;
+  }
+
+  private release() {
+    this.active = Math.max(0, this.active - 1);
+    const next = this.queue.shift();
+    if (next) next();
+  }
+}
+
 const WARM_POOL_POLICY_TARGET_MAX = envInt('V2_WARM_POOL_POLICY_TARGET_MAX', 500, 1, 10_000);
+const WARM_POOL_STOPPED_START_CONCURRENCY = envInt('V2_WARM_POOL_STOPPED_START_CONCURRENCY', 100, 1, 500);
+const warmPoolStoppedStartLimiter = new AsyncSemaphore(WARM_POOL_STOPPED_START_CONCURRENCY);
 const CONTAINERS_ONLY_MESSAGE = 'VM usage is disabled; JustAVPS currently supports containers only';
 const WARM_POOL_STOPPED_MODE = 'primed_stopped_exact' as const;
 const WARM_POOL_RUNNING_MODE = 'primed_running_exact' as const;
@@ -668,6 +707,25 @@ function isWarmPoolStatus(status: string | null | undefined) {
   return status === WARM_POOL_STATUS || status === WARM_POOL_CLAIMING_STATUS;
 }
 
+function isWarmPoolInventoryRow(machine: { status?: string | null; metadata?: unknown } | null | undefined) {
+  if (!machine) return false;
+  if (isWarmPoolStatus(machine.status)) return true;
+  const warm = jsonRecord(jsonRecord(machine.metadata).warm_pool);
+  if (Object.keys(warm).length === 0) return false;
+  return warm.runtime_state !== 'claimed_running';
+}
+
+function warmPoolInventoryDisplayName(machineId: string) {
+  return `Pool slot ${machineId.slice(0, 8)}`;
+}
+
+function warmPoolMachineMutationError() {
+  return {
+    error: true,
+    message: 'Warm Pool slots are reserved inventory. Claim one by creating a machine from its Machine Template; direct machine lifecycle actions are disabled.',
+  };
+}
+
 function warmPoolProfiles() {
   const raw = process.env.V2_WARM_POOL_PROFILES?.trim();
   if (raw) {
@@ -859,9 +917,6 @@ function storageUsageAttribution(input: {
     estimated: input.estimated === true,
     measured_at: input.measuredAt ?? nowIso(),
     source: input.source,
-    eur_per_month: Number(storageEurPerMonth(gib, 'local').toFixed(6)),
-    pricing_key: 'storage_gb_local_micro_eur_per_sec',
-    pricing_micro_eur_per_sec: DEFAULT_PRICING.storage_gb_local_micro_eur_per_sec,
     ...(input.error ? { error: input.error } : {}),
   };
 }
@@ -891,9 +946,6 @@ function warmPoolEstimateFromStorageUsages(
   const exactUsages = usages.filter((usage) => usage.estimated !== true);
   const totalBytes = exactUsages.reduce((sum, usage) => sum + usage.metered_bytes, 0);
   const totalGib = billableGib(totalBytes);
-  const storageEur = storageEurPerMonth(totalGib, 'local');
-  const hotEur = mode === WARM_POOL_RUNNING_MODE ? hotResourceEurPerMonth(resources, rowCount) : 0;
-  const totalEur = storageEur + hotEur;
   const measuredCount = exactUsages.length;
   return {
     mode,
@@ -907,19 +959,9 @@ function warmPoolEstimateFromStorageUsages(
     running_instances: mode === WARM_POOL_RUNNING_MODE ? rowCount : 0,
     disk_limit_gb_per_instance: resources.disk_gb,
     disk_limit_gb_total_cap: resources.disk_gb * target,
-    per_instance_eur_month: rowCount ? Number((totalEur / rowCount).toFixed(6)) : 0,
-    total_eur_month: Number(totalEur.toFixed(6)),
-    storage_eur_month: Number(storageEur.toFixed(6)),
-    hot_resource_eur_month: Number(hotEur.toFixed(6)),
-    pricing_key: mode === WARM_POOL_RUNNING_MODE ? 'vcpu_ram_hot_plus_storage_gb_local' : 'storage_gb_local_micro_eur_per_sec',
-    pricing_micro_eur_per_sec: DEFAULT_PRICING.storage_gb_local_micro_eur_per_sec,
-    hot_pricing: {
-      vcpu_hot_micro_eur_per_sec: DEFAULT_PRICING.vcpu_hot_micro_eur_per_sec,
-      ram_gb_hot_micro_eur_per_sec: DEFAULT_PRICING.ram_gb_hot_micro_eur_per_sec,
-    },
     note: mode === WARM_POOL_RUNNING_MODE
-      ? 'Running pool reservations keep CPU/RAM hot for instant takeover and add actual measured local storage. disk_gb is only the per-instance cap.'
-      : 'Stopped pool reservations are billed from actual measured local storage used by primed rows. disk_gb is only the per-instance cap; CPU/RAM billing starts after claim.',
+      ? 'Running pool reservations keep CPU/RAM hot for instant takeover. Usage is finalized centrally in Billing API v2; disk_gb is only the per-instance cap.'
+      : 'Stopped pool reservations report actual measured local storage used by primed rows. Usage is finalized centrally in Billing API v2; disk_gb is only the per-instance cap.',
   };
 }
 
@@ -1360,6 +1402,45 @@ async function fastestWarmPoolPlacementHint(spec: WarmPoolSpec, preferredCluster
   return best ? { cluster_id: best.clusterId, member_name: best.memberName, p50_ms: best.p50_ms, samples: best.samples, source: 'warm-pool-usable-latency' } : null;
 }
 
+async function balancedWarmPoolPlacementHint(config: AppConfig, spec: WarmPoolSpec, preferredClusterId?: string | null) {
+  if (!config.databaseConfigured) return null;
+  const clusters = config.clusters.filter((cluster) => cluster.region === spec.region && (!preferredClusterId || cluster.id === preferredClusterId));
+  const candidates: Array<{ cluster_id: string; member_name: string; pool_count: number }> = [];
+  for (const cluster of clusters) {
+    const client = clientFor(cluster);
+    const members = await client.listClusterMembers().catch(() => []);
+    const online = members.filter((member) => member.status === 'Online');
+    const hostState = await hostSchedulabilityByMember(cluster.id, online.map((member) => member.server_name)).catch(() => new Map());
+    const rows = await getPrisma().machine.findMany({
+      where: {
+        accountId: spec.accountId ?? WARM_POOL_ACCOUNT_ID,
+        status: { in: [WARM_POOL_STATUS, WARM_POOL_CLAIMING_STATUS] },
+        incusClusterId: cluster.id,
+        region: spec.region,
+        type: spec.type,
+        sourceType: spec.sourceType,
+        sourceId: spec.sourceId,
+      },
+    }).catch(() => []);
+    const matching = rows.filter((row) => {
+      if (!matchesWarmPoolSpec(row, spec)) return false;
+      const warm = jsonRecord(jsonRecord(row.metadata).warm_pool);
+      return warm.policy_id === spec.policyId && normalizeWarmPoolMode(warm.mode) === normalizeWarmPoolMode(spec.mode);
+    });
+    for (const member of online) {
+      const host = hostState.get(member.server_name);
+      if (host && !host.schedulable) continue;
+      candidates.push({
+        cluster_id: cluster.id,
+        member_name: member.server_name,
+        pool_count: matching.filter((row) => row.incusMemberName === member.server_name).length,
+      });
+    }
+  }
+  const best = candidates.sort((a, b) => a.pool_count - b.pool_count || a.member_name.localeCompare(b.member_name))[0];
+  return best ? { ...best, source: 'warm-pool-balanced-spread' } : null;
+}
+
 async function activeWarmPoolPoliciesForSpec(accountId: string, spec: WarmPoolSpec) {
   const policies = await activeWarmPoolPoliciesForSource(accountId, spec);
   return policies.filter((policy) => {
@@ -1419,6 +1500,82 @@ function warmPoolSpecLockKey(spec: WarmPoolSpec) {
   return `${spec.accountId ?? WARM_POOL_ACCOUNT_ID}:${spec.policyId ?? 'legacy'}:${normalizeWarmPoolMode(spec.mode)}:${spec.key}`;
 }
 
+function prismaMachineFromRaw(row: Record<string, any>): PrismaMachine {
+  return {
+    id: String(row.id),
+    accountId: String(row.account_id),
+    name: String(row.name),
+    region: String(row.region),
+    type: String(row.type),
+    status: String(row.status),
+    sourceType: String(row.source_type),
+    sourceId: row.source_id === null || row.source_id === undefined ? null : String(row.source_id),
+    incusClusterId: String(row.incus_cluster_id),
+    incusProject: String(row.incus_project),
+    incusInstanceName: String(row.incus_instance_name),
+    incusMemberName: row.incus_member_name === null || row.incus_member_name === undefined ? null : String(row.incus_member_name),
+    resources: row.resources,
+    metadata: row.metadata,
+    createdAt: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+    updatedAt: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+  };
+}
+
+async function reserveWarmPoolCandidateAtomic(input: {
+  prisma: ReturnType<typeof getPrisma>;
+  accountId: string;
+  spec: WarmPoolSpec;
+  policies: PrismaWarmPoolPolicy[];
+  preferredModes: WarmPoolMode[];
+}) {
+  const policyIds = input.policies.map((policy) => policy.id);
+  if (!policyIds.length) return null;
+  const resourcesJson = JSON.stringify(input.spec.resources);
+  const modes = input.preferredModes;
+  const claimedAt = new Date().toISOString();
+  const rows = await input.prisma.$queryRawUnsafe<Record<string, any>[]>(`
+    UPDATE v2_core.machines
+    SET status = $1,
+        metadata = jsonb_set(
+          metadata,
+          '{warm_pool}',
+          COALESCE(metadata->'warm_pool', '{}'::jsonb) || jsonb_build_object('claimed_at', $2::text, 'claimed_by', $3::text),
+          true
+        ),
+        updated_at = now()
+    WHERE id = (
+      SELECT id
+      FROM v2_core.machines
+      WHERE account_id = $3
+        AND status = $4
+        AND region = $5
+        AND type = $6
+        AND source_type = $7
+        AND source_id = $8
+        AND resources = $9::jsonb
+        AND metadata->'warm_pool'->>'policy_id' = ANY($10::text[])
+        AND metadata->'warm_pool'->>'mode' = ANY($11::text[])
+      ORDER BY updated_at ASC
+      FOR UPDATE SKIP LOCKED
+      LIMIT 1
+    )
+    RETURNING *
+  `,
+    WARM_POOL_CLAIMING_STATUS,
+    claimedAt,
+    input.accountId,
+    WARM_POOL_STATUS,
+    input.spec.region,
+    input.spec.type,
+    input.spec.sourceType,
+    input.spec.sourceId,
+    resourcesJson,
+    policyIds,
+    modes,
+  );
+  return rows[0] ? prismaMachineFromRaw(rows[0]) : null;
+}
+
 async function validateWarmPoolPolicyInput(_config: AppConfig, input: WarmPoolPolicyInput, _accountId: string): Promise<WarmPoolPolicyValidation> {
   const source = warmPoolSourceIdentity(input.source);
   if (!source) return { error: { status: 400, body: { error: true as const, message: 'Pool policies currently support image sources only' } } };
@@ -1441,7 +1598,13 @@ async function claimWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec, input
   if (!policies.length) return null;
   const policiesById = new Map(policies.map((policy) => [policy.id, policy]));
   const policyIds = new Set(policies.map((policy) => policy.id));
-  const candidates = await span('warm pool: load template candidates', () => prisma.machine.findMany({
+  const atomicCandidate = await span('warm pool: reserve atomic candidate row', () => reserveWarmPoolCandidateAtomic({ prisma, accountId, spec, policies, preferredModes }), { policy_count: policies.length, preferred_modes: preferredModes });
+  const usingAtomicCandidates = Boolean(atomicCandidate);
+  const candidateLimit = atomicCandidate ? 1 : Math.min(
+    WARM_POOL_POLICY_TARGET_MAX,
+    Math.max(100, policies.reduce((sum, policy) => sum + policy.target, 0)),
+  );
+  const candidates = atomicCandidate ? [atomicCandidate] : await span('warm pool: load template candidates', () => prisma.machine.findMany({
     where: {
       accountId,
       status: WARM_POOL_STATUS,
@@ -1451,8 +1614,8 @@ async function claimWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec, input
       sourceId: spec.sourceId,
     },
     orderBy: { updatedAt: 'asc' },
-    take: 20,
-  }), { policy_count: policies.length, flexible_template_match: true });
+    take: candidateLimit,
+  }), { policy_count: policies.length, candidate_limit: candidateLimit, flexible_template_match: true });
 
   const rankedCandidates = [...candidates].sort((a, b) => {
     const aWarm = jsonRecord(jsonRecord(a.metadata).warm_pool);
@@ -1472,7 +1635,10 @@ async function claimWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec, input
     return aModeRank - bModeRank || aResizeScore - bResizeScore || aPrimed - bPrimed || aLatency - bLatency || a.updatedAt.getTime() - b.updatedAt.getTime();
   });
 
-  for (const candidate of rankedCandidates) {
+  const attemptedCandidateIds = new Set<string>();
+  for (let candidateIndex = 0; candidateIndex < rankedCandidates.length; candidateIndex += 1) {
+    const candidate = rankedCandidates[candidateIndex];
+    attemptedCandidateIds.add(candidate.id);
     if (!matchesWarmPoolSourceSpec(candidate, spec)) continue;
     const poolMeta = jsonRecord(jsonRecord(candidate.metadata).warm_pool);
     const policyId = typeof poolMeta.policy_id === 'string' ? poolMeta.policy_id : null;
@@ -1483,17 +1649,19 @@ async function claimWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec, input
     const poolMode = normalizeWarmPoolMode(poolMeta.mode ?? policy.billingMode);
     const candidateResources = machineResourceKey(candidate.resources);
     const resizeNeeded = !resourcesEqual(candidateResources, spec.resources);
-    const claimed = await span('warm pool: reserve candidate row', () => prisma.machine.updateMany({
-      where: { id: candidate.id, status: WARM_POOL_STATUS, accountId },
-      data: {
-        status: WARM_POOL_CLAIMING_STATUS,
-        metadata: {
-          ...jsonRecord(candidate.metadata),
-          warm_pool: { ...poolMeta, claimed_at: new Date().toISOString(), claimed_by: accountId },
-        } as Prisma.InputJsonValue,
-      },
-    }), { candidate_id: candidate.id, policy_id: policyId });
-    if (claimed.count !== 1) continue;
+    if (candidate.status !== WARM_POOL_CLAIMING_STATUS) {
+      const claimed = await span('warm pool: reserve candidate row', () => prisma.machine.updateMany({
+        where: { id: candidate.id, status: WARM_POOL_STATUS, accountId },
+        data: {
+          status: WARM_POOL_CLAIMING_STATUS,
+          metadata: {
+            ...jsonRecord(candidate.metadata),
+            warm_pool: { ...poolMeta, claimed_at: new Date().toISOString(), claimed_by: accountId },
+          } as Prisma.InputJsonValue,
+        },
+      }), { candidate_id: candidate.id, policy_id: policyId });
+      if (claimed.count !== 1) continue;
+    }
 
     const cluster = clusterById(config, candidate.incusClusterId);
     if (!cluster) {
@@ -1553,15 +1721,15 @@ async function claimWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec, input
           source: 'running-pool-validated-at-prime',
         };
       } else {
-        started = await span('warm pool: incus start stopped instance', () => startCreatedMachineInstrumented({
+        startedForClaim = true;
+        stopOnClaimFailure = true;
+        started = await span('warm pool: incus start stopped instance', () => warmPoolStoppedStartLimiter.run(() => startCreatedMachineInstrumented({
           client,
           name: candidate.incusInstanceName,
           telemetry,
           spanPrefix: 'warm pool: incus start stopped instance',
-          details: { candidate_id: candidate.id, member_name: candidate.incusMemberName },
-        }), { candidate_id: candidate.id, member_name: candidate.incusMemberName });
-        startedForClaim = true;
-        stopOnClaimFailure = true;
+          details: { candidate_id: candidate.id, member_name: candidate.incusMemberName, start_limiter: warmPoolStoppedStartLimiter.stats() },
+        })), { candidate_id: candidate.id, member_name: candidate.incusMemberName, start_concurrency_limit: WARM_POOL_STOPPED_START_CONCURRENCY });
         const previousDaemon = jsonRecord(previousMeta.managed_daemon);
         const autostartValidated = previousMeta.managed_daemon_state === 'ready'
           && previousDaemon.autostart === true
@@ -1681,6 +1849,10 @@ async function claimWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec, input
         where: { id: candidate.id },
         data: { status: WARM_POOL_STATUS, metadata: { ...jsonRecord(candidate.metadata), warm_pool_last_claim_error: error instanceof Error ? error.message : String(error) } as Prisma.InputJsonValue },
       }).catch(() => undefined);
+      if (usingAtomicCandidates && rankedCandidates.length < Math.min(10, Math.max(2, policies.reduce((sum, policy) => sum + policy.target, 0)))) {
+        const nextCandidate = await span('warm pool: reserve retry candidate row', () => reserveWarmPoolCandidateAtomic({ prisma, accountId, spec, policies, preferredModes }), { previous_candidate_id: candidate.id });
+        if (nextCandidate && !attemptedCandidateIds.has(nextCandidate.id)) rankedCandidates.push(nextCandidate);
+      }
     }
   }
   return null;
@@ -2969,10 +3141,10 @@ async function createWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec) {
   const poolMode = normalizeWarmPoolMode(spec.mode);
   let preferredClusterId: string | null = null;
   let preferredMemberName: string | null = null;
-  const performanceHint = await fastestWarmPoolPlacementHint(spec, preferredClusterId);
-  if (performanceHint && (!preferredClusterId || performanceHint.cluster_id === preferredClusterId)) {
-    preferredClusterId = performanceHint.cluster_id;
-    preferredMemberName = performanceHint.member_name;
+  const balancedHint = await balancedWarmPoolPlacementHint(config, spec, preferredClusterId);
+  if (balancedHint && (!preferredClusterId || balancedHint.cluster_id === preferredClusterId)) {
+    preferredClusterId = balancedHint.cluster_id;
+    preferredMemberName = balancedHint.member_name;
   }
   const placement = await selectPlacement(config, { region: spec.region as SupportedRegion, resources: spec.resources, preferredClusterId, preferredMemberName });
   const { cluster, client, member } = placement;
@@ -2989,7 +3161,7 @@ async function createWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec) {
 
   const machineId = generatedMachineId();
   const poolAccountId = spec.accountId ?? WARM_POOL_ACCOUNT_ID;
-  const displayName = `warm-${spec.type}-${spec.sourceType}-${spec.sourceId}`.replace(/[^a-zA-Z0-9_.-]/g, '-').slice(0, 80);
+  const displayName = machineId;
   let operation: IncusOperation | Record<string, unknown> | null = null;
   let observed: IncusInstance | null = null;
   let isolationCheck: ReturnType<typeof validateMachineIsolation> | null = null;
@@ -3148,7 +3320,7 @@ async function createWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec) {
         second_stop_noop: secondStopNoop,
         isolation_check: isolationCheck,
         scheduler_placement: placement.placement,
-        scheduler_performance_hint: performanceHint,
+        scheduler_placement_hint: balancedHint,
         usability: secondBootUsability ?? primeUsability,
         managed_daemon: secondBootUsability?.managed_daemon ?? secondBootUsability?.daemon_health ?? primeUsability?.managed_daemon ?? primeUsability?.daemon_health ?? null,
         managed_daemon_state: secondBootUsability?.managed_daemon_state ?? primeUsability?.managed_daemon_state ?? 'ready',
@@ -3537,7 +3709,6 @@ async function createPreparedMachineTemplate(config: AppConfig, input: z.infer<t
         sourceRef,
         measuredBytes: storage.metered_bytes ? BigInt(storage.metered_bytes) : null,
         billableGib: storage.billable_gib,
-        storageEurMonth: storage.eur_per_month,
         preparedAt: now,
         verifiedAt: now,
         metadata: {
@@ -3579,6 +3750,33 @@ async function ensureWarmPoolForSpecNow(config: AppConfig, spec: WarmPoolSpec) {
   const target = spec.policyId ? (policy?.status === 'active' ? policy.target : 0) : warmPoolTarget();
   if (!target) return { key: spec.key, target, ready: 0, creating: 0, created: 0 };
   const poolAccountId = spec.accountId ?? WARM_POOL_ACCOUNT_ID;
+  const staleClaimCutoff = new Date(Date.now() - 10 * 60_000).toISOString();
+  await getPrisma().$executeRawUnsafe(
+    `UPDATE v2_core.machines
+     SET status = $1,
+         metadata = metadata || jsonb_build_object('warm_pool_stale_claim_reset_at', $2::text),
+         updated_at = now()
+     WHERE account_id = $3
+       AND status = $4
+       AND region = $5
+       AND type = $6
+       AND source_type = $7
+       AND source_id = $8
+       AND metadata->'warm_pool'->>'policy_id' = $9
+       AND metadata->'warm_pool'->>'mode' = $10
+       AND COALESCE(metadata->'warm_pool'->>'claimed_at', '') < $11`,
+    WARM_POOL_STATUS,
+    new Date().toISOString(),
+    poolAccountId,
+    WARM_POOL_CLAIMING_STATUS,
+    spec.region,
+    spec.type,
+    spec.sourceType,
+    spec.sourceId,
+    spec.policyId ?? '',
+    poolMode,
+    staleClaimCutoff,
+  ).catch(() => undefined);
   const rows = await getPrisma().machine.findMany({
     where: {
       accountId: poolAccountId,
@@ -3625,7 +3823,40 @@ async function drainWarmPoolPolicy(config: AppConfig, policy: PrismaWarmPoolPoli
   });
   let drained = 0;
   const errors: string[] = [];
-  for (const row of rows.filter((item) => matchesWarmPoolSpec(item, spec) && jsonRecord(jsonRecord(item.metadata).warm_pool).policy_id === policy.id)) {
+  for (const row of rows.filter((item) => jsonRecord(jsonRecord(item.metadata).warm_pool).policy_id === policy.id)) {
+    const cluster = clusterById(config, row.incusClusterId);
+    try {
+      if (cluster) await clientFor(cluster).deleteInstance(row.incusInstanceName, { force: true }).catch(() => undefined);
+      await getPrisma().machine.update({ where: { id: row.id }, data: { status: 'deleted' } });
+      drained += 1;
+    } catch (error) {
+      errors.push(`${row.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return { drained, errors };
+}
+
+async function drainWarmPoolPolicySurplus(config: AppConfig, policy: PrismaWarmPoolPolicy) {
+  if (!config.databaseConfigured || policy.target <= 0) return { drained: 0, errors: [] as string[] };
+  const spec = warmPoolSpecFromPolicy(policy);
+  const inFlight = warmPoolSpecEnsurePromises.get(warmPoolSpecLockKey(spec));
+  if (inFlight) await inFlight.catch(() => undefined);
+  const rows = await getPrisma().machine.findMany({
+    where: {
+      accountId: policy.accountId,
+      status: WARM_POOL_STATUS,
+      region: policy.region,
+      type: policy.type,
+      sourceType: policy.sourceType,
+      sourceId: policy.sourceId,
+    },
+    orderBy: [{ updatedAt: 'asc' }],
+  });
+  const matching = rows.filter((item) => jsonRecord(jsonRecord(item.metadata).warm_pool).policy_id === policy.id && matchesWarmPoolSpec(item, spec));
+  const surplus = Math.max(0, matching.length - policy.target);
+  let drained = 0;
+  const errors: string[] = [];
+  for (const row of matching.slice(0, surplus)) {
     const cluster = clusterById(config, row.incusClusterId);
     try {
       if (cluster) await clientFor(cluster).deleteInstance(row.incusInstanceName, { force: true }).catch(() => undefined);
@@ -3869,92 +4100,6 @@ function validateMachineIsolation(input: {
   };
 }
 
-const BILLING_SECONDS_PER_MONTH = 730 * 3600;
-
-function storageEurPerMonth(gib: number, storageClass: 'local' | 'archive' = 'local') {
-  const rate = storageClass === 'archive'
-    ? DEFAULT_PRICING.storage_gb_archive_micro_eur_per_sec
-    : DEFAULT_PRICING.storage_gb_local_micro_eur_per_sec;
-  return (gib * rate * BILLING_SECONDS_PER_MONTH) / 1_000_000;
-}
-
-function hotResourceEurPerMonth(resources: { vcpu: number; memory_gb: number }, instances: number) {
-  const microPerSecond = resources.vcpu * DEFAULT_PRICING.vcpu_hot_micro_eur_per_sec
-    + resources.memory_gb * DEFAULT_PRICING.ram_gb_hot_micro_eur_per_sec;
-  return (microPerSecond * BILLING_SECONDS_PER_MONTH * instances) / 1_000_000;
-}
-
-function eurPerMonthForRate(quantity: number, microEurPerSecond: number) {
-  if (!Number.isFinite(quantity) || quantity <= 0) return 0;
-  return (quantity * microEurPerSecond * BILLING_SECONDS_PER_MONTH) / 1_000_000;
-}
-
-function machinePricingBreakdown(machine: PrismaMachine, incus?: unknown) {
-  const observed = observedInstance(incus);
-  const status = observed?.status ?? machine.status;
-  const running = status.toLowerCase() === 'running';
-  const resources = persistedResources(machine.resources, observed ?? incus);
-  const vcpu = Number(resources.vcpu ?? 0) || 0;
-  const memoryGb = Number(resources.memory_gb ?? 0) || 0;
-  const diskGb = Number(resources.disk_gb ?? 0) || 0;
-  const vcpuEur = running ? eurPerMonthForRate(vcpu, DEFAULT_PRICING.vcpu_hot_micro_eur_per_sec) : 0;
-  const memoryEur = running ? eurPerMonthForRate(memoryGb, DEFAULT_PRICING.ram_gb_hot_micro_eur_per_sec) : 0;
-  const diskEur = eurPerMonthForRate(diskGb, DEFAULT_PRICING.storage_gb_local_micro_eur_per_sec);
-  const total = vcpuEur + memoryEur + diskEur;
-  return {
-    model: 'running_vcpu_ram_plus_disk_storage',
-    billable_status: status,
-    resources: { vcpu, memory_gb: memoryGb, disk_gb: diskGb },
-    rates: {
-      vcpu_running_micro_eur_per_sec: DEFAULT_PRICING.vcpu_hot_micro_eur_per_sec,
-      memory_gb_running_micro_eur_per_sec: DEFAULT_PRICING.ram_gb_hot_micro_eur_per_sec,
-      disk_gb_local_micro_eur_per_sec: DEFAULT_PRICING.storage_gb_local_micro_eur_per_sec,
-      seconds_per_month: BILLING_SECONDS_PER_MONTH,
-    },
-    components: [
-      {
-        key: 'running_vcpu',
-        label: 'Running vCPU',
-        quantity: vcpu,
-        unit: 'vCPU',
-        billable: running,
-        eur_per_month: Number(vcpuEur.toFixed(6)),
-        note: running ? 'Billed while the machine is running.' : 'Not billed while the machine is stopped.',
-      },
-      {
-        key: 'running_memory',
-        label: 'Running RAM',
-        quantity: memoryGb,
-        unit: 'GB RAM',
-        billable: running,
-        eur_per_month: Number(memoryEur.toFixed(6)),
-        note: running ? 'Billed while the machine is running.' : 'Not billed while the machine is stopped.',
-      },
-      {
-        key: 'disk_storage',
-        label: 'Disk storage',
-        quantity: diskGb,
-        unit: 'GB disk',
-        billable: true,
-        eur_per_month: Number(diskEur.toFixed(6)),
-        note: 'Billed continuously from provisioned disk storage.',
-      },
-    ],
-    total_eur_per_month: Number(total.toFixed(6)),
-    note: 'JustAVPS V2 charges running vCPU/RAM only while a machine is running, plus disk storage continuously. Backup/template/pool artifacts are separate storage components.',
-  };
-}
-
-function sumPricingComponents(items: Array<ReturnType<typeof machinePricingBreakdown>>) {
-  return items.reduce((acc, item) => {
-    acc.total_eur_per_month += item.total_eur_per_month;
-    acc.running_vcpu_eur_per_month += item.components.find((c) => c.key === 'running_vcpu')?.eur_per_month ?? 0;
-    acc.running_memory_eur_per_month += item.components.find((c) => c.key === 'running_memory')?.eur_per_month ?? 0;
-    acc.disk_storage_eur_per_month += item.components.find((c) => c.key === 'disk_storage')?.eur_per_month ?? 0;
-    return acc;
-  }, { total_eur_per_month: 0, running_vcpu_eur_per_month: 0, running_memory_eur_per_month: 0, disk_storage_eur_per_month: 0 });
-}
-
 function exactBytes(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
   if (typeof value !== 'string') return undefined;
@@ -3995,21 +4140,15 @@ function resourceShape(value: unknown, fallback: ResourceShape = DEFAULT_TEMPLAT
   };
 }
 
-function localStorageEurMonthFromGib(gib: number) {
-  if (!Number.isFinite(gib) || gib <= 0) return 0;
-  return Number((gib * DEFAULT_PRICING.storage_gb_local_micro_eur_per_sec * 730 * 3600 / 1_000_000).toFixed(6));
-}
-
 function imageMeasuredStorage(image: IncusImage | null | undefined) {
   const bytes = exactBytes(image?.size);
   const billableGib = bytes ? Number((bytes / 1024 ** 3).toFixed(9)) : null;
   return {
     metered_bytes: bytes ?? null,
     billable_gib: billableGib,
-    eur_per_month: billableGib === null ? null : localStorageEurMonthFromGib(billableGib),
     source: bytes ? 'incus-image-size' : 'unknown',
     estimated: true,
-    note: 'Template image size is an estimate; Pool billing uses exact measured slot storage after priming.',
+    note: 'Template image size is an estimate; exact usage is finalized centrally in Billing API v2 after priming.',
   };
 }
 
@@ -4031,7 +4170,6 @@ type ResolvedMachineTemplate = {
   sourceRef: string | null;
   measuredBytes: bigint | number | null;
   billableGib: unknown;
-  storageEurMonth: unknown;
   preparedAt: Date | null;
   verifiedAt: Date | null;
   metadata: unknown;
@@ -4077,7 +4215,6 @@ async function ensureCatalogMachineTemplates(config: AppConfig) {
         sourceRef: template.id,
         measuredBytes: storage.metered_bytes ? BigInt(storage.metered_bytes) : null,
         billableGib: storage.billable_gib,
-        storageEurMonth: storage.eur_per_month,
         preparedAt: ready ? new Date() : null,
         verifiedAt: ready ? new Date() : null,
         metadata: { description: template.description, image_properties: image?.properties ?? {}, storage } as Prisma.InputJsonValue,
@@ -4089,7 +4226,6 @@ async function ensureCatalogMachineTemplates(config: AppConfig) {
         incusFingerprint: image?.fingerprint ?? template.id,
         measuredBytes: storage.metered_bytes ? BigInt(storage.metered_bytes) : null,
         billableGib: storage.billable_gib,
-        storageEurMonth: storage.eur_per_month,
         preparedAt: ready ? new Date() : null,
         verifiedAt: ready ? new Date() : null,
         metadata: { description: template.description, image_properties: image?.properties ?? {}, storage } as Prisma.InputJsonValue,
@@ -4123,7 +4259,6 @@ async function virtualCatalogMachineTemplate(config: AppConfig, ref: string): Pr
     sourceRef: catalog.id,
     measuredBytes: image.size ? BigInt(image.size) : null,
     billableGib: imageMeasuredStorage(image).billable_gib,
-    storageEurMonth: imageMeasuredStorage(image).eur_per_month,
     preparedAt: null,
     verifiedAt: null,
     metadata: { description: catalog.description, storage: imageMeasuredStorage(image), image_properties: image.properties ?? {} },
@@ -4191,11 +4326,10 @@ async function poolPolicyForTemplate(config: AppConfig, template: ResolvedMachin
 async function serializeMachineTemplate(config: AppConfig, template: ResolvedMachineTemplate, accountId: string, poolRows: PrismaMachine[] = []) {
   const image = template.image ?? await findImageForTemplate(config, template).catch(() => null);
   const properties = image?.properties ?? jsonRecord(jsonRecord(template.metadata).image_properties);
-  const storage = template.measuredBytes || template.billableGib || template.storageEurMonth
+  const storage = template.measuredBytes || template.billableGib
     ? {
       metered_bytes: template.measuredBytes === null ? null : Number(template.measuredBytes),
       billable_gib: decimalNumber(template.billableGib),
-      eur_per_month: decimalNumber(template.storageEurMonth),
       source: 'machine-template',
       estimated: true,
     }
@@ -4241,35 +4375,6 @@ async function serializeMachineTemplate(config: AppConfig, template: ResolvedMac
     metadata: template.metadata,
     created_at: template.createdAt?.toISOString?.() ?? null,
     updated_at: template.updatedAt?.toISOString?.() ?? null,
-  };
-}
-
-function exactArtifactCostAttribution(
-  machine: NonNullable<Awaited<ReturnType<typeof loadProductMachine>>>,
-  input: {
-    kind: 'snapshot' | 'backup';
-    bytes: number;
-    note?: string;
-    components?: Array<{ label: string; metered_bytes: number; billable_gib: number }>;
-  },
-) {
-  const billableGib = input.bytes / 1024 / 1024 / 1024;
-  return {
-    account_id: machine.accountId,
-    machine_id: machine.id,
-    machine_name: machine.name,
-    cluster_id: machine.incusClusterId,
-    incus_project: machine.incusProject,
-    kind: input.kind,
-    storage_class: 'local',
-    metered_bytes: input.bytes,
-    billable_gib: Number(billableGib.toFixed(9)),
-    estimated: false,
-    eur_per_month: Number(storageEurPerMonth(billableGib, 'local').toFixed(6)),
-    pricing_key: 'storage_gb_local_micro_eur_per_sec',
-    pricing_micro_eur_per_sec: DEFAULT_PRICING.storage_gb_local_micro_eur_per_sec,
-    note: input.note,
-    components: input.components,
   };
 }
 
@@ -4448,6 +4553,36 @@ export async function machineClient(config: AppConfig, id: string) {
   const cluster = findCluster(config, machine.incusClusterId);
   if (!cluster) throw new Error(`Configured Incus cluster ${machine.incusClusterId} not found`);
   return { machine, cluster, client: clientFor(cluster) };
+}
+
+async function recordResolvedMachineBillingObservation(
+  config: AppConfig,
+  resolved: { machine: Pick<PrismaMachine, 'id' | 'accountId' | 'status' | 'resources' | 'incusInstanceName' | 'incusMemberName'>; cluster: IncusClusterConfig },
+  observed: IncusInstance | null | undefined,
+  source: string,
+  observedAt = new Date(),
+  statusOverride?: string,
+) {
+  if (!config.databaseConfigured) return null;
+  const resources = persistedResources(resolved.machine.resources, observed);
+  return recordBillingRuntimeObservation(getPrisma(), {
+    machineId: resolved.machine.id,
+    accountId: resolved.machine.accountId,
+    status: statusOverride ?? observed?.status ?? resolved.machine.status,
+    resources: {
+      vcpu: Number(resources.vcpu ?? 0),
+      ramGb: Number(resources.memory_gb ?? 0),
+      storageGb: Number(resources.disk_gb ?? 0),
+    },
+    observedAt,
+    source,
+    metadata: {
+      cluster_id: resolved.cluster.id,
+      project: resolved.cluster.project,
+      incus_instance_name: resolved.machine.incusInstanceName,
+      member_name: observed?.location ?? resolved.machine.incusMemberName ?? null,
+    },
+  }).catch((error) => ({ error: error instanceof Error ? error.message : String(error) }));
 }
 
 async function syncResolvedMachineProxy(config: AppConfig, resolved: NonNullable<Awaited<ReturnType<typeof machineClient>>>, observed?: IncusInstance | null) {
@@ -5170,10 +5305,10 @@ function serializeMachine(config: AppConfig, machine: Awaited<ReturnType<typeof 
     id: machine.id,
     slug,
     account_id: machine.accountId,
-    name: machine.name,
+    name: isWarmPoolInventoryRow(machine) ? warmPoolInventoryDisplayName(machine.id) : machine.name,
     region: machine.region,
     type: machine.type,
-    status: observed?.status ?? machine.status,
+    status: isWarmPoolInventoryRow(machine) ? (isWarmPoolStatus(machine.status) ? machine.status : WARM_POOL_STATUS) : observed?.status ?? machine.status,
     source: { type: machine.sourceType, id: machine.sourceId },
     incus: {
       cluster_id: machine.incusClusterId,
@@ -5183,7 +5318,6 @@ function serializeMachine(config: AppConfig, machine: Awaited<ReturnType<typeof 
       observed: observed ?? incus ?? null,
     },
     resources: mergeResources(machine.resources, observed ?? incus),
-    pricing: machinePricingBreakdown(machine, observed ?? incus),
     urls,
     metadata: machine.metadata,
     created_at: machine.createdAt.toISOString(),
@@ -5329,6 +5463,7 @@ export function createApp(config: AppConfig) {
 
   app.get('/', (c) => c.redirect('/admin-ui/'));
   registerAdminUi(app);
+  registerBillingV2Routes(app, config);
   startWarmPoolMaintainer(config);
 
   // One-shot sweep for debug + integration tests; the periodic sweeper is
@@ -5483,8 +5618,7 @@ export function createApp(config: AppConfig) {
       if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
       const context = await resolveRequestAccountContext(c);
       const machines = await getPrisma().machine.findMany({ where: { accountId: context.active.account.id, status: { notIn: ['deleted', WARM_POOL_STATUS, WARM_POOL_CLAIMING_STATUS] } }, orderBy: { createdAt: 'desc' } });
-      const estimatedCost = machines.reduce((sum, machine) => sum + machinePricingBreakdown(machine).total_eur_per_month, 0);
-      return c.json({ current_period: { machines: machines.map((machine) => ({ id: machine.id, slug: machineProxySlug(machine.id), server_type: machine.type, status: machine.status })), total_machines: machines.length, estimated_cost: Number(estimatedCost.toFixed(6)) } });
+      return c.json({ current_period: { machines: machines.map((machine) => ({ id: machine.id, slug: machineProxySlug(machine.id), server_type: machine.type, status: machine.status })), total_machines: machines.length, billing_statement: `/admin/billing/v2/accounts/${encodeURIComponent(context.active.account.id)}/statement` } });
     } catch (error) {
       const response = routeError(error);
       return c.json(response.body, response.status as never);
@@ -5747,8 +5881,6 @@ export function createApp(config: AppConfig) {
       return c.json({
         accounts: accounts.map((account) => {
           const accountMachines = machineByAccount.get(account.id) ?? [];
-          const machineCosts = accountMachines.map((machine) => machinePricingBreakdown(machine));
-          const machineSummary = sumPricingComponents(machineCosts);
           const accountPolicies = policyByAccount.get(account.id) ?? [];
           return {
             id: account.id,
@@ -5784,10 +5916,6 @@ export function createApp(config: AppConfig) {
               machines: accountMachines.length,
               auto_backup_policies: accountPolicies.length,
               auto_backup_enabled: accountPolicies.filter((policy) => policy.enabled).length,
-            },
-            cost_summary: {
-              ...Object.fromEntries(Object.entries(machineSummary).map(([key, value]) => [key, Number(value.toFixed(6))])),
-              note: 'Machine summary only; open account cost breakdown for backups, snapshots, templates, and pool storage.',
             },
           };
         }),
@@ -5944,108 +6072,6 @@ export function createApp(config: AppConfig) {
       const invite = await revokeInvitation(c.req.param('id'), c.req.param('inviteId'));
       if (!invite) return c.json({ error: true, message: 'Invitation not found', status: 404 }, 404);
       return c.json({ invitation: { id: invite.id, revoked_at: invite.revokedAt?.toISOString() ?? null } });
-    } catch (error) {
-      const response = routeError(error);
-      return c.json(response.body, response.status as never);
-    }
-  });
-
-  app.get('/admin/accounts/:id/cost-breakdown', async (c) => {
-    try {
-      if (!config.databaseConfigured) return c.json({ error: true, message: 'Database not configured' }, 400);
-      const prisma = getPrisma();
-      const accountId = c.req.param('id');
-      const account = await prisma.account.findUnique({ where: { id: accountId } });
-      if (!account) return c.json({ error: true, message: 'Account not found' }, 404);
-      const [machines, templates, poolPolicies] = await Promise.all([
-        prisma.machine.findMany({ where: { accountId, status: { notIn: ['deleted', WARM_POOL_STATUS, WARM_POOL_CLAIMING_STATUS] } }, orderBy: { createdAt: 'desc' } }),
-        prisma.machineTemplate.findMany({ where: { accountId, status: { notIn: ['deleted', 'archived'] } } }).catch(() => []),
-        prisma.warmPoolPolicy.findMany({ where: { accountId, status: { not: 'deleted' } } }).catch(() => []),
-      ]);
-      const machineItems = [] as Array<ReturnType<typeof machinePricingBreakdown> & { machine_id: string; machine_name: string }>;
-      const snapshotArtifacts: Array<Record<string, unknown>> = [];
-      const backupArtifacts: Array<Record<string, unknown>> = [];
-      const artifactErrors: Array<{ machine_id: string; error: string }> = [];
-      for (const machine of machines) {
-        const cluster = findCluster(config, machine.incusClusterId);
-        let observed: IncusInstance | null = null;
-        if (cluster) {
-          const client = clientFor(cluster);
-          observed = await client.getInstance(machine.incusInstanceName).catch(() => null);
-          const [snapshots, backups] = await Promise.all([
-            client.listSnapshots(machine.incusInstanceName).catch((error) => { artifactErrors.push({ machine_id: machine.id, error: `snapshots: ${error instanceof Error ? error.message : String(error)}` }); return [] as Awaited<ReturnType<typeof client.listSnapshots>>; }),
-            client.listBackups(machine.incusInstanceName).catch((error) => { artifactErrors.push({ machine_id: machine.id, error: `backups: ${error instanceof Error ? error.message : String(error)}` }); return [] as Awaited<ReturnType<typeof client.listBackups>>; }),
-          ]);
-          const snapshotByName = new Map(snapshots.map((snapshot) => [snapshot.name, snapshot]));
-          for (const snapshot of snapshots) {
-            if (snapshot.name.startsWith('bk-snap-')) continue;
-            const bytes = exactBytes(snapshot.size);
-            if (!bytes) continue;
-            const gib = bytes / BYTES_PER_GIB;
-            snapshotArtifacts.push({
-              machine_id: machine.id,
-              machine_name: machine.name,
-              name: snapshot.name,
-              metered_bytes: bytes,
-              billable_gib: Number(gib.toFixed(9)),
-              eur_per_month: Number(storageEurPerMonth(gib, 'local').toFixed(6)),
-            });
-          }
-          for (const backup of backups) {
-            const backupBytes = exactBytes(backup.size) ?? 0;
-            const restoreBytes = exactBytes(snapshotByName.get(`bk-snap-${backup.name}`)?.size) ?? 0;
-            const bytes = backupBytes + restoreBytes;
-            if (!bytes) continue;
-            const gib = bytes / BYTES_PER_GIB;
-            backupArtifacts.push({
-              machine_id: machine.id,
-              machine_name: machine.name,
-              name: backup.name,
-              metered_bytes: bytes,
-              billable_gib: Number(gib.toFixed(9)),
-              eur_per_month: Number(storageEurPerMonth(gib, 'local').toFixed(6)),
-              components: [
-                { label: 'backup tarball', metered_bytes: backupBytes, billable_gib: Number((backupBytes / BYTES_PER_GIB).toFixed(9)) },
-                { label: 'pinned restore snapshot', metered_bytes: restoreBytes, billable_gib: Number((restoreBytes / BYTES_PER_GIB).toFixed(9)) },
-              ],
-            });
-          }
-        }
-        machineItems.push({ ...machinePricingBreakdown(machine, observed), machine_id: machine.id, machine_name: machine.name });
-      }
-      const machineSummary = sumPricingComponents(machineItems);
-      const templateStorageEur = templates.reduce((sum, template) => sum + Number(template.storageEurMonth ?? 0), 0);
-      const warmPoolEur = poolPolicies.reduce((sum, policy) => sum + Number(jsonRecord(jsonRecord(policy.metadata).billing).total_eur_month ?? 0), 0);
-      const snapshotEur = snapshotArtifacts.reduce((sum, item) => sum + Number(item.eur_per_month ?? 0), 0);
-      const backupEur = backupArtifacts.reduce((sum, item) => sum + Number(item.eur_per_month ?? 0), 0);
-      const components = [
-        { key: 'running_vcpu', label: 'Running vCPU', eur_per_month: Number(machineSummary.running_vcpu_eur_per_month.toFixed(6)), pricing_key: 'vcpu_hot_micro_eur_per_sec' },
-        { key: 'running_memory', label: 'Running RAM', eur_per_month: Number(machineSummary.running_memory_eur_per_month.toFixed(6)), pricing_key: 'ram_gb_hot_micro_eur_per_sec' },
-        { key: 'machine_disk', label: 'Machine disk storage', eur_per_month: Number(machineSummary.disk_storage_eur_per_month.toFixed(6)), pricing_key: 'storage_gb_local_micro_eur_per_sec' },
-        { key: 'snapshot_storage', label: 'Manual snapshot storage', eur_per_month: Number(snapshotEur.toFixed(6)), pricing_key: 'storage_gb_local_micro_eur_per_sec' },
-        { key: 'backup_storage', label: 'Manual + auto backup storage', eur_per_month: Number(backupEur.toFixed(6)), pricing_key: 'storage_gb_local_micro_eur_per_sec' },
-        { key: 'template_storage', label: 'Machine Template image storage', eur_per_month: Number(templateStorageEur.toFixed(6)), pricing_key: 'storage_gb_local_micro_eur_per_sec' },
-        { key: 'warm_pool', label: 'Warm Pool reservations', eur_per_month: Number(warmPoolEur.toFixed(6)), pricing_key: 'storage_or_hot_pool_policy' },
-      ];
-      const total = components.reduce((sum, component) => sum + component.eur_per_month, 0);
-      return c.json({
-        account: { id: account.id, name: account.name, slug: account.slug, type: account.type },
-        model: 'running_vcpu_ram_plus_disk_storage_and_artifacts',
-        rates: {
-          vcpu_running_micro_eur_per_sec: DEFAULT_PRICING.vcpu_hot_micro_eur_per_sec,
-          memory_gb_running_micro_eur_per_sec: DEFAULT_PRICING.ram_gb_hot_micro_eur_per_sec,
-          disk_gb_local_micro_eur_per_sec: DEFAULT_PRICING.storage_gb_local_micro_eur_per_sec,
-          archive_storage_gb_micro_eur_per_sec: DEFAULT_PRICING.storage_gb_archive_micro_eur_per_sec,
-          seconds_per_month: BILLING_SECONDS_PER_MONTH,
-        },
-        total_eur_per_month: Number(total.toFixed(6)),
-        components,
-        machines: machineItems,
-        artifacts: { snapshots: snapshotArtifacts, backups: backupArtifacts, errors: artifactErrors },
-        templates: templates.map((template) => ({ id: template.id, name: template.name, storage_eur_month: Number(template.storageEurMonth ?? 0), billable_gib: Number(template.billableGib ?? 0) })),
-        warm_pools: poolPolicies.map((policy) => ({ id: policy.id, name: policy.name, billing: jsonRecord(jsonRecord(policy.metadata).billing) })),
-        note: 'Running vCPU/RAM are billed only while machines are running. Disk, snapshots, backups, templates, and stopped warm pools are storage-driven and charged continuously by measured/provisioned GB.',
-      });
     } catch (error) {
       const response = routeError(error);
       return c.json(response.body, response.status as never);
@@ -8097,8 +8123,15 @@ export function createApp(config: AppConfig) {
           metadata: { ...jsonRecord(mergedInput.metadata), billing: warmPoolEstimate(mergedInput.resources, mergedInput.target, [], nextMode) } as Prisma.InputJsonValue,
         },
       });
-      if (updated.status === 'active') void ensureWarmPoolForSpec(config, warmPoolSpecFromPolicy(updated)).catch((error) => console.warn(`[v2-api] warm pool policy ${updated.id} refill failed:`, error instanceof Error ? error.message : String(error)));
-      if (updated.status === 'paused' || updated.target === 0) void drainWarmPoolPolicy(config, updated).catch((error) => console.warn(`[v2-api] warm pool policy ${updated.id} drain failed:`, error instanceof Error ? error.message : String(error)));
+      if (updated.status === 'active' && updated.target > 0) {
+        if (!stalePoolDefinition) {
+          await drainWarmPoolPolicySurplus(config, updated).catch((error) => console.warn(`[v2-api] warm pool policy ${updated.id} surplus drain failed:`, error instanceof Error ? error.message : String(error)));
+        }
+        await ensureWarmPoolForSpec(config, warmPoolSpecFromPolicy(updated));
+      }
+      if (updated.status === 'paused' || updated.target === 0) {
+        await drainWarmPoolPolicy(config, updated);
+      }
       const poolRows = await refreshWarmPoolStorageMeasurements(config, await getPrisma().machine.findMany({ where: { accountId, status: { in: [WARM_POOL_STATUS, WARM_POOL_CLAIMING_STATUS] } } }));
       return c.json({ policy: serializeWarmPoolPolicy(updated, poolRows) });
     } catch (error) {
@@ -8252,7 +8285,15 @@ export function createApp(config: AppConfig) {
     }),
     oapi(async (c) => {
       try {
-        const machines = (await Promise.all(config.clusters.map(async (cluster) => {
+        const statusFilters = String(c.req.query('status') ?? '')
+          .split(',')
+          .map((value: string) => value.trim().toLowerCase())
+          .filter(Boolean);
+        const includePool = ['1', 'true', 'yes', 'on'].includes((c.req.query('include_pool') ?? '').toLowerCase())
+          || statusFilters.some((status) => status === 'pool' || isWarmPoolStatus(status));
+        const typeFilter = c.req.query('type')?.trim().toLowerCase() || null;
+        const searchFilter = c.req.query('q')?.trim().toLowerCase() || null;
+        const machines: Array<any> = (await Promise.all(config.clusters.map(async (cluster) => {
           const client = clientFor(cluster);
           const observed = await client.listInstances();
           const normalizedObserved = await Promise.all(observed.map(async (instance) => {
@@ -8279,8 +8320,8 @@ export function createApp(config: AppConfig) {
           const productRows = config.databaseConfigured && productIds.length
             ? await getPrisma().machine.findMany({ where: { id: { in: productIds } } })
             : [];
-          const hiddenProductIds = new Set(productRows.filter((machine) => isWarmPoolStatus(machine.status)).map((machine) => machine.id));
-          const productById = new Map(productRows.filter((machine) => !isWarmPoolStatus(machine.status)).map((machine) => [machine.id, machine]));
+          const hiddenProductIds = new Set(includePool ? [] : productRows.filter((machine) => isWarmPoolInventoryRow(machine)).map((machine) => machine.id));
+          const productById = new Map(productRows.filter((machine) => includePool || !isWarmPoolInventoryRow(machine)).map((machine) => [machine.id, machine]));
           return normalizedObserved.flatMap((instance) => {
             const id = instance.config?.['user.justavps.machine_id'] ?? null;
             if (!isMachineUuid(id)) return [];
@@ -8294,12 +8335,47 @@ export function createApp(config: AppConfig) {
             if (!serialized) return [];
             return [{
               ...serialized,
+              status: isWarmPoolInventoryRow(productMachine) ? (isWarmPoolStatus(productMachine.status) ? productMachine.status : WARM_POOL_STATUS) : serialized.status,
               cluster: publicCluster(cluster),
               location: instance.location ?? null,
             }];
           });
         }))).flat();
-        return c.json({ machines });
+        if (includePool && config.databaseConfigured) {
+          const existingIds = new Set(machines.map((machine) => machine.id));
+          const poolRows = await getPrisma().machine.findMany({
+            where: { status: { in: [WARM_POOL_STATUS, WARM_POOL_CLAIMING_STATUS] } },
+            orderBy: [{ updatedAt: 'asc' }],
+          });
+          for (const row of poolRows) {
+            if (existingIds.has(row.id)) continue;
+            const serialized = serializeMachine(config, row);
+            if (!serialized) continue;
+            machines.push(serialized);
+            existingIds.add(row.id);
+          }
+        }
+        const filtered = machines.filter((machine) => {
+          const status = machine.status?.toLowerCase() ?? '';
+          if (statusFilters.length && !statusFilters.some((filter) => (filter === 'pool' ? isWarmPoolStatus(status) : status === filter))) return false;
+          if (typeFilter && machine.type?.toLowerCase() !== typeFilter) return false;
+          if (searchFilter) {
+            const haystack = [
+              machine.id,
+              machine.name,
+              machine.type,
+              machine.status,
+              machine.region,
+              machine.location,
+              machine.incus?.cluster_id,
+              machine.incus?.member_name,
+              machine.incus?.instance_name,
+            ].filter(Boolean).join(' ').toLowerCase();
+            if (!haystack.includes(searchFilter)) return false;
+          }
+          return true;
+        });
+        return c.json({ machines: filtered });
       } catch (error) {
         const response = routeError(error);
         return c.json(response.body, response.status as never);
@@ -8792,6 +8868,7 @@ export function createApp(config: AppConfig) {
             data: { metadata: { ...jsonRecord(claimed.machine.metadata), proxy_sync: proxySync, managed_daemon: daemonEnsure, managed_daemon_state: 'ready', creation_telemetry: finalTelemetry } as Prisma.InputJsonValue },
           }).catch(() => undefined);
           const finalMachine = await getPrisma().machine.findUnique({ where: { id: claimed.machine.id } }) ?? claimed.machine;
+          await recordResolvedMachineBillingObservation(config, { machine: finalMachine, cluster: claimed.cluster }, claimed.observed, 'machine_create_warm_pool_claim');
           void ensureWarmPoolForSpec(config, claimed.refillSpec).catch((error) => console.warn('[v2-api] async warm pool refill after claim failed:', error instanceof Error ? error.message : String(error)));
           return c.json({ machine: serializeMachine(config, finalMachine, claimed.observed) }, 201);
         }
@@ -8951,6 +9028,7 @@ export function createApp(config: AppConfig) {
           data: { metadata: { ...jsonRecord(productMachine.metadata), proxy_sync: proxySync, managed_daemon: daemonEnsure, managed_daemon_state: 'ready', creation_telemetry: finalTelemetry } as Prisma.InputJsonValue },
         }).catch(() => undefined);
         productMachine = await getPrisma().machine.findUnique({ where: { id: productMachine.id } }) ?? productMachine;
+        await recordResolvedMachineBillingObservation(config, { machine: productMachine, cluster }, observed, 'machine_create_cold');
       } else {
         completeMachineCreationTelemetry(telemetry);
       }
@@ -9009,6 +9087,7 @@ export function createApp(config: AppConfig) {
         try {
           const resolved = await machineClient(config, c.req.param('id'));
           if (!resolved) return c.json({ error: true, message: 'Machine not found' }, 404);
+          if (isWarmPoolInventoryRow(resolved.machine)) return c.json(warmPoolMachineMutationError(), 409);
           let operation: Record<string, unknown>;
           let noop = false;
           try {
@@ -9063,6 +9142,7 @@ export function createApp(config: AppConfig) {
               where: { id: resolved.machine.id },
               data: { status: observed?.status ?? (action === 'stop' ? 'Stopped' : 'Running'), metadata: nextMeta as Prisma.InputJsonValue },
             }).catch(() => undefined);
+            await recordResolvedMachineBillingObservation(config, resolved, observed, `machine_${action}`, new Date(), observed?.status ?? (action === 'stop' ? 'Stopped' : 'Running'));
 
             // Ephemeral semantics: stop → immediately delete. Fire-and-forget
             // so the user gets a fast 200; the actual delete races but is
@@ -9070,6 +9150,7 @@ export function createApp(config: AppConfig) {
             const lifecycle = (prevMeta.lifecycle && typeof prevMeta.lifecycle === 'object') ? prevMeta.lifecycle as Record<string, unknown> : {};
             if (action === 'stop' && lifecycle.ephemeral === true) {
               resolved.client.deleteInstance(resolved.machine.incusInstanceName, { force: true }).then(async () => {
+                await recordResolvedMachineBillingObservation(config, resolved, null, 'machine_stop_ephemeral_delete', new Date(), 'deleted');
                 await getPrisma().machine.update({ where: { id: resolved.machine.id }, data: { status: 'deleted' } }).catch(() => undefined);
               }).catch(() => undefined);
             }
@@ -9104,6 +9185,7 @@ export function createApp(config: AppConfig) {
       try {
         const resolved = await machineClient(config, c.req.param('id'));
         if (!resolved) return c.json({ error: true, message: 'Machine not found' }, 404);
+        if (isWarmPoolInventoryRow(resolved.machine)) return c.json(warmPoolMachineMutationError(), 409);
         const input = PatchMachineBodySchema.parse(await c.req.json());
         const next = input.resources ?? {};
         if (Object.keys(next).length === 0) return c.json({ error: true, message: 'No resource changes supplied' }, 400);
@@ -9156,6 +9238,7 @@ export function createApp(config: AppConfig) {
           }).catch(() => undefined);
         }
         const refreshed = await loadProductMachine(config, resolved.machine.id) ?? resolved.machine;
+        await recordResolvedMachineBillingObservation(config, { machine: refreshed, cluster: resolved.cluster }, incus, 'machine_resize');
         return c.json({ machine: serializeMachine(config, refreshed, incus) });
       } catch (error) {
         const response = routeError(error);
@@ -9181,11 +9264,13 @@ export function createApp(config: AppConfig) {
       try {
         const resolved = await machineClient(config, c.req.param('id'));
         if (!resolved) return c.json({ error: true, message: 'Machine not found' }, 404);
+        if (isWarmPoolInventoryRow(resolved.machine)) return c.json(warmPoolMachineMutationError(), 409);
         const operation = await resolved.client.deleteInstance(resolved.machine.incusInstanceName, { force: true });
         const deletedAt = new Date().toISOString();
         const proxyDelete = { synced: true, mode: 'v2-api-direct', at: deletedAt };
         const proxyTokenDeletes = proxyTokenDescriptors(resolved.machine).map((token) => ({ id: token.id, synced: true, mode: 'v2-api-direct', at: deletedAt }));
         if (config.databaseConfigured) {
+          await recordResolvedMachineBillingObservation(config, resolved, null, 'machine_delete', new Date(deletedAt), 'deleted');
           await getPrisma().machine.update({
             where: { id: resolved.machine.id },
             data: {
@@ -9232,21 +9317,12 @@ export function createApp(config: AppConfig) {
           snapshots: snapshots.map((snapshot) => {
             const row = byName.get(snapshot.name);
             const measuredBytes = exactBytes(snapshot.size);
-            const costAttribution = measuredBytes
-              ? exactArtifactCostAttribution(resolved.machine, {
-                kind: 'snapshot',
-                bytes: measuredBytes,
-                note: snapshot.name.startsWith('bk-snap-')
-                  ? 'Exact Incus-reported size for this pinned local restore snapshot. Account billing should use the account ledger, not this machine view.'
-                  : 'Exact Incus-reported snapshot size. Account billing should use the account ledger, not this machine view.',
-              })
-              : undefined;
             return {
               ...snapshot,
               id: row?.id ?? snapshot.name,
               account_id: resolved.machine.accountId,
               machine_id: resolved.machine.id,
-              ...(costAttribution ? { cost_attribution: costAttribution } : {}),
+              ...(measuredBytes ? { metered_bytes: measuredBytes, billable_gib: Number((measuredBytes / BYTES_PER_GIB).toFixed(9)) } : {}),
             };
           }),
         });
@@ -9802,17 +9878,7 @@ export function createApp(config: AppConfig) {
             const tarballBytes = exactBytes(backup.size);
             const restoreSnapshot = snapshotByName.get(`bk-snap-${backup.name}`);
             const restoreSnapshotBytes = exactBytes(restoreSnapshot?.size);
-            const costAttribution = tarballBytes && restoreSnapshotBytes
-              ? exactArtifactCostAttribution(resolved.machine, {
-                kind: 'backup',
-                bytes: tarballBytes + restoreSnapshotBytes,
-                note: 'Exact Incus-reported backup tarball size plus exact Incus-reported pinned restore snapshot size. Account billing should use the account ledger, not this machine view.',
-                components: [
-                  { label: 'backup tarball', metered_bytes: tarballBytes, billable_gib: Number((tarballBytes / 1024 / 1024 / 1024).toFixed(9)) },
-                  { label: 'pinned restore snapshot', metered_bytes: restoreSnapshotBytes, billable_gib: Number((restoreSnapshotBytes / 1024 / 1024 / 1024).toFixed(9)) },
-                ],
-              })
-              : undefined;
+            const meteredBytes = (tarballBytes ?? 0) + (restoreSnapshotBytes ?? 0);
             return {
               ...backup,
               id: row?.id ?? backup.name,
@@ -9823,7 +9889,14 @@ export function createApp(config: AppConfig) {
               policy_id: typeof jsonRecord(row?.retentionPolicy).policy_id === 'string' ? jsonRecord(row?.retentionPolicy).policy_id : null,
               expires_at: backup.expires_at ?? backupRowExpiresAt(row),
               restore_snapshot: `bk-snap-${backup.name}`,
-              ...(costAttribution ? { cost_attribution: costAttribution } : {}),
+              ...(meteredBytes > 0 ? {
+                metered_bytes: meteredBytes,
+                billable_gib: Number((meteredBytes / BYTES_PER_GIB).toFixed(9)),
+                storage_components: [
+                  { label: 'backup tarball', metered_bytes: tarballBytes ?? 0, billable_gib: Number(((tarballBytes ?? 0) / BYTES_PER_GIB).toFixed(9)) },
+                  { label: 'pinned restore snapshot', metered_bytes: restoreSnapshotBytes ?? 0, billable_gib: Number(((restoreSnapshotBytes ?? 0) / BYTES_PER_GIB).toFixed(9)) },
+                ],
+              } : {}),
             };
           }),
         });
