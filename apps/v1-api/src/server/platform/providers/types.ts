@@ -48,7 +48,7 @@ export interface ServerResult {
   metadata?: Record<string, unknown>;
 }
 
-export interface ProviderCapabilities {
+interface ProviderCapabilities {
   backups: boolean;
   images: boolean;
   bareMetal: boolean;
@@ -59,7 +59,7 @@ export interface ProviderActionProgress {
   progress: number | null;
 }
 
-export interface ProviderServerNetwork {
+interface ProviderServerNetwork {
   publicIpv4: string | null;
   publicIpv6: string | null;
 }

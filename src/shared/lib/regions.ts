@@ -8,7 +8,7 @@
  * the fleet spread across many DCs inside one region.
  */
 
-export interface RegionInfo {
+interface RegionInfo {
   /** DNS-safe region id. */
   id: string;
   /** Human label, e.g. "Europe". */
@@ -21,7 +21,7 @@ export interface RegionInfo {
   hetznerLocations: readonly string[];
 }
 
-export const REGIONS = [
+const REGIONS = [
   {
     id: "eu",
     label: "Europe",
@@ -46,16 +46,6 @@ export const REGIONS = [
     hetznerLocations: ["ASH-DC1", "HIL-DC1"],
   },
 ] as const satisfies readonly RegionInfo[];
-
-export type RegionId = (typeof REGIONS)[number]["id"];
-
-export function findRegion(id: string): RegionInfo | undefined {
-  return REGIONS.find((r) => r.id === id);
-}
-
-export function regionLabel(id: string): string {
-  return findRegion(id)?.label ?? id;
-}
 
 /** Active regions suitable for new procurements. */
 export const ACTIVE_REGIONS: readonly RegionInfo[] = REGIONS.filter((r) => r.active);

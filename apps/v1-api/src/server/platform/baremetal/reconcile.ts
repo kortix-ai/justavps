@@ -475,12 +475,3 @@ export async function reconcileBaremetalFleet(
 
   return { checkedAt, hosts: results };
 }
-
-export async function reconcileBaremetalHost(hostId: string, depsArg?: Partial<ReconcileDeps>) {
-  const result = await reconcileBaremetalFleet(depsArg, {
-    hostIds: [hostId],
-    skipGlobalMachineAudit: true,
-    skipGlobalImageAudit: true,
-  });
-  return result.hosts[0] ?? null;
-}

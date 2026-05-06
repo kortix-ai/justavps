@@ -5,7 +5,6 @@ import { and, eq, sql } from 'drizzle-orm';
 import { db } from "@/server/db/index";
 import { controlPlaneJobs, webhookDeliveries, webhooks, type ControlPlaneJobRow } from "@/server/db/schema";
 import {
-  enqueueControlPlaneJob,
   registerControlPlaneJobHandler,
   type ControlPlaneJobHandlerResult,
 } from "@/server/platform/control-plane/jobs";
@@ -30,16 +29,6 @@ function rowsFromExecute<T extends Record<string, unknown>>(result: unknown): T[
   }
   return [];
 }
-
-const WEBHOOK_DELIVERY_STATUSES = [
-  'queued',
-  'delivering',
-  'retry_waiting',
-  'delivered',
-  'dead_lettered',
-] as const;
-
-type WebhookDeliveryStatus = (typeof WEBHOOK_DELIVERY_STATUSES)[number];
 
 type WebhookJobPayload = {
   deliveryId: string;
@@ -424,21 +413,6 @@ export async function deliverWebhooks(accountId: string, event: MachineEvent): P
       console.error('[WEBHOOKS] failed to kick webhook dispatcher service pass:', error);
     });
   }
-}
-
-async function enqueueWebhookDeliveryJob(input: {
-  deliveryId: string;
-  runAfter?: Date;
-}) {
-  return enqueueControlPlaneJob({
-    jobType: WEBHOOK_DELIVER_JOB_TYPE,
-    subjectType: 'webhook_delivery',
-    subjectId: input.deliveryId,
-    idempotencyKey: `webhook_delivery:${input.deliveryId}`,
-    payload: { deliveryId: input.deliveryId },
-    maxAttempts: MAX_RETRIES,
-    runAfter: input.runAfter,
-  });
 }
 
 export async function pruneTerminalWebhookDeliveries(input?: {

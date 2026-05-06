@@ -6,7 +6,6 @@ import { db } from '@/server/db';
 import { baremetalHosts, machinePortAllocations, machines } from '@/server/db/schema';
 
 type BaremetalMachineRow = typeof machines.$inferSelect;
-type MachinePortAllocationRow = typeof machinePortAllocations.$inferSelect;
 
 type PortAllocationExecutor = Pick<typeof db, 'select' | 'insert' | 'delete' | 'execute'>;
 
@@ -165,5 +164,3 @@ export async function backfillMachinePortAllocationsFromMachine(machine: Baremet
 
   return getMachinePortAllocations(machine.id, executor);
 }
-
-type MachinePortAllocationSummary = Pick<MachinePortAllocationRow, 'machineId' | 'hostId' | 'protocol' | 'publicPort' | 'targetPort'>;

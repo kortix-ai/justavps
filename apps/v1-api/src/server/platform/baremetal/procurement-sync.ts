@@ -20,7 +20,7 @@ import { HetznerRobotClient } from '@/server/platform/baremetal/vendors/hetzner-
 
 const OPEN_PROCUREMENT_STATES = ['ordering', 'approved'] as const;
 
-export interface ProcurementSyncResult {
+interface ProcurementSyncResult {
   checked: number;
   updated: number;
   promotedToBootstrapping: number;

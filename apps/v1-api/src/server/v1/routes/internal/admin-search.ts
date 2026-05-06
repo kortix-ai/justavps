@@ -54,7 +54,7 @@ const UUID_REGEX =
 
 const PER_ENTITY_LIMIT = 5;
 
-export type AdminSearchResultType =
+type AdminSearchResultType =
   | 'machine'
   | 'account'
   | 'user'
@@ -66,7 +66,7 @@ export type AdminSearchResultType =
   | 'ssh_key'
   | 'api_key';
 
-export type AdminSearchResult = {
+type AdminSearchResult = {
   type: AdminSearchResultType;
   id: string;
   label: string;

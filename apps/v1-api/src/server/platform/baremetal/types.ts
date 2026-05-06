@@ -9,7 +9,7 @@
  * enforced by the caller, not the scheduler.
  */
 
-export type BaremetalHostStatus =
+type BaremetalHostStatus =
   | 'requested'
   | 'ordering'
   | 'bootstrapping'
@@ -19,7 +19,7 @@ export type BaremetalHostStatus =
   | 'error'
   | 'deleted';
 
-export interface BaremetalCapacity {
+interface BaremetalCapacity {
   totalVcpu: number;
   totalMemoryGb: number;
   totalDiskGb: number;
@@ -34,7 +34,7 @@ export interface BaremetalPlacementResources {
   diskGb: number;
 }
 
-export interface BaremetalSchedulerWarmPoolMetadata {
+interface BaremetalSchedulerWarmPoolMetadata {
   enabled?: boolean | null;
   availableCpuBuckets?: number[] | null;
   exactResourceKeys?: string[] | null;
@@ -48,7 +48,7 @@ export interface BaremetalSchedulerImageLocalityMetadata {
   aliases?: string[] | null;
 }
 
-export interface BaremetalSchedulerHostClassPolicyMetadata {
+interface BaremetalSchedulerHostClassPolicyMetadata {
   scoreAdjustment?: number | null;
   labels?: string[] | null;
 }
@@ -191,7 +191,7 @@ export interface RunnerExecInstanceResult {
   exitCode: number;
 }
 
-export interface RunnerInstanceState {
+interface RunnerInstanceState {
   instanceId: string;
   status: string | null;
   privateIpv4: string | null;
@@ -201,7 +201,7 @@ export interface RunnerInstanceState {
   role?: string | null;
 }
 
-export interface RunnerImageState {
+interface RunnerImageState {
   imageId: string;
   aliases: string[];
   cached: boolean;

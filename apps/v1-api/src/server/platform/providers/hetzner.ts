@@ -2,7 +2,6 @@ import { config } from "@/server/core/config";
 import {
   plansForRegion,
   resolveProviderSku,
-  resolvePlanForDisplay,
   backupSurcharge,
 } from '@/shared/lib/plan-catalog';
 import type {

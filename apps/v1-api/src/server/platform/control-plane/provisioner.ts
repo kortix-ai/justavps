@@ -1,8 +1,5 @@
 import {
-  enqueueControlPlaneJob,
   processDueControlPlaneJobs,
-  registerControlPlaneJobHandler,
-  type ControlPlaneJobHandler,
 } from "@/server/platform/control-plane/jobs";
 
 import {
@@ -12,29 +9,11 @@ import {
 } from "@/server/platform/control-plane/service-state";
 
 const CONTROL_PLANE_PROVISIONER_SERVICE = 'provisioner' as const;
-export const MACHINE_CREATE_JOB_TYPE = 'machine_create' as const;
+const MACHINE_CREATE_JOB_TYPE = 'machine_create' as const;
 const MACHINE_CREATE_SERVICE_SCOPE = 'machine_create';
-
-export function machineCreateJobIdempotencyKey(machineId: string) {
-  return `machine_create:${machineId}`;
-}
-
-export async function enqueueMachineCreateJob(input: Parameters<typeof enqueueControlPlaneJob>[0]) {
-  return enqueueControlPlaneJob(input);
-}
-
-export function registerMachineCreateJobHandler(handler: ControlPlaneJobHandler) {
-  registerControlPlaneJobHandler(MACHINE_CREATE_JOB_TYPE, handler);
-}
 
 export function ensureProvisionerServiceWorker() {
   // Background loops are owned by the explicit control-plane runtime.
-}
-
-export function kickProvisionerServiceWorker(limit = 1) {
-  void runProvisionerServicePass({ limit }).catch((error) => {
-    console.error('[CONTROL-PLANE-PROVISIONER] kick failed:', error);
-  });
 }
 
 export async function runProvisionerServicePass(options?: {

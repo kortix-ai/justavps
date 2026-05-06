@@ -49,7 +49,7 @@ function requireAdmin(c: Context<{ Variables: AuthVariables }>) {
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
-export type ActivitySource =
+type ActivitySource =
   | 'machine'
   | 'procurement'
   | 'webhook'
@@ -58,9 +58,9 @@ export type ActivitySource =
   | 'backup'
   | 'bootstrap_validation';
 
-export type ActivitySeverity = 'info' | 'warn' | 'error';
+type ActivitySeverity = 'info' | 'warn' | 'error';
 
-export type ActivityEvent = {
+type ActivityEvent = {
   id: string;
   source: ActivitySource;
   event_type: string;

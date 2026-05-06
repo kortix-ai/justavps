@@ -38,7 +38,7 @@ function requireAdmin(c: Context<{ Variables: AuthVariables }>) {
 // Types
 // ═══════════════════════════════════════════════════════════════════════════
 
-export type IntegrationId =
+type IntegrationId =
   | 'stripe'
   | 'hetzner_robot'
   | 'hetzner_cloud'
@@ -47,9 +47,9 @@ export type IntegrationId =
   | 'database'
   | 'smtp';
 
-export type IntegrationStatus = 'ok' | 'degraded' | 'down' | 'not_configured';
+type IntegrationStatus = 'ok' | 'degraded' | 'down' | 'not_configured';
 
-export type IntegrationBlock = {
+type IntegrationBlock = {
   id: IntegrationId;
   label: string;
   status: IntegrationStatus;

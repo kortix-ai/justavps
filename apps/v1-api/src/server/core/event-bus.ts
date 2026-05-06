@@ -15,7 +15,7 @@ import { deliverWebhooks } from "@/server/platform/control-plane/webhook-deliver
 
 type MachineLifecycleEventType = 'stage_changed' | 'status_changed';
 type MachineTelemetryEventType = 'heartbeat';
-export type MachineEventType = MachineLifecycleEventType | MachineTelemetryEventType;
+type MachineEventType = MachineLifecycleEventType | MachineTelemetryEventType;
 const MACHINE_EVENT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 export interface MachineEvent {

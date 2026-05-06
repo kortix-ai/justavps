@@ -1,4 +1,4 @@
-export interface IncusCommandRunner {
+interface IncusCommandRunner {
   (args: string[], timeoutMs?: number): Promise<{ stdout: string; stderr: string }>;
 }
 
@@ -6,7 +6,7 @@ function normalizeImageAlias(image: string) {
   return image.startsWith('images:') ? image.slice('images:'.length) : image;
 }
 
-export async function ensureOciRemote(name: string, url: string, deps: { runIncus: IncusCommandRunner }) {
+async function ensureOciRemote(name: string, url: string, deps: { runIncus: IncusCommandRunner }) {
   const { stdout } = await deps.runIncus(['remote', 'list', '--format', 'csv']);
   if (stdout.split('\n').some((line) => line.startsWith(`${name},`))) return true;
 

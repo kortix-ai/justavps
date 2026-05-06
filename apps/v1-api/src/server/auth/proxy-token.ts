@@ -13,7 +13,7 @@
  *   selected account. The Worker checks account ownership per-request via KV lookup.
  */
 
-import { SignJWT, type JWTPayload } from 'jose';
+import { SignJWT } from 'jose';
 import { config } from "@/server/core/config";
 
 const TOKEN_EXPIRY = '24h';
@@ -24,11 +24,6 @@ function getSecret(): Uint8Array {
   const secret = config.PROXY_AUTH_SECRET;
   if (!secret) throw new Error('PROXY_AUTH_SECRET not configured');
   return new TextEncoder().encode(secret);
-}
-
-interface ProxyTokenPayload extends JWTPayload {
-  sub: string; // userId
-  account_id: string;
 }
 
 /**

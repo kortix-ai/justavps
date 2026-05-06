@@ -1,7 +1,7 @@
 import { cn } from "@/shared/lib/utils";
 import React from "react";
 
-export interface ScalesProps {
+interface ScalesProps {
   orientation?: "horizontal" | "vertical" | "diagonal";
   size?: number;
   className?: string;
@@ -48,32 +48,6 @@ export const Scales = ({
           backgroundSize: `var(--scales-size) var(--scales-size)`,
         }}
       />
-    </div>
-  );
-};
-
-export interface ScalesContainerProps extends ScalesProps {
-  children?: React.ReactNode;
-  containerClassName?: string;
-}
-
-export const ScalesContainer = ({
-  children,
-  orientation = "diagonal",
-  size = 10,
-  className,
-  containerClassName,
-  color,
-}: ScalesContainerProps) => {
-  return (
-    <div className={cn("relative", containerClassName)}>
-      <Scales
-        orientation={orientation}
-        size={size}
-        className={className}
-        color={color}
-      />
-      <div className="relative z-10">{children}</div>
     </div>
   );
 };

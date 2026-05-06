@@ -18,9 +18,6 @@ const pruneTerminalWebhookDeliveriesMock = vi.fn();
 const processDueWebhookJobsMock = processDueControlPlaneJobsMock;
 
 vi.mock('@/server/platform/control-plane/jobs', () => ({
-  enqueueControlPlaneJob: vi.fn(),
-  ensureControlPlaneJobWorker: vi.fn(),
-  kickControlPlaneJobWorker: vi.fn(),
   registerControlPlaneJobHandler: vi.fn(),
   processDueControlPlaneJobs: processDueControlPlaneJobsMock,
   pruneTerminalControlPlaneJobs: pruneTerminalControlPlaneJobsMock,

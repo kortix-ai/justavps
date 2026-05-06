@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 
 import { db } from "@/server/db/index";
 import { controlPlaneJobs, type ControlPlaneJobRow } from "@/server/db/schema";
@@ -7,41 +7,17 @@ import { controlPlaneJobs, type ControlPlaneJobRow } from "@/server/db/schema";
 const CONTROL_PLANE_JOB_TYPES = ['webhook_deliver', 'machine_create'] as const;
 type ControlPlaneJobType = (typeof CONTROL_PLANE_JOB_TYPES)[number];
 
-const CONTROL_PLANE_JOB_STATUSES = [
-  'queued',
-  'running',
-  'retry_waiting',
-  'succeeded',
-  'dead_lettered',
-  'cancelled',
-] as const;
-
-type ControlPlaneJobStatus = (typeof CONTROL_PLANE_JOB_STATUSES)[number];
-
-interface EnqueueControlPlaneJobInput {
-  jobType: ControlPlaneJobType;
-  subjectType: string;
-  subjectId: string;
-  idempotencyKey: string;
-  payload: Record<string, unknown>;
-  priority?: number;
-  maxAttempts?: number;
-  runAfter?: Date;
-  executor?: Pick<typeof db, 'insert' | 'select'>;
-}
-
 export type ControlPlaneJobHandlerResult =
   | { status: 'succeeded'; result?: Record<string, unknown> }
   | { status: 'retry'; error: string; runAfter: Date; result?: Record<string, unknown> }
   | { status: 'dead_lettered'; error: string; result?: Record<string, unknown> };
 
-export interface ControlPlaneJobHandler {
+interface ControlPlaneJobHandler {
   handle: (job: ControlPlaneJobRow) => Promise<ControlPlaneJobHandlerResult>;
 }
 
 const DEFAULT_CLAIM_LIMIT = 10;
 const DEFAULT_LEASE_MS = 30_000;
-const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const CONTROL_PLANE_JOB_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 function rowsFromExecute<T extends Record<string, unknown>>(result: unknown): T[] {
@@ -54,11 +30,6 @@ function rowsFromExecute<T extends Record<string, unknown>>(result: unknown): T[
 
 const jobHandlers = new Map<ControlPlaneJobType, ControlPlaneJobHandler>();
 
-let workerStarted = false;
-let workerTimer: NodeJS.Timeout | null = null;
-let drainInFlight: Promise<void> | null = null;
-const workerJobTypes = new Set<ControlPlaneJobType>();
-
 function isControlPlaneJobType(value: string): value is ControlPlaneJobType {
   return (CONTROL_PLANE_JOB_TYPES as readonly string[]).includes(value);
 }
@@ -68,55 +39,8 @@ function sanitizeErrorMessage(error: unknown): string {
   return message.slice(0, 1000) || 'Unknown control-plane job error';
 }
 
-function isTestEnvironment() {
-  return process.env.NODE_ENV === 'test' || process.env.VITEST === 'true';
-}
-
 export function registerControlPlaneJobHandler(jobType: ControlPlaneJobType, handler: ControlPlaneJobHandler) {
   jobHandlers.set(jobType, handler);
-}
-
-export async function enqueueControlPlaneJob(input: EnqueueControlPlaneJobInput): Promise<ControlPlaneJobRow> {
-  const executor = input.executor ?? db;
-  const now = new Date();
-  const runAfter = input.runAfter ?? now;
-  const [inserted] = await executor.insert(controlPlaneJobs)
-    .values({
-      jobType: input.jobType,
-      subjectType: input.subjectType,
-      subjectId: input.subjectId,
-      status: 'queued',
-      priority: input.priority ?? 100,
-      attempt: 0,
-      maxAttempts: input.maxAttempts ?? 3,
-      runAfter,
-      idempotencyKey: input.idempotencyKey,
-      payload: input.payload,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoNothing({
-      target: [controlPlaneJobs.jobType, controlPlaneJobs.idempotencyKey],
-    })
-    .returning();
-
-  if (inserted) {
-    return inserted;
-  }
-
-  const existing = await executor.select()
-    .from(controlPlaneJobs)
-    .where(and(
-      eq(controlPlaneJobs.jobType, input.jobType),
-      eq(controlPlaneJobs.idempotencyKey, input.idempotencyKey),
-    ))
-    .limit(1)
-    .then((rows) => rows[0]);
-  if (!existing) {
-    throw new Error(`Failed to enqueue ${input.jobType} control-plane job`);
-  }
-
-  return existing;
 }
 
 async function claimDueControlPlaneJobs(options?: {
@@ -284,66 +208,7 @@ export async function processDueControlPlaneJobs(options?: {
   return claimed;
 }
 
-function kickControlPlaneJobWorker(options?: {
-  limit?: number;
-  leaseMs?: number;
-  jobTypes?: ControlPlaneJobType[];
-}) {
-  if (isTestEnvironment()) return;
-  if (drainInFlight) return;
-
-  options?.jobTypes?.forEach((jobType) => workerJobTypes.add(jobType));
-  drainInFlight = (async () => {
-    await processDueControlPlaneJobs(options);
-  })()
-    .catch((error) => {
-      console.error('[CONTROL-PLANE-JOBS] Failed to process due jobs:', error);
-    })
-    .finally(() => {
-      drainInFlight = null;
-    });
-  return;
-}
-
-function ensureControlPlaneJobWorker(options?: {
-  intervalMs?: number;
-  limit?: number;
-  leaseMs?: number;
-  jobTypes?: ControlPlaneJobType[];
-}) {
-  if (isTestEnvironment()) return;
-
-  options?.jobTypes?.forEach((jobType) => workerJobTypes.add(jobType));
-
-  if (workerStarted) return;
-
-  workerStarted = true;
-  const intervalMs = options?.intervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-  const drainOptions = () => ({
-    limit: options?.limit,
-    leaseMs: options?.leaseMs,
-    jobTypes: workerJobTypes.size > 0 ? [...workerJobTypes] : undefined,
-  });
-
-  kickControlPlaneJobWorker(drainOptions());
-  workerTimer = setInterval(() => {
-    kickControlPlaneJobWorker(drainOptions());
-  }, intervalMs);
-
-  if (typeof workerTimer.unref === 'function') {
-    workerTimer.unref();
-  }
-}
-
 export function resetControlPlaneJobWorkerForTests() {
-  if (workerTimer) {
-    clearInterval(workerTimer);
-  }
-
-  workerStarted = false;
-  workerTimer = null;
-  drainInFlight = null;
-  workerJobTypes.clear();
   jobHandlers.clear();
 }
 

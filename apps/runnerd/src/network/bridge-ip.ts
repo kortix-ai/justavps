@@ -1,4 +1,4 @@
-export interface IncusQuery {
+interface IncusQuery {
   <T>(path: string): Promise<T>;
 }
 

@@ -1,4 +1,4 @@
-export interface IncusCommandRunner {
+interface IncusCommandRunner {
   (args: string[], timeoutMs?: number): Promise<{ stdout: string; stderr: string }>;
 }
 

@@ -96,18 +96,6 @@ export async function login(
 }
 
 /**
- * Ensure we're on the dashboard (logged in).
- */
-export async function ensureLoggedIn(page: Page) {
-  // Check if already on a dashboard page
-  const url = page.url();
-  if (url.includes('/machines') || url.includes('/settings') || url.includes('/snapshots')) {
-    return;
-  }
-  await login(page);
-}
-
-/**
  * Wait for API data to load (skeleton elements to disappear).
  */
 export async function waitForDataLoad(page: Page, timeout = 10_000) {

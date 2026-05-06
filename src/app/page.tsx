@@ -5,7 +5,6 @@ import { CheckoutModal } from "@/v1/components/checkout-modal";
 import { PLAN_PRICE_SNAPSHOT } from "@/shared/lib/plan-catalog";
 import { LandingNav } from "@/shared/components/landing/nav/landing-nav";
 import { Hero } from "@/shared/components/landing/hero/hero";
-import { SupportedAgents } from "@/shared/components/landing/sections/supported-agents";
 import { Infrastructure } from "@/shared/components/landing/sections/infrastructure";
 import { UseCases } from "@/shared/components/landing/sections/use-cases";
 import { SecureDefault } from "@/shared/components/landing/sections/secure-default";

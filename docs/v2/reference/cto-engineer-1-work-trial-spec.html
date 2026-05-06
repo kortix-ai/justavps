@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JustAVPS Engineering Lead Paid Work Trial</title>
+    <style>
+      :root {
+        --ink: #111418;
+        --muted: #5b626d;
+        --line: #e3e6ec;
+        --rule: #d6dae1;
+        --soft: #f6f7f9;
+        --bg: #ffffff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+      }
+
+      body {
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 14px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      a {
+        color: var(--ink);
+        text-decoration-thickness: 0.06em;
+        text-underline-offset: 0.18em;
+        word-break: break-word;
+      }
+
+      .page {
+        max-width: 760px;
+        margin: 56px auto 80px;
+        padding: 0 28px;
+      }
+
+      header.brand {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding-bottom: 18px;
+        margin-bottom: 26px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .brand-mark {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+
+      .brand-mark svg {
+        width: 18px;
+        height: auto;
+        color: var(--ink);
+      }
+
+      .brand-mark span.sep {
+        color: #b6bcc6;
+        font-weight: 400;
+      }
+
+      .brand-mark span.sub {
+        color: var(--muted);
+        font-weight: 500;
+      }
+
+      .pill {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .title-block {
+        margin: 4px 0 22px;
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: 30px;
+        line-height: 1.12;
+        letter-spacing: -0.025em;
+      }
+
+      .lede {
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.55;
+      }
+
+      section {
+        margin-top: 28px;
+      }
+
+      h2 {
+        margin: 0 0 8px;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: #2a2f37;
+      }
+
+      h3 {
+        margin: 14px 0 4px;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: -0.005em;
+      }
+
+      p {
+        margin: 0 0 10px;
+      }
+
+      .lead {
+        font-size: 15px;
+      }
+
+      ul {
+        margin: 6px 0 0;
+        padding-left: 18px;
+      }
+
+      li {
+        margin: 3px 0;
+        color: #2a2f37;
+      }
+
+      li::marker {
+        color: #9aa1ac;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .group {
+        padding-top: 6px;
+      }
+
+      .group + .group {
+        margin-top: 14px;
+        padding-top: 0;
+      }
+
+      .mechanisms {
+        margin-top: 6px;
+      }
+
+      .footer {
+        margin-top: 48px;
+        padding-top: 16px;
+        border-top: 1px solid var(--line);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .footer .brand-mark {
+        font-size: 12px;
+      }
+
+      /* Page-break behavior — keep headings with their first content,
+         keep small groups intact, and force clean breaks at major sections */
+      h1,
+      h2,
+      h3 {
+        break-after: avoid-page;
+        page-break-after: avoid;
+      }
+
+      .group,
+      .footer,
+      .title-block {
+        break-inside: avoid-page;
+        page-break-inside: avoid;
+      }
+
+      section.break-before {
+        break-before: page;
+        page-break-before: always;
+      }
+
+      /* Avoid the rare case where a section has only its heading on a page */
+      section {
+        break-inside: auto;
+      }
+
+      ul,
+      p {
+        orphans: 3;
+        widows: 3;
+      }
+
+      @media print {
+        @page {
+          size: A4;
+        }
+
+        html,
+        body {
+          background: #fff !important;
+        }
+
+        body {
+          font-size: 9.6pt;
+          line-height: 1.4;
+        }
+
+        .page {
+          max-width: none;
+          margin: 0;
+          padding: 0;
+        }
+
+        /* Repeating brand/footer come from Chromium header/footer templates,
+           so hide the in-document brand and footer in print to avoid duplication. */
+        header.brand,
+        .footer {
+          display: none !important;
+        }
+
+        .title-block {
+          margin: 0 0 14px;
+        }
+
+        h1 {
+          font-size: 19pt;
+          line-height: 1.1;
+        }
+
+        .lede {
+          font-size: 11pt;
+        }
+
+        section {
+          margin-top: 13px;
+        }
+
+        h2 {
+          font-size: 9pt;
+          margin-bottom: 6px;
+        }
+
+        h3 {
+          font-size: 10.5pt;
+          margin: 6px 0 3px;
+        }
+
+        ul {
+          margin-top: 4px;
+        }
+
+        li {
+          margin: 1.5px 0;
+        }
+
+        .group + .group {
+          margin-top: 10px;
+        }
+
+        /* Two balanced columns for mechanisms — fills both columns evenly,
+           groups stay intact, no awkward half-empty pages. */
+        .mechanisms {
+          column-count: 2;
+          column-gap: 22px;
+          column-fill: balance;
+          margin-top: 6px;
+        }
+
+        .mechanisms .group {
+          break-inside: avoid;
+          page-break-inside: avoid;
+          margin: 0 0 10px !important;
+          padding: 0;
+          display: block;
+        }
+
+        .mechanisms .group:first-child h3 {
+          margin-top: 0;
+        }
+
+        .mechanisms .group h3 {
+          margin-top: 0;
+        }
+
+        .mechanisms .group ul {
+          margin-top: 3px;
+        }
+
+        .mechanisms .group li {
+          margin: 1px 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <article class="page">
+      <header class="brand">
+        <div class="brand-mark">
+          <svg viewBox="0 0 30 25" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M25.5614 24.916H29.8268C29.8268 19.6306 26.9378 15.0039 22.6171 12.4587C26.9377 9.91355 29.8267 5.28685 29.8267 0.00146484H25.5613C25.5613 5.00287 21.8906 9.18692 17.0654 10.1679V0.00146484H12.8005V10.1679C7.9526 9.20401 4.3046 5.0186 4.3046 0.00146484H0.0391572C0.0391572 5.28685 2.92822 9.91355 7.24884 12.4587C2.92818 15.0039 0.0390625 19.6306 0.0390625 24.916H4.30451C4.30451 19.8989 7.95259 15.7135 12.8005 14.7496V24.9206H17.0654V14.7496C21.9133 15.7134 25.5614 19.8989 25.5614 24.916Z" fill="currentColor" />
+          </svg>
+          <span>Kortix</span>
+          <span class="sep">/</span>
+          <span class="sub">justavps</span>
+        </div>
+        <div class="pill">Engineering Lead · Paid work trial</div>
+      </header>
+
+      <div class="title-block">
+        <h1>Build the full sandbox cloud, ready to go live.</h1>
+        <p class="lede">
+          One-week paid work trial to build a production-ready Daytona / E2B / Modal-class cloud where developers and AI agents can create, run, persist, expose, snapshot, migrate, archive, and resume isolated Linux machines at massive scale.
+        </p>
+      </div>
+
+      <section>
+        <h2>Goal</h2>
+        <p class="lead">Build as much as possible of a production-ready sandbox cloud in 1 week.</p>
+        <p>This is intentionally open-ended. There is no exact API spec. Pick any architecture and implementation path you think is best.</p>
+        <p><strong>The bar:</strong> build the full system, ready to go live. Full Daytona/E2B-level product, not a partial infra demo.</p>
+      </section>
+
+      <section>
+        <h2>Hard Constraints</h2>
+        <ul>
+          <li>Must be designed for bare metal.</li>
+          <li>Must scale from one host to huge fleets, clusters, regions, and ultimately millions of sandboxes.</li>
+          <li>Competitive boot/resume times across the board. Ideal: sub-1-second sandbox start/resume where technically possible, otherwise clearly benchmarked against Daytona/E2B/Modal-class products.</li>
+          <li>Final JustAVPS must be ours to run, modify, close-source, and commercialize. OSS code/forks/reference implementations may be used as a basis where the license allows.</li>
+          <li>Do not depend on a third-party hosted sandbox SaaS as the core runtime. Owning/forking/running OSS code ourselves is allowed if licensing works.</li>
+          <li>Runtime is open: MicroVMs, full VMs, containers, Linux containers, Kubernetes, Incus/LXD, Firecracker, Nomad, raw VPS automation, CubeSandbox, Daytona/E2B OSS code, or anything else.</li>
+          <li>Preference: strong isolation / isolated-kernel designs (MicroVMs/VMs) if boot times and density work. Shared-kernel containers allowed if you can justify the security/scale tradeoff.</li>
+          <li>Architecture must not block future GPU support.</li>
+          <li>Final result must be deployed for real, not localhost-only.</li>
+          <li>Core flows must be proven with tests or repeatable verification.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Reference Systems</h2>
+        <p>Use these as references or basis where licensing allows.</p>
+        <ul>
+          <li><a href="https://github.com/daytonaio/daytona">Daytona</a></li>
+          <li><a href="https://github.com/e2b-dev">E2B</a></li>
+          <li><a href="https://github.com/TencentCloud/CubeSandbox/tree/master">Tencent Cloud CubeSandbox</a></li>
+          <li><a href="https://modal.com/docs">Modal docs / product reference</a></li>
+          <li><a href="https://github.com/firecracker-microvm/firecracker">Firecracker</a></li>
+          <li><a href="https://github.com/lxc/incus">Incus</a></li>
+          <li><a href="https://github.com/canonical/lxd">LXD</a></li>
+          <li><a href="https://github.com/containerd/containerd">containerd</a></li>
+          <li><a href="https://github.com/kubernetes/kubernetes">Kubernetes</a></li>
+          <li><a href="https://github.com/hashicorp/nomad">Nomad</a></li>
+        </ul>
+      </section>
+
+      <section class="break-before">
+        <h2>Core Problem</h2>
+        <p class="lead">Build the mechanisms that make a complete cloud runtime for long-running developer/AI-agent machines possible.</p>
+
+        <div class="mechanisms">
+        <div class="group">
+          <h3>Provisioning</h3>
+          <ul>
+            <li>create isolated Linux machines/sandboxes</li>
+            <li>choose CPU/RAM/disk/resources</li>
+            <li>place on healthy hosts</li>
+            <li>inject SSH keys/config/secrets safely</li>
+            <li>track provisioning states and clean up failures</li>
+          </ul>
+        </div>
+
+        <div class="group">
+          <h3>Templates / Images</h3>
+          <ul>
+            <li>base Linux images</li>
+            <li>developer/agent templates</li>
+            <li>custom images if possible</li>
+            <li>image caching/materialization on hosts</li>
+            <li>versioning or content identity</li>
+            <li>fast create from template</li>
+          </ul>
+        </div>
+
+        <div class="group">
+          <h3>Fast Start / Resume</h3>
+          <ul>
+            <li>fastest possible cold starts</li>
+            <li>ideal sub-1-second start/resume path</li>
+            <li>warm pools, pre-cached images, pre-warmed kernels/VMs/containers, lazy loading, or any mechanism that gets competitive boot times</li>
+            <li>benchmark boot/start/resume against the chosen reference systems</li>
+            <li>clear running/stopped/resuming/error states</li>
+          </ul>
+        </div>
+
+        <div class="group">
+          <h3>Persistence</h3>
+          <ul>
+            <li>durable filesystem/disk</li>
+            <li>long-running processes</li>
+            <li>stable SSH/proxy access</li>
+            <li>identity survives stop/start/reboot</li>
+            <li>economics for running vs stopped machines</li>
+          </ul>
+        </div>
+
+        <div class="group">
+          <h3>Snapshots / Restore / Clone</h3>
+          <ul>
+            <li>snapshot a machine</li>
+            <li>restore a machine</li>
+            <li>clone a new machine from snapshot</li>
+            <li>promote useful snapshots into templates if possible</li>
+            <li>safe, trackable, storage-aware snapshots</li>
+          </ul>
+        </div>
+
+        <div class="group">
+          <h3>Archive / Offload</h3>
+          <ul>
+            <li>archive stopped/inactive machines</li>
+            <li>offload state to cheaper storage</li>
+            <li>rehydrate archived machines</li>
+            <li>keep IDs, metadata, snapshots, access config, and billing/usage consistent</li>
+            <li>clean up hot host storage</li>
+          </ul>
+        </div>
+
+        <div class="group">
+          <h3>Migration</h3>
+          <ul>
+            <li>move machines or state across hosts</li>
+            <li>support drain/maintenance workflows</li>
+            <li>recover from unhealthy hosts</li>
+            <li>migrate images/snapshots across clusters/regions</li>
+            <li>design for live or offline migration depending on runtime choice</li>
+          </ul>
+        </div>
+
+        <div class="group">
+          <h3>Nodes / Clusters / Capacity</h3>
+          <ul>
+            <li>host registry, cluster model, health checks</li>
+            <li>scheduler with quota/capacity accounting</li>
+            <li>bin-packing or placement strategy</li>
+            <li>drain/quarantine/repair flows</li>
+            <li>add/remove hosts without rewriting the system</li>
+            <li>path to 10, 100, 1,000, 100,000, and millions of sandboxes</li>
+          </ul>
+        </div>
+
+        <div class="group">
+          <h3>Access / Networking</h3>
+          <ul>
+            <li>SSH</li>
+            <li>browser terminal</li>
+            <li>command execution</li>
+            <li>file upload/download/manage</li>
+            <li>secure HTTPS port proxy with WebSocket support</li>
+            <li>auth-protected/shareable links with revocation/rotation</li>
+            <li>safe defaults against accidental public exposure</li>
+          </ul>
+        </div>
+
+        <div class="group">
+          <h3>Control Plane / Operations</h3>
+          <ul>
+            <li>accounts/auth/API keys</li>
+            <li>sandbox lifecycle API</li>
+            <li>full web dashboard</li>
+            <li>API, CLI, SDK or typed client</li>
+            <li>logs/metrics/health/status</li>
+            <li>operation history</li>
+            <li>reconciliation/orphan cleanup</li>
+            <li>deploy/rollback/migrations</li>
+            <li>cost and usage tracking</li>
+            <li>security/threat model</li>
+          </ul>
+        </div>
+        </div>
+      </section>
+
+      <section class="break-before">
+        <h2>What to Show at the End</h2>
+        <ul>
+          <li>working deployed product and source code</li>
+          <li>full web dashboard plus API/CLI/SDK or typed client</li>
+          <li>demo of real sandbox creation and usage</li>
+          <li>command/file/SSH/proxy flow</li>
+          <li>template/image flow</li>
+          <li>snapshot/restore/clone flow</li>
+          <li>stop/start/resume flow</li>
+          <li>archive/offload/migration plan or working implementation</li>
+          <li>node/cluster/capacity scaling plan</li>
+          <li>tests or verification command</li>
+          <li>short architecture writeup, security/threat model, setup/deploy docs</li>
+          <li>known gaps and exact path to finish</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Evaluation</h2>
+        <ul>
+          <li>Did you understand the full Daytona/E2B/Modal-class problem?</li>
+          <li>Did you think through provisioning, templates, snapshots, resume, archive, migration, nodes, clusters, and scale?</li>
+          <li>Did you ship real infrastructure, not mocks?</li>
+          <li>Is the architecture compatible with bare metal and massive scale?</li>
+          <li>Are boot times and DX taken seriously?</li>
+          <li>Is the system secure and operable?</li>
+          <li>Are failures, cleanup, and reconciliation handled?</li>
+          <li>Can this become a real company-scale cloud product?</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Bar</h2>
+        <p><strong>Aim to complete the full cloud, ready to go live.</strong></p>
+        <p>Aim for true Daytona/E2B/Modal parity. Build the strongest live-ready system possible and make the remaining path obvious.</p>
+        <p>This is an Engineering Lead trial. We want full ownership, deep thinking, and real shipping.</p>
+      </section>
+
+      <div class="footer">
+        <div class="brand-mark">
+          <svg viewBox="0 0 30 25" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M25.5614 24.916H29.8268C29.8268 19.6306 26.9378 15.0039 22.6171 12.4587C26.9377 9.91355 29.8267 5.28685 29.8267 0.00146484H25.5613C25.5613 5.00287 21.8906 9.18692 17.0654 10.1679V0.00146484H12.8005V10.1679C7.9526 9.20401 4.3046 5.0186 4.3046 0.00146484H0.0391572C0.0391572 5.28685 2.92822 9.91355 7.24884 12.4587C2.92818 15.0039 0.0390625 19.6306 0.0390625 24.916H4.30451C4.30451 19.8989 7.95259 15.7135 12.8005 14.7496V24.9206H17.0654V14.7496C21.9133 15.7134 25.5614 19.8989 25.5614 24.916Z" fill="currentColor" />
+          </svg>
+          <span>Kortix</span>
+          <span class="sep">/</span>
+          <span class="sub">justavps</span>
+        </div>
+        <div>kortix.ai · justavps.com</div>
+      </div>
+    </article>
+  </body>
+</html>

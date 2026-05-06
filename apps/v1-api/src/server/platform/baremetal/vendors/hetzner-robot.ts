@@ -83,7 +83,7 @@ interface HetznerRobotKey {
   };
 }
 
-export interface HetznerRobotServer {
+interface HetznerRobotServer {
   server: {
     server_ip: string | null;
     server_ipv6_net?: string | null;

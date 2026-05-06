@@ -5,9 +5,9 @@
 
 // ─── Status Unions ───────────────────────────────────────────────────────────
 
-export type MachineStatus = 'provisioning' | 'ready' | 'error' | 'stopped' | 'deleted';
-export type ImageStatus = 'creating' | 'ready' | 'failed' | 'deleted';
-export type MachineMode = 'vm' | 'container';
+type MachineStatus = 'provisioning' | 'ready' | 'error' | 'stopped' | 'deleted';
+type ImageStatus = 'creating' | 'ready' | 'failed' | 'deleted';
+type MachineMode = 'vm' | 'container';
 
 // ─── Machine ─────────────────────────────────────────────────────────────────
 

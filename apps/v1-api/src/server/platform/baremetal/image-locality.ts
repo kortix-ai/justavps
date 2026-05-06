@@ -113,49 +113,6 @@ export async function loadImageAvailabilityRows(input: {
   ));
 }
 
-export async function recordHostImageLocalityIntent(input: {
-  hostId: string;
-  imageId?: string | null;
-  imageAlias?: string | null;
-  state: HostImageAvailabilityState;
-  source: string;
-  metadata?: Record<string, unknown>;
-  executor?: ImageAvailabilityExecutor;
-  at?: Date;
-}) {
-  const executor = input.executor ?? db;
-  const writer = executor as Partial<ImageAvailabilityExecutor>;
-  const at = input.at ?? new Date();
-  const refs = buildRequestedImageAvailabilityRefs({ imageId: input.imageId, imageAlias: input.imageAlias });
-  if (refs.length === 0 || !writer.insert) return;
-  for (const ref of refs) {
-    await writer.insert(baremetalHostImages)
-      .values({
-        hostId: input.hostId,
-        imageId: ref.imageId,
-        imageAlias: ref.imageAlias,
-        imageRef: ref.imageRef,
-        availabilityState: input.state,
-        source: input.source,
-        lastRequestedAt: at,
-        metadata: input.metadata ?? {},
-        updatedAt: at,
-      })
-      .onConflictDoUpdate({
-        target: [baremetalHostImages.hostId, baremetalHostImages.imageRef],
-        set: {
-          imageId: ref.imageId,
-          imageAlias: ref.imageAlias,
-          availabilityState: input.state,
-          source: input.source,
-          lastRequestedAt: at,
-          metadata: input.metadata ?? {},
-          updatedAt: at,
-        },
-      });
-  }
-}
-
 export async function syncHostImageAvailabilityFromRunnerState(input: {
   hostId: string;
   images: Array<{ imageId: string; aliases: string[] }>;

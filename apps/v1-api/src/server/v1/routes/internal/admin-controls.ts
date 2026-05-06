@@ -1,8 +1,7 @@
 /**
  * Admin Operational Controls — emergency kill switches and feature flags.
  *
- * Read/write surface for the admin controls page. The actual enforcement
- * happens at create-time via `assertNotPaused` in `operational-flags.ts`.
+ * Read/write surface for the admin controls page.
  */
 import { OpenAPIHono } from '@hono/zod-openapi';
 import type { Context } from 'hono';
@@ -13,7 +12,6 @@ import { apiGuard, type AuthVariables } from '@/server/auth/api-guard';
 import { errorResponse } from '@/server/core/route-helpers';
 import {
   getOperationalFlagRow,
-  invalidateOperationalFlag,
   isKnownFlagKey,
   listKnownFlagDescriptors,
   type OperationalFlagDescriptor,
@@ -121,7 +119,6 @@ adminControlsApp.put('/:key', async (c) => {
     set: { value, updatedBy: userId, updatedAt: now },
   });
 
-  invalidateOperationalFlag(key);
   return c.json({ flag: await buildFlagRow(key) });
 });
 
@@ -135,8 +132,3 @@ adminControlsApp.get('/:key/history', async (c) => {
   const flag = await buildFlagRow(key);
   return c.json({ history: flag.updated_at ? [flag] : [] });
 });
-
-export type AdminControlsListResponse = {
-  known_flags: OperationalFlagDescriptor[];
-  flags: FlagResponseRow[];
-};

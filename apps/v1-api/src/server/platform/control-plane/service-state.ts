@@ -5,8 +5,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/server/db';
 import { controlPlaneServiceStates, type ControlPlaneServiceStateRow } from '@/server/db/schema';
 
-const CONTROL_PLANE_SERVICE_IDS = ['allocator', 'provisioner', 'telemetry', 'routing', 'watchdog', 'fleet_auditor', 'webhook_dispatcher', 'auth_cache'] as const;
-type ControlPlaneServiceId = (typeof CONTROL_PLANE_SERVICE_IDS)[number];
+type ControlPlaneServiceId = 'allocator' | 'provisioner' | 'telemetry' | 'routing' | 'watchdog' | 'fleet_auditor' | 'webhook_dispatcher' | 'auth_cache';
 const CONTROL_PLANE_SERVICE_STALE_AFTER_MS = 10 * 60 * 1000;
 
 export const CONTROL_PLANE_SERVICE_PROFILES: Record<ControlPlaneServiceId, { critical: boolean; mode: 'event_driven' | 'periodic'; description: string }> = {

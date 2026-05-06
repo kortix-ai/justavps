@@ -1,6 +1,6 @@
 # JustAVPS V2 Open Questions and Alignment Plan
 
-This document tracks the remaining decisions needed to make `docs/vps-v2-requirements.md` fully correct and align it with the already-built `apps/v2-api` implementation.
+This document tracks the remaining decisions needed to make `docs/v2/core/vps-v2-requirements.md` fully correct and align it with the already-built `apps/v2-api` implementation.
 
 ## Current Implementation Signals
 
@@ -354,9 +354,9 @@ Recommendation:
 
 ## Best Alignment Process
 
-1. Treat `docs/vps-v2-requirements.md` as the target product truth.
+1. Treat `docs/v2/core/vps-v2-requirements.md` as the target product truth.
 2. Create an implementation matrix with columns: requirement, current V2 support, gap, decision needed, owner, priority.
 3. Resolve the blocking API semantics first: machine source, cluster visibility, auth/account integration, image import sources, archive/delete policy.
 4. Patch `apps/v2-api` docs to stop conflicting with the final requirements.
-5. Patch `docs/vps-v2-requirements.md` only when a decision is product-level, not just implementation detail.
+5. Patch `docs/v2/core/vps-v2-requirements.md` only when a decision is product-level, not just implementation detail.
 6. Then implement gaps in slices: account/quota → images/prewarm → proxy tokens → archive backend → admin economics/procurement polish.

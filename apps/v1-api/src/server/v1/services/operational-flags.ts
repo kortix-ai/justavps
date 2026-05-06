@@ -2,15 +2,11 @@
  * Operational Flags — thin lookup layer for emergency kill switches and
  * operational feature flags.
  *
- * The admin UI writes flags via PUT /admin/controls/:key; the enforcement
- * path calls {@link getOperationalFlag} / {@link assertNotPaused} from inside
- * hot handlers. That read path can fire dozens of times per second on create
- * traffic, so we memoise each flag in-process for TTL_MS to keep DB load
- * flat. The cache is intentionally tiny (one row per known flag) and
- * invalidates on every write via {@link invalidateOperationalFlag}.
+ * The admin UI writes flags via PUT /admin/controls/:key and reads the registry
+ * through the admin controls routes.
  *
  * Design notes:
- *  - Known flag keys live in a code-side registry (see KNOWN_FLAGS). That
+ *  - Known flag keys live in a code-side registry (see STATIC_FLAGS). That
  *    gives us typo-safety on writes and a deterministic list for the UI to
  *    render even before any flag has been set.
  *  - Regional closures are `region_<id>_closed` — the registry resolves
@@ -33,7 +29,7 @@ export type OperationalFlagValue = {
   metadata?: Record<string, unknown>;
 };
 
-export type OperationalFlagKind = 'boolean' | 'numeric';
+type OperationalFlagKind = 'boolean' | 'numeric';
 
 export type OperationalFlagDescriptor = {
   key: string;
@@ -86,7 +82,7 @@ const STATIC_FLAGS: OperationalFlagDescriptor[] = [
 /**
  * Builds a regional-closure flag descriptor for a region id.
  */
-export function regionClosedFlagKey(regionId: string): string {
+function regionClosedFlagKey(regionId: string): string {
   return `region_${regionId}_closed`;
 }
 
@@ -122,85 +118,6 @@ export async function isKnownFlagKey(key: string): Promise<boolean> {
   const regionId = match[1];
   const [row] = await db.select({ id: regions.id }).from(regions).where(eq(regions.id, regionId));
   return Boolean(row);
-}
-
-// ─── In-memory TTL cache ──────────────────────────────────────────────────
-
-type CachedFlag = { value: OperationalFlagValue; fetchedAt: number };
-const TTL_MS = 10_000;
-const CACHE = new Map<string, CachedFlag>();
-
-/**
- * Invalidates a cache entry — call after every write.
- */
-export function invalidateOperationalFlag(key: string): void {
-  CACHE.delete(key);
-}
-
-/**
- * Clears the whole cache. Intended for tests.
- */
-export function clearOperationalFlagsCache(): void {
-  CACHE.clear();
-}
-
-function normalizeValue(raw: unknown): OperationalFlagValue {
-  if (raw && typeof raw === 'object') {
-    const obj = raw as Record<string, unknown>;
-    return {
-      enabled: Boolean(obj.enabled),
-      reason: typeof obj.reason === 'string' ? obj.reason : null,
-      metadata: obj.metadata && typeof obj.metadata === 'object'
-        ? (obj.metadata as Record<string, unknown>)
-        : undefined,
-    };
-  }
-  return { enabled: false };
-}
-
-/**
- * Returns the current value of a flag. Missing rows → `{ enabled: false }`.
- * Hot path — uses a 10s in-memory TTL cache.
- */
-export async function getOperationalFlag(key: string): Promise<OperationalFlagValue> {
-  const cached = CACHE.get(key);
-  if (cached && Date.now() - cached.fetchedAt < TTL_MS) {
-    return cached.value;
-  }
-  try {
-    const [row] = await db.select().from(operationalFlags).where(eq(operationalFlags.key, key));
-    const value: OperationalFlagValue = row ? normalizeValue(row.value) : { enabled: false };
-    CACHE.set(key, { value, fetchedAt: Date.now() });
-    return value;
-  } catch (err) {
-    // Fail open — if the DB is down we don't want to also tear down the
-    // create paths by accident.
-    console.error('[operational-flags] lookup failed, failing open:', err);
-    return { enabled: false };
-  }
-}
-
-/**
- * Shaped for {@link handleRouteError} — a thrown error with `statusCode`
- * becomes a JSON 503 response.
- */
-class OperationalFlagTripError extends Error {
-  readonly statusCode = 503;
-  constructor(message: string) {
-    super(message);
-    this.name = 'OperationalFlagTripError';
-  }
-}
-
-/**
- * Throws a 503-shaped error if the named flag is currently enabled.
- * Missing / disabled flags are a no-op.
- */
-export async function assertNotPaused(key: string, errorMessage: string): Promise<void> {
-  const flag = await getOperationalFlag(key);
-  if (flag.enabled) {
-    throw new OperationalFlagTripError(flag.reason || errorMessage);
-  }
 }
 
 /**

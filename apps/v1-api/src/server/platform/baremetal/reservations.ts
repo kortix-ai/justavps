@@ -13,8 +13,7 @@ import { hostAcceptsPlacement } from "@/server/platform/baremetal/host-maintenan
 import { scheduleBaremetalPlacement } from "@/server/platform/baremetal/scheduler";
 import type { BaremetalHostCandidate, BaremetalPlacementDecision, BaremetalPlacementResources } from "@/server/platform/baremetal/types";
 
-const HOST_CAPACITY_RESERVATION_STATES = ['reserved', 'committed', 'released', 'expired'] as const;
-type HostCapacityReservationState = (typeof HOST_CAPACITY_RESERVATION_STATES)[number];
+type HostCapacityReservationState = 'reserved' | 'committed' | 'released' | 'expired';
 
 export type RequestedHostCapacity = BaremetalPlacementResources;
 
@@ -113,7 +112,7 @@ async function fetchActiveReservationsForHost(executor: ReservationDbExecutor, h
   ));
 }
 
-export async function getHostCapacityReservationForMachine(machineId: string, executor: ReservationDbExecutor = db) {
+async function getHostCapacityReservationForMachine(machineId: string, executor: ReservationDbExecutor = db) {
   const rows = await executor.select().from(hostCapacityReservations).where(and(
     eq(hostCapacityReservations.machineId, machineId),
     eq(hostCapacityReservations.reservationType, 'machine_create'),
@@ -292,38 +291,6 @@ export async function leaseHostCapacity(input: {
   }
 
   throw new BaremetalPlacementUnavailableError(`Scheduler found no leaseable host after locking candidates. ${decision.summary}`, decision);
-}
-
-export async function commitHostCapacityReservation(input: {
-  reservationId: string;
-  metadata?: Record<string, unknown>;
-  executor?: ReservationDbExecutor;
-}) {
-  const executor = input.executor ?? db;
-  const now = new Date();
-  await executor.update(hostCapacityReservations).set({
-    state: 'committed',
-    expiresAt: null,
-    committedAt: now,
-    updatedAt: now,
-    ...(input.metadata ? { metadata: input.metadata } : {}),
-  }).where(eq(hostCapacityReservations.id, input.reservationId));
-}
-
-export async function releaseHostCapacityReservation(input: {
-  reservationId: string;
-  state?: 'released' | 'expired';
-  metadata?: Record<string, unknown>;
-  executor?: ReservationDbExecutor;
-}) {
-  const executor = input.executor ?? db;
-  const now = new Date();
-  await executor.update(hostCapacityReservations).set({
-    state: input.state ?? 'released',
-    releasedAt: now,
-    updatedAt: now,
-    ...(input.metadata ? { metadata: input.metadata } : {}),
-  }).where(eq(hostCapacityReservations.id, input.reservationId));
 }
 
 export async function expireStaleHostCapacityReservations(now = new Date(), executor: ReservationDbExecutor = db) {

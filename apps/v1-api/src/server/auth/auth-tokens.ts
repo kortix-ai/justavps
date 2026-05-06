@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'crypto';
-import { and, eq, gt, isNull, lt } from 'drizzle-orm';
+import { and, eq, gt, isNull } from 'drizzle-orm';
 import { db } from '../db';
 import { authTokens, type AuthTokenPurpose } from '../db/schema';
 
@@ -23,7 +23,7 @@ export function generateBindingValue(): string {
   return generateRandomBase64Url(BINDING_BYTES);
 }
 
-export type IssuedToken = {
+type IssuedToken = {
   plaintext: string;
   expiresAt: Date;
 };
@@ -49,7 +49,7 @@ export async function issueAuthToken(
   return { plaintext, expiresAt };
 }
 
-export type ConsumeTokenResult =
+type ConsumeTokenResult =
   | { status: 'consumed'; userId: string }
   | { status: 'already_used'; userId: string }
   | { status: 'binding_mismatch'; userId: string }
@@ -112,17 +112,6 @@ export async function invalidateActiveTokens(
         eq(authTokens.userId, userId),
         eq(authTokens.purpose, purpose),
         isNull(authTokens.usedAt),
-      ),
-    );
-}
-
-export async function purgeExpiredTokens(): Promise<void> {
-  await db
-    .delete(authTokens)
-    .where(
-      and(
-        isNull(authTokens.usedAt),
-        lt(authTokens.expiresAt, new Date()),
       ),
     );
 }

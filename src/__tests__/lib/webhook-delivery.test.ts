@@ -5,7 +5,6 @@ const updateMock = vi.fn();
 const transactionMock = vi.fn();
 const runWebhookDispatcherServicePassMock = vi.fn();
 const registerHandlerMock = vi.fn();
-const enqueueControlPlaneJobMock = vi.fn();
 
 vi.mock('@/server/db', () => ({
   db: {
@@ -16,7 +15,6 @@ vi.mock('@/server/db', () => ({
 }));
 
 vi.mock('@/server/platform/control-plane/jobs', () => ({
-  enqueueControlPlaneJob: enqueueControlPlaneJobMock,
   registerControlPlaneJobHandler: registerHandlerMock,
 }));
 

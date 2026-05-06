@@ -43,7 +43,7 @@ export type AdminMachineDetail = {
   } | null;
 };
 
-export type AdminMachineEvent = {
+type AdminMachineEvent = {
   id: string;
   event: string;
   stage: string | null;
@@ -52,7 +52,7 @@ export type AdminMachineEvent = {
   created_at: string;
 };
 
-export type AdminMachineHeartbeat = {
+type AdminMachineHeartbeat = {
   daemon_version: string | null;
   last_heartbeat_at: string | null;
   last_projected_at: string | null;
@@ -66,7 +66,7 @@ export type AdminMachineHeartbeat = {
   updated_at: string;
 };
 
-export type AdminMachinePortAllocation = {
+type AdminMachinePortAllocation = {
   id: string;
   protocol: string;
   public_port: number;
@@ -75,7 +75,7 @@ export type AdminMachinePortAllocation = {
   updated_at: string;
 };
 
-export type AdminMachineHost = {
+type AdminMachineHost = {
   id: string;
   name: string;
   region: string;
@@ -83,7 +83,7 @@ export type AdminMachineHost = {
   public_ipv4: string | null;
 };
 
-export type AdminMachineDetailResponse = {
+type AdminMachineDetailResponse = {
   machine: AdminMachineDetail;
   events: AdminMachineEvent[];
   heartbeat: AdminMachineHeartbeat | null;
@@ -113,7 +113,7 @@ export function useAdminMachine(id: string | null | undefined) {
   });
 }
 
-export type CreateAdminMachineInput = {
+type CreateAdminMachineInput = {
   owner_user_id: string;
   account_id?: string | null;
   name?: string;
@@ -136,7 +136,7 @@ export function useCreateAdminMachine() {
   });
 }
 
-export type UpdateAdminMachineInput = {
+type UpdateAdminMachineInput = {
   id: string;
   name?: string;
   vcpu?: number;

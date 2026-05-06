@@ -11,9 +11,7 @@ import { consumeAuthToken } from '@/server/auth/auth-tokens';
 import { VERIFICATION_BINDING_COOKIE } from '@/server/auth/verification-binding';
 import { authConfig } from '@/shared/lib/auth-config';
 
-export { authConfig };
-
-export const EMAIL_NOT_VERIFIED_ERROR = 'EMAIL_NOT_VERIFIED';
+const EMAIL_NOT_VERIFIED_ERROR = 'EMAIL_NOT_VERIFIED';
 
 type GithubSignInInput = {
   email: string;
@@ -152,7 +150,7 @@ async function upsertGithubUser({ email, githubId, name }: GithubSignInInput): P
   return created.id;
 }
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+const nextAuth = NextAuth({
   ...authConfig,
 
   providers: [
@@ -247,3 +245,5 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
 });
+
+export const handlers = nextAuth.handlers;

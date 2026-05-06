@@ -47,11 +47,6 @@ export function listCustomerVisibleProviders(): Array<{ name: string; displayNam
     .map(([name, entry]) => ({ name, displayName: entry.driver.displayName }));
 }
 
-function isProviderAvailable(name: string): boolean {
-  init();
-  return providers.has(name);
-}
-
 export type {
   ComputeProvider,
   ServerTypeInfo,

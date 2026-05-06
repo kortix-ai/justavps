@@ -149,6 +149,6 @@ function probeIpv6Ssh(prefix: string, jump: string) {
     '-i', `${process.env.HOME}/.ssh/justavps_host`,
     `root@${jump}`,
     'python3', '-',
-  ], { input: script, text: true, encoding: 'utf8' });
+  ], { input: script, encoding: 'utf8' });
   return { exitCode: result.status, stdout: result.stdout.trim(), stderr: result.stderr.trim() };
 }

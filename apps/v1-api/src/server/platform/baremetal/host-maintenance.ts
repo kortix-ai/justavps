@@ -1,13 +1,3 @@
-export const HOST_MAINTENANCE_STATES = [
-  'in_service',
-  'drain_requested',
-  'draining',
-  'drained',
-  'maintenance',
-] as const;
-
-type HostMaintenanceState = (typeof HOST_MAINTENANCE_STATES)[number];
-
 type PlacementHost = {
   status: string;
   runnerBaseUrl: string | null;
