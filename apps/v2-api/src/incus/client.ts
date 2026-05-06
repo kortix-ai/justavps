@@ -798,7 +798,8 @@ export class IncusClient {
           }
         });
       });
-      req.setTimeout(30_000, () => req.destroy(new Error(`Incus ${method} ${requestPath} timed out`)));
+      const timeoutMs = Number.parseInt(process.env.V2_INCUS_JSON_TIMEOUT_MS ?? '120000', 10) || 120_000;
+      req.setTimeout(timeoutMs, () => req.destroy(new Error(`Incus ${method} ${requestPath} timed out`)));
       req.on('error', reject);
       if (payload !== undefined) req.write(payload);
       req.end();

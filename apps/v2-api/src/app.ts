@@ -1527,9 +1527,10 @@ async function reserveWarmPoolCandidateAtomic(input: {
   spec: WarmPoolSpec;
   policies: PrismaWarmPoolPolicy[];
   preferredModes: WarmPoolMode[];
+  allowedPlacementKeys: string[];
 }) {
   const policyIds = input.policies.map((policy) => policy.id);
-  if (!policyIds.length) return null;
+  if (!policyIds.length || input.allowedPlacementKeys.length === 0) return null;
   const resourcesJson = JSON.stringify(input.spec.resources);
   const modes = input.preferredModes;
   const claimedAt = new Date().toISOString();
@@ -1555,6 +1556,7 @@ async function reserveWarmPoolCandidateAtomic(input: {
         AND resources = $9::jsonb
         AND metadata->'warm_pool'->>'policy_id' = ANY($10::text[])
         AND metadata->'warm_pool'->>'mode' = ANY($11::text[])
+        AND (incus_cluster_id || ':' || incus_member_name) = ANY($12::text[])
       ORDER BY updated_at ASC
       FOR UPDATE SKIP LOCKED
       LIMIT 1
@@ -1572,8 +1574,28 @@ async function reserveWarmPoolCandidateAtomic(input: {
     resourcesJson,
     policyIds,
     modes,
+    input.allowedPlacementKeys,
   );
   return rows[0] ? prismaMachineFromRaw(rows[0]) : null;
+}
+
+function warmPoolPlacementKey(clusterId: string | null | undefined, memberName: string | null | undefined) {
+  return `${clusterId ?? ''}:${memberName ?? ''}`;
+}
+
+async function warmPoolSchedulablePlacementKeys(config: AppConfig, spec: WarmPoolSpec) {
+  const keys: string[] = [];
+  for (const cluster of config.clusters.filter((item) => item.region === spec.region)) {
+    const members = await clientFor(cluster).listClusterMembers().catch(() => []);
+    const online = members.filter((member) => member.status === 'Online');
+    const hostState = await hostSchedulabilityByMember(cluster.id, online.map((member) => member.server_name)).catch(() => new Map());
+    for (const member of online) {
+      const host = hostState.get(member.server_name);
+      if (host && !host.schedulable) continue;
+      keys.push(warmPoolPlacementKey(cluster.id, member.server_name));
+    }
+  }
+  return keys;
 }
 
 async function validateWarmPoolPolicyInput(_config: AppConfig, input: WarmPoolPolicyInput, _accountId: string): Promise<WarmPoolPolicyValidation> {
@@ -1596,15 +1618,18 @@ async function claimWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec, input
   );
   const policies = (await span('warm pool: load active policies', () => activeWarmPoolPoliciesForSource(accountId, spec), { source_key: spec.key, requested_resources: spec.resources, strategy, preferred_modes: preferredModes })).filter((policy) => preferredModes.includes(normalizeWarmPoolMode(policy.billingMode)));
   if (!policies.length) return null;
+  const allowedPlacementKeys = await span('warm pool: load schedulable placement keys', () => warmPoolSchedulablePlacementKeys(config, spec), { source_key: spec.key });
+  const allowedPlacementKeySet = new Set(allowedPlacementKeys);
+  if (allowedPlacementKeys.length === 0) return null;
   const policiesById = new Map(policies.map((policy) => [policy.id, policy]));
   const policyIds = new Set(policies.map((policy) => policy.id));
-  const atomicCandidate = await span('warm pool: reserve atomic candidate row', () => reserveWarmPoolCandidateAtomic({ prisma, accountId, spec, policies, preferredModes }), { policy_count: policies.length, preferred_modes: preferredModes });
+  const atomicCandidate = await span('warm pool: reserve atomic candidate row', () => reserveWarmPoolCandidateAtomic({ prisma, accountId, spec, policies, preferredModes, allowedPlacementKeys }), { policy_count: policies.length, preferred_modes: preferredModes, allowed_placements: allowedPlacementKeys.length });
   const usingAtomicCandidates = Boolean(atomicCandidate);
   const candidateLimit = atomicCandidate ? 1 : Math.min(
     WARM_POOL_POLICY_TARGET_MAX,
     Math.max(100, policies.reduce((sum, policy) => sum + policy.target, 0)),
   );
-  const candidates = atomicCandidate ? [atomicCandidate] : await span('warm pool: load template candidates', () => prisma.machine.findMany({
+  const candidates = (atomicCandidate ? [atomicCandidate] : await span('warm pool: load template candidates', () => prisma.machine.findMany({
     where: {
       accountId,
       status: WARM_POOL_STATUS,
@@ -1615,7 +1640,7 @@ async function claimWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec, input
     },
     orderBy: { updatedAt: 'asc' },
     take: candidateLimit,
-  }), { policy_count: policies.length, candidate_limit: candidateLimit, flexible_template_match: true });
+  }), { policy_count: policies.length, candidate_limit: candidateLimit, flexible_template_match: true })).filter((candidate) => allowedPlacementKeySet.has(warmPoolPlacementKey(candidate.incusClusterId, candidate.incusMemberName)));
 
   const rankedCandidates = [...candidates].sort((a, b) => {
     const aWarm = jsonRecord(jsonRecord(a.metadata).warm_pool);
@@ -1850,7 +1875,7 @@ async function claimWarmPoolMachine(config: AppConfig, spec: WarmPoolSpec, input
         data: { status: WARM_POOL_STATUS, metadata: { ...jsonRecord(candidate.metadata), warm_pool_last_claim_error: error instanceof Error ? error.message : String(error) } as Prisma.InputJsonValue },
       }).catch(() => undefined);
       if (usingAtomicCandidates && rankedCandidates.length < Math.min(10, Math.max(2, policies.reduce((sum, policy) => sum + policy.target, 0)))) {
-        const nextCandidate = await span('warm pool: reserve retry candidate row', () => reserveWarmPoolCandidateAtomic({ prisma, accountId, spec, policies, preferredModes }), { previous_candidate_id: candidate.id });
+        const nextCandidate = await span('warm pool: reserve retry candidate row', () => reserveWarmPoolCandidateAtomic({ prisma, accountId, spec, policies, preferredModes, allowedPlacementKeys }), { previous_candidate_id: candidate.id });
         if (nextCandidate && !attemptedCandidateIds.has(nextCandidate.id)) rankedCandidates.push(nextCandidate);
       }
     }
@@ -7599,17 +7624,27 @@ export function createApp(config: AppConfig) {
 
   app.get('/admin/hosts', async (c) => {
     try {
+      const hostRows = config.databaseConfigured
+        ? await getPrisma().host.findMany({
+          where: { incusClusterId: { in: config.clusters.map((cluster) => cluster.id) }, lifecycleState: { not: 'terminated' } },
+        }).catch(() => [])
+        : [];
       const hosts = (await Promise.all(config.clusters.map(async (cluster) => {
         const members = await clientFor(cluster).listClusterMembers();
-        return members.map((member) => ({
-          cluster: publicCluster(cluster),
-          name: member.server_name,
-          url: member.url,
-          status: member.status,
-          roles: member.roles ?? [],
-          schedulable: member.status === 'Online',
-          links: incusWebLinks(member.url || cluster.endpoint),
-        }));
+        return members.map((member) => {
+          const host = hostRows.find((row) => row.incusClusterId === cluster.id && row.incusMemberName === member.server_name) ?? null;
+          return {
+            cluster: publicCluster(cluster),
+            name: member.server_name,
+            url: member.url,
+            status: member.status,
+            roles: member.roles ?? [],
+            schedulable: member.status === 'Online' && (!host || (host.schedulable && host.lifecycleState === 'online')),
+            lifecycle_state: host?.lifecycleState ?? null,
+            capacity_state: host ? inventoryHostView(config, host).capacityState : member.status === 'Online' ? 'schedulable_capacity' : 'not_capacity',
+            links: incusWebLinks(member.url || cluster.endpoint),
+          };
+        });
       }))).flat();
       return c.json({ hosts });
     } catch (error) {
@@ -8320,8 +8355,11 @@ export function createApp(config: AppConfig) {
           const productRows = config.databaseConfigured && productIds.length
             ? await getPrisma().machine.findMany({ where: { id: { in: productIds } } })
             : [];
-          const hiddenProductIds = new Set(includePool ? [] : productRows.filter((machine) => isWarmPoolInventoryRow(machine)).map((machine) => machine.id));
-          const productById = new Map(productRows.filter((machine) => includePool || !isWarmPoolInventoryRow(machine)).map((machine) => [machine.id, machine]));
+          const deletedProductIds = new Set(productRows.filter((machine) => machine.status === 'deleted').map((machine) => machine.id));
+          const hiddenProductIds = new Set(includePool
+            ? [...deletedProductIds]
+            : productRows.filter((machine) => machine.status === 'deleted' || isWarmPoolInventoryRow(machine)).map((machine) => machine.id));
+          const productById = new Map(productRows.filter((machine) => machine.status !== 'deleted' && (includePool || !isWarmPoolInventoryRow(machine))).map((machine) => [machine.id, machine]));
           return normalizedObserved.flatMap((instance) => {
             const id = instance.config?.['user.justavps.machine_id'] ?? null;
             if (!isMachineUuid(id)) return [];

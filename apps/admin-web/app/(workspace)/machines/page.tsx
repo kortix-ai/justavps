@@ -54,12 +54,23 @@ function isRunningStatus(status: string | undefined) {
   return status?.toLowerCase() === 'running';
 }
 
-type MachineStatusFilter = 'all' | 'running' | 'stopped' | 'other';
+function isPoolMachine(machine: Machine) {
+  const status = machine.status?.toLowerCase();
+  return status === 'warm_pool' || status === 'warm_pool_claiming';
+}
+
+type MachineStatusFilter = 'running' | 'stopped' | 'other' | 'pool';
 type CreatedWindow = 'all' | '24h' | '7d' | '30d';
 type MachineSort = 'created_desc' | 'created_asc' | 'name_asc' | 'status_asc';
 type StartStrategy = 'auto' | 'running_pool' | 'stopped_pool' | 'cold';
 const PAGE_REFERENCE_TIME = Date.now();
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 250] as const;
+const STATUS_FILTER_OPTIONS: Array<{ value: MachineStatusFilter; label: string; dotClass: string }> = [
+  { value: 'running', label: 'Running', dotClass: 'bg-emerald-500' },
+  { value: 'stopped', label: 'Stopped', dotClass: 'bg-muted-foreground/60' },
+  { value: 'other', label: 'Other', dotClass: 'bg-amber-500' },
+  { value: 'pool', label: 'Pool', dotClass: 'bg-sky-500' },
+];
 type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
 
 function createdTimestamp(machine: Machine) {
@@ -124,12 +135,15 @@ function templatePool(template: MachineTemplate | null, mode: 'running' | 'stopp
   return template?.pools?.[mode] ?? (template?.pool?.pool_mode === mode ? template.pool : null);
 }
 
-function matchesStatusFilter(machine: Machine, filter: MachineStatusFilter) {
+function matchesStatusFilters(machine: Machine, filters: MachineStatusFilter[]) {
   const status = machine.status?.toLowerCase();
-  if (filter === 'all') return true;
-  if (filter === 'running') return status === 'running';
-  if (filter === 'stopped') return status === 'stopped' || status === 'stopped/idle';
-  return status !== 'running' && status !== 'stopped' && status !== 'stopped/idle';
+  if (filters.length === 0) return !isPoolMachine(machine);
+  return filters.some((filter) => {
+    if (filter === 'running') return status === 'running';
+    if (filter === 'stopped') return status === 'stopped' || status === 'stopped/idle';
+    if (filter === 'pool') return status === 'warm_pool' || status === 'warm_pool_claiming';
+    return status !== 'running' && status !== 'stopped' && status !== 'stopped/idle' && status !== 'warm_pool' && status !== 'warm_pool_claiming';
+  });
 }
 
 function matchesCreatedWindow(machine: Machine, window: CreatedWindow, now: number) {
@@ -189,7 +203,7 @@ export default function MachinesPage() {
   const [resizeTarget, setResizeTarget] = useState<Machine | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<MachineStatusFilter>('all');
+  const [statusFilters, setStatusFilters] = useState<MachineStatusFilter[]>([]);
   const [createdWindow, setCreatedWindow] = useState<CreatedWindow>('all');
   const [sort, setSort] = useState<MachineSort>('created_desc');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
@@ -225,27 +239,31 @@ export default function MachinesPage() {
 
   const visibleMachines = useMemo(() => state.machines.filter((machine) => machine.type === 'container'), [state.machines]);
 
-  const latestMachine = useMemo(() => {
-    return [...visibleMachines].sort((a, b) => sortMachines(a, b, 'created_desc'))[0] ?? null;
-  }, [visibleMachines]);
-
   const filteredMachines = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return visibleMachines
       .filter((machine) => !normalizedQuery || machineSearchText(machine).includes(normalizedQuery))
-      .filter((machine) => matchesStatusFilter(machine, statusFilter))
+      .filter((machine) => matchesStatusFilters(machine, statusFilters))
       .filter((machine) => matchesCreatedWindow(machine, createdWindow, PAGE_REFERENCE_TIME))
       .sort((a, b) => sortMachines(a, b, sort));
-  }, [createdWindow, query, sort, visibleMachines, statusFilter]);
+  }, [createdWindow, query, sort, visibleMachines, statusFilters]);
 
   const runningCount = useMemo(() => visibleMachines.filter((m) => isRunningStatus(m.status)).length, [visibleMachines]);
   const stoppedCount = useMemo(() => visibleMachines.filter((m) => m.status?.toLowerCase() === 'stopped').length, [visibleMachines]);
-  const hasActiveFilters = query.trim().length > 0 || statusFilter !== 'all' || createdWindow !== 'all';
+  const poolReadyCount = useMemo(() => visibleMachines.filter((m) => m.status?.toLowerCase() === 'warm_pool').length, [visibleMachines]);
+  const poolClaimingCount = useMemo(() => visibleMachines.filter((m) => m.status?.toLowerCase() === 'warm_pool_claiming').length, [visibleMachines]);
+  const poolCount = poolReadyCount + poolClaimingCount;
+  const customerMachineCount = visibleMachines.length - poolCount;
+  const hasActiveFilters = query.trim().length > 0 || statusFilters.length > 0 || createdWindow !== 'all';
   const resetFilters = () => {
     setQuery('');
-    setStatusFilter('all');
+    setStatusFilters([]);
     setCreatedWindow('all');
     setSort('created_desc');
+  };
+
+  const toggleStatusFilter = (value: MachineStatusFilter) => {
+    setStatusFilters((prev) => (prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value]));
   };
 
   const totalFiltered = filteredMachines.length;
@@ -254,7 +272,7 @@ export default function MachinesPage() {
   // Reset to page 1 when filters/sort/page-size change. Comparing against a
   // tracked key during render avoids the cascading-render lint rule that
   // forbids setState-in-effect.
-  const filterKey = `${query}|${statusFilter}|${createdWindow}|${sort}|${pageSize}`;
+  const filterKey = `${query}|${statusFilters.join(',')}|${createdWindow}|${sort}|${pageSize}`;
   const [lastFilterKey, setLastFilterKey] = useState(filterKey);
   if (lastFilterKey !== filterKey) {
     setLastFilterKey(filterKey);
@@ -272,12 +290,12 @@ export default function MachinesPage() {
   // Selections that point to filtered-out rows are kept in state but ignored
   // by the toolbar count and bulk actions, so unhiding rows restores them.
   const selectedMachines = useMemo(
-    () => filteredMachines.filter((m) => selectedIds.has(m.id)),
+    () => filteredMachines.filter((m) => selectedIds.has(m.id) && !isPoolMachine(m)),
     [filteredMachines, selectedIds],
   );
   const selectionCount = selectedMachines.length;
 
-  const pageIds = useMemo(() => paginatedMachines.map((m) => m.id), [paginatedMachines]);
+  const pageIds = useMemo(() => paginatedMachines.filter((m) => !isPoolMachine(m)).map((m) => m.id), [paginatedMachines]);
   const pageSelectedCount = pageIds.reduce((n, id) => n + (selectedIds.has(id) ? 1 : 0), 0);
   const pageAllSelected = pageIds.length > 0 && pageSelectedCount === pageIds.length;
   const pageSomeSelected = pageSelectedCount > 0 && !pageAllSelected;
@@ -299,7 +317,7 @@ export default function MachinesPage() {
     });
   };
   const selectAllFiltered = () => {
-    setSelectedIds(new Set(filteredMachines.map((m) => m.id)));
+    setSelectedIds(new Set(filteredMachines.filter((m) => !isPoolMachine(m)).map((m) => m.id)));
   };
   const clearSelection = () => setSelectedIds(new Set());
 
@@ -371,7 +389,7 @@ export default function MachinesPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Machines</h1>
           <p className="text-sm text-muted-foreground">
-            Latest created containers are shown first by default. {visibleMachines.length} total · {runningCount} running
+            Customer containers are shown by default. {customerMachineCount} machines · {runningCount} running · {poolCount} pool slots hidden
           </p>
         </div>
         <Button onClick={() => setCreateOpen(true)}>
@@ -380,9 +398,9 @@ export default function MachinesPage() {
       </div>
 
       <div className="grid gap-3 md:grid-cols-4">
-        <MachineStatCard icon={Boxes} label="Total containers" value={visibleMachines.length} sub={`${filteredMachines.length} visible`} />
+        <MachineStatCard icon={Boxes} label="Customer machines" value={customerMachineCount} sub={`${filteredMachines.length} visible`} />
         <MachineStatCard icon={Play} label="Running" value={runningCount} sub={`${stoppedCount} stopped`} />
-        <MachineStatCard icon={Clock3} label="Latest created" value={latestMachine ? relativeCreatedAt(latestMachine.created_at, PAGE_REFERENCE_TIME) : '—'} sub={latestMachine?.name ?? 'No machines'} />
+        <MachineStatCard icon={Clock3} label="Pool slots" value={poolCount} sub={`${poolReadyCount} ready · ${poolClaimingCount} claiming`} />
         <MachineStatCard icon={Server} label="Regions" value={new Set(visibleMachines.map((m) => m.region).filter(Boolean)).size || '—'} sub="Active placements" />
       </div>
 
@@ -399,10 +417,10 @@ export default function MachinesPage() {
               <div>
                 <CardTitle>Machine inventory</CardTitle>
                 <CardDescription>
-                  {filteredMachines.length} of {visibleMachines.length} containers · sorted by {sort === 'created_desc' ? 'latest created' : sort === 'created_asc' ? 'oldest created' : sort === 'status_asc' ? 'status' : 'name'}
+                  {filteredMachines.length} visible · Pool slots are hidden unless the Pool status is selected · sorted by {sort === 'created_desc' ? 'latest created' : sort === 'created_asc' ? 'oldest created' : sort === 'status_asc' ? 'status' : 'name'}
                 </CardDescription>
               </div>
-              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(260px,1fr)_160px_190px_180px_auto]">
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(260px,1fr)_minmax(280px,auto)_190px_180px_auto]">
                 <div className="relative sm:col-span-2 xl:col-span-1">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -412,15 +430,32 @@ export default function MachinesPage() {
                     className="pl-8"
                   />
                 </div>
-                <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as MachineStatusFilter)}>
-                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All statuses</SelectItem>
-                    <SelectItem value="running">Running</SelectItem>
-                    <SelectItem value="stopped">Stopped</SelectItem>
-                    <SelectItem value="other">Other states</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="flex flex-wrap items-center gap-1.5 rounded-md border bg-background p-1">
+                  <Button
+                    type="button"
+                    variant={statusFilters.length === 0 ? 'secondary' : 'ghost'}
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setStatusFilters([])}
+                  >
+                    Customer
+                  </Button>
+                  {STATUS_FILTER_OPTIONS.map((option) => {
+                    const active = statusFilters.includes(option.value);
+                    return (
+                      <Button
+                        key={option.value}
+                        type="button"
+                        variant={active ? 'secondary' : 'ghost'}
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => toggleStatusFilter(option.value)}
+                      >
+                        <span className={cn('size-2 rounded-full', option.dotClass)} /> {option.label}
+                      </Button>
+                    );
+                  })}
+                </div>
                 <Select value={createdWindow} onValueChange={(value) => setCreatedWindow(value as CreatedWindow)}>
                   <SelectTrigger className="w-full"><CalendarClock className="size-3.5" /><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -523,13 +558,14 @@ export default function MachinesPage() {
                           aria-label={`Select ${m.name}`}
                           checked={selectedIds.has(m.id)}
                           onCheckedChange={(value) => toggleRow(m.id, value === true)}
+                          disabled={isPoolMachine(m)}
                         />
                       </TableCell>
                       <TableCell className="min-w-56">
                         <div className="flex items-center gap-3">
                           <div className={cn(
                             'size-2 rounded-full',
-                            isRunningStatus(m.status) ? 'bg-emerald-500' : m.status?.toLowerCase() === 'stopped' ? 'bg-muted-foreground/60' : 'bg-amber-500',
+                            isPoolMachine(m) ? 'bg-sky-500' : isRunningStatus(m.status) ? 'bg-emerald-500' : m.status?.toLowerCase() === 'stopped' ? 'bg-muted-foreground/60' : 'bg-amber-500',
                           )} />
                           <div className="min-w-0">
                             <Link
@@ -546,12 +582,13 @@ export default function MachinesPage() {
                             <div className="flex items-center gap-2 text-xs text-muted-foreground">
                               <span className="font-mono">{m.id.slice(0, 8)}</span>
                               <Badge variant="outline" className="font-mono text-[10px]">{m.type}</Badge>
+                              {isPoolMachine(m) ? <Badge variant="secondary" className="text-[10px]">pool</Badge> : null}
                             </div>
                           </div>
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={isRunningStatus(m.status) ? 'default' : 'secondary'}>{m.status}</Badge>
+                        <Badge variant={isPoolMachine(m) ? 'outline' : isRunningStatus(m.status) ? 'default' : 'secondary'}>{m.status}</Badge>
                       </TableCell>
                       <TableCell>
                         <div className="text-sm tabular-nums">{formatCreatedAt(m.created_at)}</div>
@@ -588,15 +625,17 @@ export default function MachinesPage() {
                             <DropdownMenuItem onSelect={() => openMachine(m.id, 'observability')}>
                               <Activity className="size-3.5" /> Observability
                             </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => setResizeTarget(m)}>
-                              <SlidersHorizontal className="size-3.5" /> Resize
-                            </DropdownMenuItem>
-                            {!isRunningStatus(m.status) ? (
+                            {!isPoolMachine(m) ? (
+                              <DropdownMenuItem onSelect={() => setResizeTarget(m)}>
+                                <SlidersHorizontal className="size-3.5" /> Resize
+                              </DropdownMenuItem>
+                            ) : null}
+                            {!isPoolMachine(m) && !isRunningStatus(m.status) ? (
                               <DropdownMenuItem onSelect={() => fire(`start ${m.name}`, () => request(`/machines/${m.id}/start`, { method: 'POST' }))}>
                                 <Play className="size-3.5" /> Start
                               </DropdownMenuItem>
                             ) : null}
-                            {isRunningStatus(m.status) ? (
+                            {!isPoolMachine(m) && isRunningStatus(m.status) ? (
                               <>
                                 <DropdownMenuItem onSelect={() => fire(`stop ${m.name}`, () => request(`/machines/${m.id}/stop`, { method: 'POST' }))}>
                                   <Square className="size-3.5" /> Stop
@@ -606,22 +645,28 @@ export default function MachinesPage() {
                                 </DropdownMenuItem>
                               </>
                             ) : null}
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              variant="destructive"
-                              onSelect={async (event) => {
-                                event.preventDefault();
-                                if (!await confirm({
-                                  title: `Delete ${m.name}?`,
-                                  description: 'Stops the instance, drops the rootfs, removes config. Final.',
-                                  confirmLabel: 'Delete',
-                                  destructive: true,
-                                })) return;
-                                fire(`delete ${m.name}`, () => request(`/machines/${m.id}`, { method: 'DELETE' }));
-                              }}
-                            >
-                              <Trash2 className="size-3.5" /> Delete
-                            </DropdownMenuItem>
+                            {isPoolMachine(m) ? (
+                              <DropdownMenuItem disabled>Managed by Pools</DropdownMenuItem>
+                            ) : (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  variant="destructive"
+                                  onSelect={async (event) => {
+                                    event.preventDefault();
+                                    if (!await confirm({
+                                      title: `Delete ${m.name}?`,
+                                      description: 'Stops the instance, drops the rootfs, removes config. Final.',
+                                      confirmLabel: 'Delete',
+                                      destructive: true,
+                                    })) return;
+                                    fire(`delete ${m.name}`, () => request(`/machines/${m.id}`, { method: 'DELETE' }));
+                                  }}
+                                >
+                                  <Trash2 className="size-3.5" /> Delete
+                                </DropdownMenuItem>
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

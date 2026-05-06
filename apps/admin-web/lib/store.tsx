@@ -234,7 +234,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         request<Health>('/health', { auth: false }),
         request<{ regions: string[] }>('/regions', { auth: false }),
         request<{ images: ImageItem[] }>('/images', { auth: false }),
-        request<{ machines: Machine[] }>('/machines', { auth: false }),
+        request<{ machines: Machine[] }>('/machines?include_pool=true', { auth: false }),
         request<{ clusters: ClusterRow[] }>('/admin/clusters'),
         request<{ hosts: HostMember[] }>('/admin/hosts'),
         request<{ hosts: InventoryHost[] }>('/admin/hosts/inventory'),
