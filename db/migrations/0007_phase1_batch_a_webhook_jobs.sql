@@ -29,6 +29,14 @@ ALTER TABLE machines ADD COLUMN IF NOT EXISTS vcpu integer;
 ALTER TABLE machines ADD COLUMN IF NOT EXISTS ram_gb integer;
 ALTER TABLE machines ADD COLUMN IF NOT EXISTS disk_gb integer;
 
+-- Backfill columns that older prods missed because `accounts` was rolled in
+-- via drizzle push, never a migration file. FKs intentionally omitted —
+-- indexes only need the column to exist.
+ALTER TABLE machines ADD COLUMN IF NOT EXISTS account_id uuid;
+ALTER TABLE images ADD COLUMN IF NOT EXISTS account_id uuid;
+ALTER TABLE machine_events ADD COLUMN IF NOT EXISTS account_id uuid;
+ALTER TABLE webhooks ADD COLUMN IF NOT EXISTS account_id uuid;
+
 CREATE INDEX IF NOT EXISTS images_account_status_created_idx ON images (account_id, status, created_at DESC);
 CREATE INDEX IF NOT EXISTS machines_account_deleted_created_idx ON machines (account_id, deleted_at, created_at DESC);
 CREATE INDEX IF NOT EXISTS machines_status_deleted_idx ON machines (status, deleted_at);
