@@ -406,25 +406,17 @@ async function ensureMachineSubscription(machine: MachineRow, payload: MachineCr
       await db.update(accounts).set({ stripeCustomerId: customerId }).where(eq(accounts.id, payload.accountId));
     }
 
-    let stripeSubId: string | null = null;
-    let stripeSubItemId: string | null = null;
-    if (payload.isAdmin) {
-      const result = await stripeClient.createAdminMachineSubscription(
-        customerId, '', `pending-${Date.now()}`, machine.priceMonthly, 'custom', specs, 'monthly',
-      );
-      stripeSubId = result.subscriptionId;
-      stripeSubItemId = result.subscriptionItemId;
-    } else {
-      const hasPM = await stripeClient.hasPaymentMethod(customerId);
-      if (!hasPM) return;
-      const result = await stripeClient.createMachineSubscription(
-        customerId, '', `pending-${Date.now()}`, machine.priceMonthly, 'custom', specs, 'monthly',
-      );
-      stripeSubId = result.subscriptionId;
-      stripeSubItemId = result.subscriptionItemId;
-    }
+    // Admin machines skip Stripe — $0 subs added no billing signal and
+    // burned slots against Stripe's 500-active-sub-per-customer cap.
+    if (payload.isAdmin) return;
 
-    if (!stripeSubId) return;
+    const hasPM = await stripeClient.hasPaymentMethod(customerId);
+    if (!hasPM) return;
+    const result = await stripeClient.createMachineSubscription(
+      customerId, '', `pending-${Date.now()}`, machine.priceMonthly, 'custom', specs, 'monthly',
+    );
+    const stripeSubId = result.subscriptionId;
+    const stripeSubItemId = result.subscriptionItemId;
     await stripeClient.linkSubscriptionToMachine(stripeSubId, machine.id, machine.slug).catch(() => {});
     await db.insert(subscriptions).values({
       machineId: machine.id,

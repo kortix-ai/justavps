@@ -335,26 +335,9 @@ machinesApp.openapi(createMachineRoute, async (c) => {
     const billingInterval = data.billing_interval ?? 'monthly';
 
     if (isAdmin) {
-      // ── Admin path: real subscription at $0 (no coupon) ─────────────────
-      // Keeps the data model identical to paid users — subscription record,
-      // item ID, Stripe product/price all exist. Resize & cancel work normally.
-      try {
-        const result = await stripeClient.createAdminMachineSubscription(
-          customerId,
-          '',
-          `pending-${Date.now()}`,
-          priceMonthly,
-          data.server_type,
-          specs,
-          billingInterval,
-        );
-        stripeSubId = result.subscriptionId;
-        stripeSubItemId = result.subscriptionItemId;
-        console.log(`[MACHINES] Admin subscription ${result.subscriptionId} created for account ${accountId} ($0 admin price)`);
-      } catch (err) {
-        console.error(`[MACHINES] Admin subscription creation failed for account ${accountId}:`, err);
-        return errorResponse(c, 500, 'Failed to create admin billing record. Please try again.') as any;
-      }
+      // Admin machines skip Stripe. $0 subs added no billing signal and
+      // burned slots against Stripe's 500-active-sub-per-customer cap.
+      console.log(`[MACHINES] Admin path — skipping Stripe sub for account ${accountId}`);
     } else {
       // ── Regular user path: charge or redirect to checkout ─────────────
       const createCheckout = async () => {
@@ -972,6 +955,7 @@ machinesApp.openapi(resizeMachineRoute, async (c) => {
   const { id } = c.req.valid('param');
   const { server_type } = c.req.valid('json');
   const accountId = c.get('accountId');
+  const isAdmin = c.get('isAdmin');
 
   const owned = await requireAccountResource<Machine>(c, machines, machines.id, id, accountId, 'Machine', (m) => m.apiVersion === 'v1');
   if (owned.response) return owned.response as any;
@@ -1022,24 +1006,28 @@ machinesApp.openapi(resizeMachineRoute, async (c) => {
   if (stripeClient.isConfigured()) {
     const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.machineId, id));
     if (!sub) {
-      return errorResponse(c, 400, 'Machine has no linked billing subscription — resize is blocked') as any;
-    }
-    machineSub = sub;
+      // Admin machines have no Stripe sub by design — resize proceeds without billing update.
+      if (!isAdmin) {
+        return errorResponse(c, 400, 'Machine has no linked billing subscription — resize is blocked') as any;
+      }
+    } else {
+      machineSub = sub;
 
-    // Repair: if subscription item ID is missing, fetch from Stripe
-    if (!sub.stripeSubscriptionItemId) {
-      try {
-        const repairedItemId = await stripeClient.getSubscriptionItemId(sub.stripeSubscriptionId);
-        if (!repairedItemId) {
-          return errorResponse(c, 400, 'Billing subscription is missing its item — resize is blocked') as any;
+      // Repair: if subscription item ID is missing, fetch from Stripe
+      if (!sub.stripeSubscriptionItemId) {
+        try {
+          const repairedItemId = await stripeClient.getSubscriptionItemId(sub.stripeSubscriptionId);
+          if (!repairedItemId) {
+            return errorResponse(c, 400, 'Billing subscription is missing its item — resize is blocked') as any;
+          }
+          await db.update(subscriptions)
+            .set({ stripeSubscriptionItemId: repairedItemId, updatedAt: new Date() })
+            .where(eq(subscriptions.id, sub.id));
+          machineSub = { ...sub, stripeSubscriptionItemId: repairedItemId };
+        } catch (err) {
+          console.error(`[MACHINES] Failed to repair Stripe billing link for ${machine.slug}:`, err);
+          return errorResponse(c, 400, 'Billing subscription could not be verified — resize is blocked') as any;
         }
-        await db.update(subscriptions)
-          .set({ stripeSubscriptionItemId: repairedItemId, updatedAt: new Date() })
-          .where(eq(subscriptions.id, sub.id));
-        machineSub = { ...sub, stripeSubscriptionItemId: repairedItemId };
-      } catch (err) {
-        console.error(`[MACHINES] Failed to repair Stripe billing link for ${machine.slug}:`, err);
-        return errorResponse(c, 400, 'Billing subscription could not be verified — resize is blocked') as any;
       }
     }
   }
