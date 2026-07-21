@@ -6,8 +6,12 @@ import { hashPassword } from '@/server/core/crypto';
 import { consumeAuthToken, invalidateActiveTokens } from '@/server/auth/auth-tokens';
 import { ResetPasswordSchema } from '../_schemas';
 import { badRequest, firstZodError, serverError, success } from '../_responses';
+import { SUNSET_ENABLED, SUNSET_API_MESSAGE } from '@/shared/lib/sunset';
 
 export async function POST(req: NextRequest) {
+  if (SUNSET_ENABLED) {
+    return Response.json({ error: true, message: SUNSET_API_MESSAGE }, { status: 410 });
+  }
   try {
     const body = await req.json();
     const parsed = ResetPasswordSchema.safeParse(body);

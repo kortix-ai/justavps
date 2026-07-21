@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { CheckoutModal } from "@/v1/components/checkout-modal";
 import { PLAN_PRICE_SNAPSHOT } from "@/shared/lib/plan-catalog";
+import { PLATINUM_URL } from "@/shared/lib/sunset";
 import { LandingNav } from "@/shared/components/landing/nav/landing-nav";
 import { Hero } from "@/shared/components/landing/hero/hero";
 import { SupportedAgents } from "@/shared/components/landing/sections/supported-agents";
@@ -20,15 +19,14 @@ import { PageFrame } from "@/shared/components/landing/shared/page-frame";
 import { SectionDivider } from "@/shared/components/landing/shared/section-divider";
 
 export default function Home() {
-  const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const openCheckout = () => setCheckoutOpen(true);
+  // Checkout is sunset — justavps.com is becoming platinum.dev.
+  const openCheckout = () => window.location.assign(PLATINUM_URL);
 
   const starterPlan = PLAN_PRICE_SNAPSHOT[0];
   const startingPrice = Math.min(starterPlan.euPublicPrice, starterPlan.usPublicPrice);
 
   return (
     <div className="min-h-screen flex flex-col bg-background text-foreground overflow-x-clip">
-      {checkoutOpen && <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} />}
       <LandingNav onDeploy={openCheckout} />
       <PageFrame>
         <Hero onDeploy={openCheckout} startingPrice={startingPrice} />

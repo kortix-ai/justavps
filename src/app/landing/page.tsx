@@ -12,6 +12,7 @@ import { Logo } from "@/shared/components/logo";
 import { TbApi } from "react-icons/tb";
 import { SiPython, SiTypescript } from "react-icons/si";
 import { CheckoutModal } from "@/v1/components/checkout-modal";
+import { PLATINUM_URL } from "@/shared/lib/sunset";
 
 /* ═══ LOGOS ═══ */
 const LogoOpenCode = () => <Image src="/logos/ai-coding-agent-logos/opencode-logo-dark.png" alt="OpenCode" width={20} height={20} className="size-5 object-contain dark:invert-0 invert" />;
@@ -37,7 +38,11 @@ function ThemeToggle() {
 
 /* ═══════════════════════ PAGE ═══════════════════════ */
 export default function Home() {
-  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  // Checkout is sunset — justavps.com is becoming platinum.dev.
+  const setCheckoutOpen = (open: boolean) => {
+    if (open) window.location.assign(PLATINUM_URL);
+  };
+  const checkoutOpen = false;
   const [showFloatingCta, setShowFloatingCta] = useState(false);
   const [activeSection, setActiveSection] = useState("");
   const { data: session } = useSession();

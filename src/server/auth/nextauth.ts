@@ -11,6 +11,7 @@ import { ensureUserAccountGraph } from '@/server/auth/accounts';
 import { consumeAuthToken } from '@/server/auth/auth-tokens';
 import { VERIFICATION_BINDING_COOKIE } from '@/server/auth/verification-binding';
 import { authConfig } from '@/shared/lib/auth-config';
+import { SUNSET_ENABLED } from '@/shared/lib/sunset';
 
 export { authConfig };
 
@@ -203,6 +204,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     ...authConfig.callbacks,
 
     async signIn({ user, account, profile }) {
+      // Sunset: justavps.com is becoming platinum.dev — all sign-ins disabled.
+      if (SUNSET_ENABLED) return false;
+
       if (account?.provider !== 'github') return true;
 
       const email = (user.email || (profile?.email as string | undefined))?.toLowerCase().trim();

@@ -4,6 +4,7 @@ import { CreateMachineSchema } from '@/shared/lib/schemas';
 import { stripeClient, type BillingInterval } from "@/server/v1/services/stripe";
 import { config } from "@/server/core/config";
 import { backupSurcharge, resolvePlanForDisplay } from '@/shared/lib/plan-catalog';
+import { SUNSET_ENABLED, SUNSET_API_MESSAGE } from '@/shared/lib/sunset';
 
 const GuestCheckoutSchema = z.object({
   plan: CreateMachineSchema.shape.server_type.optional(),
@@ -16,6 +17,9 @@ const GuestCheckoutSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  if (SUNSET_ENABLED) {
+    return Response.json({ error: true, message: SUNSET_API_MESSAGE }, { status: 410 });
+  }
   if (!stripeClient.isConfigured()) {
     return NextResponse.json({ error: true, message: 'Stripe not configured' }, { status: 503 });
   }

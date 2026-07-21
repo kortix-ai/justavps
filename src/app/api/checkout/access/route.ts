@@ -6,6 +6,7 @@ import { resolveCheckoutUser } from "@/server/v1/services/checkout-users";
 import { authConfig } from '@/shared/lib/auth-config';
 import { config } from "@/server/core/config";
 import { ACCOUNT_COOKIE_NAME } from "@/server/auth/accounts";
+import { SUNSET_ENABLED, SUNSET_API_MESSAGE } from '@/shared/lib/sunset';
 
 const AccessSchema = z.object({
   session_id: z.string().min(1),
@@ -21,6 +22,9 @@ function getSessionCookieConfig(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  if (SUNSET_ENABLED) {
+    return Response.json({ error: true, message: SUNSET_API_MESSAGE }, { status: 410 });
+  }
   if (!stripeClient.isConfigured() || !process.env.AUTH_SECRET) {
     return NextResponse.json({ error: true, message: 'Checkout access is not configured' }, { status: 503 });
   }

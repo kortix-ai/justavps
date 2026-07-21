@@ -10,6 +10,13 @@ vi.mock('@/server/v1/services/stripe', () => ({
   },
 }));
 
+// These tests exercise pre-sunset checkout behavior.
+vi.mock('@/shared/lib/sunset', () => ({
+  SUNSET_ENABLED: false,
+  SUNSET_API_MESSAGE: 'sunset',
+  PLATINUM_URL: 'https://www.platinum.dev',
+}));
+
 describe('guest checkout route', () => {
   beforeEach(() => {
     vi.resetModules();

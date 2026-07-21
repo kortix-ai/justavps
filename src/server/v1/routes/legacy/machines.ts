@@ -51,6 +51,7 @@ import {
 } from '@/shared/lib/schemas';
 import { createHmac } from 'crypto';
 import { requirePermission, requireMachineAccess } from '@/server/auth/api-guard';
+import { SUNSET_ENABLED, SUNSET_API_MESSAGE } from '@/shared/lib/sunset';
 
 export const machinesApp = new OpenAPIHono<{ Variables: AuthVariables }>();
 
@@ -390,6 +391,9 @@ machinesApp.openapi(createMachineRoute, async (c) => {
 
       // If direct subscription didn't work (no PM or charge failed), use Checkout
       if (!stripeSubId) {
+        if (SUNSET_ENABLED) {
+          return c.json({ error: true, message: SUNSET_API_MESSAGE }, 410) as any;
+        }
         try {
           const checkoutUrl = await createCheckout();
           console.log(`[MACHINES] Account ${accountId} redirected to Stripe Checkout`);

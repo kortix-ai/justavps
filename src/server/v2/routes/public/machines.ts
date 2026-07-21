@@ -15,6 +15,7 @@ import {
   stopMachineV2,
 } from "@/server/v2/services/machines";
 import { handleRouteError } from "@/server/core/route-helpers";
+import { SUNSET_ENABLED, SUNSET_API_MESSAGE } from "@/shared/lib/sunset";
 
 export const machinesV2App = new OpenAPIHono<{ Variables: AuthVariables }>();
 machinesV2App.use('*', apiGuard);
@@ -170,7 +171,10 @@ machinesV2App.openapi(createRoute({
       requestUrl: c.req.url,
       input: c.req.valid('json'),
     });
-    if (result.kind === 'checkout') return c.json(result, 402);
+    if (result.kind === 'checkout') {
+      if (SUNSET_ENABLED) return c.json({ error: true, message: SUNSET_API_MESSAGE }, 410);
+      return c.json(result, 402);
+    }
     return c.json(result.machine, 202);
   } catch (err) {
     return handleRouteError(c, err, 'MACHINES-V2') as Response;

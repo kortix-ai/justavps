@@ -8,8 +8,12 @@ import { emailClient } from '@/server/v1/services/email';
 import { issueVerificationBinding } from '@/server/auth/verification-binding';
 import { RegisterSchema } from '../_schemas';
 import { badRequest, conflict, firstZodError, serverError } from '../_responses';
+import { SUNSET_ENABLED, SUNSET_API_MESSAGE } from '@/shared/lib/sunset';
 
 export async function POST(req: NextRequest) {
+  if (SUNSET_ENABLED) {
+    return Response.json({ error: true, message: SUNSET_API_MESSAGE }, { status: 410 });
+  }
   try {
     const body = await req.json();
     const parsed = RegisterSchema.safeParse(body);
