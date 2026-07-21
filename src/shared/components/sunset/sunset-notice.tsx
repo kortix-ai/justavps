@@ -45,9 +45,8 @@ export function SunsetNotice() {
         justavps.com is becoming platinum.dev
       </p>
       <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-        Platinum is the most affordable AI agent sandbox cloud. It isn&apos;t
-        generally available yet — sign-ups and checkout on justavps are
-        disabled in the meantime.
+        Platinum is the most affordable AI agent sandbox cloud — the next
+        chapter of justavps.
       </p>
       <a
         href={PLATINUM_URL}

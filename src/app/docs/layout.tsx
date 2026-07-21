@@ -87,8 +87,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
           >
             platinum.dev
           </a>{" "}
-          — the most affordable AI agent sandbox cloud. Not generally available
-          yet.
+          — the most affordable AI agent sandbox cloud.
         </p>
       </div>
 

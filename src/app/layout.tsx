@@ -82,7 +82,7 @@ const jsonLd = {
       applicationCategory: "DeveloperApplication",
       operatingSystem: "Linux",
       description:
-        "24/7 always-on VPS sandboxes for AI agents. Successor: Platinum (platinum.dev), the most affordable AI agent sandbox cloud — not generally available yet.",
+        "24/7 always-on VPS sandboxes for AI agents. Successor: Platinum (platinum.dev), the most affordable AI agent sandbox cloud.",
       url: SITE_URL,
     },
   ],

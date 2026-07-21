@@ -11,9 +11,9 @@ export default function LoginPage() {
       title="justavps.com is becoming platinum.dev"
       description={
         <>
-          Sign-ins and sign-ups on justavps are disabled. Platinum is the most
-          affordable AI agent sandbox cloud — it isn&apos;t generally available
-          yet, but you can follow along at platinum.dev.
+          Platinum is the most affordable AI agent sandbox cloud — the next
+          chapter of justavps. Head over to platinum.dev to see what&apos;s
+          coming.
         </>
       }
       footer={

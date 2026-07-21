@@ -19,8 +19,7 @@ export function LandingFooter() {
           >
             platinum.dev
           </a>{" "}
-          — the most affordable AI agent sandbox cloud. Platinum is not
-          generally available yet.
+          — the most affordable AI agent sandbox cloud.
         </p>
       </div>
       <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">

@@ -6,4 +6,4 @@ export const SUNSET_ENABLED = true;
 export const PLATINUM_URL = "https://www.platinum.dev";
 
 export const SUNSET_API_MESSAGE =
-  "justavps.com is becoming platinum.dev — the most affordable AI agent sandbox cloud. Sign-ups and checkout are disabled. Platinum is not generally available yet; visit https://www.platinum.dev for updates.";
+  "justavps.com is becoming platinum.dev — the most affordable AI agent sandbox cloud. Sign-ups and checkout on justavps are disabled. Visit https://www.platinum.dev.";
