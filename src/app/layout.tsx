@@ -32,8 +32,9 @@ export const metadata: Metadata = {
     "platinum.dev",
     "affordable AI agent sandbox",
   ],
+  // "./" resolves per-route (e.g. /docs canonicalizes to /docs, not /).
   alternates: {
-    canonical: "/",
+    canonical: "./",
   },
   robots: {
     index: true,
