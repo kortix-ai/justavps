@@ -6,6 +6,7 @@ import { cn } from "@/shared/lib/utils";
 import { buttonVariants } from "@/shared/ui/button";
 import { useTheme } from "@/shared/hooks/use-theme";
 import { Logo } from "@/shared/components/logo";
+import { PLATINUM_URL } from "@/shared/lib/sunset";
 
 function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
@@ -75,6 +76,21 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
           </div>
         </div>
       </nav>
+
+      {/* ── Sunset cross-reference (static, crawlable) ── */}
+      <div className="shrink-0 w-full border-b border-border/50 bg-muted/30">
+        <p className="max-w-screen-2xl mx-auto px-6 py-2 text-xs text-muted-foreground">
+          justavps.com is becoming{" "}
+          <a
+            href={PLATINUM_URL}
+            className="text-foreground underline underline-offset-2 hover:opacity-80 transition-opacity"
+          >
+            platinum.dev
+          </a>{" "}
+          — the most affordable AI agent sandbox cloud. Not generally available
+          yet.
+        </p>
+      </div>
 
       {/* ── Content ── */}
       <div className="flex-1 min-h-0">
