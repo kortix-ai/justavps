@@ -1,0 +1,29 @@
+name: DB Diagnose (prod)
+
+# One-off read-only diagnostic for the prod DB — inspects which schemas and
+# tables exist so migration drift can be fixed. Safe: SELECT/catalog queries only.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install psql
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Inspect schemas and tables
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_PROD }}
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          select current_database(), current_user;
+          show search_path;
+          select nspname from pg_namespace where nspname not like 'pg_%' order by 1;
+          select table_schema, table_name from information_schema.tables
+            where table_schema not in ('pg_catalog','information_schema')
+            order by 1, 2;
+          select to_regclass('public.accounts') as public_accounts,
+                 to_regclass('public.users') as public_users,
+                 to_regclass('accounts') as accounts_via_search_path;
+          SQL
